@@ -5,6 +5,5 @@
 .env
 
 # Рабочие материалы (не публикуем)
-meetings/
 *.csv
 CLAUDE.md
