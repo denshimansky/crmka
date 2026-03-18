@@ -1,7 +1,7 @@
 # Data Dictionary — Умная CRM v2.0
 
-> **Версия:** 1.0
-> **Дата:** 15.03.2026
+> **Версия:** 1.1
+> **Дата:** 18.03.2026 (обновлено по итогам ревью 17.03.2026)
 > **Источники:** [PRD.md](PRD.md) (v2.0), [reports-logic.md](reports-logic.md), [backoffice.md](backoffice.md)
 > **Назначение:** Полный перечень сущностей, полей, типов данных, ограничений и связей. Используется для генерации Prisma-схемы и проектирования API.
 
@@ -47,6 +47,7 @@
 | robokassa_password1 | String | нет | API: Робокасса пароль 1 (зашифрован) | — |
 | robokassa_password2 | String | нет | API: Робокасса пароль 2 (зашифрован) | — |
 | logo_url | String | нет | Логотип организации (для экспорта) | — |
+| role_display_names | Json | нет | Кастомные отображаемые названия ролей, например: {"instructor": "тренер", "admin": "администратор"}. null = стандартные названия | Настройка организации |
 | onboarding_status | OnboardingStatus | да | Статус прохождения wizard | — |
 | onboarding_needs_help | Boolean | да | Флаг «нужна помощь» (дефолт false) | — |
 | onboarding_assigned_to | UUID | нет | FK → BackofficeUser | Ответственный из команды CRMka |
@@ -114,27 +115,33 @@
 
 ## Employee
 
-Сотрудник — пользователь системы (владелец, управляющий, админ, инструктор, только чтение).
+Сотрудник — пользователь системы (владелец, управляющий, админ, инструктор, только чтение). Также используется для учёта кандидатов (type = CANDIDATE).
 
 | Поле | Тип | Обязательное | Описание | Связь |
 |---|---|---|---|---|
 | id | UUID | да | PK | — |
 | tenant_id | UUID | да | FK → Organization | Мультитенант |
+| type | EmployeeType | да | Тип: ACTIVE (сотрудник) / CANDIDATE (кандидат). Дефолт ACTIVE | — |
 | role | EmployeeRole | да | Роль (owner / manager / admin / instructor / readonly) | — |
 | first_name | String | да | Имя | — |
 | last_name | String | да | Фамилия | — |
 | patronymic | String | нет | Отчество | — |
 | phone | String | нет | Телефон | — |
 | email | String | да | Email (логин) | Уникален в рамках tenant |
-| password_hash | String | да | Хеш пароля | — |
+| password_hash | String | нет | Хеш пароля (обязателен для ACTIVE, null для CANDIDATE) | — |
 | birth_date | Date | нет | Дата рождения | — |
 | hire_date | Date | нет | Дата начала работы | — |
 | fire_date | Date | нет | Дата увольнения | — |
 | is_active | Boolean | да | Активен (дефолт true) | — |
 | can_view_own_salary | Boolean | да | Может видеть свою ЗП (дефолт true, для инструкторов) | — |
 | custom_permissions | Json | нет | Настраиваемые права (для управляющего) | — |
+| candidate_status | CandidateStatus | нет | Статус кандидата (только для type=CANDIDATE): NEW / INTERVIEW / TRIAL_DAY / HIRED / REJECTED | — |
+| interview_history | Json | нет | История собеседований (только для type=CANDIDATE): массив {date, comment} | — |
+| resume_url | String | нет | Путь к файлу резюме (только для type=CANDIDATE) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+
+> **Примечание:** При переходе кандидата в статус HIRED: `type` меняется на ACTIVE, `candidate_status` сохраняется как HIRED, `hire_date` заполняется автоматически.
 
 ---
 
@@ -347,13 +354,15 @@
 | blacklist_reason | String | нет | Причина добавления в ЧС | — |
 | blacklisted_by | UUID | нет | FK → Employee | Кто добавил в ЧС |
 | withdrawal_reason_id | UUID | нет | FK → WithdrawalReason | Причина отчисления |
-| withdrawal_date | Date | нет | Дата отчисления (вручную или авто) |  — |
+| withdrawal_date | Date | нет | Дата отчисления (вручную или авто). **Важно:** рассчитывается по дате последнего платного занятия, НЕ по дате заявления клиента | — |
 | withdrawal_affects_direction | Boolean | нет | Отток по направлению (для отчётов) | — |
 | withdrawal_affects_instructor | Boolean | нет | Отток по педагогу (для отчётов) | — |
 | client_balance | Decimal(12,2) | да | Общий баланс клиента (остатки с закрытых абонементов, дефолт 0) | — |
 | promised_payment_date | Date | нет | Обещанная дата оплаты (для должников) | — |
 | first_payment_date | Date | нет | Дата первой оплаты (автоматически, момент перехода лид→клиент) | — |
 | sale_date | Date | нет | Дата продажи (для отчётов доходимости) | — |
+| money_ltv | Decimal(12,2) | да | LTV по деньгам: сумма всех оплат клиента (дефолт 0, вычисляемое) | — |
+| months_ltv | Int | да | LTV по месяцам: количество купленных абонементов = количество месяцев (дефолт 0, вычисляемое) | — |
 | comment | Text | нет | Комментарий | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
@@ -1296,6 +1305,12 @@
 
 ## AdjustmentType
 `bonus` | `penalty`
+
+## EmployeeType
+`ACTIVE` | `CANDIDATE`
+
+## CandidateStatus
+`NEW` | `INTERVIEW` | `TRIAL_DAY` | `HIRED` | `REJECTED`
 
 ## SubstitutionType
 `one_time` | `permanent`
