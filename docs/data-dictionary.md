@@ -1,9 +1,26 @@
 # Data Dictionary — Умная CRM v2.0
 
-> **Версия:** 1.1
-> **Дата:** 18.03.2026 (обновлено по итогам ревью 17.03.2026)
+> **Версия:** 1.2
+> **Дата:** 20.03.2026 (обновлено по итогам аудит-встречи 19.03.2026)
 > **Источники:** [PRD.md](PRD.md) (v2.0), [reports-logic.md](reports-logic.md), [backoffice.md](backoffice.md)
 > **Назначение:** Полный перечень сущностей, полей, типов данных, ограничений и связей. Используется для генерации Prisma-схемы и проектирования API.
+>
+> **Changelog v1.2 (19.03.2026 аудит-встреча):**
+> - Attendance: subscription_id стал nullable, добавлен trial_lesson_id
+> - Новая таблица AccountOperation (внутренние кассовые операции)
+> - SubscriptionStatus: добавлен статус pending
+> - GroupEnrollment: добавлено поле selected_days
+> - Добавлен deleted_at ко всем ключевым сущностям
+> - TrialLesson: добавлен payment_id
+> - Новая таблица ClientBalanceTransaction
+> - Expense: добавлены поля is_recurring, recurring_group_id
+> - Новая таблица ClientDocument
+> - Новая таблица IntegrationSettings (миграция из Organization)
+> - Новая таблица AdminBonusSettings (замена AdminBonus)
+> - Описаны структуры JSON-полей
+> - Employee: добавлен login, описана модель авторизации
+> - Client: добавлена заметка о переходе статусов
+> - Расширены рекомендации по индексам
 
 ## Соглашения
 
@@ -73,6 +90,7 @@
 | is_active | Boolean | да | Активен (дефолт true) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -90,6 +108,7 @@
 | is_active | Boolean | да | Активен (дефолт true) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -110,6 +129,7 @@
 | sort_order | Int | да | Порядок сортировки (дефолт 0) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -127,7 +147,8 @@
 | last_name | String | да | Фамилия | — |
 | patronymic | String | нет | Отчество | — |
 | phone | String | нет | Телефон | — |
-| email | String | да | Email (логин) | Уникален в рамках tenant |
+| email | String | нет | Email (обязателен для владельца) | Уникален в рамках tenant |
+| login | String | нет | Логин (латиница, для сотрудников) | Уникален в рамках tenant |
 | password_hash | String | нет | Хеш пароля (обязателен для ACTIVE, null для CANDIDATE) | — |
 | birth_date | Date | нет | Дата рождения | — |
 | hire_date | Date | нет | Дата начала работы | — |
@@ -140,6 +161,9 @@
 | resume_url | String | нет | Путь к файлу резюме (только для type=CANDIDATE) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
+
+> **Авторизация:** основной аккаунт (владелец) регистрируется по email. Владелец создаёт логины (латиница) + пароли для остальных сотрудников. Сотрудникам email необязателен.
 
 > **Примечание:** При переходе кандидата в статус HIRED: `type` меняется на ACTIVE, `candidate_status` сохраняется как HIRED, `hire_date` заполняется автоматически.
 
@@ -237,6 +261,7 @@
 | is_active | Boolean | да | Активна (дефолт true). false = архив | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -289,7 +314,8 @@
 | id | UUID | да | PK | — |
 | tenant_id | UUID | да | FK → Organization | Мультитенант |
 | lesson_id | UUID | да | FK → Lesson | Занятие |
-| subscription_id | UUID | да | FK → Subscription | Абонемент (для списания) |
+| subscription_id | UUID | нет | FK → Subscription | Абонемент (для списания) |
+| trial_lesson_id | UUID | нет | FK → TrialLesson | Пробное занятие (если посещение по пробному) |
 | client_id | UUID | да | FK → Client | Клиент |
 | ward_id | UUID | нет | FK → Ward | Подопечный (если есть) |
 | attendance_type_id | UUID | да | FK → AttendanceType | Вид дня |
@@ -305,6 +331,8 @@
 | updated_at | DateTime | да | Дата обновления | — |
 
 **Уникальность:** (lesson_id, subscription_id)
+
+**Ограничение:** Одно из subscription_id или trial_lesson_id должно быть заполнено (CHECK: subscription_id IS NOT NULL OR trial_lesson_id IS NOT NULL).
 
 ---
 
@@ -367,8 +395,11 @@
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 **Валидация:** phone IS NOT NULL OR social_link IS NOT NULL
+
+> **Переход статуса:** funnel_status → client_status: при первой оплате абонемента клиент переходит из воронки лидов в статус ACTIVE. Обратный переход в лида НЕВОЗМОЖЕН (триггер без возврата).
 
 ---
 
@@ -423,6 +454,7 @@
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -482,7 +514,7 @@
 | subscription_id | UUID | нет | FK → Subscription | Абонемент (null = на баланс клиента) |
 | account_id | UUID | да | FK → Account | Счёт/касса | — |
 | amount | Decimal(12,2) | да | Сумма (положительная = приход, отрицательная = возврат) | — |
-| type | PaymentType | да | Тип: incoming / refund / transfer_in / owner_withdrawal / encashment | — |
+| type | PaymentType | да | Тип: incoming / refund / transfer_in | — |
 | method | PaymentMethod | да | Способ: cash / bank_transfer / acquiring / online | — |
 | date | Date | да | Дата платежа | — |
 | comment | String | нет | Комментарий | — |
@@ -491,6 +523,7 @@
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -510,6 +543,28 @@
 | is_active | Boolean | да | Активен (дефолт true) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
+
+---
+
+## AccountOperation
+
+Внутренняя кассовая операция — изъятие, инкассация, перемещение между счетами.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | Мультитенант |
+| type | AccountOperationType | да | Тип операции | — |
+| from_account_id | UUID | нет | FK → Account | Счёт-источник |
+| to_account_id | UUID | нет | FK → Account | Счёт-получатель |
+| amount | Decimal(12,2) | да | Сумма | — |
+| date | Date | да | Дата операции | — |
+| description | String | нет | Описание/комментарий | — |
+| created_by | UUID | да | FK → Employee | Кто создал |
+| created_at | DateTime | да | — | — |
+| updated_at | DateTime | да | — | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -547,9 +602,12 @@
 | amortization_months | Int | нет | Период амортизации (null = без амортизации). ДДС = полная сумма, финрез = 1/N | — |
 | amortization_start_date | Date | нет | Дата начала амортизации | — |
 | is_variable | Boolean | да | Переменный расход (ЗП, материалы) vs постоянный | — |
+| is_recurring | Boolean | да | Повторяющийся расход (копируется ежемесячно, дефолт false) | — |
+| recurring_group_id | UUID | нет | Группировка повторяющихся расходов | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -729,6 +787,7 @@
 | unit | String | да | Единица измерения (шт, кг, пачка) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -817,6 +876,7 @@
 | completed_by | UUID | нет | FK → Employee | Кто выполнил |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -856,6 +916,7 @@
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -1031,10 +1092,14 @@
 | status | TrialStatus | да | Статус: scheduled / attended / no_show / cancelled | — |
 | is_paid | Boolean | да | Платное пробное | — |
 | paid_amount | Decimal(12,2) | нет | Сумма оплаты пробного | — |
+| payment_id | UUID | нет | FK → Payment | Оплата пробного занятия |
 | result_comment | String | нет | Комментарий по результату | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто назначил |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
+
+> **Примечание:** TrialLesson — единый источник истины для данных о пробных занятиях. Все данные о пробных (дата, группа, оплата, результат) хранятся здесь.
 
 ---
 
@@ -1087,11 +1152,13 @@
 | client_id | UUID | да | FK → Client | Клиент |
 | ward_id | UUID | нет | FK → Ward | Подопечный |
 | subscription_id | UUID | нет | FK → Subscription | Текущий абонемент |
+| selected_days | Json | нет | Выбранные дни недели (null = все дни группы). Формат: [0,2] где 0=Пн, 2=Ср | — |
 | enrolled_at | Date | да | Дата зачисления | — |
 | withdrawn_at | Date | нет | Дата отчисления из группы | — |
 | is_active | Boolean | да | Активен в группе (дефолт true) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
 
 ---
 
@@ -1110,6 +1177,77 @@
 | comment | Text | да | Комментарий администратора | — |
 | created_at | DateTime | да | Дата создания | — |
 | created_by | UUID | нет | FK → Employee | Кто добавил |
+
+---
+
+## ClientBalanceTransaction
+
+Транзакция баланса клиента — пополнение, списание, перенос остатков.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | Мультитенант |
+| client_id | UUID | да | FK → Client | Клиент |
+| amount | Decimal(12,2) | да | Сумма (+ пополнение, − списание) | — |
+| type | BalanceTransactionType | да | Тип операции | — |
+| subscription_id | UUID | нет | FK → Subscription | Связанный абонемент |
+| description | String | нет | Комментарий | — |
+| created_by | UUID | нет | FK → Employee | Кто создал |
+| created_at | DateTime | да | — | — |
+
+---
+
+## ClientDocument
+
+Документы клиента — прикреплённые файлы.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | — |
+| client_id | UUID | да | FK → Client | — |
+| name | String | да | Название документа | — |
+| file_url | String | да | Путь к файлу | — |
+| uploaded_by | UUID | да | FK → Employee | — |
+| created_at | DateTime | да | — | — |
+
+---
+
+## IntegrationSettings
+
+Настройки интеграции — API-ключи платёжных систем и других сервисов.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | — |
+| provider | IntegrationProvider | да | Тип интеграции | — |
+| settings | Json | да | Настройки (API-ключи, зашифрованные) | — |
+| is_active | Boolean | да | Включена (дефолт false) | — |
+| created_at | DateTime | да | — | — |
+| updated_at | DateTime | да | — | — |
+
+> **Миграция:** поля yukassa_shop_id, yukassa_secret_key, robokassa_login, robokassa_password1, robokassa_password2 переносятся из Organization в IntegrationSettings.
+
+---
+
+## AdminBonusSettings
+
+Настройки бонусов администратора — мотивация за продажи, пробные, допродажи.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | — |
+| branch_id | UUID | нет | FK → Branch | null = все филиалы |
+| employee_id | UUID | да | FK → Employee | Администратор |
+| bonus_type | AdminBonusType | да | Тип бонуса | — |
+| amount | Decimal(12,2) | да | Сумма бонуса за единицу | — |
+| channels | Json | нет | Массив каналов, за которые начисляется | — |
+| is_active | Boolean | да | Активна (дефолт true) | — |
+| created_at | DateTime | да | — | — |
+| updated_at | DateTime | да | — | — |
 
 ---
 
@@ -1250,7 +1388,7 @@
 `calendar` | `fixed` | `package`
 
 ## SubscriptionStatus
-`active` | `closed` | `withdrawn`
+`pending` | `active` | `closed` | `withdrawn`
 
 ## FunnelStatus
 `new` | `trial_scheduled` | `trial_attended` | `awaiting_payment` | `active_client` | `potential` | `non_target` | `blacklisted` | `archived`
@@ -1262,7 +1400,7 @@
 `new` | `standard` | `regular` | `vip`
 
 ## PaymentType
-`incoming` | `refund` | `transfer_in` | `owner_withdrawal` | `encashment`
+`incoming` | `refund` | `transfer_in`
 
 ## PaymentMethod
 `cash` | `bank_transfer` | `acquiring` | `online`
@@ -1321,6 +1459,18 @@
 ## WaitlistStatus
 `waiting` | `notified` | `enrolled` | `cancelled`
 
+## AccountOperationType
+`owner_withdrawal` | `encashment` | `transfer`
+
+## BalanceTransactionType
+`subscription_remainder` | `refund` | `correction` | `transfer_to_subscription`
+
+## IntegrationProvider
+`yukassa` | `robokassa`
+
+## AdminBonusType
+`per_trial` | `per_sale` | `per_upsale`
+
 ## NotificationType
 `empty_group` | `unmarked_lesson` | `overdue_payment` | `trial_reminder` | `period_close` | `linked_discount_warning`
 
@@ -1335,6 +1485,63 @@
 
 ## TicketPriority
 `low` | `medium` | `high` | `critical`
+
+---
+
+# Структуры JSON-полей
+
+### Employee.custom_permissions
+Настройки прав роли. Формат:
+```json
+{
+  "can_view_salaries": true,
+  "can_edit_after_close": false,
+  "can_manage_blacklist": true,
+  "can_view_finance": true,
+  "can_manage_staff": false,
+  "accessible_branches": ["uuid1", "uuid2"] // null = все
+}
+```
+
+### CallCampaign.filter_criteria
+Критерии фильтрации для обзвона. Формат:
+```json
+{
+  "statuses": ["active", "potential"],
+  "age_from": 5,
+  "age_to": 7,
+  "branches": ["uuid1"],
+  "directions": ["uuid2"],
+  "segments": ["new", "standard"]
+}
+```
+
+### Period.snapshot
+Снимок финансовых данных при закрытии периода. Формат:
+```json
+{
+  "revenue": 450000,
+  "expenses": 320000,
+  "profit": 130000,
+  "active_subscriptions": 87,
+  "active_clients": 65,
+  "salary_total": 180000,
+  "closed_at": "2026-03-31T23:59:59Z",
+  "closed_by": "employee_uuid"
+}
+```
+
+### DashboardWidget.settings
+Настройки виджета дашборда. Формат:
+```json
+{
+  "widget_type": "debtors",
+  "branch_id": "uuid or null",
+  "period": "today | week | month",
+  "show_chart": true,
+  "limit": 10
+}
+```
 
 ---
 
@@ -1354,3 +1561,6 @@
 10. **AuditLog:** `(tenant_id, entity_type, entity_id)`, `(tenant_id, created_at)` — аудит
 11. **Period:** `(tenant_id, year, month)` UNIQUE — закрытие периода
 12. **Task:** `(tenant_id, assigned_to, status, due_date)` — дашборд задач
+13. **AccountOperation:** `(tenant_id, date, type)` — кассовые операции
+14. **ClientBalanceTransaction:** `(tenant_id, client_id, created_at)` — история баланса клиента
+15. **Expense:** `(tenant_id, is_recurring)` — повторяющиеся расходы
