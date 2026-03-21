@@ -515,7 +515,7 @@
 | account_id | UUID | да | FK → Account | Счёт/касса | — |
 | amount | Decimal(12,2) | да | Сумма (положительная = приход, отрицательная = возврат) | — |
 | type | PaymentType | да | Тип: incoming / refund / transfer_in | — |
-| method | PaymentMethod | да | Способ: cash / bank_transfer / acquiring / online | — |
+| method | PaymentMethod | да | Способ: cash / bank_transfer / acquiring / online_yukassa / online_robokassa / sbp_qr | — |
 | date | Date | да | Дата платежа | — |
 | comment | String | нет | Комментарий | — |
 | is_first_payment | Boolean | да | Первая оплата (триггер лид→клиент, дефолт false) | — |
@@ -1403,7 +1403,7 @@
 `incoming` | `refund` | `transfer_in`
 
 ## PaymentMethod
-`cash` | `bank_transfer` | `acquiring` | `online`
+`cash` | `bank_transfer` | `acquiring` | `online_yukassa` | `online_robokassa` | `sbp_qr`
 
 ## AccountType
 `cash` | `bank_account` | `acquiring` | `online`
@@ -1564,3 +1564,4 @@
 13. **AccountOperation:** `(tenant_id, date, type)` — кассовые операции
 14. **ClientBalanceTransaction:** `(tenant_id, client_id, created_at)` — история баланса клиента
 15. **Expense:** `(tenant_id, is_recurring)` — повторяющиеся расходы
+16. **Payment:** `(tenant_id, created_at)` — ДДС по дням
