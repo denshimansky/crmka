@@ -65,6 +65,8 @@
 | robokassa_password2 | String | нет | API: Робокасса пароль 2 (зашифрован) | — |
 | logo_url | String | нет | Логотип организации (для экспорта) | — |
 | role_display_names | Json | нет | Кастомные отображаемые названия ролей, например: {"instructor": "тренер", "admin": "администратор"}. null = стандартные названия | Настройка организации |
+| salary_day_1 | Int | нет | День первой выплаты (аванс), по умолчанию 15 | Настройка организации |
+| salary_day_2 | Int | нет | День второй выплаты (зарплата), по умолчанию 30 | Настройка организации |
 | onboarding_status | OnboardingStatus | да | Статус прохождения wizard | — |
 | onboarding_needs_help | Boolean | да | Флаг «нужна помощь» (дефолт false) | — |
 | onboarding_assigned_to | UUID | нет | FK → BackofficeUser | Ответственный из команды CRMka |
@@ -300,6 +302,8 @@
 | status | LessonStatus | да | Статус: scheduled / completed / cancelled | — |
 | cancel_reason | String | нет | Причина отмены (праздник, каникулы) | — |
 | is_makeup | Boolean | да | Занятие-отработка (дефолт false) | — |
+| topic | String | нет | Пройденная тема (заполняет инструктор) | — |
+| homework | String | нет | Домашнее задание (заполняет инструктор) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 
@@ -388,7 +392,8 @@
 | client_balance | Decimal(12,2) | да | Общий баланс клиента (остатки с закрытых абонементов, дефолт 0) | — |
 | promised_payment_date | Date | нет | Обещанная дата оплаты (для должников) | — |
 | first_payment_date | Date | нет | Дата первой оплаты (автоматически, момент перехода лид→клиент) | — |
-| sale_date | Date | нет | Дата продажи (для отчётов доходимости) | — |
+| first_paid_lesson_date | Date | нет | Дата первого платного занятия (автоматически, при посещении — для случаев «в долг») | — |
+| sale_date | Date | нет | Дата продажи = min(first_payment_date, first_paid_lesson_date). Автоматически. Используется в отчётах оттока и конверсии | — |
 | money_ltv | Decimal(12,2) | да | LTV по деньгам: сумма всех оплат клиента (дефолт 0, вычисляемое) | — |
 | months_ltv | Int | да | LTV по месяцам: количество купленных абонементов = количество месяцев (дефолт 0, вычисляемое) | — |
 | comment | Text | нет | Комментарий | — |
@@ -777,14 +782,15 @@
 
 ## StockItem
 
-Товар на складе — номенклатура.
+Товар на складе — наименование.
 
 | Поле | Тип | Обязательное | Описание | Связь |
 |---|---|---|---|---|
 | id | UUID | да | PK | — |
 | tenant_id | UUID | да | FK → Organization | Мультитенант |
-| name | String | да | Наименование товара | — |
+| name | String | да | Наименование (канцтовары, хозтовары и т.д.) | — |
 | unit | String | да | Единица измерения (шт, кг, пачка) | — |
+| default_unit_cost | Decimal(12,2) | нет | Стоимость за единицу по умолчанию (может переопределяться при закупке) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | deleted_at | DateTime | нет | Мягкое удаление | — |
@@ -1155,6 +1161,7 @@
 | selected_days | Json | нет | Выбранные дни недели (null = все дни группы). Формат: [0,2] где 0=Пн, 2=Ср | — |
 | enrolled_at | Date | да | Дата зачисления | — |
 | withdrawn_at | Date | нет | Дата отчисления из группы | — |
+| payment_status | EnrollmentPaymentStatus | да | Статус оплаты: active (платит), awaiting_payment (ждём оплату после пробного), trial (на пробном) | — |
 | is_active | Boolean | да | Активен в группе (дефолт true) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
@@ -1449,6 +1456,9 @@
 
 ## CandidateStatus
 `NEW` | `INTERVIEW` | `TRIAL_DAY` | `HIRED` | `REJECTED`
+
+## EnrollmentPaymentStatus
+`active` | `awaiting_payment` | `trial`
 
 ## SubstitutionType
 `one_time` | `permanent`
