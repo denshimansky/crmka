@@ -1,0 +1,30 @@
+name: Deploy to dev
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'docker-compose.yml'
+      - 'nginx/**'
+      - 'scripts/**'
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 65.108.45.153
+          port: 2280
+          username: deploy
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/crmka
+            git pull origin main
+            docker compose build app
+            docker compose up -d
+            docker compose exec -T app npx prisma migrate deploy
+            echo "Deploy complete: $(date)"

@@ -3,7 +3,17 @@
 *.swo
 *~
 .env
+.env.local
+
+# Node
+app/node_modules/
+app/.next/
 
 # Рабочие материалы (не публикуем)
 *.csv
 CLAUDE.md
+tilda/
+meetings/*.txt
+
+# SSL certs (generated on server)
+nginx/certbot/
