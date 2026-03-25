@@ -456,6 +456,7 @@
 | withdrawal_date | Date | нет | Дата отчисления | — |
 | is_trial_credited | Boolean | да | Стоимость пробного засчитана в абонемент (дефолт false) | — |
 | previous_subscription_id | UUID | нет | FK → Subscription | Предыдущий абонемент (для цепочки продлений) |
+| activated_at | DateTime | нет | Дата активации (первое списание/посещение). null = оплачен, но занятия не начались | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
@@ -684,7 +685,7 @@
 | date | Date | да | Дата выплаты | — |
 | period_year | Int | да | За какой год | — |
 | period_month | Int | да | За какой месяц | — |
-| period_half | Int | нет | Половина месяца (1 = 1–15, 2 = 16–31, null = весь месяц) | — |
+| period_half | Int | нет | Тип выплаты (1 = аванс, 2 = зарплата, null = произвольная выплата) | — |
 | comment | String | нет | Комментарий | — |
 | created_at | DateTime | да | Дата создания | — |
 | created_by | UUID | нет | FK → Employee | Кто провёл |
@@ -704,7 +705,7 @@
 | amount | Decimal(12,2) | да | Сумма (всегда положительная) | — |
 | period_year | Int | да | Год | — |
 | period_month | Int | да | Месяц | — |
-| period_half | Int | нет | Половина месяца (1/2/null) | — |
+| period_half | Int | нет | Тип выплаты (1 = аванс, 2 = зарплата, null = произвольная) | — |
 | comment | String | да | Комментарий (обязателен) | — |
 | created_at | DateTime | да | Дата создания | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
