@@ -92,6 +92,7 @@ model Organization {
   branches   Branch[]
   employees  Employee[]
   directions Direction[]
+  clients    Client[]
 
   @@map("organizations")
 }
@@ -108,9 +109,10 @@ model Branch {
   updatedAt         DateTime  @updatedAt @map("updated_at")
   deletedAt         DateTime? @map("deleted_at")
 
-  organization    Organization     @relation(fields: [tenantId], references: [id])
-  rooms           Room[]
+  organization     Organization     @relation(fields: [tenantId], references: [id])
+  rooms            Room[]
   employeeBranches EmployeeBranch[]
+  clients          Client[]
 
   @@index([tenantId])
   @@map("branches")
@@ -153,10 +155,76 @@ model Employee {
   user             User?
   employeeBranches EmployeeBranch[]
   salaryRates      SalaryRate[]
+  assignedClients  Client[]         @relation("AssignedClients")
 
   @@unique([tenantId, login])
   @@index([tenantId])
   @@map("employees")
+}
+
+// === КЛИЕНТЫ ===
+
+model Client {
+  id                     String             @id @default(uuid()) @db.Uuid
+  tenantId               String             @map("tenant_id") @db.Uuid
+  firstName              String?            @map("first_name")
+  lastName               String?            @map("last_name")
+  patronymic             String?
+  phone                  String?
+  phone2                 String?
+  email                  String?
+  socialLink             String?            @map("social_link")
+  funnelStatus           FunnelStatus       @default(new) @map("funnel_status")
+  clientStatus           ClientWorkStatus?  @map("client_status")
+  segment                ClientSegment      @default(new_client) @map("segment")
+  totalSubscriptionsCount Int               @default(0) @map("total_subscriptions_count")
+  channelId              String?            @map("channel_id") @db.Uuid
+  assignedTo             String?            @map("assigned_to") @db.Uuid
+  branchId               String?            @map("branch_id") @db.Uuid
+  nextContactDate        DateTime?          @map("next_contact_date") @db.Date
+  blacklistReason        String?            @map("blacklist_reason")
+  blacklistedBy          String?            @map("blacklisted_by") @db.Uuid
+  withdrawalReasonId     String?            @map("withdrawal_reason_id") @db.Uuid
+  withdrawalDate         DateTime?          @map("withdrawal_date") @db.Date
+  clientBalance          Decimal            @default(0) @db.Decimal(12, 2) @map("client_balance")
+  promisedPaymentDate    DateTime?          @map("promised_payment_date") @db.Date
+  firstPaymentDate       DateTime?          @map("first_payment_date") @db.Date
+  firstPaidLessonDate    DateTime?          @map("first_paid_lesson_date") @db.Date
+  saleDate               DateTime?          @map("sale_date") @db.Date
+  moneyLtv               Decimal            @default(0) @db.Decimal(12, 2) @map("money_ltv")
+  monthsLtv              Int                @default(0) @map("months_ltv")
+  comment                String?
+  createdBy              String?            @map("created_by") @db.Uuid
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+  deletedAt              DateTime?          @map("deleted_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  branch       Branch?      @relation(fields: [branchId], references: [id])
+  assignee     Employee?    @relation("AssignedClients", fields: [assignedTo], references: [id])
+  wards        Ward[]
+
+  @@index([tenantId, funnelStatus])
+  @@index([tenantId, clientStatus])
+  @@index([tenantId, phone])
+  @@map("clients")
+}
+
+model Ward {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  clientId  String    @map("client_id") @db.Uuid
+  firstName String    @map("first_name")
+  lastName  String?   @map("last_name")
+  birthDate DateTime? @map("birth_date") @db.Date
+  notes     String?
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("wards")
 }
 
 // === НАПРАВЛЕНИЯ ===
@@ -246,4 +314,31 @@ enum SalaryScheme {
   per_student
   per_lesson
   fixed_plus_per_student
+}
+
+enum FunnelStatus {
+  new
+  trial_scheduled
+  trial_attended
+  awaiting_payment
+  active_client
+  potential
+  non_target
+  blacklisted
+  archived
+}
+
+enum ClientWorkStatus {
+  active
+  upsell
+  churned
+  returning
+  archived
+}
+
+enum ClientSegment {
+  new_client
+  standard
+  regular
+  vip
 }

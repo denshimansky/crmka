@@ -1,119 +1,236 @@
+import { getSession } from "@/lib/session"
+import { db } from "@/lib/db"
+import { notFound } from "next/navigation"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { demoClients, formatMoney } from "@/lib/demo-data"
-import { ArrowLeft, CreditCard, FileText, UserMinus } from "lucide-react"
-import Link from "next/link"
+import { ArrowLeft, CreditCard, FileText } from "lucide-react"
+import { ClientTabs } from "./client-tabs"
 
-export default async function ClientPage({ params }: { params: Promise<{ id: string }> }) {
+// --- Labels and colors ---
+
+const SEGMENT_LABELS: Record<string, string> = {
+  new_client: "Новый",
+  standard: "Стандарт",
+  regular: "Постоянный",
+  vip: "VIP",
+}
+
+const SEGMENT_COLORS: Record<string, string> = {
+  new_client: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  standard: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
+  regular: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  vip: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+}
+
+const FUNNEL_LABELS: Record<string, string> = {
+  new: "Новый лид",
+  trial_scheduled: "Пробное записано",
+  trial_attended: "Был на пробном",
+  awaiting_payment: "Ждём оплату",
+  active_client: "Активный",
+  potential: "Потенциальный",
+  non_target: "Нецелевой",
+  blacklisted: "Чёрный список",
+  archived: "Архив",
+}
+
+const CLIENT_STATUS_LABELS: Record<string, string> = {
+  active: "Активный",
+  upsell: "Допродажа",
+  churned: "Выбывший",
+  returning: "Возврат",
+  archived: "Архив",
+}
+
+function formatMoney(amount: number): string {
+  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
+}
+
+function formatDate(date: Date | null | undefined): string {
+  if (!date) return "—"
+  return date.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  })
+}
+
+export default async function ClientPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
   const { id } = await params
-  const client = demoClients.find((c) => c.id === id) || demoClients[0]
+  const session = await getSession()
+  const tenantId = session.user.tenantId
 
-  const segmentColors: Record<string, string> = {
-    VIP: "bg-purple-100 text-purple-800",
-    "Постоянный": "bg-blue-100 text-blue-800",
-    "Стандарт": "bg-gray-100 text-gray-800",
-    "Новый": "bg-green-100 text-green-800",
-  }
+  const client = await db.client.findFirst({
+    where: { id, tenantId, deletedAt: null },
+    include: {
+      wards: true,
+      branch: true,
+      assignee: { select: { firstName: true, lastName: true } },
+    },
+  })
+
+  if (!client) notFound()
+
+  const fullName =
+    [client.lastName, client.firstName, client.patronymic]
+      .filter(Boolean)
+      .join(" ") || "Без имени"
+  const balance = Number(client.clientBalance)
+  const moneyLtv = Number(client.moneyLtv)
+  const assigneeName = client.assignee
+    ? [client.assignee.lastName, client.assignee.firstName].filter(Boolean).join(" ")
+    : "—"
+
+  // Serialize wards for client component
+  const wardsForClient = client.wards.map((w) => ({
+    id: w.id,
+    firstName: w.firstName,
+    lastName: w.lastName,
+    birthDate: w.birthDate?.toISOString() || null,
+  }))
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center gap-4">
         <Link href="/crm/clients">
-          <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
+          <Button variant="ghost" size="icon">
+            <ArrowLeft className="size-4" />
+          </Button>
         </Link>
         <div className="flex-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">{client.name}</h1>
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${segmentColors[client.segment]}`}>{client.segment}</span>
-            <Badge variant={client.status === "active" ? "default" : "secondary"}>
-              {client.status === "active" ? "Активный" : client.status === "lead" ? "Лид" : "Выбывший"}
-            </Badge>
+            <h1 className="text-2xl font-bold">{fullName}</h1>
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${SEGMENT_COLORS[client.segment] || ""}`}
+            >
+              {SEGMENT_LABELS[client.segment] || client.segment}
+            </span>
+            {client.clientStatus ? (
+              <Badge
+                variant={
+                  client.clientStatus === "churned"
+                    ? "destructive"
+                    : client.clientStatus === "active"
+                      ? "default"
+                      : "secondary"
+                }
+              >
+                {CLIENT_STATUS_LABELS[client.clientStatus] || client.clientStatus}
+              </Badge>
+            ) : (
+              <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
+                {FUNNEL_LABELS[client.funnelStatus] || client.funnelStatus}
+              </span>
+            )}
           </div>
-          <p className="text-sm text-muted-foreground">{client.phone} · {client.email || "—"}</p>
+          <p className="text-sm text-muted-foreground">
+            {client.phone || "—"} · {client.email || "—"}
+          </p>
         </div>
-        <div className="flex gap-2">
-          <Button><CreditCard className="mr-2 size-4" />Оплата</Button>
-          <Button variant="outline"><FileText className="mr-2 size-4" />Абонемент</Button>
-          <Button variant="destructive"><UserMinus className="mr-2 size-4" />Отчислить</Button>
+        <div className="text-right">
+          <div className="text-sm text-muted-foreground">Баланс</div>
+          <div
+            className={`text-2xl font-bold ${
+              balance > 0
+                ? "text-green-600"
+                : balance < 0
+                  ? "text-red-600"
+                  : "text-muted-foreground"
+            }`}
+          >
+            {balance === 0 ? "0 ₽" : formatMoney(balance)}
+          </div>
         </div>
       </div>
 
+      {/* Action buttons */}
+      <div className="flex gap-2">
+        <Button disabled>
+          <CreditCard className="mr-2 size-4" />
+          Оплата
+        </Button>
+        <Button variant="outline" disabled>
+          <FileText className="mr-2 size-4" />
+          Абонемент
+        </Button>
+      </div>
+
+      {/* Two-column layout */}
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-        <div className="space-y-6">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Баланс</CardTitle>
-                <span className={`text-2xl font-bold ${client.balance > 0 ? "text-green-600" : client.balance < 0 ? "text-red-600" : ""}`}>
-                  {formatMoney(client.balance)}
-                </span>
-              </div>
-            </CardHeader>
-          </Card>
+        {/* Main content: tabs */}
+        <ClientTabs clientId={client.id} wards={wardsForClient} />
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Абонементы</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Направление</TableHead>
-                    <TableHead>Период</TableHead>
-                    <TableHead>Статус</TableHead>
-                    <TableHead className="text-right">Оплачено</TableHead>
-                    <TableHead className="text-right">Занятий</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow>
-                    <TableCell className="font-medium">Развивайка</TableCell>
-                    <TableCell>Март 2026</TableCell>
-                    <TableCell><Badge>Активен</Badge></TableCell>
-                    <TableCell className="text-right">{formatMoney(4800)}</TableCell>
-                    <TableCell className="text-right">6 из 12</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="font-medium">Английский</TableCell>
-                    <TableCell>Март 2026</TableCell>
-                    <TableCell><Badge>Активен</Badge></TableCell>
-                    <TableCell className="text-right">{formatMoney(3600)}</TableCell>
-                    <TableCell className="text-right">5 из 8</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Подопечные</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {client.children.map((child) => (
-                <div key={child} className="flex items-center justify-between rounded-md border p-3">
-                  <span className="font-medium">{child}</span>
-                  <span className="text-sm text-muted-foreground">Развивайка, Английский</span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-
+        {/* Sidebar */}
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Информация</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Ответственный</span><span>Петрова А.</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Канал</span><span>ВК реклама</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Первый визит</span><span>15.09.2024</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Абонементов</span><span>{client.subscriptions}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">LTV</span><span className="font-bold">{formatMoney(105_600)}</span></div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Ответственный</span>
+                <span>{assigneeName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Филиал</span>
+                <span>{client.branch?.name || "—"}</span>
+              </div>
+              {client.phone2 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Телефон 2</span>
+                  <span>{client.phone2}</span>
+                </div>
+              )}
+              {client.email && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Email</span>
+                  <span>{client.email}</span>
+                </div>
+              )}
+              {client.socialLink && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Соцсеть</span>
+                  <span className="truncate max-w-[160px]">{client.socialLink}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Дата создания</span>
+                <span>{formatDate(client.createdAt)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">LTV</span>
+                <span className="font-bold">
+                  {moneyLtv > 0 ? formatMoney(moneyLtv) : "—"}
+                  {client.monthsLtv > 0 ? ` · ${client.monthsLtv} мес.` : ""}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Сегмент</span>
+                <span>
+                  {client.totalSubscriptionsCount > 0
+                    ? `${client.totalSubscriptionsCount} абонементов куплено`
+                    : "Нет абонементов"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Дата продажи</span>
+                <span>{formatDate(client.saleDate)}</span>
+              </div>
+              {client.comment && (
+                <div>
+                  <div className="text-muted-foreground mb-1">Комментарий</div>
+                  <div className="rounded-md bg-muted/50 p-2 text-sm">
+                    {client.comment}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
