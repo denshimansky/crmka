@@ -42,6 +42,7 @@ export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
   const [selectedBranches, setSelectedBranches] = useState<string[]>([])
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
+  const [birthDate, setBirthDate] = useState("")
 
   function resetForm() {
     setLastName("")
@@ -53,6 +54,7 @@ export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
     setSelectedBranches([])
     setPhone("")
     setEmail("")
+    setBirthDate("")
     setError(null)
   }
 
@@ -100,6 +102,7 @@ export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
           branchIds: selectedBranches,
           phone: phone.trim() || null,
           email: email.trim() || null,
+          birthDate: birthDate || null,
         }),
       })
 
@@ -263,6 +266,17 @@ export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
                   placeholder="email@example.com"
                 />
               </div>
+            </div>
+
+            {/* Дата рождения */}
+            <div>
+              <Label htmlFor="birthDate">Дата рождения</Label>
+              <Input
+                id="birthDate"
+                type="date"
+                value={birthDate}
+                onChange={(e) => setBirthDate(e.target.value)}
+              />
             </div>
           </div>
 

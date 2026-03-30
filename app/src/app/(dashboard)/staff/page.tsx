@@ -6,6 +6,7 @@ import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from "@/components/ui/table"
 import { CreateEmployeeDialog } from "./create-employee-dialog"
+import { EditEmployeeDialog } from "./edit-employee-dialog"
 import type { Role } from "@prisma/client"
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -24,16 +25,22 @@ const ROLE_COLORS: Record<Role, string> = {
   readonly: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
 }
 
+function formatDate(date: Date | null) {
+  if (!date) return "—"
+  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
+}
+
 export default async function StaffPage() {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const canEdit = session.user.role === "owner" || session.user.role === "manager"
 
   const [employees, branches] = await Promise.all([
     db.employee.findMany({
       where: { tenantId, deletedAt: null },
       include: {
         employeeBranches: {
-          include: { branch: true },
+          include: { branch: { select: { id: true, name: true } } },
         },
       },
       orderBy: { lastName: "asc" },
@@ -49,7 +56,7 @@ export default async function StaffPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Сотрудники</h1>
-        <CreateEmployeeDialog branches={branches} />
+        {canEdit && <CreateEmployeeDialog branches={branches} />}
       </div>
 
       {employees.length === 0 ? (
@@ -69,7 +76,9 @@ export default async function StaffPage() {
                   <TableHead>Роль</TableHead>
                   <TableHead>Филиалы</TableHead>
                   <TableHead>Телефон</TableHead>
+                  <TableHead>Дата рождения</TableHead>
                   <TableHead>Статус</TableHead>
+                  {canEdit && <TableHead className="w-10" />}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -86,27 +95,35 @@ export default async function StaffPage() {
                       <TableCell className="font-medium">{fullName}</TableCell>
                       <TableCell className="font-mono text-xs">{emp.login}</TableCell>
                       <TableCell>
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_COLORS[emp.role]}`}
-                        >
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_COLORS[emp.role]}`}>
                           {ROLE_LABELS[emp.role]}
                         </span>
                       </TableCell>
                       <TableCell>
-                        {branchNames ? (
-                          <span className="text-sm">{branchNames}</span>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">---</span>
-                        )}
+                        {branchNames || <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell>
-                        {emp.phone || <span className="text-muted-foreground">---</span>}
+                        {emp.phone || <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell>
+                        {formatDate(emp.birthDate)}
                       </TableCell>
                       <TableCell>
                         <Badge variant={emp.isActive ? "default" : "secondary"}>
                           {emp.isActive ? "Активен" : "Неактивен"}
                         </Badge>
                       </TableCell>
+                      {canEdit && (
+                        <TableCell>
+                          <EditEmployeeDialog
+                            employee={{
+                              ...emp,
+                              birthDate: emp.birthDate?.toISOString() || null,
+                            }}
+                            branches={branches}
+                          />
+                        </TableCell>
+                      )}
                     </TableRow>
                   )
                 })}

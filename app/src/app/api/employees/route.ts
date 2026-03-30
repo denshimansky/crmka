@@ -13,6 +13,7 @@ const createSchema = z.object({
   middleName: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   email: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined).pipe(z.string().email("Некорректный email").optional()),
   phone: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  birthDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   role: z.enum(["manager", "admin", "instructor", "readonly"], { required_error: "Выберите роль" }),
   branchIds: z.array(z.string().uuid()).optional(),
 })
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
       middleName: data.middleName,
       email: data.email,
       phone: data.phone,
+      birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
       role: data.role,
       employeeBranches: data.branchIds?.length
         ? { create: data.branchIds.map((branchId) => ({ branchId })) }

@@ -141,6 +141,7 @@ model Employee {
   lastName         String    @map("last_name")
   middleName       String?   @map("middle_name")
   phone            String?
+  birthDate        DateTime? @map("birth_date") @db.Date
   role             Role
   customPermissions Json?    @map("custom_permissions")
   isActive         Boolean   @default(true) @map("is_active")
