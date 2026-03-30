@@ -3,10 +3,11 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSession } from "next-auth/react"
+import { signOut } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   Landmark, ArrowDownUp, Wallet, Package, ClipboardList, BarChart3,
-  UserCog, Settings, Bell, Sparkles, ChevronDown,
+  UserCog, Settings, Bell, Sparkles, ChevronDown, LogOut,
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel,
@@ -173,6 +174,9 @@ export function AppSidebar() {
             <button className="relative">
               <Bell className="size-4 text-muted-foreground" />
               <Badge className="absolute -right-2 -top-2 size-4 justify-center p-0 text-[10px]" variant="destructive">3</Badge>
+            </button>
+            <button onClick={() => signOut({ callbackUrl: "/login" })} title="Выйти">
+              <LogOut className="size-4 text-muted-foreground hover:text-destructive" />
             </button>
           </div>
         )}
