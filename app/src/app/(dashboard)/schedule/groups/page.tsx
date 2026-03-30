@@ -10,8 +10,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import Link from "next/link"
+import { Button } from "@/components/ui/button"
 import { CreateGroupDialog } from "./create-group-dialog"
-import { EditGroupDialog } from "./edit-group-dialog"
 
 const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
