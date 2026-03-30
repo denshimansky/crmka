@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Building2, MapPin, Palette, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { CreateDirectionDialog } from "./create-direction-dialog"
 
 export default async function SettingsPage() {
   const session = await getSession()
@@ -185,10 +186,7 @@ export default async function SettingsPage() {
               <p className="text-sm text-muted-foreground">
                 Всего направлений: {org.directions.length}
               </p>
-              <Button size="sm">
-                <Plus className="size-4" />
-                Направление
-              </Button>
+              <CreateDirectionDialog />
             </div>
 
             {org.directions.length === 0 ? (
