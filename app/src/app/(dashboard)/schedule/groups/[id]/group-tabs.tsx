@@ -657,7 +657,7 @@ function SettingsTab({
         key: crypto.randomUUID(),
         dayOfWeek: 0,
         startTime: "10:00",
-        durationMinutes: 60,
+        durationMinutes: directions.find(d => d.id === infoDirectionId)?.lessonDuration ?? 45,
       },
     ])
   }
