@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useSession } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   Landmark, ArrowDownUp, Wallet, Package, ClipboardList, BarChart3,
@@ -14,6 +15,16 @@ import {
 } from "@/components/ui/sidebar"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
+import type { Role } from "@prisma/client"
+
+const ROLE_LABELS: Record<Role, string> = {
+  owner: "Владелец",
+  manager: "Управляющий",
+  admin: "Администратор",
+  instructor: "Инструктор",
+  readonly: "Только чтение",
+}
 
 const navItems = [
   { title: "Главная", href: "/", icon: LayoutDashboard },
@@ -42,8 +53,31 @@ const otherItems = [
   { title: "Настройки", href: "/settings", icon: Settings },
 ]
 
+function getInitials(name: string | null | undefined): string {
+  if (!name) return "?"
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase()
+  }
+  return name.slice(0, 2).toUpperCase()
+}
+
+function getShortName(name: string | null | undefined): string {
+  if (!name) return "---"
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) {
+    return `${parts[0]} ${parts[1][0]}.`
+  }
+  return name
+}
+
 export function AppSidebar() {
   const pathname = usePathname()
+  const { data: session, status } = useSession()
+
+  const user = session?.user as
+    | { name?: string | null; role?: Role; orgName?: string }
+    | undefined
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/"
@@ -69,11 +103,17 @@ export function AppSidebar() {
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-semibold">Умная CRM</span>
-            <span className="text-xs text-muted-foreground">Детский центр «Радуга»</span>
+            {status === "loading" ? (
+              <Skeleton className="mt-0.5 h-3 w-32" />
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {user?.orgName || "---"}
+              </span>
+            )}
           </div>
         </div>
         <button className="mt-2 flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent">
-          <span>Филиал на Ленина</span>
+          <span>Все филиалы</span>
           <ChevronDown className="size-3" />
         </button>
       </SidebarHeader>
@@ -107,19 +147,35 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4">
-        <div className="flex items-center gap-3">
-          <Avatar className="size-8">
-            <AvatarFallback className="text-xs">ДШ</AvatarFallback>
-          </Avatar>
-          <div className="flex flex-1 flex-col">
-            <span className="text-sm font-medium">Денис Ш.</span>
-            <span className="text-xs text-muted-foreground">Владелец</span>
+        {status === "loading" ? (
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-8 rounded-full" />
+            <div className="flex flex-1 flex-col gap-1">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-3 w-16" />
+            </div>
           </div>
-          <button className="relative">
-            <Bell className="size-4 text-muted-foreground" />
-            <Badge className="absolute -right-2 -top-2 size-4 justify-center p-0 text-[10px]" variant="destructive">3</Badge>
-          </button>
-        </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <Avatar className="size-8">
+              <AvatarFallback className="text-xs">
+                {getInitials(user?.name)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex flex-1 flex-col">
+              <span className="text-sm font-medium">
+                {getShortName(user?.name)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {user?.role ? ROLE_LABELS[user.role] : "---"}
+              </span>
+            </div>
+            <button className="relative">
+              <Bell className="size-4 text-muted-foreground" />
+              <Badge className="absolute -right-2 -top-2 size-4 justify-center p-0 text-[10px]" variant="destructive">3</Badge>
+            </button>
+          </div>
+        )}
       </SidebarFooter>
     </Sidebar>
   )
