@@ -31,6 +31,7 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CalendarDays, Plus, Trash2, UserPlus, Users } from "lucide-react"
 
 interface LessonData {
@@ -71,6 +72,34 @@ interface ClientOption {
   wards: { id: string; name: string }[]
 }
 
+interface DirectionOption {
+  id: string
+  name: string
+  lessonDuration: number
+}
+
+interface BranchOption {
+  id: string
+  name: string
+  rooms: { id: string; name: string }[]
+}
+
+interface InstructorOption {
+  id: string
+  firstName: string
+  lastName: string
+}
+
+interface GroupInfo {
+  id: string
+  name: string
+  directionId: string
+  branchId: string
+  roomId: string
+  instructorId: string
+  maxStudents: number
+}
+
 interface GroupTabsProps {
   groupId: string
   lessons: LessonData[]
@@ -82,6 +111,10 @@ interface GroupTabsProps {
   currentYear: number
   monthLabel: string
   isActive: boolean
+  directions: DirectionOption[]
+  branches: BranchOption[]
+  instructors: InstructorOption[]
+  groupInfo: GroupInfo
 }
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
@@ -116,6 +149,10 @@ export function GroupTabs({
   currentYear,
   monthLabel,
   isActive,
+  directions,
+  branches,
+  instructors,
+  groupInfo,
 }: GroupTabsProps) {
   const router = useRouter()
 
@@ -155,6 +192,10 @@ export function GroupTabs({
           isActive={isActive}
           currentMonth={currentMonth}
           currentYear={currentYear}
+          directions={directions}
+          branches={branches}
+          instructors={instructors}
+          groupInfo={groupInfo}
           onRefresh={() => router.refresh()}
         />
       </TabsContent>
@@ -531,6 +572,10 @@ function SettingsTab({
   isActive,
   currentMonth,
   currentYear,
+  directions,
+  branches,
+  instructors,
+  groupInfo,
   onRefresh,
 }: {
   groupId: string
@@ -539,8 +584,56 @@ function SettingsTab({
   isActive: boolean
   currentMonth: number
   currentYear: number
+  directions: DirectionOption[]
+  branches: BranchOption[]
+  instructors: InstructorOption[]
+  groupInfo: GroupInfo
   onRefresh: () => void
 }) {
+  // --- Основные данные группы ---
+  const [infoName, setInfoName] = useState(groupInfo.name)
+  const [infoDirectionId, setInfoDirectionId] = useState(groupInfo.directionId)
+  const [infoBranchId, setInfoBranchId] = useState(groupInfo.branchId)
+  const [infoRoomId, setInfoRoomId] = useState(groupInfo.roomId)
+  const [infoInstructorId, setInfoInstructorId] = useState(groupInfo.instructorId)
+  const [infoMaxStudents, setInfoMaxStudents] = useState(groupInfo.maxStudents)
+  const [infoSaving, setInfoSaving] = useState(false)
+  const [infoResult, setInfoResult] = useState<{ type: "success" | "error"; message: string } | null>(null)
+
+  const selectedBranch = branches.find((b) => b.id === infoBranchId)
+  const availableRooms = selectedBranch?.rooms ?? []
+
+  async function handleInfoSave() {
+    setInfoSaving(true)
+    setInfoResult(null)
+    try {
+      const res = await fetch(`/api/groups/${groupId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: infoName,
+          directionId: infoDirectionId,
+          branchId: infoBranchId,
+          roomId: infoRoomId,
+          instructorId: infoInstructorId,
+          maxStudents: infoMaxStudents,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setInfoResult({ type: "error", message: data.error || "Ошибка сохранения" })
+      } else {
+        setInfoResult({ type: "success", message: "Данные сохранены" })
+        onRefresh()
+      }
+    } catch {
+      setInfoResult({ type: "error", message: "Не удалось сохранить данные" })
+    } finally {
+      setInfoSaving(false)
+    }
+  }
+
+  // --- Шаблоны расписания ---
   const [rows, setRows] = useState<EditableTemplate[]>(() =>
     templates.map((t) => ({
       key: t.id,
@@ -634,6 +727,129 @@ function SettingsTab({
 
   return (
     <div className="space-y-6 mt-4">
+      {/* Основные данные */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Основные данные</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Название</Label>
+              <Input
+                value={infoName}
+                onChange={(e) => setInfoName(e.target.value)}
+                placeholder="Название группы"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Направление</Label>
+              <Select value={infoDirectionId} onValueChange={(v) => { if (v) setInfoDirectionId(v) }}>
+                <SelectTrigger className="w-full">
+                  {infoDirectionId ? directions.find((d) => d.id === infoDirectionId)?.name : <span className="text-muted-foreground">Выберите направление</span>}
+                </SelectTrigger>
+                <SelectContent>
+                  {directions.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Филиал</Label>
+              <Select
+                value={infoBranchId}
+                onValueChange={(v) => {
+                  if (v) {
+                    setInfoBranchId(v)
+                    const branch = branches.find((b) => b.id === v)
+                    if (branch && branch.rooms.length > 0) {
+                      setInfoRoomId(branch.rooms[0].id)
+                    } else {
+                      setInfoRoomId("")
+                    }
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  {infoBranchId ? branches.find((b) => b.id === infoBranchId)?.name : <span className="text-muted-foreground">Выберите филиал</span>}
+                </SelectTrigger>
+                <SelectContent>
+                  {branches.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Кабинет</Label>
+              <Select value={infoRoomId} onValueChange={(v) => { if (v) setInfoRoomId(v) }}>
+                <SelectTrigger className="w-full">
+                  {infoRoomId ? availableRooms.find((r) => r.id === infoRoomId)?.name : <span className="text-muted-foreground">Выберите кабинет</span>}
+                </SelectTrigger>
+                <SelectContent>
+                  {availableRooms.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Педагог</Label>
+              <Select value={infoInstructorId} onValueChange={(v) => { if (v) setInfoInstructorId(v) }}>
+                <SelectTrigger className="w-full">
+                  {infoInstructorId ? (() => { const i = instructors.find((i) => i.id === infoInstructorId); return i ? `${i.lastName} ${i.firstName}` : "" })() : <span className="text-muted-foreground">Выберите педагога</span>}
+                </SelectTrigger>
+                <SelectContent>
+                  {instructors.map((i) => (
+                    <SelectItem key={i.id} value={i.id}>
+                      {i.lastName} {i.firstName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Макс. учеников</Label>
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                value={infoMaxStudents}
+                onChange={(e) => setInfoMaxStudents(parseInt(e.target.value) || 1)}
+              />
+            </div>
+          </div>
+
+          {infoResult && (
+            <div
+              className={`rounded-md p-3 text-sm ${
+                infoResult.type === "success"
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                  : "bg-destructive/10 text-destructive"
+              }`}
+            >
+              {infoResult.message}
+            </div>
+          )}
+
+          <Button onClick={handleInfoSave} disabled={infoSaving}>
+            {infoSaving ? "Сохранение..." : "Сохранить"}
+          </Button>
+        </CardContent>
+      </Card>
+
       <div className="space-y-4">
         <h3 className="text-base font-medium">Шаблоны расписания</h3>
         {scheduleStr && (
@@ -793,9 +1009,6 @@ function SettingsTab({
       <div className="space-y-2">
         <h3 className="text-base font-medium">Управление</h3>
         <div className="flex gap-2">
-          <Button variant="outline" disabled>
-            Редактировать группу
-          </Button>
           {isActive ? (
             <Button variant="destructive" disabled>
               Архивировать группу
@@ -807,7 +1020,7 @@ function SettingsTab({
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Редактирование и архивация будут доступны в следующей версии
+          Архивация будет доступна в следующей версии
         </p>
       </div>
     </div>

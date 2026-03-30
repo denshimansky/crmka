@@ -89,6 +89,23 @@ export default async function GroupCardPage({
     orderBy: { enrolledAt: "desc" },
   })
 
+  // Направления, филиалы с кабинетами, инструкторы (для редактирования группы)
+  const directions = await db.direction.findMany({
+    where: { tenantId, deletedAt: null },
+    select: { id: true, name: true, lessonDuration: true },
+    orderBy: { name: "asc" },
+  })
+  const branches = await db.branch.findMany({
+    where: { tenantId, deletedAt: null },
+    include: { rooms: { where: { deletedAt: null }, select: { id: true, name: true } } },
+    orderBy: { name: "asc" },
+  })
+  const instructors = await db.employee.findMany({
+    where: { tenantId, deletedAt: null, role: { in: ["instructor", "owner", "manager"] } },
+    select: { id: true, firstName: true, lastName: true },
+    orderBy: { lastName: "asc" },
+  })
+
   // Клиенты для зачисления (для диалога)
   const clients = await db.client.findMany({
     where: { tenantId, deletedAt: null },
@@ -203,6 +220,22 @@ export default async function GroupCardPage({
         currentYear={currentYear}
         monthLabel={monthLabel}
         isActive={group.isActive}
+        directions={directions}
+        branches={branches.map((b) => ({
+          id: b.id,
+          name: b.name,
+          rooms: b.rooms,
+        }))}
+        instructors={instructors}
+        groupInfo={{
+          id: group.id,
+          name: group.name,
+          directionId: group.directionId,
+          branchId: group.branchId,
+          roomId: group.roomId,
+          instructorId: group.instructorId,
+          maxStudents: group.maxStudents,
+        }}
       />
     </div>
   )

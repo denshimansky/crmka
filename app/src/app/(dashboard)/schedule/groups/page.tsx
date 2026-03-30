@@ -156,20 +156,9 @@ export default async function GroupsPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <EditGroupDialog
-                      group={{
-                        id: group.id,
-                        name: group.name,
-                        directionId: group.directionId,
-                        branchId: group.branchId,
-                        roomId: group.roomId,
-                        instructorId: group.instructorId,
-                        maxStudents: group.maxStudents,
-                      }}
-                      directions={directionsOptions}
-                      branches={branchesWithRooms}
-                      instructors={instructorOptions}
-                    />
+                    <Link href={`/schedule/groups/${group.id}`}>
+                      <Button variant="ghost" size="sm">Открыть</Button>
+                    </Link>
                   </TableCell>
                 </TableRow>
               )
