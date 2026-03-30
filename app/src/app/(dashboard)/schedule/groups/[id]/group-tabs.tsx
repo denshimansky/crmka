@@ -31,7 +31,7 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog"
-import { CalendarDays, Plus, UserPlus, Users } from "lucide-react"
+import { CalendarDays, Plus, Trash2, UserPlus, Users } from "lucide-react"
 
 interface LessonData {
   id: string
@@ -149,9 +149,13 @@ export function GroupTabs({
 
       <TabsContent value="settings">
         <SettingsTab
+          groupId={groupId}
           templates={templates}
           scheduleStr={scheduleStr}
           isActive={isActive}
+          currentMonth={currentMonth}
+          currentYear={currentYear}
+          onRefresh={() => router.refresh()}
         />
       </TabsContent>
     </Tabs>
@@ -510,46 +514,280 @@ function StudentsTab({
 
 // --- Настройки ---
 
+const DAY_LABELS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+interface EditableTemplate {
+  key: string
+  dayOfWeek: number
+  startTime: string
+  durationMinutes: number
+}
+
 function SettingsTab({
+  groupId,
   templates,
   scheduleStr,
   isActive,
+  currentMonth,
+  currentYear,
+  onRefresh,
 }: {
+  groupId: string
   templates: TemplateData[]
   scheduleStr: string
   isActive: boolean
+  currentMonth: number
+  currentYear: number
+  onRefresh: () => void
 }) {
+  const [rows, setRows] = useState<EditableTemplate[]>(() =>
+    templates.map((t) => ({
+      key: t.id,
+      dayOfWeek: t.dayOfWeek,
+      startTime: t.startTime,
+      durationMinutes: t.durationMinutes,
+    }))
+  )
+  const [saving, setSaving] = useState(false)
+  const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null)
+  const [regenerating, setRegenerating] = useState(false)
+  const [regenResult, setRegenResult] = useState<string | null>(null)
+  const [regenDialogOpen, setRegenDialogOpen] = useState(false)
+  const [regenMonth, setRegenMonth] = useState(currentMonth)
+  const [regenYear, setRegenYear] = useState(currentYear)
+
+  function addRow() {
+    setRows((prev) => [
+      ...prev,
+      {
+        key: crypto.randomUUID(),
+        dayOfWeek: 0,
+        startTime: "10:00",
+        durationMinutes: 60,
+      },
+    ])
+  }
+
+  function removeRow(key: string) {
+    setRows((prev) => prev.filter((r) => r.key !== key))
+  }
+
+  function updateRow(key: string, field: keyof Omit<EditableTemplate, "key">, value: string | number) {
+    setRows((prev) =>
+      prev.map((r) => (r.key === key ? { ...r, [field]: value } : r))
+    )
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    setSaveResult(null)
+    try {
+      const res = await fetch(`/api/groups/${groupId}/templates`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templates: rows.map((r) => ({
+            dayOfWeek: r.dayOfWeek,
+            startTime: r.startTime,
+            durationMinutes: r.durationMinutes,
+          })),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setSaveResult({ type: "error", message: data.error || "Ошибка сохранения" })
+      } else {
+        setSaveResult({ type: "success", message: "Шаблоны сохранены" })
+        onRefresh()
+      }
+    } catch {
+      setSaveResult({ type: "error", message: "Не удалось сохранить шаблоны" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleRegenerate() {
+    setRegenerating(true)
+    setRegenResult(null)
+    try {
+      const res = await fetch(`/api/groups/${groupId}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: regenMonth, year: regenYear }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setRegenResult(data.error || "Ошибка генерации")
+      } else {
+        setRegenResult(data.message)
+        setRegenDialogOpen(false)
+        onRefresh()
+      }
+    } catch {
+      setRegenResult("Не удалось сгенерировать расписание")
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
   return (
     <div className="space-y-6 mt-4">
       <div className="space-y-4">
         <h3 className="text-base font-medium">Шаблоны расписания</h3>
-        {templates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Нет шаблонов расписания. Добавьте их при редактировании группы.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">{scheduleStr}</p>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>День</TableHead>
-                  <TableHead>Время</TableHead>
-                  <TableHead>Длительность</TableHead>
+        {scheduleStr && (
+          <p className="text-sm text-muted-foreground">{scheduleStr}</p>
+        )}
+
+        {rows.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>День</TableHead>
+                <TableHead>Время</TableHead>
+                <TableHead>Длительность (мин)</TableHead>
+                <TableHead className="w-[50px]" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.key}>
+                  <TableCell>
+                    <Select
+                      value={String(row.dayOfWeek)}
+                      onValueChange={(v) => {
+                        if (v) updateRow(row.key, "dayOfWeek", parseInt(v))
+                      }}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        {DAY_LABELS[row.dayOfWeek]}
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DAY_LABELS.map((label, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <Input
+                      type="time"
+                      className="w-[130px]"
+                      value={row.startTime}
+                      onChange={(e) => updateRow(row.key, "startTime", e.target.value)}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Input
+                      type="number"
+                      className="w-[100px]"
+                      min={5}
+                      max={480}
+                      value={row.durationMinutes}
+                      onChange={(e) =>
+                        updateRow(row.key, "durationMinutes", parseInt(e.target.value) || 0)
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeRow(row.key)}
+                    >
+                      <Trash2 className="size-4 text-muted-foreground" />
+                    </Button>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {templates.map((t) => (
-                  <TableRow key={t.id}>
-                    <TableCell className="font-medium">{t.dayLabel}</TableCell>
-                    <TableCell>{t.startTime}</TableCell>
-                    <TableCell>{t.durationMinutes} мин</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        {rows.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Нет шаблонов. Добавьте дни занятий.
+          </p>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={addRow}>
+            <Plus className="mr-2 size-4" />
+            Добавить день
+          </Button>
+        </div>
+
+        {saveResult && (
+          <div
+            className={`rounded-md p-3 text-sm ${
+              saveResult.type === "success"
+                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                : "bg-destructive/10 text-destructive"
+            }`}
+          >
+            {saveResult.message}
           </div>
         )}
+
+        <div className="flex items-center gap-2">
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Сохранение..." : "Сохранить расписание"}
+          </Button>
+
+          <Dialog open={regenDialogOpen} onOpenChange={(v) => { setRegenDialogOpen(v); if (!v) setRegenResult(null) }}>
+            <DialogTrigger render={<Button variant="outline" />}>
+              <CalendarDays className="mr-2 size-4" />
+              Перегенерировать
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Перегенерация занятий</DialogTitle>
+                <DialogDescription>
+                  Новые занятия будут созданы по текущим шаблонам расписания. Существующие занятия не затрагиваются.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Месяц</Label>
+                  <Select value={String(regenMonth)} onValueChange={(v) => { if (v) setRegenMonth(parseInt(v)) }}>
+                    <SelectTrigger className="w-full">
+                      {MONTH_OPTIONS.find(m => String(m.value) === String(regenMonth))?.label ?? <span className="text-muted-foreground">Месяц</span>}
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONTH_OPTIONS.map((m) => (
+                        <SelectItem key={m.value} value={String(m.value)}>
+                          {m.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Год</Label>
+                  <Input
+                    type="number"
+                    value={regenYear}
+                    onChange={(e) => setRegenYear(parseInt(e.target.value) || currentYear)}
+                  />
+                </div>
+              </div>
+              {regenResult && (
+                <div className="rounded-md bg-muted p-3 text-sm">{regenResult}</div>
+              )}
+              <DialogFooter>
+                <DialogClose render={<Button variant="outline" />}>
+                  Отмена
+                </DialogClose>
+                <Button onClick={handleRegenerate} disabled={regenerating}>
+                  {regenerating ? "Генерация..." : "Сгенерировать"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <div className="space-y-2">
