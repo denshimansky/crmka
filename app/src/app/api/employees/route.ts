@@ -11,8 +11,8 @@ const createSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   middleName: z.string().optional(),
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")).transform(v => v || undefined),
+  phone: z.string().optional().transform(v => v || undefined),
   role: z.enum(["manager", "admin", "instructor", "readonly"]),
   branchIds: z.array(z.string().uuid()).optional(),
 })
@@ -41,7 +41,12 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const data = createSchema.parse(body)
+  const parsed = createSchema.safeParse(body)
+  if (!parsed.success) {
+    const firstError = parsed.error.errors[0]
+    return NextResponse.json({ error: firstError?.message || "Ошибка валидации" }, { status: 400 })
+  }
+  const data = parsed.data
 
   // Проверяем уникальность логина
   const existing = await db.employee.findFirst({

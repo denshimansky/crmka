@@ -33,7 +33,11 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const data = createSchema.parse(body)
+  const parsed = createSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
+  }
+  const data = parsed.data
 
   const direction = await db.direction.create({
     data: {

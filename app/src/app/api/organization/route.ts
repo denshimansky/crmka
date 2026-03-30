@@ -40,7 +40,11 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json()
-  const data = updateSchema.parse(body)
+  const parsed = updateSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
+  }
+  const data = parsed.data
 
   const org = await db.organization.update({
     where: { id: session.user.tenantId },
