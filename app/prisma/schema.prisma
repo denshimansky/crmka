@@ -93,6 +93,7 @@ model Organization {
   employees  Employee[]
   directions Direction[]
   clients    Client[]
+  groups     Group[]
 
   @@map("organizations")
 }
@@ -113,6 +114,7 @@ model Branch {
   rooms            Room[]
   employeeBranches EmployeeBranch[]
   clients          Client[]
+  groups           Group[]
 
   @@index([tenantId])
   @@map("branches")
@@ -128,6 +130,7 @@ model Room {
   deletedAt DateTime? @map("deleted_at")
 
   branch Branch @relation(fields: [branchId], references: [id])
+  groups Group[]
 
   @@index([tenantId])
   @@map("rooms")
@@ -156,6 +159,8 @@ model Employee {
   employeeBranches EmployeeBranch[]
   salaryRates      SalaryRate[]
   assignedClients  Client[]         @relation("AssignedClients")
+  instructorGroups Group[]          @relation("GroupInstructor")
+  instructorLessons Lesson[]        @relation("LessonInstructor")
 
   @@unique([tenantId, login])
   @@index([tenantId])
@@ -199,10 +204,11 @@ model Client {
   updatedAt              DateTime           @updatedAt @map("updated_at")
   deletedAt              DateTime?          @map("deleted_at")
 
-  organization Organization @relation(fields: [tenantId], references: [id])
-  branch       Branch?      @relation(fields: [branchId], references: [id])
-  assignee     Employee?    @relation("AssignedClients", fields: [assignedTo], references: [id])
+  organization Organization       @relation(fields: [tenantId], references: [id])
+  branch       Branch?             @relation(fields: [branchId], references: [id])
+  assignee     Employee?           @relation("AssignedClients", fields: [assignedTo], references: [id])
   wards        Ward[]
+  enrollments  GroupEnrollment[]
 
   @@index([tenantId, funnelStatus])
   @@index([tenantId, clientStatus])
@@ -221,7 +227,8 @@ model Ward {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client      Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  enrollments GroupEnrollment[]
 
   @@index([tenantId])
   @@map("wards")
@@ -245,9 +252,123 @@ model Direction {
 
   organization Organization @relation(fields: [tenantId], references: [id])
   salaryRates  SalaryRate[]
+  groups       Group[]
 
   @@index([tenantId])
   @@map("directions")
+}
+
+// === ГРУППЫ И РАСПИСАНИЕ ===
+
+model Group {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  name         String
+  directionId  String    @map("direction_id") @db.Uuid
+  branchId     String    @map("branch_id") @db.Uuid
+  roomId       String    @map("room_id") @db.Uuid
+  instructorId String    @map("instructor_id") @db.Uuid
+  maxStudents  Int       @default(15) @map("max_students")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  organization Organization          @relation(fields: [tenantId], references: [id])
+  direction    Direction              @relation(fields: [directionId], references: [id])
+  branch       Branch                 @relation(fields: [branchId], references: [id])
+  room         Room                   @relation(fields: [roomId], references: [id])
+  instructor   Employee               @relation("GroupInstructor", fields: [instructorId], references: [id])
+  templates    GroupScheduleTemplate[]
+  lessons      Lesson[]
+  enrollments  GroupEnrollment[]
+
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@map("groups")
+}
+
+model GroupScheduleTemplate {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  groupId         String    @map("group_id") @db.Uuid
+  dayOfWeek       Int       @map("day_of_week")
+  startTime       String    @map("start_time")
+  durationMinutes Int       @map("duration_minutes")
+  effectiveFrom   DateTime  @map("effective_from") @db.Date
+  effectiveTo     DateTime? @map("effective_to") @db.Date
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@map("group_schedule_templates")
+}
+
+model Lesson {
+  id              String       @id @default(uuid()) @db.Uuid
+  tenantId        String       @map("tenant_id") @db.Uuid
+  groupId         String       @map("group_id") @db.Uuid
+  date            DateTime     @db.Date
+  startTime       String       @map("start_time")
+  durationMinutes Int          @map("duration_minutes")
+  instructorId    String       @map("instructor_id") @db.Uuid
+  isTrial         Boolean      @default(false) @map("is_trial")
+  status          LessonStatus @default(scheduled)
+  cancelReason    String?      @map("cancel_reason")
+  isMakeup        Boolean      @default(false) @map("is_makeup")
+  topic           String?
+  homework        String?
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  group      Group    @relation(fields: [groupId], references: [id])
+  instructor Employee @relation("LessonInstructor", fields: [instructorId], references: [id])
+
+  @@index([tenantId, date])
+  @@index([groupId, date])
+  @@map("lessons")
+}
+
+model GroupEnrollment {
+  id             String                  @id @default(uuid()) @db.Uuid
+  tenantId       String                  @map("tenant_id") @db.Uuid
+  groupId        String                  @map("group_id") @db.Uuid
+  clientId       String                  @map("client_id") @db.Uuid
+  wardId         String?                 @map("ward_id") @db.Uuid
+  selectedDays   Json?                   @map("selected_days")
+  enrolledAt     DateTime                @map("enrolled_at") @db.Date
+  withdrawnAt    DateTime?               @map("withdrawn_at") @db.Date
+  paymentStatus  EnrollmentPaymentStatus @default(active) @map("payment_status")
+  isActive       Boolean                 @default(true) @map("is_active")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+  deletedAt      DateTime?               @map("deleted_at")
+
+  group  Group   @relation(fields: [groupId], references: [id])
+  client Client  @relation(fields: [clientId], references: [id])
+  ward   Ward?   @relation(fields: [wardId], references: [id])
+
+  @@index([tenantId])
+  @@index([groupId, isActive])
+  @@map("group_enrollments")
+}
+
+model AttendanceType {
+  id                  String   @id @default(uuid()) @db.Uuid
+  tenantId            String?  @map("tenant_id") @db.Uuid
+  name                String
+  code                String
+  chargesSubscription Boolean  @default(true) @map("charges_subscription")
+  paysInstructor      Boolean  @default(true) @map("pays_instructor")
+  countsAsRevenue     Boolean  @default(true) @map("counts_as_revenue")
+  isSystem            Boolean  @default(false) @map("is_system")
+  isActive            Boolean  @default(true) @map("is_active")
+  sortOrder           Int      @default(0) @map("sort_order")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@map("attendance_types")
 }
 
 // === ПРИВЯЗКА СОТРУДНИКА К ФИЛИАЛАМ ===
@@ -341,4 +462,16 @@ enum ClientSegment {
   standard
   regular
   vip
+}
+
+enum LessonStatus {
+  scheduled
+  completed
+  cancelled
+}
+
+enum EnrollmentPaymentStatus {
+  active
+  awaiting_payment
+  trial
 }
