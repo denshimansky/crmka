@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table"
 import Link from "next/link"
 import { CreateGroupDialog } from "./create-group-dialog"
+import { EditGroupDialog } from "./edit-group-dialog"
 
 const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -103,6 +104,7 @@ export default async function GroupsPage() {
               <TableHead>Расписание</TableHead>
               <TableHead>Учеников</TableHead>
               <TableHead>Статус</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -152,6 +154,22 @@ export default async function GroupsPage() {
                     ) : (
                       <Badge variant="secondary">Архив</Badge>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <EditGroupDialog
+                      group={{
+                        id: group.id,
+                        name: group.name,
+                        directionId: group.directionId,
+                        branchId: group.branchId,
+                        roomId: group.roomId,
+                        instructorId: group.instructorId,
+                        maxStudents: group.maxStudents,
+                      }}
+                      directions={directionsOptions}
+                      branches={branchesWithRooms}
+                      instructors={instructorOptions}
+                    />
                   </TableCell>
                 </TableRow>
               )

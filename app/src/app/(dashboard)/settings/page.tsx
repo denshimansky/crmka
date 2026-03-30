@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Building2, MapPin, Palette, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CreateDirectionDialog } from "./create-direction-dialog"
+import { EditDirectionDialog } from "./edit-direction-dialog"
 
 export default async function SettingsPage() {
   const session = await getSession()
@@ -199,7 +200,20 @@ export default async function SettingsPage() {
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {org.directions.map((dir) => (
                   <Card key={dir.id}>
-                    <CardContent className="p-5">
+                    <CardContent className="relative p-5">
+                      <div className="absolute right-3 top-3">
+                        <EditDirectionDialog
+                          direction={{
+                            id: dir.id,
+                            name: dir.name,
+                            lessonPrice: String(dir.lessonPrice),
+                            lessonDuration: dir.lessonDuration,
+                            trialPrice: dir.trialPrice ? String(dir.trialPrice) : null,
+                            trialFree: dir.trialFree,
+                            color: dir.color,
+                          }}
+                        />
+                      </div>
                       <div className="flex items-start gap-3">
                         <div
                           className="flex size-10 shrink-0 items-center justify-center rounded-lg"
