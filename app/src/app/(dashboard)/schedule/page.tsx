@@ -113,12 +113,17 @@ export default async function SchedulePage({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Расписание</h1>
-        <Link href="/schedule/groups">
-          <Button>
-            <Plus className="mr-2 size-4" />
-            Занятие
-          </Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/schedule/groups">
+            <Button variant="outline">Группы</Button>
+          </Link>
+          <Link href="/schedule/groups">
+            <Button>
+              <Plus className="mr-2 size-4" />
+              Занятие
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <ScheduleWeekNav weekOffset={weekOffset} weekLabel={weekLabel} />
