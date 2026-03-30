@@ -6,14 +6,14 @@ import bcrypt from "bcryptjs"
 import { z } from "zod"
 
 const createSchema = z.object({
-  login: z.string().min(2).regex(/^[a-zA-Z0-9._-]+$/, "Только латиница, цифры, точка, дефис, подчёркивание"),
-  password: z.string().min(6),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
-  middleName: z.string().optional(),
-  email: z.string().email().optional().or(z.literal("")).transform(v => v || undefined),
-  phone: z.string().optional().transform(v => v || undefined),
-  role: z.enum(["manager", "admin", "instructor", "readonly"]),
+  login: z.string({ required_error: "Логин обязателен" }).min(2, "Логин минимум 2 символа").regex(/^[a-zA-Z0-9._-]+$/, "Только латиница, цифры, точка, дефис, подчёркивание"),
+  password: z.string({ required_error: "Пароль обязателен" }).min(6, "Пароль минимум 6 символов"),
+  firstName: z.string({ required_error: "Имя обязательно" }).min(1, "Имя обязательно"),
+  lastName: z.string({ required_error: "Фамилия обязательна" }).min(1, "Фамилия обязательна"),
+  middleName: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  email: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined).pipe(z.string().email("Некорректный email").optional()),
+  phone: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  role: z.enum(["manager", "admin", "instructor", "readonly"], { required_error: "Выберите роль" }),
   branchIds: z.array(z.string().uuid()).optional(),
 })
 
