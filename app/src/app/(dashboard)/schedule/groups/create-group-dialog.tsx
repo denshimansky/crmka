@@ -190,7 +190,7 @@ export function CreateGroupDialog({
             <Label>Направление</Label>
             <Select value={directionId} onValueChange={(v) => { if (v) setDirectionId(v) }}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Выберите направление" />
+                {directionId ? directions.find(d => d.id === directionId)?.name : <span className="text-muted-foreground">Выберите направление</span>}
               </SelectTrigger>
               <SelectContent>
                 {directions.map((d) => (
@@ -213,7 +213,7 @@ export function CreateGroupDialog({
                 }}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Филиал" />
+                  {branchId ? branches.find(b => b.id === branchId)?.name : <span className="text-muted-foreground">Филиал</span>}
                 </SelectTrigger>
                 <SelectContent>
                   {branches.map((b) => (
@@ -229,7 +229,7 @@ export function CreateGroupDialog({
               <Label>Кабинет</Label>
               <Select value={roomId} onValueChange={(v) => { if (v) setRoomId(v) }} disabled={!branchId}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Кабинет" />
+                  {roomId ? availableRooms.find(r => r.id === roomId)?.name : <span className="text-muted-foreground">Кабинет</span>}
                 </SelectTrigger>
                 <SelectContent>
                   {availableRooms.map((r) => (
@@ -247,7 +247,7 @@ export function CreateGroupDialog({
               <Label>Педагог</Label>
               <Select value={instructorId} onValueChange={(v) => { if (v) setInstructorId(v) }}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Педагог" />
+                  {instructorId ? instructors.find(i => i.id === instructorId)?.name : <span className="text-muted-foreground">Педагог</span>}
                 </SelectTrigger>
                 <SelectContent>
                   {instructors.map((i) => (

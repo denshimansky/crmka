@@ -20,7 +20,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select"
 import {
   Dialog,
@@ -229,7 +228,7 @@ function ScheduleTab({
                 <Label>Месяц</Label>
                 <Select value={String(genMonth)} onValueChange={(v) => { if (v) setGenMonth(parseInt(v)) }}>
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    {MONTH_OPTIONS.find(m => String(m.value) === String(genMonth))?.label ?? <span className="text-muted-foreground">Месяц</span>}
                   </SelectTrigger>
                   <SelectContent>
                     {MONTH_OPTIONS.map((m) => (
@@ -399,7 +398,7 @@ function StudentsTab({
                   }}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Выберите клиента" />
+                    {selectedClientId ? (() => { const c = clients.find(c => c.id === selectedClientId); return c ? `${c.name}${c.phone ? ` (${c.phone})` : ""}` : "" })() : <span className="text-muted-foreground">Выберите клиента</span>}
                   </SelectTrigger>
                   <SelectContent>
                     {clients.map((c) => (
@@ -416,7 +415,7 @@ function StudentsTab({
                   <Label>Подопечный</Label>
                   <Select value={selectedWardId} onValueChange={(v) => { if (v) setSelectedWardId(v) }}>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Выберите подопечного (необязательно)" />
+                      {selectedWardId ? selectedClient?.wards.find(w => w.id === selectedWardId)?.name : <span className="text-muted-foreground">Выберите подопечного (необязательно)</span>}
                     </SelectTrigger>
                     <SelectContent>
                       {selectedClient.wards.map((w) => (

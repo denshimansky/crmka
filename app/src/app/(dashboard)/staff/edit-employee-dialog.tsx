@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+  Select, SelectTrigger, SelectContent, SelectItem,
 } from "@/components/ui/select"
 import { Pencil } from "lucide-react"
 
@@ -162,7 +162,7 @@ export function EditEmployeeDialog({ employee, branches }: { employee: Employee;
               <div>
                 <Label>Роль</Label>
                 <Select value={role} onValueChange={(v) => { if (v) setRole(v) }}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full">{ROLES.find(r => r.value === role)?.label ?? <span className="text-muted-foreground">Выберите роль</span>}</SelectTrigger>
                   <SelectContent>
                     {ROLES.map((r) => (
                       <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>

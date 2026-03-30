@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+  Select, SelectTrigger, SelectContent, SelectItem,
 } from "@/components/ui/select"
 import { Plus } from "lucide-react"
 
@@ -212,7 +212,7 @@ export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
               <Label>Роль</Label>
               <Select value={role} onValueChange={(v) => { if (v) setRole(v) }}>
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  {ROLES.find(r => r.value === role)?.label ?? <span className="text-muted-foreground">Выберите роль</span>}
                 </SelectTrigger>
                 <SelectContent>
                   {ROLES.map((r) => (

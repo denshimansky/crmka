@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+  Select, SelectTrigger, SelectContent, SelectItem,
 } from "@/components/ui/select"
 import { Plus, Trash2 } from "lucide-react"
 
@@ -239,7 +239,7 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
                 <Label>Филиал</Label>
                 <Select value={branchId} onValueChange={(v) => { if (v) setBranchId(v) }}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Выберите филиал" />
+                    {branchId ? branches.find(b => b.id === branchId)?.name : <span className="text-muted-foreground">Выберите филиал</span>}
                   </SelectTrigger>
                   <SelectContent>
                     {branches.map((b) => (
