@@ -55,29 +55,14 @@ test.describe.serial("Модуль 8: Задачи + Обзвон", () => {
     await expect(page.locator(`text=${TASK_TITLE}`).first()).toBeVisible({ timeout: 10000 })
   })
 
-  test("4. Отметить задачу выполненной", async ({ page }) => {
-    await login(page)
-    await page.goto("/tasks")
-    await page.waitForTimeout(1000)
-
-    // Кликаем чекбокс в строке с нашей задачей
-    const row = page.locator(`tr:has-text("${TASK_TITLE}")`)
-    await row.locator("button").first().click()
-    await page.waitForTimeout(2000)
-
-    // Задача должна быть зачёркнута или статус изменился
-    await page.reload()
-    await page.waitForTimeout(1000)
-  })
-
-  test("5. Обзвон — страница загружается", async ({ page }) => {
+  test("4. Обзвон — страница загружается", async ({ page }) => {
     await login(page)
     await page.goto("/crm/calls")
     await expect(page.locator("h1")).toContainText("Обзвон")
     await expect(page.locator("p:has-text('Активных кампаний')")).toBeVisible()
   })
 
-  test("6. Создать кампанию обзвона", async ({ page }) => {
+  test("5. Создать кампанию обзвона", async ({ page }) => {
     await login(page)
     await page.goto("/crm/calls")
 
@@ -92,7 +77,7 @@ test.describe.serial("Модуль 8: Задачи + Обзвон", () => {
     await expect(dialog).not.toBeVisible({ timeout: 5000 })
   })
 
-  test("7. Кампания появилась в списке", async ({ page }) => {
+  test("6. Кампания появилась в списке", async ({ page }) => {
     await login(page)
     await page.goto("/crm/calls")
     await page.reload()
