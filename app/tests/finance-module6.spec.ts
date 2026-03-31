@@ -31,8 +31,8 @@ test.describe("Модуль 6: ДДС, Зарплата, Должники", () =
   test("1. ДДС загружается с summary", async ({ page }) => {
     await page.goto("/finance/dds")
     await expect(page.locator("h1")).toContainText("ДДС")
-    await expect(page.locator("text=Приход")).toBeVisible()
-    await expect(page.locator("text=Расход")).toBeVisible()
+    await expect(page.locator("p:has-text('Приход')").first()).toBeVisible()
+    await expect(page.locator("p:has-text('Расход')").first()).toBeVisible()
     await expect(page.locator("text=Остаток на счетах")).toBeVisible()
   })
 
@@ -54,9 +54,9 @@ test.describe("Модуль 6: ДДС, Зарплата, Должники", () =
   test("4. Зарплата загружается с ведомостью", async ({ page }) => {
     await page.goto("/salary")
     await expect(page.locator("h1")).toContainText("Зарплата")
-    await expect(page.locator("text=Начислено")).toBeVisible()
-    await expect(page.locator("text=Выплачено")).toBeVisible()
-    await expect(page.locator("text=Осталось")).toBeVisible()
+    await expect(page.locator("p:has-text('Начислено')")).toBeVisible()
+    await expect(page.locator("p:has-text('Выплачено')")).toBeVisible()
+    await expect(page.locator("p:has-text('Осталось')")).toBeVisible()
     await expect(page.locator("text=Ведомость")).toBeVisible()
   })
 
@@ -115,7 +115,7 @@ test.describe("Модуль 6: ДДС, Зарплата, Должники", () =
     await page.goto("/finance/debtors")
     await expect(page.locator("h1")).toContainText("Должники")
     await expect(page.locator("text=Общий долг")).toBeVisible()
-    await expect(page.locator("text=Должников")).toBeVisible()
+    await expect(page.locator("p:has-text('Должников')")).toBeVisible()
     // Может быть таблица или "Нет должников"
     await expect(page.locator("table").or(page.locator("text=Нет должников")).first()).toBeVisible({ timeout: 5000 })
   })
