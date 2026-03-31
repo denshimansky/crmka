@@ -9,6 +9,10 @@
 app/node_modules/
 app/.next/
 
+# Playwright
+app/test-results/
+app/playwright-report/
+
 # Рабочие материалы (не публикуем)
 *.csv
 CLAUDE.md
