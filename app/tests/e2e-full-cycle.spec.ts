@@ -165,7 +165,7 @@ test.describe("E2E: Полный цикл CRM", () => {
 
   test("7. Создать клиента с подопечным", async ({ page }) => {
     await login(page)
-    await page.goto("/crm/clients")
+    await page.goto("/crm/leads")
     await page.locator("button", { hasText: "Клиент" }).click()
 
     const dialog = page.locator("div[role='dialog']")
@@ -248,7 +248,7 @@ test.describe("E2E: Полный цикл CRM", () => {
 
   test("10. Проверить карточку клиента", async ({ page }) => {
     await login(page)
-    await page.goto("/crm/clients")
+    await page.goto("/crm/leads")
 
     const clientLink = page.locator(`a:has-text("E2E-Клиент-${TS}")`).first()
     if (await clientLink.isVisible({ timeout: 3000 }).catch(() => false)) {

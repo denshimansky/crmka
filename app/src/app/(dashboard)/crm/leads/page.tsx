@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import Link from "next/link"
+import { CreateClientDialog } from "../clients/create-client-dialog"
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
@@ -36,6 +37,12 @@ function formatDate(date: Date): string {
 export default async function FunnelPage() {
   const session = await getSession()
   const tenantId = session.user.tenantId
+
+  const branches = await db.branch.findMany({
+    where: { tenantId, deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  })
 
   // Лиды (не active_client) — рабочая воронка
   const leads = await db.client.findMany({
@@ -73,7 +80,10 @@ export default async function FunnelPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Лиды</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Лиды</h1>
+        <CreateClientDialog branches={branches} />
+      </div>
 
       {/* Счётчики */}
       <div className="flex flex-wrap gap-3">

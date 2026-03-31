@@ -179,7 +179,7 @@ test.describe.serial("Полный бизнес-сценарий", () => {
   // === 6. КЛИЕНТ С ПОДОПЕЧНЫМ ===
   test("6. Создать клиента с подопечным", async ({ page }) => {
     await login(page)
-    await page.goto("/crm/clients")
+    await page.goto("/crm/leads")
 
     await page.locator("button", { hasText: "Клиент" }).click()
     const dialog = page.locator("div[role='dialog']")
@@ -207,7 +207,7 @@ test.describe.serial("Полный бизнес-сценарий", () => {
   // === 7. КАРТОЧКА КЛИЕНТА — ПРОВЕРКА ===
   test("7. Проверить карточку клиента", async ({ page }) => {
     await login(page)
-    await page.goto("/crm/clients")
+    await page.goto("/crm/leads")
 
     await page.locator(`a:has-text("${CLIENT_LAST}")`).first().click()
     await page.waitForTimeout(1000)
@@ -264,7 +264,7 @@ test.describe.serial("Полный бизнес-сценарий", () => {
   // === 9. АБОНЕМЕНТ ===
   test("9. Создать абонемент клиенту", async ({ page }) => {
     await login(page)
-    await page.goto("/crm/clients")
+    await page.goto("/crm/leads")
 
     await page.locator(`a:has-text("${CLIENT_LAST}")`).first().click()
     await page.waitForTimeout(1000)

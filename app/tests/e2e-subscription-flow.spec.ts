@@ -40,8 +40,8 @@ test.describe("E2E: Абонемент → Оплата", () => {
       await page.waitForTimeout(2000)
     }
 
-    // === 2. Создать клиента ===
-    await page.goto("/crm/clients")
+    // === 2. Создать клиента (лида) ===
+    await page.goto("/crm/leads")
     await page.locator("button", { hasText: "Клиент" }).click()
 
     const clientDialog = page.locator("div[role='dialog']")
