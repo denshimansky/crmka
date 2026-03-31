@@ -17,6 +17,20 @@ interface Release {
 
 const releases: Release[] = [
   {
+    version: "0.9.0",
+    date: "31.03.2026",
+    title: "Модуль 6: ДДС, Зарплата, Должники — финансовый модуль завершён",
+    changes: [
+      { type: "added", text: "ДДС: отчёт движения денежных средств (приход/расход по категориям, остатки по счетам, операции)" },
+      { type: "added", text: "Зарплата: ведомость (начислено/премии/штрафы/выплачено/осталось), выплата ЗП из счёта" },
+      { type: "added", text: "Должники: список клиентов с отрицательным балансом, переход в карточку, просроченные даты" },
+      { type: "added", text: "API: salary-payments, salary-adjustments (GET/POST)" },
+      { type: "added", text: "Prisma: SalaryPayment, SalaryAdjustment + миграция" },
+      { type: "added", text: "Сайдбар: ссылка «Должники» в блоке Финансы" },
+      { type: "added", text: "Playwright: 9 новых тестов, всего 74 E2E теста" },
+    ],
+  },
+  {
     version: "0.8.0",
     date: "31.03.2026",
     title: "Модуль 6A: Расходы, Prisma Migrations, 65 тестов",
