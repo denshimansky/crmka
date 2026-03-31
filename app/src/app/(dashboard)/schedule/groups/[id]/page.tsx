@@ -62,10 +62,12 @@ export default async function GroupCardPage({
 
   if (!group) notFound()
 
-  // Занятия за текущий месяц
+  // Занятия за текущий месяц (UTC для корректного сравнения с DATE)
   const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  const monthStart = new Date(Date.UTC(year, month, 1))
+  const monthEnd = new Date(Date.UTC(year, month + 1, 0))
 
   const lessons = await db.lesson.findMany({
     where: {

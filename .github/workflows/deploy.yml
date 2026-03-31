@@ -26,5 +26,21 @@ jobs:
             git pull origin main
             docker compose build app
             docker compose up -d
+            # Baseline: если _prisma_migrations не существует, создаём и помечаем initial как applied
+            docker compose exec -T db psql -U crmka -c "
+              CREATE TABLE IF NOT EXISTS \"_prisma_migrations\" (
+                id VARCHAR(36) PRIMARY KEY,
+                checksum VARCHAR(64) NOT NULL,
+                finished_at TIMESTAMPTZ,
+                migration_name VARCHAR(255) NOT NULL,
+                logs TEXT,
+                rolled_back_at TIMESTAMPTZ,
+                started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                applied_steps_count INTEGER NOT NULL DEFAULT 0
+              );
+              INSERT INTO \"_prisma_migrations\" (id, checksum, migration_name, finished_at, applied_steps_count)
+              SELECT gen_random_uuid(), '', '20260331093420_initial', NOW(), 1
+              WHERE NOT EXISTS (SELECT 1 FROM \"_prisma_migrations\" WHERE migration_name = '20260331093420_initial');
+            "
             docker compose exec -T app npx prisma migrate deploy
             echo "Deploy complete: $(date)"

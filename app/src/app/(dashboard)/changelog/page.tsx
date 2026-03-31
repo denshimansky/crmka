@@ -17,6 +17,25 @@ interface Release {
 
 const releases: Release[] = [
   {
+    version: "0.8.0",
+    date: "31.03.2026",
+    title: "Модуль 6A: Расходы, Prisma Migrations, 65 тестов",
+    changes: [
+      { type: "added", text: "Расходы: полный CRUD (создание, редактирование, удаление), 14 системных категорий" },
+      { type: "added", text: "Summary-карточки: расходы за месяц, постоянные, переменные, повторяющиеся" },
+      { type: "added", text: "Итого по статьям расходов" },
+      { type: "added", text: "Копирование повторяющихся расходов с прошлого месяца" },
+      { type: "added", text: "Амортизация: распределение расхода на N месяцев" },
+      { type: "added", text: "Привязка расхода к филиалам (один/несколько/все)" },
+      { type: "added", text: "Операции между счетами: выемки, инкассации, переводы (API)" },
+      { type: "added", text: "Prisma Migrations: переход с db push на правильные миграции" },
+      { type: "added", text: "Локальная PostgreSQL для разработки" },
+      { type: "added", text: "Playwright: 10 новых тестов расходов, всего 65 E2E тестов" },
+      { type: "fixed", text: "UTC timezone баг: расходы/оплаты последнего дня месяца не отображались" },
+      { type: "changed", text: "CI/CD: baseline миграция для dev-сервера, prisma migrate deploy" },
+    ],
+  },
+  {
     version: "0.7.0",
     date: "31.03.2026",
     title: "Отметка посещений, lesson card, roadmap",
