@@ -24,8 +24,7 @@ const reportGroups: ReportGroup[] = [
     color: "text-blue-600",
     reports: [
       { name: "Воронка продаж", href: "/reports/crm/funnel", description: "Лиды по статусам, конверсии между этапами", ready: true },
-      { name: "Средний чек", href: "/reports/crm/funnel", description: "Оплачено / кол-во платежей", ready: false },
-      { name: "Лиды по каналам", href: "/reports/crm/funnel", description: "Распределение по каналам привлечения", ready: false },
+      { name: "Средний чек", href: "/reports/crm/avg-check", description: "Оплачено / кол-во платежей", ready: true },
     ],
   },
   {
@@ -34,7 +33,7 @@ const reportGroups: ReportGroup[] = [
     color: "text-red-600",
     reports: [
       { name: "Детализация оттока", href: "/reports/churn/details", description: "Выбывшие клиенты по направлениям и инструкторам", ready: true },
-      { name: "Непродлённые абонементы", href: "/reports/churn/details", description: "Активные в прошлом месяце без списаний", ready: false },
+      { name: "Непродлённые абонементы", href: "/reports/churn/not-renewed", description: "Активные в прошлом месяце без списаний", ready: true },
     ],
   },
   {
@@ -43,7 +42,7 @@ const reportGroups: ReportGroup[] = [
     color: "text-green-600",
     reports: [
       { name: "Свободные места", href: "/reports/schedule/capacity", description: "Занято / свободно / % по группам", ready: true },
-      { name: "Неотмеченные дети", href: "/reports/schedule/capacity", description: "Занятия без отметки посещений", ready: false },
+      { name: "Посещения", href: "/reports/attendance/visits", description: "Явки, прогулы, перерасчёты по группам", ready: true },
     ],
   },
   {
@@ -52,7 +51,8 @@ const reportGroups: ReportGroup[] = [
     color: "text-purple-600",
     reports: [
       { name: "Финрез (P&L)", href: "/reports/finance/pnl", description: "Выручка − расходы − ЗП = прибыль", ready: true },
-      { name: "Выручка", href: "/reports/finance/pnl", description: "Отработанные абонементы", ready: false },
+      { name: "Выручка", href: "/reports/finance/revenue", description: "Отработанные абонементы по направлениям", ready: true },
+      { name: "Сводный по педагогам", href: "/reports/salary/by-instructor", description: "Занятия, ученики, ЗП по инструкторам", ready: true },
       { name: "Должники", href: "/finance/debtors", description: "Плановый / фактический долг", ready: true },
     ],
   },

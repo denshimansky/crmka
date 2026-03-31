@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Phone, Users } from "lucide-react"
+import Link from "next/link"
 import { CreateCampaignDialog } from "./create-campaign-dialog"
 
 function formatDate(date: Date): string {
@@ -101,7 +102,11 @@ export default async function CallsPage() {
             <TableBody>
               {campaigns.map((c) => (
                 <TableRow key={c.id}>
-                  <TableCell className="font-medium">{c.name}</TableCell>
+                  <TableCell>
+                    <Link href={`/crm/calls/${c.id}`} className="font-medium text-primary hover:underline">
+                      {c.name}
+                    </Link>
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(c.createdAt)}</TableCell>
                   <TableCell className="text-center">{c.totalItems}</TableCell>
                   <TableCell className="text-center text-green-600">{c.completedItems}</TableCell>

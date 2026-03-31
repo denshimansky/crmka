@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { CheckCircle2, Clock, AlertTriangle } from "lucide-react"
 import { AddTaskDialog } from "./add-task-dialog"
+import { GenerateTasksButton } from "./generate-tasks-button"
 import { TaskList } from "./task-list"
 
 export default async function TasksPage() {
@@ -64,10 +65,13 @@ export default async function TasksPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Задачи</h1>
+        <div className="flex items-center gap-2">
+        <GenerateTasksButton />
         <AddTaskDialog
           employees={employees.map(e => ({ id: e.id, name: [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени" }))}
           clients={clients.map(c => ({ id: c.id, name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени" }))}
         />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
