@@ -31,7 +31,7 @@ test.describe("Модуль 7: Отчёты", () => {
     await expect(page.locator("text=CRM и маркетинг")).toBeVisible()
     await expect(page.locator("text=Отток и удержание")).toBeVisible()
     await expect(page.locator("text=Расписание и посещения")).toBeVisible()
-    await expect(page.locator("text=Финансы")).toBeVisible()
+    await expect(page.locator("text=Финансы").first()).toBeVisible()
     // Готовые отчёты помечены
     await expect(page.locator("text=Готов").first()).toBeVisible()
   })
@@ -41,7 +41,7 @@ test.describe("Модуль 7: Отчёты", () => {
     await expect(page.locator("h1")).toContainText("Воронка продаж")
     // Метрики
     await expect(page.locator("text=Всего клиентов")).toBeVisible()
-    await expect(page.locator("text=Конверсия")).toBeVisible()
+    await expect(page.locator("p:has-text('Конверсия')").first()).toBeVisible()
     // Этапы воронки
     await expect(page.locator("text=Этапы воронки")).toBeVisible()
     await expect(page.locator("text=Новый")).toBeVisible()
@@ -55,8 +55,8 @@ test.describe("Модуль 7: Отчёты", () => {
     await page.goto("/reports/churn/details")
     await expect(page.locator("h1")).toContainText("Детализация оттока")
     // Метрики
-    await expect(page.locator("text=Выбывших")).toBeVisible()
-    await expect(page.locator("text=Активных")).toBeVisible()
+    await expect(page.locator("p:has-text('Выбывших')")).toBeVisible()
+    await expect(page.locator("p:has-text('Активных')")).toBeVisible()
     await expect(page.locator("text=% оттока")).toBeVisible()
     // Разбивка или "нет данных"
     await expect(
@@ -80,7 +80,7 @@ test.describe("Модуль 7: Отчёты", () => {
     await page.goto("/reports/schedule/capacity")
     await expect(page.locator("h1")).toContainText("Свободные места")
     // Метрики
-    await expect(page.locator("p:has-text('Групп')")).toBeVisible()
+    await expect(page.locator("p.text-xs:has-text('Групп')")).toBeVisible()
     await expect(page.locator("p:has-text('Загрузка')")).toBeVisible()
     // Таблица или "Нет активных групп"
     await expect(
