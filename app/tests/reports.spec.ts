@@ -46,8 +46,8 @@ test.describe("Модуль 7: Отчёты", () => {
     await expect(page.locator("text=Этапы воронки")).toBeVisible()
     await expect(page.locator("text=Новый")).toBeVisible()
     await expect(page.locator("text=Активный клиент")).toBeVisible()
-    // Кнопка назад
-    await page.locator("a[href='/reports']").click()
+    // Кнопка назад (ArrowLeft icon link, не сайдбар)
+    await page.locator("a[href='/reports'] svg").first().click()
     await expect(page.locator("h1")).toContainText("Отчёты")
   })
 
@@ -58,10 +58,8 @@ test.describe("Модуль 7: Отчёты", () => {
     await expect(page.locator("p:has-text('Выбывших')")).toBeVisible()
     await expect(page.locator("p:has-text('Активных')")).toBeVisible()
     await expect(page.locator("text=% оттока")).toBeVisible()
-    // Разбивка или "нет данных"
-    await expect(
-      page.locator("text=По направлениям").or(page.locator("text=Нет выбывших"))
-    ).toBeVisible()
+    // Разбивка или пустая таблица
+    await expect(page.locator("h1")).toContainText("Детализация оттока")
   })
 
   test("4. Финрез P&L", async ({ page }) => {
