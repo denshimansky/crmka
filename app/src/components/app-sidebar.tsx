@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react"
 import { signOut } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
-  Landmark, ArrowDownUp, Wallet, Package, ClipboardList, BarChart3,
+  Landmark, ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
   UserCog, Settings, Bell, Sparkles, ChevronDown, LogOut, Map, FileText,
 } from "lucide-react"
 import {
@@ -42,6 +42,7 @@ const financeItems = [
   { title: "Расходы", href: "/finance/expenses", icon: Receipt },
   { title: "Касса", href: "/finance/cash", icon: Landmark },
   { title: "ДДС", href: "/finance/dds", icon: ArrowDownUp },
+  { title: "Должники", href: "/finance/debtors", icon: AlertTriangle },
 ]
 
 const otherItems = [

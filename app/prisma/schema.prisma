@@ -157,13 +157,15 @@ model Employee {
   updatedAt        DateTime  @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
-  organization     Organization     @relation(fields: [tenantId], references: [id])
-  user             User?
-  employeeBranches EmployeeBranch[]
-  salaryRates      SalaryRate[]
-  assignedClients  Client[]         @relation("AssignedClients")
-  instructorGroups Group[]          @relation("GroupInstructor")
-  instructorLessons Lesson[]        @relation("LessonInstructor")
+  organization       Organization       @relation(fields: [tenantId], references: [id])
+  user               User?
+  employeeBranches   EmployeeBranch[]
+  salaryRates        SalaryRate[]
+  salaryPayments     SalaryPayment[]
+  salaryAdjustments  SalaryAdjustment[]
+  assignedClients    Client[]           @relation("AssignedClients")
+  instructorGroups   Group[]            @relation("GroupInstructor")
+  instructorLessons  Lesson[]           @relation("LessonInstructor")
 
   @@unique([tenantId, login])
   @@index([tenantId])
@@ -418,6 +420,47 @@ model SalaryRate {
   @@map("salary_rates")
 }
 
+// === ВЫПЛАТЫ ЗП ===
+
+model SalaryPayment {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  accountId   String   @map("account_id") @db.Uuid
+  amount      Decimal  @db.Decimal(12, 2)
+  date        DateTime @db.Date
+  periodYear  Int      @map("period_year")
+  periodMonth Int      @map("period_month")
+  periodHalf  Int?     @map("period_half")
+  comment     String?
+  createdBy   String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  employee Employee         @relation(fields: [employeeId], references: [id])
+  account  FinancialAccount @relation(fields: [accountId], references: [id])
+
+  @@index([tenantId, periodYear, periodMonth])
+  @@map("salary_payments")
+}
+
+model SalaryAdjustment {
+  id          String         @id @default(uuid()) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  employeeId  String         @map("employee_id") @db.Uuid
+  type        AdjustmentType
+  amount      Decimal        @db.Decimal(12, 2)
+  periodYear  Int            @map("period_year")
+  periodMonth Int            @map("period_month")
+  comment     String
+  createdBy   String?        @map("created_by") @db.Uuid
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([tenantId, periodYear, periodMonth])
+  @@map("salary_adjustments")
+}
+
 // === АБОНЕМЕНТЫ ===
 
 model Subscription {
@@ -477,12 +520,13 @@ model FinancialAccount {
   updatedAt DateTime    @updatedAt @map("updated_at")
   deletedAt DateTime?   @map("deleted_at")
 
-  organization   Organization @relation(fields: [tenantId], references: [id])
-  branch         Branch?      @relation(fields: [branchId], references: [id])
-  payments       Payment[]
-  expenses       Expense[]
-  operationsFrom AccountOperation[] @relation("OperationFrom")
-  operationsTo   AccountOperation[] @relation("OperationTo")
+  organization    Organization @relation(fields: [tenantId], references: [id])
+  branch          Branch?      @relation(fields: [branchId], references: [id])
+  payments        Payment[]
+  expenses        Expense[]
+  salaryPayments  SalaryPayment[]
+  operationsFrom  AccountOperation[] @relation("OperationFrom")
+  operationsTo    AccountOperation[] @relation("OperationTo")
 
   @@index([tenantId])
   @@map("financial_accounts")
@@ -777,4 +821,9 @@ enum AccountOperationType {
   owner_withdrawal
   encashment
   transfer
+}
+
+enum AdjustmentType {
+  bonus
+  penalty
 }
