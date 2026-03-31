@@ -7,7 +7,7 @@ import { signOut } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   Landmark, ArrowDownUp, Wallet, Package, ClipboardList, BarChart3,
-  UserCog, Settings, Bell, Sparkles, ChevronDown, LogOut,
+  UserCog, Settings, Bell, Sparkles, ChevronDown, LogOut, Map, FileText,
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel,
@@ -52,6 +52,8 @@ const otherItems = [
   { title: "Отчёты", href: "/reports", icon: BarChart3 },
   { title: "Сотрудники", href: "/staff", icon: UserCog },
   { title: "Настройки", href: "/settings", icon: Settings },
+  { title: "Roadmap", href: "/roadmap", icon: Map },
+  { title: "Changelog", href: "/changelog", icon: FileText },
 ]
 
 function getInitials(name: string | null | undefined): string {
