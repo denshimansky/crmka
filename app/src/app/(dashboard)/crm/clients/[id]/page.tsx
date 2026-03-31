@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, CreditCard, FileText } from "lucide-react"
 import { ClientTabs } from "./client-tabs"
+import { EditClientDialog } from "./edit-client-dialog"
 
 // --- Labels and colors ---
 
@@ -171,7 +172,23 @@ export default async function ClientPage({
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Информация</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Информация</CardTitle>
+                <EditClientDialog
+                  client={{
+                    id: client.id,
+                    firstName: client.firstName,
+                    lastName: client.lastName,
+                    patronymic: client.patronymic,
+                    phone: client.phone,
+                    phone2: client.phone2,
+                    email: client.email,
+                    socialLink: client.socialLink,
+                    branchId: client.branchId,
+                    comment: client.comment,
+                  }}
+                />
+              </div>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">

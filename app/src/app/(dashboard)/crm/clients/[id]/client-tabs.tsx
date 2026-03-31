@@ -23,7 +23,7 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus } from "lucide-react"
+import { Plus, Pencil, X, Ban } from "lucide-react"
 import { AddWardForm } from "./add-ward-form"
 
 interface Ward {
@@ -122,6 +122,231 @@ const MONTH_NAMES = [
   "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 ]
 
+// ===== Edit Subscription Dialog =====
+
+function EditSubscriptionDialog({
+  subscription,
+  onSuccess,
+}: {
+  subscription: Subscription
+  onSuccess: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const [lessonPrice, setLessonPrice] = useState(String(Number(subscription.lessonPrice)))
+  const [totalLessons, setTotalLessons] = useState(String(subscription.totalLessons))
+  const [discountAmount, setDiscountAmount] = useState(
+    String(Number(subscription.finalAmount) < Number(subscription.totalAmount)
+      ? Number(subscription.totalAmount) - Number(subscription.finalAmount)
+      : 0)
+  )
+
+  function reset() {
+    setLessonPrice(String(Number(subscription.lessonPrice)))
+    setTotalLessons(String(subscription.totalLessons))
+    setDiscountAmount(
+      String(Number(subscription.finalAmount) < Number(subscription.totalAmount)
+        ? Number(subscription.totalAmount) - Number(subscription.finalAmount)
+        : 0)
+    )
+    setError(null)
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+
+    if (!lessonPrice || Number(lessonPrice) <= 0) {
+      setError("Укажите цену занятия")
+      return
+    }
+    if (!totalLessons || Number(totalLessons) <= 0) {
+      setError("Укажите кол-во занятий")
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lessonPrice: Number(lessonPrice),
+          totalLessons: Number(totalLessons),
+          discountAmount: Number(discountAmount) || 0,
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Ошибка при обновлении абонемента")
+        return
+      }
+
+      setOpen(false)
+      onSuccess()
+    } catch {
+      setError("Ошибка сети")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const totalAmount = (Number(lessonPrice) || 0) * (Number(totalLessons) || 0)
+  const finalAmount = totalAmount - (Number(discountAmount) || 0)
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
+      <DialogTrigger render={<Button variant="ghost" size="icon" className="size-7" />}>
+        <Pencil className="size-3.5" />
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Редактировать абонемент</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+
+          <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Направление:</span>
+              <span className="font-medium">{subscription.direction.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Группа:</span>
+              <span>{subscription.group.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Период:</span>
+              <span>{MONTH_NAMES[subscription.periodMonth]} {subscription.periodYear}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label>Цена занятия</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={lessonPrice}
+                onChange={(e) => setLessonPrice(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Занятий</Label>
+              <Input
+                type="number"
+                min="1"
+                value={totalLessons}
+                onChange={(e) => setTotalLessons(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Скидка</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={discountAmount}
+                onChange={(e) => setDiscountAmount(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+          </div>
+
+          {totalAmount > 0 && (
+            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Стоимость:</span>
+                <span>{formatMoney(totalAmount)}</span>
+              </div>
+              {Number(discountAmount) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Скидка:</span>
+                  <span className="text-red-600">-{formatMoney(Number(discountAmount))}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold">
+                <span>Итого:</span>
+                <span>{formatMoney(finalAmount)}</span>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button type="submit" disabled={loading}>
+              {loading ? "Сохранение..." : "Сохранить"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ===== Change Subscription Status =====
+
+function ChangeStatusButton({
+  subscription,
+  targetStatus,
+  label,
+  variant = "outline",
+  icon: Icon,
+  onSuccess,
+}: {
+  subscription: Subscription
+  targetStatus: "closed" | "withdrawn"
+  label: string
+  variant?: "outline" | "destructive"
+  icon: typeof X
+  onSuccess: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+
+  async function handleClick() {
+    if (!confirm(`${label} абонемент "${subscription.direction.name}" (${MONTH_NAMES[subscription.periodMonth]} ${subscription.periodYear})?`)) {
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: targetStatus }),
+      })
+
+      if (res.ok) {
+        onSuccess()
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Button
+      variant={variant === "destructive" ? "ghost" : "ghost"}
+      size="icon"
+      className="size-7"
+      onClick={handleClick}
+      disabled={loading}
+      title={label}
+    >
+      <Icon className={`size-3.5 ${variant === "destructive" ? "text-red-500" : "text-muted-foreground"}`} />
+    </Button>
+  )
+}
+
 // ===== Subscriptions Tab =====
 
 function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[] }) {
@@ -139,12 +364,17 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
 
   useEffect(() => { loadSubs() }, [loadSubs])
 
+  const handleSubUpdated = useCallback(() => {
+    loadSubs()
+    router.refresh()
+  }, [loadSubs, router])
+
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">Абонементы ({subs.length})</CardTitle>
-          <AddSubscriptionDialog clientId={clientId} wards={wards} onSuccess={() => { loadSubs(); router.refresh() }} />
+          <AddSubscriptionDialog clientId={clientId} wards={wards} onSuccess={handleSubUpdated} />
         </div>
       </CardHeader>
       <CardContent>
@@ -162,12 +392,14 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                 <TableHead>Статус</TableHead>
                 <TableHead className="text-right">К оплате</TableHead>
                 <TableHead className="text-right">Оплачено</TableHead>
+                <TableHead className="w-[100px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {subs.map((s) => {
                 const paid = s.payments.reduce((sum, p) => sum + Number(p.amount), 0)
                 const balance = Number(s.balance)
+                const canEdit = s.status === "pending" || s.status === "active"
                 return (
                   <TableRow key={s.id}>
                     <TableCell className="font-medium">{s.direction.name}</TableCell>
@@ -183,6 +415,28 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                     </TableCell>
                     <TableCell className="text-right text-green-600">
                       {paid > 0 ? formatMoney(paid) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {canEdit && (
+                        <div className="flex items-center justify-end gap-0.5">
+                          <EditSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
+                          <ChangeStatusButton
+                            subscription={s}
+                            targetStatus="closed"
+                            label="Закрыть"
+                            icon={X}
+                            onSuccess={handleSubUpdated}
+                          />
+                          <ChangeStatusButton
+                            subscription={s}
+                            targetStatus="withdrawn"
+                            label="Отчислить"
+                            variant="destructive"
+                            icon={Ban}
+                            onSuccess={handleSubUpdated}
+                          />
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 )

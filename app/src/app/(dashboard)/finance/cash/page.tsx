@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Banknote, Building, CreditCard, Globe } from "lucide-react"
 import { AddAccountDialog } from "./add-account-dialog"
+import { EditAccountDialog } from "./edit-account-dialog"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -110,6 +111,15 @@ export default async function CashPage() {
                       </p>
                     </div>
                     <Badge variant="outline" className="shrink-0">{TYPE_LABELS[a.type]}</Badge>
+                    <EditAccountDialog
+                      account={{
+                        id: a.id,
+                        name: a.name,
+                        type: a.type,
+                        branchId: a.branchId,
+                      }}
+                      branches={branches}
+                    />
                   </CardContent>
                 </Card>
               )
