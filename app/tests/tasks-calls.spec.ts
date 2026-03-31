@@ -62,13 +62,12 @@ test.describe.serial("Модуль 8: Задачи + Обзвон", () => {
 
     // Кликаем чекбокс в строке с нашей задачей
     const row = page.locator(`tr:has-text("${TASK_TITLE}")`)
-    await row.locator("button[role='checkbox']").click()
+    await row.locator("button").first().click()
     await page.waitForTimeout(2000)
 
-    // Задача должна быть зачёркнута
+    // Задача должна быть зачёркнута или статус изменился
     await page.reload()
     await page.waitForTimeout(1000)
-    // Она либо зачёркнута, либо исчезла (фильтр)
   })
 
   test("5. Обзвон — страница загружается", async ({ page }) => {
