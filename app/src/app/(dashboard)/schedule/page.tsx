@@ -176,7 +176,7 @@ export default async function SchedulePage({
                             .filter(Boolean)
                             .join(" ")
                           return (
-                            <Link key={lesson.id} href={`/schedule/groups/${lesson.groupId}`}>
+                            <Link key={lesson.id} href={`/schedule/lessons/${lesson.id}`}>
                               <Card className={`cursor-pointer border p-2 text-xs ${colorClass} hover:opacity-80`}>
                                 <div className="font-bold">{lesson.startTime}</div>
                                 <div className="font-medium">{lesson.group.name}</div>

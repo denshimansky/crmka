@@ -32,7 +32,8 @@ import {
   DialogClose,
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { CalendarDays, Plus, Trash2, UserPlus, Users } from "lucide-react"
+import { CalendarDays, ExternalLink, Plus, Trash2, UserPlus, Users } from "lucide-react"
+import Link from "next/link"
 
 interface LessonData {
   id: string
@@ -323,12 +324,17 @@ function ScheduleTab({
               <TableHead>Длительность</TableHead>
               <TableHead>Педагог</TableHead>
               <TableHead>Статус</TableHead>
+              <TableHead className="w-[40px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {lessons.map((lesson) => (
-              <TableRow key={lesson.id}>
-                <TableCell>{lesson.date}</TableCell>
+              <TableRow key={lesson.id} className="cursor-pointer hover:bg-muted/50">
+                <TableCell>
+                  <Link href={`/schedule/lessons/${lesson.id}`} className="hover:underline">
+                    {lesson.date}
+                  </Link>
+                </TableCell>
                 <TableCell>{lesson.startTime}</TableCell>
                 <TableCell>{lesson.durationMinutes} мин</TableCell>
                 <TableCell>{lesson.instructor}</TableCell>
@@ -336,6 +342,11 @@ function ScheduleTab({
                   <Badge variant={lesson.statusVariant}>
                     {lesson.statusLabel}
                   </Badge>
+                </TableCell>
+                <TableCell>
+                  <Link href={`/schedule/lessons/${lesson.id}`}>
+                    <ExternalLink className="size-4 text-muted-foreground" />
+                  </Link>
                 </TableCell>
               </TableRow>
             ))}
