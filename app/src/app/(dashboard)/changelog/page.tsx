@@ -17,6 +17,19 @@ interface Release {
 
 const releases: Release[] = [
   {
+    version: "1.1.0-alpha",
+    date: "31.03.2026",
+    title: "Модуль 8: Задачи + Обзвон — CRUD задач, кампании обзвона, 87 тестов",
+    changes: [
+      { type: "added", text: "Задачи: список (на сегодня/просрочено/выполнено), создание, чекбокс выполнения" },
+      { type: "added", text: "Привязка задачи к клиенту, исполнитель, дата" },
+      { type: "added", text: "Обзвон: кампании (список, создание), автодобавление клиентов, прогресс" },
+      { type: "added", text: "API: tasks CRUD, call-campaigns CRUD" },
+      { type: "added", text: "Prisma: Task, CallCampaign, CallCampaignItem + 5 enums" },
+      { type: "added", text: "Playwright: 7 новых тестов, всего 87 E2E тестов" },
+    ],
+  },
+  {
     version: "1.0.0-alpha",
     date: "31.03.2026",
     title: "Модуль 7: Отчёты — каталог + 4 аналитических отчёта, 80 тестов",
