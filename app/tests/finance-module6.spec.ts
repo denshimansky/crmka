@@ -139,7 +139,7 @@ test.describe("Модуль 6: ДДС, Зарплата, Должники", () =
 
     // Проверяем ссылки в сайдбаре
     await expect(page.locator("a[href='/finance/dds']")).toBeVisible()
-    await expect(page.locator("a[href='/finance/debtors']")).toBeVisible()
+    await expect(page.locator("a[href='/finance/debtors']").first()).toBeVisible()
     await expect(page.locator("a[href='/salary']")).toBeVisible()
 
     // Переходы работают

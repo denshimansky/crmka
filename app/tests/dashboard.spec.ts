@@ -34,18 +34,18 @@ test.describe("Модуль 9: Дашборд", () => {
     await page.goto("/")
     await expect(page.locator("text=Воронка продаж")).toBeVisible()
     await expect(page.locator("text=Новые")).toBeVisible()
-    await expect(page.locator("text=Активные")).toBeVisible()
+    await expect(page.locator("span:has-text('Активные')")).toBeVisible()
   })
 
   test("4. Ссылки ведут в разделы", async ({ page }) => {
     await page.goto("/")
-    // Клик на карточку расходов
-    await page.locator("a[href='/finance/expenses']").click()
+    // Клик на карточку расходов (не сайдбар)
+    await page.locator("a[href='/finance/expenses']:not([data-sidebar])").click()
     await expect(page.locator("h1")).toContainText("Расходы", { timeout: 5000 })
 
     // Назад и клик на должников
     await page.goto("/")
-    await page.locator("a[href='/finance/debtors']").click()
+    await page.locator("a[href='/finance/debtors']:not([data-sidebar])").click()
     await expect(page.locator("h1")).toContainText("Должники", { timeout: 5000 })
   })
 })
