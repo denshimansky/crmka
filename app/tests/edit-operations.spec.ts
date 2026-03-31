@@ -32,7 +32,7 @@ test.describe("Редактирование сущностей", () => {
       const currentValue = await nameInput.inputValue()
       expect(currentValue.length).toBeGreaterThan(0)
       // Закрываем без сохранения
-      await dialog.locator("button:has-text('Отмена')").click()
+      await page.keyboard.press("Escape")
     }
   })
 
@@ -51,7 +51,7 @@ test.describe("Редактирование сущностей", () => {
       const nameInput = dialog.locator("input").first()
       const currentValue = await nameInput.inputValue()
       expect(currentValue.length).toBeGreaterThan(0)
-      await dialog.locator("button:has-text('Отмена')").click()
+      await page.keyboard.press("Escape")
     }
   })
 
@@ -68,7 +68,7 @@ test.describe("Редактирование сущностей", () => {
       const nameInput = dialog.locator("input").first()
       const currentValue = await nameInput.inputValue()
       expect(currentValue.length).toBeGreaterThan(0)
-      await dialog.locator("button:has-text('Отмена')").click()
+      await page.keyboard.press("Escape")
     }
   })
 
@@ -91,7 +91,7 @@ test.describe("Редактирование сущностей", () => {
         const inputs = dialog.locator("input")
         const count = await inputs.count()
         expect(count).toBeGreaterThan(3) // ФИО + телефон минимум
-        await dialog.locator("button:has-text('Отмена')").click()
+        await page.keyboard.press("Escape")
       }
     }
   })
