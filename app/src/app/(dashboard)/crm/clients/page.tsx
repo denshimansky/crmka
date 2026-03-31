@@ -10,7 +10,7 @@ export default async function ClientsPage() {
 
   const [clients, branches] = await Promise.all([
     db.client.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, funnelStatus: "active_client" },
       include: {
         wards: true,
         branch: { select: { id: true, name: true } },

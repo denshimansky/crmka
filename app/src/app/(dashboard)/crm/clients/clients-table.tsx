@@ -91,17 +91,17 @@ function getStatusBadge(client: ClientRow) {
   )
 }
 
-type TabKey = "all" | "active" | "lead" | "churned"
+type TabKey = "all" | "active" | "upsell" | "churned"
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: "all", label: "Все" },
   { key: "active", label: "Активные" },
-  { key: "lead", label: "Лиды" },
+  { key: "upsell", label: "Допродажа" },
   { key: "churned", label: "Выбывшие" },
+  { key: "all", label: "Все" },
 ]
 
 export function ClientsTable({ clients }: { clients: ClientRow[] }) {
-  const [tab, setTab] = useState<TabKey>("all")
+  const [tab, setTab] = useState<TabKey>("active")
   const [search, setSearch] = useState("")
 
   const filtered = useMemo(() => {
@@ -109,13 +109,11 @@ export function ClientsTable({ clients }: { clients: ClientRow[] }) {
 
     // Tab filter
     if (tab === "active") {
-      result = result.filter((c) => c.clientStatus === "active")
-    } else if (tab === "lead") {
-      result = result.filter(
-        (c) => !c.clientStatus && c.funnelStatus !== "active_client" && c.funnelStatus !== "archived"
-      )
+      result = result.filter((c) => c.clientStatus === "active" || !c.clientStatus)
+    } else if (tab === "upsell") {
+      result = result.filter((c) => c.clientStatus === "upsell")
     } else if (tab === "churned") {
-      result = result.filter((c) => c.clientStatus === "churned")
+      result = result.filter((c) => c.clientStatus === "churned" || c.clientStatus === "archived")
     }
 
     // Search filter

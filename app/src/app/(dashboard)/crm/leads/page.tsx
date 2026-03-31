@@ -73,7 +73,7 @@ export default async function FunnelPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Воронка продаж</h1>
+      <h1 className="text-2xl font-bold">Лиды</h1>
 
       {/* Счётчики */}
       <div className="flex flex-wrap gap-3">

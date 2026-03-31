@@ -32,7 +32,7 @@ const navItems = [
 ]
 
 const crmItems = [
-  { title: "Воронка", href: "/crm/funnel", icon: Filter },
+  { title: "Лиды", href: "/crm/leads", icon: Filter },
   { title: "Клиенты", href: "/crm/clients", icon: Users },
   { title: "Обзвон", href: "/crm/calls", icon: Phone },
 ]
