@@ -164,6 +164,7 @@ model Employee {
   salaryPayments     SalaryPayment[]
   salaryAdjustments  SalaryAdjustment[]
   assignedClients    Client[]           @relation("AssignedClients")
+  assignedTasks      Task[]             @relation("TaskAssignee")
   instructorGroups   Group[]            @relation("GroupInstructor")
   instructorLessons  Lesson[]           @relation("LessonInstructor")
 
@@ -209,14 +210,16 @@ model Client {
   updatedAt              DateTime           @updatedAt @map("updated_at")
   deletedAt              DateTime?          @map("deleted_at")
 
-  organization  Organization       @relation(fields: [tenantId], references: [id])
-  branch        Branch?             @relation(fields: [branchId], references: [id])
-  assignee      Employee?           @relation("AssignedClients", fields: [assignedTo], references: [id])
-  wards         Ward[]
-  enrollments   GroupEnrollment[]
-  subscriptions Subscription[]
-  payments      Payment[]
-  attendances   Attendance[]
+  organization      Organization       @relation(fields: [tenantId], references: [id])
+  branch            Branch?             @relation(fields: [branchId], references: [id])
+  assignee          Employee?           @relation("AssignedClients", fields: [assignedTo], references: [id])
+  wards             Ward[]
+  enrollments       GroupEnrollment[]
+  subscriptions     Subscription[]
+  payments          Payment[]
+  attendances       Attendance[]
+  tasks             Task[]
+  callCampaignItems CallCampaignItem[]
 
   @@index([tenantId, funnelStatus])
   @@index([tenantId, clientStatus])
@@ -616,6 +619,76 @@ model Attendance {
   @@map("attendances")
 }
 
+// === ЗАДАЧИ ===
+
+model Task {
+  id             String           @id @default(uuid()) @db.Uuid
+  tenantId       String           @map("tenant_id") @db.Uuid
+  title          String
+  description    String?
+  type           TaskType
+  autoTrigger    TaskAutoTrigger? @map("auto_trigger")
+  status         TaskStatus       @default(pending)
+  dueDate        DateTime         @db.Date @map("due_date")
+  assignedTo     String           @map("assigned_to") @db.Uuid
+  assignedBy     String?          @map("assigned_by") @db.Uuid
+  clientId       String?          @map("client_id") @db.Uuid
+  completedAt    DateTime?        @map("completed_at")
+  completedBy    String?          @map("completed_by") @db.Uuid
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  deletedAt      DateTime?        @map("deleted_at")
+
+  assignee Employee @relation("TaskAssignee", fields: [assignedTo], references: [id])
+  client   Client?  @relation(fields: [clientId], references: [id])
+
+  @@index([tenantId, status, dueDate])
+  @@index([tenantId, assignedTo])
+  @@map("tasks")
+}
+
+// === ОБЗВОН ===
+
+model CallCampaign {
+  id             String             @id @default(uuid()) @db.Uuid
+  tenantId       String             @map("tenant_id") @db.Uuid
+  name           String
+  status         CallCampaignStatus @default(active)
+  filterCriteria Json               @map("filter_criteria")
+  assignedTo     String?            @map("assigned_to") @db.Uuid
+  totalItems     Int                @default(0) @map("total_items")
+  completedItems Int                @default(0) @map("completed_items")
+  createdBy      String?            @map("created_by") @db.Uuid
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  deletedAt      DateTime?          @map("deleted_at")
+
+  items CallCampaignItem[]
+
+  @@index([tenantId])
+  @@map("call_campaigns")
+}
+
+model CallCampaignItem {
+  id          String         @id @default(uuid()) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  campaignId  String         @map("campaign_id") @db.Uuid
+  clientId    String         @map("client_id") @db.Uuid
+  status      CallItemStatus @default(pending)
+  comment     String?
+  result      String?
+  calledBy    String?        @map("called_by") @db.Uuid
+  calledAt    DateTime?      @map("called_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  campaign CallCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  client   Client       @relation(fields: [clientId], references: [id])
+
+  @@index([campaignId])
+  @@map("call_campaign_items")
+}
+
 // === РАСХОДЫ ===
 
 model ExpenseCategory {
@@ -826,4 +899,39 @@ enum AccountOperationType {
 enum AdjustmentType {
   bonus
   penalty
+}
+
+enum TaskType {
+  manual
+  auto
+}
+
+enum TaskAutoTrigger {
+  contact_date
+  trial_reminder
+  payment_due
+  birthday
+  absence
+  promised_payment
+  unmarked_lesson
+}
+
+enum TaskStatus {
+  pending
+  completed
+  cancelled
+}
+
+enum CallCampaignStatus {
+  active
+  closed
+  archived
+}
+
+enum CallItemStatus {
+  pending
+  called
+  no_answer
+  callback
+  completed
 }
