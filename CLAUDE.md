@@ -99,9 +99,9 @@ tilda/                  — экспорт базы знаний (не в git)
 ```
 
 ## Текущий статус (обновлено 31.03.2026)
-- **Версия:** v1.2.0-alpha на dev.umnayacrm.ru
+- **Версия:** v1.3.0-alpha на dev.umnayacrm.ru
 - **Документация:** PRD v2.5, DD v1.2, screens, reports-logic, audit (65/68 решено)
-- **Playwright:** 90 E2E тестов, полный бизнес-сценарий
+- **Playwright:** 100 E2E тестов, полный бизнес-сценарий
 - **Миграции:** Prisma Migrations (baseline + incremental)
 - **Локальная разработка:** PostgreSQL 17 (Homebrew), .env из .env.example
 
