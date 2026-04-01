@@ -110,6 +110,44 @@ async function main() {
     },
   })
 
+  // === БИЛЛИНГ ===
+
+  // Суперадмин бэк-офиса
+  await db.adminUser.upsert({
+    where: { email: "admin@umnayacrm.ru" },
+    update: {},
+    create: {
+      email: "admin@umnayacrm.ru",
+      passwordHash: hash("admin123"),
+      name: "Суперадмин",
+      role: "superadmin",
+    },
+  })
+
+  // Тарифный план
+  const plan = await db.billingPlan.create({
+    data: {
+      name: "Стандарт",
+      pricePerBranch: 5000,
+      description: "5 000 ₽/мес за филиал",
+    },
+  })
+
+  // Подписка для демо-организации
+  const now = new Date()
+  const nextMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1))
+  await db.billingSubscription.create({
+    data: {
+      organizationId: org.id,
+      planId: plan.id,
+      status: "active",
+      branchCount: 1,
+      monthlyAmount: 5000,
+      nextPaymentDate: nextMonth,
+      startDate: new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)),
+    },
+  })
+
   console.log("Seed complete!")
   console.log("---")
   console.log("Демо-аккаунты (пароль: demo123):")
@@ -118,6 +156,9 @@ async function main() {
   console.log("  admin     — Администратор")
   console.log("  instructor — Инструктор")
   console.log("  viewer    — Только чтение")
+  console.log("")
+  console.log("Бэк-офис (пароль: admin123):")
+  console.log("  admin@umnayacrm.ru — Суперадмин")
 }
 
 main()
