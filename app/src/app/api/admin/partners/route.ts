@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import bcrypt from "bcryptjs"
 
 // GET /api/admin/partners — список партнёров
 export async function GET() {
@@ -38,9 +39,15 @@ const createSchema = z.object({
   phone: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   email: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   contactPerson: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  // Owner — создаётся автоматически вместе с организацией
+  ownerLastName: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  ownerFirstName: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  ownerLogin: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  ownerPassword: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  ownerEmail: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
 })
 
-// POST /api/admin/partners — создать партнёра
+// POST /api/admin/partners — создать партнёра (+ опционально owner)
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -54,16 +61,59 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
 
+  const d = parsed.data
+
   const org = await db.organization.create({
     data: {
-      name: parsed.data.name,
-      legalName: parsed.data.legalName,
-      inn: parsed.data.inn,
-      phone: parsed.data.phone,
-      email: parsed.data.email,
-      contactPerson: parsed.data.contactPerson,
+      name: d.name,
+      legalName: d.legalName,
+      inn: d.inn,
+      phone: d.phone,
+      email: d.email,
+      contactPerson: d.contactPerson,
     },
   })
 
-  return NextResponse.json(org, { status: 201 })
+  let owner = null
+
+  // Создаём owner если указаны данные
+  if (d.ownerLogin && d.ownerPassword && d.ownerFirstName && d.ownerLastName) {
+    // Проверяем уникальность логина глобально
+    const existingLogin = await db.employee.findFirst({
+      where: { tenantId: org.id, login: d.ownerLogin, deletedAt: null },
+    })
+    if (existingLogin) {
+      return NextResponse.json({ error: "Логин владельца уже занят" }, { status: 409 })
+    }
+
+    owner = await db.employee.create({
+      data: {
+        tenantId: org.id,
+        login: d.ownerLogin,
+        passwordHash: bcrypt.hashSync(d.ownerPassword, 10),
+        firstName: d.ownerFirstName,
+        lastName: d.ownerLastName,
+        email: d.ownerEmail,
+        role: "owner",
+      },
+    })
+  }
+
+  // Автоматически создаём подписку на тариф «Стандарт» если есть
+  const defaultPlan = await db.billingPlan.findFirst({ where: { isActive: true }, orderBy: { createdAt: "asc" } })
+  if (defaultPlan) {
+    const now = new Date()
+    await db.billingSubscription.create({
+      data: {
+        organizationId: org.id,
+        planId: defaultPlan.id,
+        branchCount: 1,
+        monthlyAmount: Number(defaultPlan.pricePerBranch),
+        startDate: new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)),
+        nextPaymentDate: new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1)),
+      },
+    })
+  }
+
+  return NextResponse.json({ ...org, owner: owner ? { id: owner.id, login: owner.login } : null }, { status: 201 })
 }

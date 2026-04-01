@@ -40,7 +40,7 @@ export default function PartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [form, setForm] = useState({ name: "", legalName: "", inn: "", phone: "", email: "", contactPerson: "" })
+  const [form, setForm] = useState({ name: "", legalName: "", inn: "", phone: "", email: "", contactPerson: "", ownerLastName: "", ownerFirstName: "", ownerLogin: "", ownerPassword: "", ownerEmail: "" })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
@@ -66,7 +66,7 @@ export default function PartnersPage() {
       const data = await res.json()
       if (!res.ok) { setError(data.error); return }
       setDialogOpen(false)
-      setForm({ name: "", legalName: "", inn: "", phone: "", email: "", contactPerson: "" })
+      setForm({ name: "", legalName: "", inn: "", phone: "", email: "", contactPerson: "", ownerLastName: "", ownerFirstName: "", ownerLogin: "", ownerPassword: "", ownerEmail: "" })
       fetchPartners()
     } catch {
       setError("Ошибка сети")
@@ -191,11 +191,40 @@ export default function PartnersPage() {
               <Label>Контактное лицо</Label>
               <Input value={form.contactPerson} onChange={(e) => setForm({ ...form, contactPerson: e.target.value })} placeholder="Иванов Иван Иванович" />
             </div>
+
+            <div className="border-t pt-4 mt-2">
+              <p className="text-sm font-medium mb-3">Владелец (owner)</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Фамилия *</Label>
+                  <Input value={form.ownerLastName} onChange={(e) => setForm({ ...form, ownerLastName: e.target.value })} placeholder="Малафеева" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Имя *</Label>
+                  <Input value={form.ownerFirstName} onChange={(e) => setForm({ ...form, ownerFirstName: e.target.value })} placeholder="Анна" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 mt-3">
+                <div className="space-y-2">
+                  <Label>Логин *</Label>
+                  <Input value={form.ownerLogin} onChange={(e) => setForm({ ...form, ownerLogin: e.target.value })} placeholder="owner-zvezdochka" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Пароль *</Label>
+                  <Input type="password" value={form.ownerPassword} onChange={(e) => setForm({ ...form, ownerPassword: e.target.value })} placeholder="Минимум 6 символов" />
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                <Label>Email владельца</Label>
+                <Input type="email" value={form.ownerEmail} onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })} placeholder="owner@example.com" />
+              </div>
+            </div>
+
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Отмена</Button>
-            <Button onClick={handleCreate} disabled={saving || !form.name}>
+            <Button onClick={handleCreate} disabled={saving || !form.name || !form.ownerLogin || !form.ownerPassword || !form.ownerFirstName || !form.ownerLastName}>
               {saving ? "Сохранение..." : "Создать"}
             </Button>
           </DialogFooter>
