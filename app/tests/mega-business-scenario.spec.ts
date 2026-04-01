@@ -399,7 +399,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     await page.waitForLoadState("networkidle")
 
     const accounts = [
-      { name: `Касса-${TS}`, type: "Касса" },
+      { name: `Касса-${TS}`, type: "Касса наличных" },
       { name: `Расчётный-${TS}`, type: "Расчётный счёт" },
     ]
 
@@ -503,7 +503,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
     try {
       // Открываем карточку
-      await page.locator("a:has-text('Иванова')").first().click()
+      await page.locator("a[href*='/crm/clients/']:has-text('Иванова')").first().click()
       await page.waitForTimeout(2000)
 
       // Вкладка подопечные
@@ -635,7 +635,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     await page.waitForTimeout(1000)
 
     try {
-      const ivanovaLink = page.locator("a:has-text('Иванова')").first()
+      const ivanovaLink = page.locator("a[href*='/crm/clients/']:has-text('Иванова')").first()
       if (!await ivanovaLink.isVisible({ timeout: 5000 }).catch(() => false)) {
         log("Абонемент для Ивановой", "BUG", "Иванова не найдена в списке лидов")
         return
@@ -648,13 +648,13 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
       await page.locator("button[role='tab']:has-text('Абонементы')").click()
       await page.waitForTimeout(500)
 
-      // Создать абонемент — кнопка "+ Абонемент"
-      const subBtn = page.locator("button:has-text('Абонемент')")
+      // Создать абонемент — кнопка "+ Абонемент" (не таб, не disabled)
+      const subBtn = page.locator("button:has-text('Абонемент'):not([role='tab']):not([disabled])")
       if (!await subBtn.first().isVisible({ timeout: 5000 }).catch(() => false)) {
         log("Кнопка создания абонемента", "BUG", "Не найдена на вкладке Абонементы")
         return
       }
-      await subBtn.first().click()
+      await subBtn.first().click({ force: true })
 
       const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
       if (!await dialog.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -991,7 +991,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
     try {
       // Открываем карточку Ивановой
-      const link = page.locator("a:has-text('Иванова')").first()
+      const link = page.locator("a[href*='/crm/clients/']:has-text('Иванова')").first()
       if (!await link.isVisible({ timeout: 5000 }).catch(() => false)) {
         log("Скидка: Иванова не найдена", "BUG", "Нет в списке лидов")
         return

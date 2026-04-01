@@ -663,11 +663,12 @@ function AddSubscriptionDialog({
   const selectedWard = wards.find(w => w.id === wardId)
 
   return (
+    <>
+    <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Plus className="size-4" />
+      Абонемент
+    </Button>
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>
-        <Plus className="size-4" />
-        Абонемент
-      </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Новый абонемент</DialogTitle>
@@ -815,6 +816,7 @@ function AddSubscriptionDialog({
         </form>
       </DialogContent>
     </Dialog>
+    </>
   )
 }
 

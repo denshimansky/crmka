@@ -89,11 +89,12 @@ export function AddAccountDialog({ branches }: { branches: BranchOption[] }) {
   const selectedBranch = branches.find(b => b.id === branchId)
 
   return (
+    <>
+    <Button onClick={() => setOpen(true)}>
+      <Plus className="mr-2 size-4" />
+      Счёт
+    </Button>
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
-      <DialogTrigger render={<Button />}>
-        <Plus className="mr-2 size-4" />
-        Счёт
-      </DialogTrigger>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Новый счёт</DialogTitle>
@@ -153,5 +154,6 @@ export function AddAccountDialog({ branches }: { branches: BranchOption[] }) {
         </form>
       </DialogContent>
     </Dialog>
+    </>
   )
 }
