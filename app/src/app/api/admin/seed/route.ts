@@ -4,9 +4,10 @@ import bcrypt from "bcryptjs"
 
 // POST /api/admin/seed — создать суперадмина + тариф (одноразовый endpoint)
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  if (body.secret !== process.env.NEXTAUTH_SECRET) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  // Проверяем что суперадминов ещё нет — seed можно запустить только один раз
+  const existingAdmin = await db.adminUser.findFirst({ where: { role: "superadmin" } })
+  if (existingAdmin) {
+    return NextResponse.json({ error: "Суперадмин уже существует" }, { status: 409 })
   }
 
   const hash = bcrypt.hashSync("admin123", 10)
