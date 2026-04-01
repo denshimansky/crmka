@@ -226,6 +226,7 @@ model Client {
   attendances       Attendance[]
   tasks             Task[]
   callCampaignItems CallCampaignItem[]
+  portalTokens      ClientPortalToken[]
 
   @@index([tenantId, funnelStatus])
   @@index([tenantId, clientStatus])
@@ -1049,4 +1050,24 @@ enum BillingInvoiceStatus {
   paid
   overdue
   cancelled
+}
+
+// === ЛИЧНЫЙ КАБИНЕТ КЛИЕНТА ===
+
+model ClientPortalToken {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  clientId        String    @map("client_id") @db.Uuid
+  token           String    @unique
+  isActive        Boolean   @default(true) @map("is_active")
+  pdnConsent      Boolean   @default(false) @map("pdn_consent")
+  pdnConsentDate  DateTime? @map("pdn_consent_date")
+  lastAccessedAt  DateTime? @map("last_accessed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@index([token])
+  @@index([tenantId, clientId])
+  @@map("client_portal_tokens")
 }
