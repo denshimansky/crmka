@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
-  Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -57,11 +57,12 @@ export function CreateBranchDialog() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm() }}>
-      <DialogTrigger render={<Button size="sm" />}>
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}>
         <Plus className="size-4" />
         Филиал
-      </DialogTrigger>
+      </Button>
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Новый филиал</DialogTitle>
@@ -92,5 +93,6 @@ export function CreateBranchDialog() {
         </form>
       </DialogContent>
     </Dialog>
+    </>
   )
 }

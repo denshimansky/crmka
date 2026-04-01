@@ -4,7 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
-  Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -66,11 +66,12 @@ export function CreateRoomDialog({ branches }: { branches: Branch[] }) {
   const selectedBranch = branches.find(b => b.id === branchId)
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm() }}>
-      <DialogTrigger render={<Button size="sm" variant="outline" />}>
+    <>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
         <Plus className="size-4" />
         Кабинет
-      </DialogTrigger>
+      </Button>
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Новый кабинет</DialogTitle>
@@ -104,5 +105,6 @@ export function CreateRoomDialog({ branches }: { branches: Branch[] }) {
         </form>
       </DialogContent>
     </Dialog>
+    </>
   )
 }

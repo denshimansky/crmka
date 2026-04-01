@@ -109,8 +109,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
     try {
       await page.locator("button:has-text('Добавить партнёра')").click()
-      await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-      const dialog = page.locator("div[role='dialog']")
+      await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+      const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
       const inputs = dialog.locator("input")
 
       // Организация
@@ -168,9 +168,10 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     const branches = [`Филиал Центр-${TS}`, `Филиал Север-${TS}`]
     for (const branchName of branches) {
       try {
-        await page.locator("button:has-text('Филиал')").click()
-        await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("div[role='dialog']")
+        await page.locator("button:has-text('Филиал'):not([role='tab'])").last().click({ force: true })
+        await page.waitForTimeout(1000)
+        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
         await dialog.locator("input").first().fill(branchName)
         await dialog.locator("button[type='submit']").click()
         await page.waitForTimeout(2000)
@@ -194,9 +195,14 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     const rooms = [`Зал A-${TS}`, `Зал B-${TS}`, `Класс C-${TS}`, `Класс D-${TS}`]
     for (const roomName of rooms) {
       try {
+        // Перезагружаем страницу каждый раз чтобы избежать RSC race condition
+        await page.goto("/settings")
+        await page.waitForLoadState("networkidle")
+        await page.locator("button[role='tab']:has-text('Филиалы')").click()
+        await page.waitForTimeout(1000)
         await page.locator("button:has-text('Кабинет')").click()
-        await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("div[role='dialog']")
+        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
         await dialog.locator("input").first().fill(roomName)
 
@@ -263,8 +269,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     for (const dir of directions) {
       try {
         await page.locator("button:has-text('Направление')").click()
-        await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("div[role='dialog']")
+        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
         await dialog.locator("input").first().fill(dir.name)
         await dialog.locator("input[type='number']").first().fill(dir.price)
         await dialog.locator("button:has-text('Создать')").click()
@@ -298,8 +304,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     for (const instr of instructors) {
       try {
         await page.locator("button:has-text('Сотрудник')").click()
-        await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("div[role='dialog']")
+        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
         await dialog.locator('input[id="lastName"]').fill(instr.last)
         await dialog.locator('input[id="firstName"]').fill(instr.first)
@@ -344,8 +350,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     for (const groupName of groups) {
       try {
         await page.locator("button:has-text('Группа')").click()
-        await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("div[role='dialog']")
+        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
         await dialog.locator("input").first().fill(groupName)
 
@@ -403,8 +409,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
         await page.waitForLoadState("networkidle")
         await page.waitForTimeout(500)
         await page.locator("button:has-text('Счёт')").first().click()
-        await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("div[role='dialog']")
+        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
         await dialog.locator("input").first().fill(acc.name)
         await dialog.locator("[data-slot='select-trigger']").first().click()
@@ -458,8 +464,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     for (const cl of clients) {
       try {
         await page.locator("button:has-text('Клиент')").click()
-        await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("div[role='dialog']")
+        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
         await dialog.locator("input#cl-lastName").fill(cl.last)
         await dialog.locator("input#cl-firstName").fill(cl.first)
@@ -548,7 +554,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
         await page.waitForTimeout(1000)
 
         // В диалоге генерации
-        const genDialog = page.locator("div[role='dialog']")
+        const genDialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
         if (await genDialog.isVisible({ timeout: 2000 }).catch(() => false)) {
           await genDialog.locator("button:has-text('Сгенерировать')").click()
           await page.waitForTimeout(2000)
@@ -588,8 +594,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
         try {
           const enrollBtn = page.locator("button:has-text('Зачислить')")
           await enrollBtn.click()
-          await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-          const dialog = page.locator("div[role='dialog']")
+          await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+          const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
           await dialog.locator("[data-slot='select-trigger']").first().click()
           await page.waitForTimeout(500)
@@ -650,7 +656,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
       }
       await subBtn.first().click()
 
-      const dialog = page.locator("div[role='dialog']")
+      const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
       if (!await dialog.isVisible({ timeout: 5000 }).catch(() => false)) {
         log("Диалог абонемента", "BUG", "Не открылся")
         return
@@ -693,8 +699,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     // Оплата от Козлова (переплата — 10000 вместо стандартной суммы)
     try {
       await page.locator("button:has-text('Оплата')").first().click()
-      await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-      const dialog = page.locator("div[role='dialog']")
+      await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+      const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
       const selects = dialog.locator("[data-slot='select-trigger']")
 
       // Клиент
@@ -757,8 +763,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
     try {
       await page.locator("button:has-text('Внести расход')").click()
-      await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-      const dialog = page.locator("div[role='dialog']")
+      await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+      const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
       // Статья расхода (первый select)
       const selects = dialog.locator("[data-slot='select-trigger']")
@@ -811,8 +817,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
     try {
       await page.locator("button:has-text('Задача')").click()
-      await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-      const dialog = page.locator("div[role='dialog']")
+      await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+      const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
       // Заголовок
       await dialog.locator("input[placeholder*='нужно сделать']").fill("Обзвонить родителей по оплате")
@@ -850,8 +856,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
     try {
       await page.locator("button:has-text('Новый обзвон')").click()
-      await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-      const dialog = page.locator("div[role='dialog']")
+      await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+      const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
       await dialog.locator("input[placeholder*='Например']").fill(`Обзвон лидов ${TS}`)
 
@@ -892,8 +898,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
       }
 
       await payBtn.click()
-      await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-      const dialog = page.locator("div[role='dialog']")
+      await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+      const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
       // Сотрудник
       const selects = dialog.locator("[data-slot='select-trigger']")
@@ -1006,8 +1012,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
       }
 
       await editBtn.click()
-      await page.waitForSelector("div[role='dialog']", { timeout: 5000 })
-      const dialog = page.locator("div[role='dialog']")
+      await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
+      const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
       // Ищем поле "Скидка"
       const discountInput = dialog.locator("input[type='number']").last()
