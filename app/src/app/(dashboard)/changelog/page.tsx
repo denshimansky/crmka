@@ -17,6 +17,22 @@ interface Release {
 
 const releases: Release[] = [
   {
+    version: "1.4.0-alpha",
+    date: "01.04.2026",
+    title: "Модуль 10: Биллинг + ЛК — SaaS-слой, 10/10 модулей MVP",
+    changes: [
+      { type: "added", text: "Бэк-офис (/admin): JWT-авторизация, 4 роли (superadmin, support, development, billing)" },
+      { type: "added", text: "Бэк-офис: управление партнёрами (список, карточка, CRUD, блокировка/разблокировка)" },
+      { type: "added", text: "Бэк-офис: тарифные планы (CRUD), подписки, счета с автономером INV-YYYYMM-XXX" },
+      { type: "added", text: "ЛК партнёра (/billing): подписка, счета, история оплат (owner/manager)" },
+      { type: "added", text: "ЛК клиента (/portal): токенный вход, согласие ПДн, расписание, баланс, абонементы, оплаты" },
+      { type: "added", text: "Плашки биллинга в CRM: грейс-период (жёлтая), блокировка (красная), предупреждение за 5 дней (синяя)" },
+      { type: "added", text: "Пункт «Подписка» в сайдбаре (только owner/manager)" },
+      { type: "added", text: "Prisma: AdminUser, BillingPlan, BillingSubscription, BillingInvoice, ClientPortalToken" },
+      { type: "added", text: "Playwright: 24 новых теста (10 бэк-офис + 7 ЛК партнёра + 7 ЛК клиента), всего 124 E2E" },
+    ],
+  },
+  {
     version: "1.3.0-alpha",
     date: "31.03.2026",
     title: "Закрытие пробелов: обзвон, автозадачи, 10 отчётов, 100 тестов",
