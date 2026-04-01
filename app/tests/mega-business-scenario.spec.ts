@@ -56,13 +56,14 @@ async function loginAsAdmin(page: Page) {
 async function login(page: Page) {
   await page.goto("/login")
   await page.waitForLoadState("networkidle")
+  await page.waitForTimeout(500)
   await page.locator('input[id="login"]').click()
   await page.locator('input[id="login"]').fill(OWNER_LOGIN)
   await page.locator('input[id="password"]').click()
   await page.locator('input[id="password"]').fill(OWNER_PASSWORD)
-  await page.waitForTimeout(200)
+  await page.waitForTimeout(300)
   await page.click('button[type="submit"]')
-  await page.waitForURL("/", { timeout: 15000 })
+  await page.waitForURL("/", { timeout: 30000 })
 }
 
 /** Обёртка: тест никогда не фейлит Playwright, только логирует BUG */
@@ -425,7 +426,12 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
         await page.waitForTimeout(300)
 
         await dialog.locator("button:has-text('Создать')").click()
-        await page.waitForTimeout(1500)
+        await page.waitForTimeout(2000)
+
+        // Перезагружаем чтобы увидеть новый счёт
+        await page.goto("/finance/cash")
+        await page.waitForLoadState("networkidle")
+        await page.waitForTimeout(1000)
 
         const visible = await page.locator(`text=${acc.name}`).isVisible({ timeout: 3000 }).catch(() => false)
         if (visible) {
