@@ -7,7 +7,7 @@ import { signOut } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   Landmark, ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
-  UserCog, Settings, Bell, Sparkles, ChevronDown, LogOut, Map, FileText,
+  UserCog, Settings, Bell, Sparkles, ChevronDown, LogOut, Map, FileText, Crown,
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel,
@@ -146,6 +146,18 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>{renderItems(otherItems)}</SidebarMenu>
+            {(user?.role === "owner" || user?.role === "manager") && (
+              <>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton render={<Link href="/billing" />} isActive={isActive("/billing")}>
+                      <Crown className="size-4" />
+                      <span>Подписка</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </>
+            )}
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
