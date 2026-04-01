@@ -6,28 +6,21 @@ import { z } from "zod"
 
 export async function GET() {
   const session = await getServerSession(authOptions)
-  if (!session?.user)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const branches = await db.branch.findMany({
-    where: {
-      tenantId: session.user.tenantId,
-      deletedAt: null,
-    },
-    include: {
-      rooms: { where: { deletedAt: null }, select: { id: true, name: true, capacity: true } },
-    },
+  const rooms = await db.room.findMany({
+    where: { tenantId: session.user.tenantId, deletedAt: null },
+    include: { branch: { select: { id: true, name: true } } },
     orderBy: { name: "asc" },
   })
 
-  return NextResponse.json(branches)
+  return NextResponse.json(rooms)
 }
 
 const createSchema = z.object({
   name: z.string({ required_error: "Название обязательно" }).min(1, "Название обязательно"),
-  address: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
-  workingHoursStart: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
-  workingHoursEnd: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  branchId: z.string().uuid("Выберите филиал"),
+  capacity: z.number().int().min(1, "Минимум 1").default(15),
 })
 
 export async function POST(req: NextRequest) {
@@ -43,15 +36,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
 
-  const branch = await db.branch.create({
+  const room = await db.room.create({
     data: {
       tenantId: session.user.tenantId,
+      branchId: parsed.data.branchId,
       name: parsed.data.name,
-      address: parsed.data.address,
-      workingHoursStart: parsed.data.workingHoursStart,
-      workingHoursEnd: parsed.data.workingHoursEnd,
+      capacity: parsed.data.capacity,
     },
   })
 
-  return NextResponse.json(branch, { status: 201 })
+  return NextResponse.json(room, { status: 201 })
 }

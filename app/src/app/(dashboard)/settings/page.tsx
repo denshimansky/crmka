@@ -7,6 +7,8 @@ import { Building2, MapPin, Palette, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CreateDirectionDialog } from "./create-direction-dialog"
 import { EditDirectionDialog } from "./edit-direction-dialog"
+import { CreateBranchDialog } from "./create-branch-dialog"
+import { CreateRoomDialog } from "./create-room-dialog"
 
 export default async function SettingsPage() {
   const session = await getSession()
@@ -121,10 +123,10 @@ export default async function SettingsPage() {
               <p className="text-sm text-muted-foreground">
                 Всего филиалов: {org.branches.length}
               </p>
-              <Button size="sm">
-                <Plus className="size-4" />
-                Филиал
-              </Button>
+              <div className="flex gap-2">
+                <CreateRoomDialog branches={org.branches.map(b => ({ id: b.id, name: b.name }))} />
+                <CreateBranchDialog />
+              </div>
             </div>
 
             {org.branches.length === 0 ? (
