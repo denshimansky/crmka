@@ -1,0 +1,57 @@
+import { NextRequest, NextResponse } from "next/server"
+import { db } from "@/lib/db"
+import bcrypt from "bcryptjs"
+
+// POST /api/admin/seed — создать суперадмина + тариф (одноразовый endpoint)
+export async function POST(req: NextRequest) {
+  const body = await req.json()
+  if (body.secret !== process.env.NEXTAUTH_SECRET) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
+  const hash = bcrypt.hashSync("admin123", 10)
+
+  const admin = await db.adminUser.upsert({
+    where: { email: "admin@umnayacrm.ru" },
+    update: { passwordHash: hash },
+    create: {
+      email: "admin@umnayacrm.ru",
+      passwordHash: hash,
+      name: "Суперадмин",
+      role: "superadmin",
+    },
+  })
+
+  // Тарифный план
+  const existingPlan = await db.billingPlan.findFirst()
+  let plan = existingPlan
+  if (!plan) {
+    plan = await db.billingPlan.create({
+      data: { name: "Стандарт", pricePerBranch: 5000, description: "5 000 ₽/мес за филиал" },
+    })
+  }
+
+  // Подписки для всех организаций без подписки
+  const orgs = await db.organization.findMany({
+    where: { billingSubscriptions: { none: {} } },
+  })
+  const now = new Date()
+  for (const org of orgs) {
+    await db.billingSubscription.create({
+      data: {
+        organizationId: org.id,
+        planId: plan.id,
+        branchCount: 1,
+        monthlyAmount: 5000,
+        startDate: new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)),
+        nextPaymentDate: new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1)),
+      },
+    })
+  }
+
+  return NextResponse.json({
+    admin: admin.id,
+    plan: plan.id,
+    subscriptionsCreated: orgs.length,
+  })
+}
