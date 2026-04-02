@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Banknote, TrendingUp, TrendingDown, Users } from "lucide-react"
 import { PaySalaryDialog } from "./pay-salary-dialog"
-import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
+import { MonthPicker } from "@/components/month-picker"
+import { getMonthFromParams } from "@/lib/month-params"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"

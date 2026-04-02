@@ -1,4 +1,5 @@
-import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
+import { MonthPicker } from "@/components/month-picker"
+import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
