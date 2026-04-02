@@ -1,3 +1,4 @@
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,15 +20,13 @@ const TYPE_LABELS: Record<string, string> = {
   trial: "Пробное",
 }
 
-export default async function VisitsReportPage() {
+export default async function VisitsReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  const monthStart = new Date(Date.UTC(year, month, 1))
-  const monthEnd = new Date(Date.UTC(year, month + 1, 0))
+  const { year, month } = getMonthFromParams(await searchParams)
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
+  const monthEnd = new Date(Date.UTC(year, month, 0))
 
   const attendances = await db.attendance.findMany({
     where: {
@@ -79,7 +78,7 @@ export default async function VisitsReportPage() {
   const absentCount = byType.get("absent")?.count || 0
   const attendanceRate = totalVisits > 0 ? Math.round((presentCount / totalVisits) * 100) : 0
 
-  const monthName = now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   return (
     <div className="space-y-6">
@@ -91,6 +90,7 @@ export default async function VisitsReportPage() {
           <h1 className="text-2xl font-bold">Посещения</h1>
           <p className="text-sm text-muted-foreground">Отчёт по посещаемости за месяц</p>
         </div>
+        <MonthPicker />
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">

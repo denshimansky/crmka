@@ -1,3 +1,4 @@
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
@@ -23,16 +24,14 @@ const METHOD_LABELS: Record<string, string> = {
   sbp_qr: "СБП",
 }
 
-export default async function PaymentsPage() {
+export default async function PaymentsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  // Начало и конец текущего месяца (UTC для корректного сравнения с DATE)
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  const monthStart = new Date(Date.UTC(year, month, 1))
-  const monthEnd = new Date(Date.UTC(year, month + 1, 0))
+  // Начало и конец месяца (UTC для корректного сравнения с DATE)
+  const { year, month } = getMonthFromParams(await searchParams)
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
+  const monthEnd = new Date(Date.UTC(year, month, 0))
 
   const payments = await db.payment.findMany({
     where: {
@@ -83,12 +82,15 @@ export default async function PaymentsPage() {
     orderBy: { createdAt: "asc" },
   })
 
-  const monthName = now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Оплаты</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold">Оплаты</h1>
+          <MonthPicker />
+        </div>
         <AddPaymentDialog
           clients={clients.map(c => ({ id: c.id, name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени" }))}
           accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}

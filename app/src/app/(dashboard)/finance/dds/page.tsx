@@ -1,3 +1,4 @@
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,15 +10,13 @@ function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
 }
 
-export default async function DdsPage() {
+export default async function DdsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  const monthStart = new Date(Date.UTC(year, month, 1))
-  const monthEnd = new Date(Date.UTC(year, month + 1, 0))
+  const { year, month } = getMonthFromParams(await searchParams)
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
+  const monthEnd = new Date(Date.UTC(year, month, 0))
 
   // Все счета
   const accounts = await db.financialAccount.findMany({
@@ -81,7 +80,7 @@ export default async function DdsPage() {
   // === Остатки ===
   const totalBalance = accounts.reduce((s, a) => s + Number(a.balance), 0)
 
-  const monthName = now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   // Строки расхода для таблицы
   const expenseRows = [
@@ -93,9 +92,12 @@ export default async function DdsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">ДДС</h1>
-        <p className="text-sm text-muted-foreground">Движение денежных средств</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">ДДС</h1>
+          <p className="text-sm text-muted-foreground">Движение денежных средств</p>
+        </div>
+        <MonthPicker />
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">

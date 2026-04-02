@@ -1,3 +1,4 @@
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,16 +11,14 @@ function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
 }
 
-export default async function NotRenewedReportPage() {
+export default async function NotRenewedReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  const now = new Date()
-  const currentYear = now.getFullYear()
-  const currentMonth = now.getMonth() + 1
+  const { year: currentYear, month: currentMonth } = getMonthFromParams(await searchParams)
 
   // Предыдущий месяц
-  const prevDate = new Date(Date.UTC(currentYear, now.getMonth() - 1, 1))
+  const prevDate = new Date(Date.UTC(currentYear, currentMonth - 2, 1))
   const prevYear = prevDate.getFullYear()
   const prevMonth = prevDate.getMonth() + 1
 
@@ -113,6 +112,7 @@ export default async function NotRenewedReportPage() {
             Клиенты с абонементом за {prevMonthName}, не продлившие на текущий месяц
           </p>
         </div>
+        <MonthPicker />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-4">

@@ -1,3 +1,4 @@
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,16 +13,15 @@ function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
+  const { year, month } = getMonthFromParams(await searchParams)
   const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  const monthStart = new Date(Date.UTC(year, month, 1))
-  const monthEnd = new Date(Date.UTC(year, month + 1, 0))
-  const today = new Date(Date.UTC(year, month, now.getDate()))
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
+  const monthEnd = new Date(Date.UTC(year, month, 0))
+  const today = new Date(Date.UTC(year, month - 1, now.getDate()))
 
   // === МЕТРИКИ ===
 
@@ -132,7 +132,10 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Главная</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold">Главная</h1>
+          <MonthPicker />
+        </div>
         <span className="text-sm text-muted-foreground">{dateStr}</span>
       </div>
 

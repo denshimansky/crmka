@@ -1,3 +1,4 @@
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,15 +11,13 @@ function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
 }
 
-export default async function PnlReportPage() {
+export default async function PnlReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  const monthStart = new Date(Date.UTC(year, month, 1))
-  const monthEnd = new Date(Date.UTC(year, month + 1, 0))
+  const { year, month } = getMonthFromParams(await searchParams)
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
+  const monthEnd = new Date(Date.UTC(year, month, 0))
 
   // === ВЫРУЧКА: списания с абонементов (chargedAmount) ===
   const attendances = await db.attendance.findMany({
@@ -67,7 +66,7 @@ export default async function PnlReportPage() {
   const netProfit = revenue - totalExpenses - totalSalaryAccrued
   const profitability = revenue > 0 ? (netProfit / revenue) * 100 : 0
 
-  const monthName = now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   // Строки P&L
   const pnlRows = [
@@ -102,6 +101,7 @@ export default async function PnlReportPage() {
           <h1 className="text-2xl font-bold">Финансовый результат (P&L)</h1>
           <p className="text-sm text-muted-foreground">Выручка − Расходы − ЗП = Прибыль</p>
         </div>
+        <MonthPicker />
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">

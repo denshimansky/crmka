@@ -1,3 +1,4 @@
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
@@ -11,15 +12,13 @@ function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
 }
 
-export default async function ExpensesPage() {
+export default async function ExpensesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  const monthStart = new Date(Date.UTC(year, month, 1))
-  const monthEnd = new Date(Date.UTC(year, month + 1, 0))
+  const { year, month } = getMonthFromParams(await searchParams)
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
+  const monthEnd = new Date(Date.UTC(year, month, 0))
 
   const expenses = await db.expense.findMany({
     where: {
@@ -73,7 +72,7 @@ export default async function ExpensesPage() {
     orderBy: { createdAt: "asc" },
   })
 
-  const monthName = now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   // Подготовка данных для таблицы
   const tableExpenses = expenses.map(e => ({
@@ -104,9 +103,12 @@ export default async function ExpensesPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Расходы</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold">Расходы</h1>
+          <MonthPicker />
+        </div>
         <div className="flex items-center gap-2">
-          <CopyMonthButton currentYear={now.getFullYear()} currentMonth={now.getMonth() + 1} />
+          <CopyMonthButton currentYear={year} currentMonth={month} />
           <AddExpenseDialog categories={categories} accounts={accounts} branches={allBranches} />
         </div>
       </div>

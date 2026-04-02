@@ -1,3 +1,4 @@
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,7 +21,7 @@ const WITHDRAWAL_REASONS: Record<string, string> = {
   other: "Другое",
 }
 
-export default async function ChurnDetailsPage() {
+export default async function ChurnDetailsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
@@ -55,10 +56,7 @@ export default async function ChurnDetailsPage() {
     orderBy: { withdrawalDate: "desc" },
   })
 
-  // Также клиенты без активных абонементов (неявный отток)
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth() + 1
+  const { year, month } = getMonthFromParams(await searchParams)
 
   // Всего активных
   const totalActive = await db.client.count({
@@ -107,6 +105,7 @@ export default async function ChurnDetailsPage() {
           <h1 className="text-2xl font-bold">Детализация оттока</h1>
           <p className="text-sm text-muted-foreground">Выбывшие клиенты по направлениям и инструкторам</p>
         </div>
+        <MonthPicker />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">

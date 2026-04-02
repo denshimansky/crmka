@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Banknote, TrendingUp, TrendingDown, Users } from "lucide-react"
 import { PaySalaryDialog } from "./pay-salary-dialog"
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -18,13 +19,11 @@ const ROLE_LABELS: Record<string, string> = {
   readonly: "Только чтение",
 }
 
-export default async function SalaryPage() {
+export default async function SalaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth() + 1
+  const { year, month } = getMonthFromParams(await searchParams)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0))
 
@@ -116,7 +115,7 @@ export default async function SalaryPage() {
     orderBy: { createdAt: "asc" },
   })
 
-  const monthName = now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   const summary = [
     { title: "Начислено", value: formatMoney(totalAccrued), icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50" },
@@ -129,7 +128,10 @@ export default async function SalaryPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Зарплата</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold">Зарплата</h1>
+          <MonthPicker />
+        </div>
         <PaySalaryDialog
           employees={displayRows.map(r => ({ id: r.id, name: r.name, remaining: r.remaining }))}
           accounts={accounts}

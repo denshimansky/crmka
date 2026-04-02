@@ -1,3 +1,4 @@
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,15 +20,13 @@ const METHOD_LABELS: Record<string, string> = {
   sbp_qr: "СБП (QR)",
 }
 
-export default async function AvgCheckReportPage() {
+export default async function AvgCheckReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  const monthStart = new Date(Date.UTC(year, month, 1))
-  const monthEnd = new Date(Date.UTC(year, month + 1, 0))
+  const { year, month } = getMonthFromParams(await searchParams)
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
+  const monthEnd = new Date(Date.UTC(year, month, 0))
 
   const payments = await db.payment.findMany({
     where: {
@@ -62,7 +61,7 @@ export default async function AvgCheckReportPage() {
       avg: data.count > 0 ? data.amount / data.count : 0,
     }))
 
-  const monthName = now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   return (
     <div className="space-y-6">
@@ -74,6 +73,7 @@ export default async function AvgCheckReportPage() {
           <h1 className="text-2xl font-bold">Средний чек</h1>
           <p className="text-sm text-muted-foreground">Средняя сумма оплаты по способам</p>
         </div>
+        <MonthPicker />
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">

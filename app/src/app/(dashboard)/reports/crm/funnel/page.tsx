@@ -1,3 +1,4 @@
+import { MonthPicker, getMonthFromParams } from "@/components/month-picker"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -34,7 +35,7 @@ const STATUS_COLORS: Record<string, string> = {
   archived: "bg-gray-200",
 }
 
-export default async function FunnelReportPage() {
+export default async function FunnelReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
@@ -75,9 +76,9 @@ export default async function FunnelReportPage() {
     }))
     .filter(d => d.count > 0)
 
-  // Метрики за текущий месяц
-  const now = new Date()
-  const monthStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1))
+  // Метрики за выбранный месяц
+  const { year, month } = getMonthFromParams(await searchParams)
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const newThisMonth = clients.filter(c => c.createdAt >= monthStart).length
   const convertedThisMonth = clients.filter(c => c.firstPaymentDate && c.firstPaymentDate >= monthStart).length
 
@@ -93,6 +94,7 @@ export default async function FunnelReportPage() {
           <h1 className="text-2xl font-bold">Воронка продаж</h1>
           <p className="text-sm text-muted-foreground">Распределение клиентов по этапам воронки</p>
         </div>
+        <MonthPicker />
       </div>
 
       {/* Метрики */}
