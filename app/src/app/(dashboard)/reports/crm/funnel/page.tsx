@@ -143,7 +143,7 @@ export default async function FunnelReportPage({ searchParams }: { searchParams:
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Конверсия</p>
             <p className="text-2xl font-bold">
-              {formatPercent(statusCounts.get("active_client") || 0, totalClients)}
+              {formatPercent(allClients.filter(c => c.funnelStatus === "active_client").length, totalClients)}
             </p>
           </CardContent>
         </Card>
