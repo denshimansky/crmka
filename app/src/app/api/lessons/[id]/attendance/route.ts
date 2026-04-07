@@ -301,137 +301,145 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     },
   })
 
-  const results = []
-  let isFirstForLesson = true
+  // === Предзагрузка existing attendances (batch вместо N+1) ===
+  const existingAttendances = await db.attendance.findMany({
+    where: { lessonId, tenantId },
+  })
 
-  for (const enrollment of enrollments) {
-    const subscription = subscriptions.find(
-      (s) => s.clientId === enrollment.clientId && (
-        enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
+  // === Вся bulk-логика в одной транзакции ===
+  const results = await db.$transaction(async (tx) => {
+    const atts = []
+    let isFirstForLesson = true
+
+    for (const enrollment of enrollments) {
+      const subscription = subscriptions.find(
+        (s) => s.clientId === enrollment.clientId && (
+          enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
+        )
       )
-    )
 
-    let chargeAmount = new Prisma.Decimal(0)
-    if (attendanceType.chargesSubscription && subscription) {
-      chargeAmount = subscription.lessonPrice
-    }
-
-    let instructorPayAmount = new Prisma.Decimal(0)
-    if (attendanceType.paysInstructor && salaryRate) {
-      if (salaryRate.scheme === "per_student" && salaryRate.ratePerStudent) {
-        instructorPayAmount = salaryRate.ratePerStudent
-      } else if (salaryRate.scheme === "per_lesson" && salaryRate.ratePerLesson && isFirstForLesson) {
-        instructorPayAmount = salaryRate.ratePerLesson
-        isFirstForLesson = false
-      } else if (salaryRate.scheme === "fixed_plus_per_student" && salaryRate.ratePerStudent) {
-        instructorPayAmount = salaryRate.ratePerStudent
+      let chargeAmount = new Prisma.Decimal(0)
+      if (attendanceType.chargesSubscription && subscription) {
+        chargeAmount = subscription.lessonPrice
       }
-    }
 
-    const subscriptionId = subscription?.id || null
+      let instructorPayAmount = new Prisma.Decimal(0)
+      if (attendanceType.paysInstructor && salaryRate) {
+        if (salaryRate.scheme === "per_student" && salaryRate.ratePerStudent) {
+          instructorPayAmount = salaryRate.ratePerStudent
+        } else if (salaryRate.scheme === "per_lesson" && salaryRate.ratePerLesson && isFirstForLesson) {
+          instructorPayAmount = salaryRate.ratePerLesson
+          isFirstForLesson = false
+        } else if (salaryRate.scheme === "fixed_plus_per_student" && salaryRate.ratePerStudent) {
+          instructorPayAmount = salaryRate.ratePerStudent
+        }
+      }
 
-    if (subscriptionId) {
-      const existing = await db.attendance.findUnique({
-        where: { lessonId_subscriptionId: { lessonId, subscriptionId } },
-      })
+      const subscriptionId = subscription?.id || null
 
-      if (existing) {
-        // Reverse previous charge
-        if (existing.subscriptionId && Number(existing.chargeAmount) > 0) {
-          await db.subscription.update({
-            where: { id: existing.subscriptionId },
+      if (subscriptionId) {
+        // Ищем в предзагруженных (вместо N отдельных запросов)
+        const existing = existingAttendances.find(
+          (a) => a.subscriptionId === subscriptionId
+        )
+
+        if (existing) {
+          // Reverse previous charge
+          if (existing.subscriptionId && Number(existing.chargeAmount) > 0) {
+            await tx.subscription.update({
+              where: { id: existing.subscriptionId },
+              data: {
+                balance: { increment: existing.chargeAmount },
+                chargedAmount: { decrement: existing.chargeAmount },
+              },
+            })
+          }
+
+          const att = await tx.attendance.update({
+            where: { id: existing.id },
             data: {
-              balance: { increment: existing.chargeAmount },
-              chargedAmount: { decrement: existing.chargeAmount },
+              attendanceTypeId: parsed.data.attendanceTypeId,
+              chargeAmount,
+              instructorPayAmount,
+              instructorPayEnabled: true,
+              markedBy: employeeId,
+              markedAt: new Date(),
+            },
+          })
+          atts.push(att)
+        } else {
+          const att = await tx.attendance.create({
+            data: {
+              tenantId,
+              lessonId,
+              subscriptionId,
+              clientId: enrollment.clientId,
+              wardId: enrollment.wardId,
+              attendanceTypeId: parsed.data.attendanceTypeId,
+              chargeAmount,
+              instructorPayAmount,
+              instructorPayEnabled: true,
+              markedBy: employeeId,
+              markedAt: new Date(),
+            },
+          })
+          atts.push(att)
+        }
+
+        // Debit subscription
+        if (attendanceType.chargesSubscription && Number(chargeAmount) > 0) {
+          await tx.subscription.update({
+            where: { id: subscriptionId },
+            data: {
+              balance: { decrement: chargeAmount },
+              chargedAmount: { increment: chargeAmount },
             },
           })
         }
-
-        const att = await db.attendance.update({
-          where: { id: existing.id },
-          data: {
-            attendanceTypeId: parsed.data.attendanceTypeId,
-            chargeAmount,
-            instructorPayAmount,
-            instructorPayEnabled: true,
-            markedBy: employeeId,
-            markedAt: new Date(),
-          },
-        })
-        results.push(att)
       } else {
-        const att = await db.attendance.create({
-          data: {
-            tenantId,
-            lessonId,
-            subscriptionId,
-            clientId: enrollment.clientId,
-            wardId: enrollment.wardId,
-            attendanceTypeId: parsed.data.attendanceTypeId,
-            chargeAmount,
-            instructorPayAmount,
-            instructorPayEnabled: true,
-            markedBy: employeeId,
-            markedAt: new Date(),
-          },
-        })
-        results.push(att)
-      }
+        // No subscription — ищем в предзагруженных
+        const existing = existingAttendances.find(
+          (a) => a.clientId === enrollment.clientId &&
+            a.wardId === enrollment.wardId &&
+            a.subscriptionId === null
+        )
 
-      // Debit subscription
-      if (attendanceType.chargesSubscription && Number(chargeAmount) > 0) {
-        await db.subscription.update({
-          where: { id: subscriptionId },
-          data: {
-            balance: { decrement: chargeAmount },
-            chargedAmount: { increment: chargeAmount },
-          },
-        })
-      }
-    } else {
-      // No subscription
-      const existing = await db.attendance.findFirst({
-        where: {
-          lessonId,
-          clientId: enrollment.clientId,
-          wardId: enrollment.wardId,
-          subscriptionId: null,
-        },
-      })
-
-      if (existing) {
-        const att = await db.attendance.update({
-          where: { id: existing.id },
-          data: {
-            attendanceTypeId: parsed.data.attendanceTypeId,
-            chargeAmount: 0,
-            instructorPayAmount,
-            instructorPayEnabled: true,
-            markedBy: employeeId,
-            markedAt: new Date(),
-          },
-        })
-        results.push(att)
-      } else {
-        const att = await db.attendance.create({
-          data: {
-            tenantId,
-            lessonId,
-            subscriptionId: null,
-            clientId: enrollment.clientId,
-            wardId: enrollment.wardId,
-            attendanceTypeId: parsed.data.attendanceTypeId,
-            chargeAmount: 0,
-            instructorPayAmount,
-            instructorPayEnabled: true,
-            markedBy: employeeId,
-            markedAt: new Date(),
-          },
-        })
-        results.push(att)
+        if (existing) {
+          const att = await tx.attendance.update({
+            where: { id: existing.id },
+            data: {
+              attendanceTypeId: parsed.data.attendanceTypeId,
+              chargeAmount: 0,
+              instructorPayAmount,
+              instructorPayEnabled: true,
+              markedBy: employeeId,
+              markedAt: new Date(),
+            },
+          })
+          atts.push(att)
+        } else {
+          const att = await tx.attendance.create({
+            data: {
+              tenantId,
+              lessonId,
+              subscriptionId: null,
+              clientId: enrollment.clientId,
+              wardId: enrollment.wardId,
+              attendanceTypeId: parsed.data.attendanceTypeId,
+              chargeAmount: 0,
+              instructorPayAmount,
+              instructorPayEnabled: true,
+              markedBy: employeeId,
+              markedAt: new Date(),
+            },
+          })
+          atts.push(att)
+        }
       }
     }
-  }
+
+    return atts
+  })
 
   return NextResponse.json({ count: results.length, attendances: results })
 }
