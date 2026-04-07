@@ -24,6 +24,10 @@ jobs:
           script: |
             cd /opt/crmka
             git pull origin main
+            # Гарантируем что dev-сервер имеет ALLOW_DESTRUCTIVE_API=true (для seed/reset)
+            if ! grep -q "^ALLOW_DESTRUCTIVE_API=" .env 2>/dev/null; then
+              echo "ALLOW_DESTRUCTIVE_API=true" >> .env
+            fi
             docker compose build app
             docker compose up -d
             # Baseline: если _prisma_migrations не существует, создаём и помечаем initial как applied

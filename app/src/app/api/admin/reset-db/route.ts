@@ -6,8 +6,8 @@ import bcrypt from "bcryptjs"
 // POST /api/admin/reset-db — полный сброс БД + seed
 // Только для superadmin, только dev-среда
 export async function POST(req: NextRequest) {
-  // Запрещаем в production
-  if (process.env.NODE_ENV === "production") {
+  // Запрещаем в production (кроме dev-сервера с явным разрешением)
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DESTRUCTIVE_API !== "true") {
     return NextResponse.json({ error: "Reset-db недоступен в production" }, { status: 403 })
   }
 
