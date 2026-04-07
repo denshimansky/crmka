@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { authenticateAdmin, getAdminSession } from "@/lib/admin-auth"
+import { rateLimit, getClientIp } from "@/lib/rate-limit"
 
 // POST /api/admin/auth — логин админа
 export async function POST(req: NextRequest) {
+  // Rate limit: 5 попыток логина в минуту per IP
+  const ip = getClientIp(req)
+  const rl = rateLimit(`admin-auth:${ip}`, { maxRequests: 5, windowMs: 60_000 })
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: `Слишком много попыток. Повторите через ${rl.retryAfter} сек.` },
+      { status: 429 }
+    )
+  }
+
   const body = await req.json()
   const { email, password } = body
 
