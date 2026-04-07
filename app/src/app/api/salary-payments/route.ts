@@ -50,6 +50,11 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  const role = (session.user as any).role
+  if (role !== "owner" && role !== "manager") {
+    return NextResponse.json({ error: "Зарплатные выплаты доступны только владельцу и управляющему" }, { status: 403 })
+  }
+
   const body = await req.json()
   const parsed = createSchema.safeParse(body)
   if (!parsed.success) {
