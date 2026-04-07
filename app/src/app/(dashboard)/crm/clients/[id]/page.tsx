@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { ArrowLeft, CreditCard, FileText } from "lucide-react"
 import { ClientTabs } from "./client-tabs"
 import { EditClientDialog } from "./edit-client-dialog"
+import { UnprolongedCommentsSection } from "./unprolonged-comments"
 
 // --- Labels and colors ---
 
@@ -170,6 +171,7 @@ export default async function ClientPage({
 
         {/* Sidebar */}
         <div className="space-y-4">
+          <UnprolongedCommentsSection clientId={client.id} />
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">

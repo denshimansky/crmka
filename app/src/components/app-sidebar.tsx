@@ -7,8 +7,10 @@ import { signOut } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   Landmark, ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
-  UserCog, Settings, Bell, Sparkles, ChevronDown, LogOut, Map, FileText, Crown,
+  UserCog, Settings, Sparkles, ChevronDown, LogOut, Map, FileText, Crown,
+  CalendarDays, Tag, Target, Award,
 } from "lucide-react"
+import { NotificationBell } from "@/components/notification-bell"
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel,
   SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton,
@@ -40,6 +42,7 @@ const crmItems = [
 const financeItems = [
   { title: "Оплаты", href: "/finance/payments", icon: CreditCard },
   { title: "Расходы", href: "/finance/expenses", icon: Receipt },
+  { title: "Плановые расходы", href: "/finance/planned-expenses", icon: Target },
   { title: "Касса", href: "/finance/cash", icon: Landmark },
   { title: "ДДС", href: "/finance/dds", icon: ArrowDownUp },
   { title: "Должники", href: "/finance/debtors", icon: AlertTriangle },
@@ -47,12 +50,15 @@ const financeItems = [
 
 const otherItems = [
   { title: "Расписание", href: "/schedule", icon: Calendar },
+  { title: "Произв. календарь", href: "/schedule/calendar", icon: CalendarDays },
   { title: "Зарплата", href: "/salary", icon: Wallet },
   { title: "Склад", href: "/stock", icon: Package },
   { title: "Задачи", href: "/tasks", icon: ClipboardList },
   { title: "Отчёты", href: "/reports", icon: BarChart3 },
   { title: "Сотрудники", href: "/staff", icon: UserCog },
   { title: "Настройки", href: "/settings", icon: Settings },
+  { title: "Шаблоны скидок", href: "/settings/discount-templates", icon: Tag },
+  { title: "Бонусы админов", href: "/settings/admin-bonus", icon: Award },
   { title: "Roadmap", href: "/roadmap", icon: Map },
   { title: "Changelog", href: "/changelog", icon: FileText },
 ]
@@ -186,10 +192,7 @@ export function AppSidebar() {
                 {user?.role ? ROLE_LABELS[user.role] : "---"}
               </span>
             </div>
-            <button className="relative">
-              <Bell className="size-4 text-muted-foreground" />
-              <Badge className="absolute -right-2 -top-2 size-4 justify-center p-0 text-[10px]" variant="destructive">3</Badge>
-            </button>
+            <NotificationBell />
             <button onClick={() => signOut({ callbackUrl: "/login" })} title="Выйти">
               <LogOut className="size-4 text-muted-foreground hover:text-destructive" />
             </button>
