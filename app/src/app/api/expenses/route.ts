@@ -11,7 +11,7 @@ const createSchema = z.object({
   amount: z.number().min(0.01, "Сумма должна быть больше 0"),
   date: z.string().min(1, "Укажите дату"),
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
-  isVariable: z.boolean().optional().default(false),
+  isVariable: z.boolean().optional(),
   isRecurring: z.boolean().optional().default(false),
   amortizationMonths: z.any().transform(v => {
     const n = Number(v)
@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
         amount: data.amount,
         date: new Date(data.date),
         comment: data.comment,
-        isVariable: data.isVariable ?? category.isVariable,
+        isVariable: data.isVariable !== undefined ? data.isVariable : category.isVariable,
         isRecurring: data.isRecurring,
         amortizationMonths: data.amortizationMonths,
         amortizationStartDate: data.amortizationMonths ? new Date(data.date) : undefined,

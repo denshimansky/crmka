@@ -60,7 +60,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const totalSalaryAccrued = salaryAttendances.reduce((s, a) => s + Number(a.instructorPayAmount), 0)
 
   // === РАСЧЁТЫ ===
-  const variableExpenses = expenses.filter(e => e.isVariable).reduce((s, e) => s + Number(e.amount), 0)
+  const variableExpenses = expenses.filter(e => e.category.isVariable).reduce((s, e) => s + Number(e.amount), 0)
   const fixedExpenses = totalExpenses - variableExpenses
   const totalVariableCosts = variableExpenses + totalSalaryAccrued
   const margin = revenue - totalVariableCosts
