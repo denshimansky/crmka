@@ -40,48 +40,69 @@ export default async function FunnelReportPage({ searchParams }: { searchParams:
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  // Считаем клиентов по статусам воронки
-  const clients = await db.client.findMany({
+  const { year, month } = getMonthFromParams(await searchParams)
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
+  const monthEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59))
+
+  // Все клиенты для общей статистики
+  const allClients = await db.client.findMany({
     where: { tenantId, deletedAt: null },
     select: { funnelStatus: true, createdAt: true, firstPaymentDate: true },
   })
 
-  const totalClients = clients.length
+  const totalClients = allClients.length
 
-  // Группировка по статусам
-  const statusCounts = new Map<string, number>()
-  for (const c of clients) {
-    statusCounts.set(c.funnelStatus, (statusCounts.get(c.funnelStatus) || 0) + 1)
-  }
+  // === БЛОК 1: Воронка текущего месяца (новые лиды этого месяца) ===
+  const monthClients = allClients.filter(c => c.createdAt >= monthStart && c.createdAt <= monthEnd)
 
-  // Этапы воронки (в порядке воронки)
   const funnelStages = [
     "new", "trial_scheduled", "trial_attended", "awaiting_payment", "active_client",
   ]
 
-  const otherStages = ["potential", "non_target", "blacklisted", "archived"]
+  // Считаем по статусам только тех, кто создан в этом месяце
+  const monthStatusCounts = new Map<string, number>()
+  for (const c of monthClients) {
+    monthStatusCounts.set(c.funnelStatus, (monthStatusCounts.get(c.funnelStatus) || 0) + 1)
+  }
 
-  // Конверсии
   const funnelData = funnelStages.map((status) => ({
     status,
     label: STATUS_LABELS[status] || status,
-    count: statusCounts.get(status) || 0,
+    count: monthStatusCounts.get(status) || 0,
     color: STATUS_COLORS[status],
   }))
 
+  // === БЛОК 2: Перетекающие с прошлых месяцев (созданы раньше, ещё в воронке) ===
+  const carryoverStatuses = ["new", "trial_scheduled", "trial_attended", "awaiting_payment", "potential"]
+  const carryoverClients = allClients.filter(
+    c => c.createdAt < monthStart && carryoverStatuses.includes(c.funnelStatus)
+  )
+  const carryoverCounts = new Map<string, number>()
+  for (const c of carryoverClients) {
+    carryoverCounts.set(c.funnelStatus, (carryoverCounts.get(c.funnelStatus) || 0) + 1)
+  }
+  const carryoverData = carryoverStatuses
+    .map((status) => ({
+      status,
+      label: STATUS_LABELS[status] || status,
+      count: carryoverCounts.get(status) || 0,
+    }))
+    .filter(d => d.count > 0)
+
+  const otherStages = ["non_target", "blacklisted", "archived"]
   const otherData = otherStages
     .map((status) => ({
       status,
       label: STATUS_LABELS[status] || status,
-      count: statusCounts.get(status) || 0,
+      count: allClients.filter(c => c.funnelStatus === status).length,
     }))
     .filter(d => d.count > 0)
 
-  // Метрики за выбранный месяц
-  const { year, month } = getMonthFromParams(await searchParams)
-  const monthStart = new Date(Date.UTC(year, month - 1, 1))
-  const newThisMonth = clients.filter(c => c.createdAt >= monthStart).length
-  const convertedThisMonth = clients.filter(c => c.firstPaymentDate && c.firstPaymentDate >= monthStart).length
+  // Метрики
+  const newThisMonth = monthClients.length
+  const convertedThisMonth = allClients.filter(
+    c => c.firstPaymentDate && c.firstPaymentDate >= monthStart && c.firstPaymentDate <= monthEnd
+  ).length
 
   const maxCount = Math.max(...funnelData.map(d => d.count), 1)
 
@@ -128,10 +149,10 @@ export default async function FunnelReportPage({ searchParams }: { searchParams:
         </Card>
       </div>
 
-      {/* Воронка */}
+      {/* Воронка текущего месяца */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Этапы воронки</CardTitle>
+          <CardTitle className="text-base">Воронка — новые за месяц ({newThisMonth})</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {funnelData.map((stage, i) => (
@@ -162,6 +183,25 @@ export default async function FunnelReportPage({ searchParams }: { searchParams:
           ))}
         </CardContent>
       </Card>
+
+      {/* Перетекающие с прошлых месяцев */}
+      {carryoverData.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Перетекающие с прошлых месяцев ({carryoverClients.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {carryoverData.map((d) => (
+                <div key={d.status} className="flex items-center justify-between text-sm">
+                  <span>{d.label}</span>
+                  <span className="font-medium">{d.count}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Прочие статусы */}
       {otherData.length > 0 && (
