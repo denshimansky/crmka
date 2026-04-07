@@ -69,9 +69,9 @@ model VerificationToken {
 // === МУЛЬТИТЕНАНТ ===
 
 model Organization {
-  id        String   @id @default(uuid()) @db.Uuid
+  id        String  @id @default(uuid()) @db.Uuid
   name      String
-  legalName String?  @map("legal_name")
+  legalName String? @map("legal_name")
   inn       String?
   phone     String?
   email     String?
@@ -81,30 +81,36 @@ model Organization {
   salaryDay2         Int?     @default(30) @map("salary_day_2")
   payForAbsence      Boolean  @default(false) @map("pay_for_absence")
   attendanceDeadline Int      @default(14) @map("attendance_deadline")
-  debtLimit          Decimal? @db.Decimal(12, 2) @map("debt_limit")
+  debtLimit          Decimal? @map("debt_limit") @db.Decimal(12, 2)
   makeupDaysLimit    Int?     @map("makeup_days_limit")
   makeupDeadlineDays Int?     @map("makeup_deadline_days")
   roleDisplayNames   Json?    @map("role_display_names")
 
   // Биллинг
-  billingStatus  BillingStatus @default(active) @map("billing_status")
-  contactPerson  String?       @map("contact_person")
+  billingStatus BillingStatus @default(active) @map("billing_status")
+  contactPerson String?       @map("contact_person")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  branches   Branch[]
-  employees  Employee[]
-  directions Direction[]
-  clients    Client[]
-  groups     Group[]
-  financialAccounts FinancialAccount[]
-  billingSubscriptions BillingSubscription[]
-  billingInvoices      BillingInvoice[]
-  periods              Period[]
-  auditLogs            AuditLog[]
-  trialLessons         TrialLesson[]
+  branches                  Branch[]
+  employees                 Employee[]
+  directions                Direction[]
+  clients                   Client[]
+  groups                    Group[]
+  financialAccounts         FinancialAccount[]
+  billingSubscriptions      BillingSubscription[]
+  billingInvoices           BillingInvoice[]
+  periods                   Period[]
+  auditLogs                 AuditLog[]
+  trialLessons              TrialLesson[]
   clientBalanceTransactions ClientBalanceTransaction[]
+  productionCalendar        ProductionCalendar[]
+  discountTemplates         DiscountTemplate[]
+  plannedExpenses           PlannedExpense[]
+  adminBonusSettings        AdminBonusSettings[]
+  notifications             Notification[]
+  unprolongedComments       UnprolongedComment[]
 
   @@map("organizations")
 }
@@ -121,13 +127,15 @@ model Branch {
   updatedAt         DateTime  @updatedAt @map("updated_at")
   deletedAt         DateTime? @map("deleted_at")
 
-  organization     Organization     @relation(fields: [tenantId], references: [id])
-  rooms            Room[]
-  employeeBranches EmployeeBranch[]
-  clients          Client[]
-  groups           Group[]
-  financialAccounts FinancialAccount[]
-  expenseBranches  ExpenseBranch[]
+  organization       Organization         @relation(fields: [tenantId], references: [id])
+  rooms              Room[]
+  employeeBranches   EmployeeBranch[]
+  clients            Client[]
+  groups             Group[]
+  financialAccounts  FinancialAccount[]
+  expenseBranches    ExpenseBranch[]
+  plannedExpenses    PlannedExpense[]
+  adminBonusSettings AdminBonusSettings[]
 
   @@index([tenantId])
   @@map("branches")
@@ -142,7 +150,7 @@ model Room {
   createdAt DateTime  @default(now()) @map("created_at")
   deletedAt DateTime? @map("deleted_at")
 
-  branch Branch @relation(fields: [branchId], references: [id])
+  branch Branch  @relation(fields: [branchId], references: [id])
   groups Group[]
 
   @@index([tenantId])
@@ -150,36 +158,40 @@ model Room {
 }
 
 model Employee {
-  id               String    @id @default(uuid()) @db.Uuid
-  tenantId         String    @map("tenant_id") @db.Uuid
-  login            String
-  passwordHash     String    @map("password_hash")
-  email            String?
-  firstName        String    @map("first_name")
-  lastName         String    @map("last_name")
-  middleName       String?   @map("middle_name")
-  phone            String?
-  birthDate        DateTime? @map("birth_date") @db.Date
-  role             Role
-  customPermissions Json?    @map("custom_permissions")
-  isActive         Boolean   @default(true) @map("is_active")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  deletedAt        DateTime? @map("deleted_at")
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  login             String
+  passwordHash      String    @map("password_hash")
+  email             String?
+  firstName         String    @map("first_name")
+  lastName          String    @map("last_name")
+  middleName        String?   @map("middle_name")
+  phone             String?
+  birthDate         DateTime? @map("birth_date") @db.Date
+  role              Role
+  customPermissions Json?     @map("custom_permissions")
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
 
-  organization       Organization       @relation(fields: [tenantId], references: [id])
-  user               User?
-  employeeBranches   EmployeeBranch[]
-  salaryRates        SalaryRate[]
-  salaryPayments     SalaryPayment[]
-  salaryAdjustments  SalaryAdjustment[]
-  assignedClients    Client[]           @relation("AssignedClients")
-  assignedTasks      Task[]             @relation("TaskAssignee")
-  instructorGroups   Group[]            @relation("GroupInstructor")
-  instructorLessons  Lesson[]           @relation("LessonInstructor")
-  periodsClosed      Period[]           @relation("periodClosedBy")
-  periodsReopened    Period[]           @relation("periodReopenedBy")
-  auditLogs          AuditLog[]
+  organization               Organization         @relation(fields: [tenantId], references: [id])
+  user                       User?
+  employeeBranches           EmployeeBranch[]
+  salaryRates                SalaryRate[]
+  salaryPayments             SalaryPayment[]
+  salaryAdjustments          SalaryAdjustment[]
+  assignedClients            Client[]             @relation("AssignedClients")
+  assignedTasks              Task[]               @relation("TaskAssignee")
+  instructorGroups           Group[]              @relation("GroupInstructor")
+  instructorLessons          Lesson[]             @relation("LessonInstructor")
+  periodsClosed              Period[]             @relation("periodClosedBy")
+  periodsReopened            Period[]             @relation("periodReopenedBy")
+  auditLogs                  AuditLog[]
+  plannedExpenses            PlannedExpense[]     @relation("PlannedExpenseEmployee")
+  adminBonusSettings         AdminBonusSettings[]
+  notifications              Notification[]
+  unprolongedCommentsCreated UnprolongedComment[] @relation("UnprolongedCommentCreator")
 
   @@unique([tenantId, login])
   @@index([tenantId])
@@ -189,53 +201,54 @@ model Employee {
 // === КЛИЕНТЫ ===
 
 model Client {
-  id                     String             @id @default(uuid()) @db.Uuid
-  tenantId               String             @map("tenant_id") @db.Uuid
-  firstName              String?            @map("first_name")
-  lastName               String?            @map("last_name")
-  patronymic             String?
-  phone                  String?
-  phone2                 String?
-  email                  String?
-  socialLink             String?            @map("social_link")
-  funnelStatus           FunnelStatus       @default(new) @map("funnel_status")
-  clientStatus           ClientWorkStatus?  @map("client_status")
-  segment                ClientSegment      @default(new_client) @map("segment")
+  id                      String            @id @default(uuid()) @db.Uuid
+  tenantId                String            @map("tenant_id") @db.Uuid
+  firstName               String?           @map("first_name")
+  lastName                String?           @map("last_name")
+  patronymic              String?
+  phone                   String?
+  phone2                  String?
+  email                   String?
+  socialLink              String?           @map("social_link")
+  funnelStatus            FunnelStatus      @default(new) @map("funnel_status")
+  clientStatus            ClientWorkStatus? @map("client_status")
+  segment                 ClientSegment     @default(new_client) @map("segment")
   totalSubscriptionsCount Int               @default(0) @map("total_subscriptions_count")
-  channelId              String?            @map("channel_id") @db.Uuid
-  assignedTo             String?            @map("assigned_to") @db.Uuid
-  branchId               String?            @map("branch_id") @db.Uuid
-  nextContactDate        DateTime?          @map("next_contact_date") @db.Date
-  blacklistReason        String?            @map("blacklist_reason")
-  blacklistedBy          String?            @map("blacklisted_by") @db.Uuid
-  withdrawalReasonId     String?            @map("withdrawal_reason_id") @db.Uuid
-  withdrawalDate         DateTime?          @map("withdrawal_date") @db.Date
-  clientBalance          Decimal            @default(0) @db.Decimal(12, 2) @map("client_balance")
-  promisedPaymentDate    DateTime?          @map("promised_payment_date") @db.Date
-  firstPaymentDate       DateTime?          @map("first_payment_date") @db.Date
-  firstPaidLessonDate    DateTime?          @map("first_paid_lesson_date") @db.Date
-  saleDate               DateTime?          @map("sale_date") @db.Date
-  moneyLtv               Decimal            @default(0) @db.Decimal(12, 2) @map("money_ltv")
-  monthsLtv              Int                @default(0) @map("months_ltv")
-  comment                String?
-  createdBy              String?            @map("created_by") @db.Uuid
-  createdAt              DateTime           @default(now()) @map("created_at")
-  updatedAt              DateTime           @updatedAt @map("updated_at")
-  deletedAt              DateTime?          @map("deleted_at")
+  channelId               String?           @map("channel_id") @db.Uuid
+  assignedTo              String?           @map("assigned_to") @db.Uuid
+  branchId                String?           @map("branch_id") @db.Uuid
+  nextContactDate         DateTime?         @map("next_contact_date") @db.Date
+  blacklistReason         String?           @map("blacklist_reason")
+  blacklistedBy           String?           @map("blacklisted_by") @db.Uuid
+  withdrawalReasonId      String?           @map("withdrawal_reason_id") @db.Uuid
+  withdrawalDate          DateTime?         @map("withdrawal_date") @db.Date
+  clientBalance           Decimal           @default(0) @map("client_balance") @db.Decimal(12, 2)
+  promisedPaymentDate     DateTime?         @map("promised_payment_date") @db.Date
+  firstPaymentDate        DateTime?         @map("first_payment_date") @db.Date
+  firstPaidLessonDate     DateTime?         @map("first_paid_lesson_date") @db.Date
+  saleDate                DateTime?         @map("sale_date") @db.Date
+  moneyLtv                Decimal           @default(0) @map("money_ltv") @db.Decimal(12, 2)
+  monthsLtv               Int               @default(0) @map("months_ltv")
+  comment                 String?
+  createdBy               String?           @map("created_by") @db.Uuid
+  createdAt               DateTime          @default(now()) @map("created_at")
+  updatedAt               DateTime          @updatedAt @map("updated_at")
+  deletedAt               DateTime?         @map("deleted_at")
 
-  organization      Organization       @relation(fields: [tenantId], references: [id])
-  branch            Branch?             @relation(fields: [branchId], references: [id])
-  assignee          Employee?           @relation("AssignedClients", fields: [assignedTo], references: [id])
-  wards             Ward[]
-  enrollments       GroupEnrollment[]
-  subscriptions     Subscription[]
-  payments          Payment[]
-  attendances       Attendance[]
-  tasks             Task[]
-  callCampaignItems CallCampaignItem[]
-  portalTokens      ClientPortalToken[]
-  trialLessons      TrialLesson[]
+  organization        Organization               @relation(fields: [tenantId], references: [id])
+  branch              Branch?                    @relation(fields: [branchId], references: [id])
+  assignee            Employee?                  @relation("AssignedClients", fields: [assignedTo], references: [id])
+  wards               Ward[]
+  enrollments         GroupEnrollment[]
+  subscriptions       Subscription[]
+  payments            Payment[]
+  attendances         Attendance[]
+  tasks               Task[]
+  callCampaignItems   CallCampaignItem[]
+  portalTokens        ClientPortalToken[]
+  trialLessons        TrialLesson[]
   balanceTransactions ClientBalanceTransaction[]
+  unprolongedComments UnprolongedComment[]
 
   @@index([tenantId, funnelStatus])
   @@index([tenantId, clientStatus])
@@ -266,20 +279,20 @@ model Ward {
 // === НАПРАВЛЕНИЯ ===
 
 model Direction {
-  id           String    @id @default(uuid()) @db.Uuid
-  tenantId     String    @map("tenant_id") @db.Uuid
-  name         String
-  lessonPrice  Decimal   @db.Decimal(12, 2) @map("lesson_price")
-  lessonDuration Int     @default(45) @map("lesson_duration")
-  trialPrice   Decimal?  @db.Decimal(12, 2) @map("trial_price")
-  trialFree    Boolean   @default(false) @map("trial_free")
-  color        String?
-  sortOrder    Int       @default(0) @map("sort_order")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-  deletedAt    DateTime? @map("deleted_at")
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  name           String
+  lessonPrice    Decimal   @map("lesson_price") @db.Decimal(12, 2)
+  lessonDuration Int       @default(45) @map("lesson_duration")
+  trialPrice     Decimal?  @map("trial_price") @db.Decimal(12, 2)
+  trialFree      Boolean   @default(false) @map("trial_free")
+  color          String?
+  sortOrder      Int       @default(0) @map("sort_order")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
 
-  organization    Organization   @relation(fields: [tenantId], references: [id])
+  organization    Organization    @relation(fields: [tenantId], references: [id])
   salaryRates     SalaryRate[]
   groups          Group[]
   subscriptions   Subscription[]
@@ -305,11 +318,11 @@ model Group {
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
 
-  organization Organization          @relation(fields: [tenantId], references: [id])
-  direction    Direction              @relation(fields: [directionId], references: [id])
-  branch       Branch                 @relation(fields: [branchId], references: [id])
-  room         Room                   @relation(fields: [roomId], references: [id])
-  instructor   Employee               @relation("GroupInstructor", fields: [instructorId], references: [id])
+  organization  Organization            @relation(fields: [tenantId], references: [id])
+  direction     Direction               @relation(fields: [directionId], references: [id])
+  branch        Branch                  @relation(fields: [branchId], references: [id])
+  room          Room                    @relation(fields: [roomId], references: [id])
+  instructor    Employee                @relation("GroupInstructor", fields: [instructorId], references: [id])
   templates     GroupScheduleTemplate[]
   lessons       Lesson[]
   enrollments   GroupEnrollment[]
@@ -366,23 +379,23 @@ model Lesson {
 }
 
 model GroupEnrollment {
-  id             String                  @id @default(uuid()) @db.Uuid
-  tenantId       String                  @map("tenant_id") @db.Uuid
-  groupId        String                  @map("group_id") @db.Uuid
-  clientId       String                  @map("client_id") @db.Uuid
-  wardId         String?                 @map("ward_id") @db.Uuid
-  selectedDays   Json?                   @map("selected_days")
-  enrolledAt     DateTime                @map("enrolled_at") @db.Date
-  withdrawnAt    DateTime?               @map("withdrawn_at") @db.Date
-  paymentStatus  EnrollmentPaymentStatus @default(active) @map("payment_status")
-  isActive       Boolean                 @default(true) @map("is_active")
-  createdAt      DateTime                @default(now()) @map("created_at")
-  updatedAt      DateTime                @updatedAt @map("updated_at")
-  deletedAt      DateTime?               @map("deleted_at")
+  id            String                  @id @default(uuid()) @db.Uuid
+  tenantId      String                  @map("tenant_id") @db.Uuid
+  groupId       String                  @map("group_id") @db.Uuid
+  clientId      String                  @map("client_id") @db.Uuid
+  wardId        String?                 @map("ward_id") @db.Uuid
+  selectedDays  Json?                   @map("selected_days")
+  enrolledAt    DateTime                @map("enrolled_at") @db.Date
+  withdrawnAt   DateTime?               @map("withdrawn_at") @db.Date
+  paymentStatus EnrollmentPaymentStatus @default(active) @map("payment_status")
+  isActive      Boolean                 @default(true) @map("is_active")
+  createdAt     DateTime                @default(now()) @map("created_at")
+  updatedAt     DateTime                @updatedAt @map("updated_at")
+  deletedAt     DateTime?               @map("deleted_at")
 
-  group  Group   @relation(fields: [groupId], references: [id])
-  client Client  @relation(fields: [clientId], references: [id])
-  ward   Ward?   @relation(fields: [wardId], references: [id])
+  group  Group  @relation(fields: [groupId], references: [id])
+  client Client @relation(fields: [clientId], references: [id])
+  ward   Ward?  @relation(fields: [wardId], references: [id])
 
   @@index([tenantId])
   @@index([groupId, isActive])
@@ -425,15 +438,15 @@ model EmployeeBranch {
 // === СТАВКИ ЗП ===
 
 model SalaryRate {
-  id           String      @id @default(uuid()) @db.Uuid
-  tenantId     String      @map("tenant_id") @db.Uuid
-  employeeId   String      @map("employee_id") @db.Uuid
-  directionId  String?     @map("direction_id") @db.Uuid
-  scheme       SalaryScheme
-  ratePerStudent Decimal?  @db.Decimal(12, 2) @map("rate_per_student")
-  ratePerLesson  Decimal?  @db.Decimal(12, 2) @map("rate_per_lesson")
-  fixedPerShift  Decimal?  @db.Decimal(12, 2) @map("fixed_per_shift")
-  createdAt    DateTime    @default(now()) @map("created_at")
+  id             String       @id @default(uuid()) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  employeeId     String       @map("employee_id") @db.Uuid
+  directionId    String?      @map("direction_id") @db.Uuid
+  scheme         SalaryScheme
+  ratePerStudent Decimal?     @map("rate_per_student") @db.Decimal(12, 2)
+  ratePerLesson  Decimal?     @map("rate_per_lesson") @db.Decimal(12, 2)
+  fixedPerShift  Decimal?     @map("fixed_per_shift") @db.Decimal(12, 2)
+  createdAt      DateTime     @default(now()) @map("created_at")
 
   employee  Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   direction Direction? @relation(fields: [directionId], references: [id])
@@ -496,13 +509,13 @@ model Subscription {
   status                 SubscriptionStatus @default(pending)
   periodYear             Int                @map("period_year")
   periodMonth            Int                @map("period_month")
-  lessonPrice            Decimal            @db.Decimal(12, 2) @map("lesson_price")
+  lessonPrice            Decimal            @map("lesson_price") @db.Decimal(12, 2)
   totalLessons           Int                @map("total_lessons")
-  totalAmount            Decimal            @db.Decimal(12, 2) @map("total_amount")
-  discountAmount         Decimal            @default(0) @db.Decimal(12, 2) @map("discount_amount")
-  finalAmount            Decimal            @db.Decimal(12, 2) @map("final_amount")
+  totalAmount            Decimal            @map("total_amount") @db.Decimal(12, 2)
+  discountAmount         Decimal            @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  finalAmount            Decimal            @map("final_amount") @db.Decimal(12, 2)
   balance                Decimal            @default(0) @db.Decimal(12, 2)
-  chargedAmount          Decimal            @default(0) @db.Decimal(12, 2) @map("charged_amount")
+  chargedAmount          Decimal            @default(0) @map("charged_amount") @db.Decimal(12, 2)
   startDate              DateTime           @map("start_date") @db.Date
   endDate                DateTime?          @map("end_date") @db.Date
   withdrawalReasonId     String?            @map("withdrawal_reason_id") @db.Uuid
@@ -515,14 +528,15 @@ model Subscription {
   updatedAt              DateTime           @updatedAt @map("updated_at")
   deletedAt              DateTime?          @map("deleted_at")
 
-  client      Client       @relation(fields: [clientId], references: [id])
-  ward        Ward?        @relation(fields: [wardId], references: [id])
-  direction   Direction    @relation(fields: [directionId], references: [id])
-  group       Group        @relation(fields: [groupId], references: [id])
-  payments    Payment[]
-  discounts   Discount[]
-  attendances Attendance[]
+  client              Client                     @relation(fields: [clientId], references: [id])
+  ward                Ward?                      @relation(fields: [wardId], references: [id])
+  direction           Direction                  @relation(fields: [directionId], references: [id])
+  group               Group                      @relation(fields: [groupId], references: [id])
+  payments            Payment[]
+  discounts           Discount[]
+  attendances         Attendance[]
   balanceTransactions ClientBalanceTransaction[]
+  unprolongedComments UnprolongedComment[]
 
   @@index([tenantId, clientId])
   @@index([tenantId, periodYear, periodMonth])
@@ -543,13 +557,13 @@ model FinancialAccount {
   updatedAt DateTime    @updatedAt @map("updated_at")
   deletedAt DateTime?   @map("deleted_at")
 
-  organization    Organization @relation(fields: [tenantId], references: [id])
-  branch          Branch?      @relation(fields: [branchId], references: [id])
-  payments        Payment[]
-  expenses        Expense[]
-  salaryPayments  SalaryPayment[]
-  operationsFrom  AccountOperation[] @relation("OperationFrom")
-  operationsTo    AccountOperation[] @relation("OperationTo")
+  organization   Organization       @relation(fields: [tenantId], references: [id])
+  branch         Branch?            @relation(fields: [branchId], references: [id])
+  payments       Payment[]
+  expenses       Expense[]
+  salaryPayments SalaryPayment[]
+  operationsFrom AccountOperation[] @relation("OperationFrom")
+  operationsTo   AccountOperation[] @relation("OperationTo")
 
   @@index([tenantId])
   @@map("financial_accounts")
@@ -558,26 +572,26 @@ model FinancialAccount {
 // === ОПЛАТЫ ===
 
 model Payment {
-  id               String        @id @default(uuid()) @db.Uuid
-  tenantId         String        @map("tenant_id") @db.Uuid
-  clientId         String        @map("client_id") @db.Uuid
-  subscriptionId   String?       @map("subscription_id") @db.Uuid
-  accountId        String        @map("account_id") @db.Uuid
-  amount           Decimal       @db.Decimal(12, 2)
-  type             PaymentType   @default(incoming)
-  method           PaymentMethod
-  date             DateTime      @db.Date
-  comment          String?
-  isFirstPayment   Boolean       @default(false) @map("is_first_payment")
-  onlinePaymentId  String?       @map("online_payment_id")
-  createdBy        String?       @map("created_by") @db.Uuid
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
-  deletedAt        DateTime?     @map("deleted_at")
+  id              String        @id @default(uuid()) @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  clientId        String        @map("client_id") @db.Uuid
+  subscriptionId  String?       @map("subscription_id") @db.Uuid
+  accountId       String        @map("account_id") @db.Uuid
+  amount          Decimal       @db.Decimal(12, 2)
+  type            PaymentType   @default(incoming)
+  method          PaymentMethod
+  date            DateTime      @db.Date
+  comment         String?
+  isFirstPayment  Boolean       @default(false) @map("is_first_payment")
+  onlinePaymentId String?       @map("online_payment_id")
+  createdBy       String?       @map("created_by") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  deletedAt       DateTime?     @map("deleted_at")
 
-  client       Client        @relation(fields: [clientId], references: [id])
-  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
-  account      FinancialAccount @relation(fields: [accountId], references: [id])
+  client              Client                     @relation(fields: [clientId], references: [id])
+  subscription        Subscription?              @relation(fields: [subscriptionId], references: [id])
+  account             FinancialAccount           @relation(fields: [accountId], references: [id])
   balanceTransactions ClientBalanceTransaction[]
 
   @@index([tenantId, date])
@@ -588,20 +602,20 @@ model Payment {
 // === СКИДКИ ===
 
 model Discount {
-  id                   String            @id @default(uuid()) @db.Uuid
-  tenantId             String            @map("tenant_id") @db.Uuid
-  subscriptionId       String            @map("subscription_id") @db.Uuid
-  type                 DiscountType
-  valueType            DiscountValueType @map("value_type")
-  value                Decimal           @db.Decimal(12, 2)
-  calculatedAmount     Decimal           @db.Decimal(12, 2) @map("calculated_amount")
-  linkedClientId       String?           @map("linked_client_id") @db.Uuid
-  comment              String?
-  startDate            DateTime          @map("start_date") @db.Date
-  endDate              DateTime?         @map("end_date") @db.Date
-  isActive             Boolean           @default(true) @map("is_active")
-  createdBy            String?           @map("created_by") @db.Uuid
-  createdAt            DateTime          @default(now()) @map("created_at")
+  id               String            @id @default(uuid()) @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  subscriptionId   String            @map("subscription_id") @db.Uuid
+  type             DiscountType
+  valueType        DiscountValueType @map("value_type")
+  value            Decimal           @db.Decimal(12, 2)
+  calculatedAmount Decimal           @map("calculated_amount") @db.Decimal(12, 2)
+  linkedClientId   String?           @map("linked_client_id") @db.Uuid
+  comment          String?
+  startDate        DateTime          @map("start_date") @db.Date
+  endDate          DateTime?         @map("end_date") @db.Date
+  isActive         Boolean           @default(true) @map("is_active")
+  createdBy        String?           @map("created_by") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at")
 
   subscription Subscription @relation(fields: [subscriptionId], references: [id])
 
@@ -612,23 +626,23 @@ model Discount {
 // === ПОСЕЩЕНИЯ ===
 
 model Attendance {
-  id                  String   @id @default(uuid()) @db.Uuid
-  tenantId            String   @map("tenant_id") @db.Uuid
-  lessonId            String   @map("lesson_id") @db.Uuid
-  subscriptionId      String?  @map("subscription_id") @db.Uuid
-  clientId            String   @map("client_id") @db.Uuid
-  wardId              String?  @map("ward_id") @db.Uuid
-  attendanceTypeId    String   @map("attendance_type_id") @db.Uuid
-  absenceReasonId     String?  @map("absence_reason_id") @db.Uuid
-  chargeAmount        Decimal  @default(0) @db.Decimal(12, 2) @map("charge_amount")
-  instructorPayAmount Decimal  @default(0) @db.Decimal(12, 2) @map("instructor_pay_amount")
-  instructorPayEnabled Boolean @default(true) @map("instructor_pay_enabled")
-  isTrial             Boolean  @default(false) @map("is_trial")
-  markedBy            String?  @map("marked_by") @db.Uuid
-  markedAt            DateTime? @map("marked_at")
-  isAfterPeriodClose  Boolean  @default(false) @map("is_after_period_close")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  id                   String    @id @default(uuid()) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  lessonId             String    @map("lesson_id") @db.Uuid
+  subscriptionId       String?   @map("subscription_id") @db.Uuid
+  clientId             String    @map("client_id") @db.Uuid
+  wardId               String?   @map("ward_id") @db.Uuid
+  attendanceTypeId     String    @map("attendance_type_id") @db.Uuid
+  absenceReasonId      String?   @map("absence_reason_id") @db.Uuid
+  chargeAmount         Decimal   @default(0) @map("charge_amount") @db.Decimal(12, 2)
+  instructorPayAmount  Decimal   @default(0) @map("instructor_pay_amount") @db.Decimal(12, 2)
+  instructorPayEnabled Boolean   @default(true) @map("instructor_pay_enabled")
+  isTrial              Boolean   @default(false) @map("is_trial")
+  markedBy             String?   @map("marked_by") @db.Uuid
+  markedAt             DateTime? @map("marked_at")
+  isAfterPeriodClose   Boolean   @default(false) @map("is_after_period_close")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   lesson         Lesson         @relation(fields: [lessonId], references: [id])
   subscription   Subscription?  @relation(fields: [subscriptionId], references: [id])
@@ -643,22 +657,22 @@ model Attendance {
 // === ЗАДАЧИ ===
 
 model Task {
-  id             String           @id @default(uuid()) @db.Uuid
-  tenantId       String           @map("tenant_id") @db.Uuid
-  title          String
-  description    String?
-  type           TaskType
-  autoTrigger    TaskAutoTrigger? @map("auto_trigger")
-  status         TaskStatus       @default(pending)
-  dueDate        DateTime         @db.Date @map("due_date")
-  assignedTo     String           @map("assigned_to") @db.Uuid
-  assignedBy     String?          @map("assigned_by") @db.Uuid
-  clientId       String?          @map("client_id") @db.Uuid
-  completedAt    DateTime?        @map("completed_at")
-  completedBy    String?          @map("completed_by") @db.Uuid
-  createdAt      DateTime         @default(now()) @map("created_at")
-  updatedAt      DateTime         @updatedAt @map("updated_at")
-  deletedAt      DateTime?        @map("deleted_at")
+  id          String           @id @default(uuid()) @db.Uuid
+  tenantId    String           @map("tenant_id") @db.Uuid
+  title       String
+  description String?
+  type        TaskType
+  autoTrigger TaskAutoTrigger? @map("auto_trigger")
+  status      TaskStatus       @default(pending)
+  dueDate     DateTime         @map("due_date") @db.Date
+  assignedTo  String           @map("assigned_to") @db.Uuid
+  assignedBy  String?          @map("assigned_by") @db.Uuid
+  clientId    String?          @map("client_id") @db.Uuid
+  completedAt DateTime?        @map("completed_at")
+  completedBy String?          @map("completed_by") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  deletedAt   DateTime?        @map("deleted_at")
 
   assignee Employee @relation("TaskAssignee", fields: [assignedTo], references: [id])
   client   Client?  @relation(fields: [clientId], references: [id])
@@ -691,17 +705,17 @@ model CallCampaign {
 }
 
 model CallCampaignItem {
-  id          String         @id @default(uuid()) @db.Uuid
-  tenantId    String         @map("tenant_id") @db.Uuid
-  campaignId  String         @map("campaign_id") @db.Uuid
-  clientId    String         @map("client_id") @db.Uuid
-  status      CallItemStatus @default(pending)
-  comment     String?
-  result      String?
-  calledBy    String?        @map("called_by") @db.Uuid
-  calledAt    DateTime?      @map("called_at")
-  createdAt   DateTime       @default(now()) @map("created_at")
-  updatedAt   DateTime       @updatedAt @map("updated_at")
+  id         String         @id @default(uuid()) @db.Uuid
+  tenantId   String         @map("tenant_id") @db.Uuid
+  campaignId String         @map("campaign_id") @db.Uuid
+  clientId   String         @map("client_id") @db.Uuid
+  status     CallItemStatus @default(pending)
+  comment    String?
+  result     String?
+  calledBy   String?        @map("called_by") @db.Uuid
+  calledAt   DateTime?      @map("called_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
 
   campaign CallCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   client   Client       @relation(fields: [clientId], references: [id])
@@ -713,43 +727,44 @@ model CallCampaignItem {
 // === РАСХОДЫ ===
 
 model ExpenseCategory {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String?  @map("tenant_id") @db.Uuid
-  name      String
-  isSalary  Boolean  @default(false) @map("is_salary")
-  isVariable Boolean @default(false) @map("is_variable")
-  isSystem  Boolean  @default(false) @map("is_system")
-  isActive  Boolean  @default(true) @map("is_active")
-  sortOrder Int      @default(0) @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  name       String
+  isSalary   Boolean  @default(false) @map("is_salary")
+  isVariable Boolean  @default(false) @map("is_variable")
+  isSystem   Boolean  @default(false) @map("is_system")
+  isActive   Boolean  @default(true) @map("is_active")
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at")
 
-  expenses Expense[]
+  expenses        Expense[]
+  plannedExpenses PlannedExpense[]
 
   @@index([tenantId])
   @@map("expense_categories")
 }
 
 model Expense {
-  id                   String    @id @default(uuid()) @db.Uuid
-  tenantId             String    @map("tenant_id") @db.Uuid
-  categoryId           String    @map("category_id") @db.Uuid
-  accountId            String    @map("account_id") @db.Uuid
-  amount               Decimal   @db.Decimal(12, 2)
-  date                 DateTime  @db.Date
-  comment              String?
-  amortizationMonths   Int?      @map("amortization_months")
+  id                    String    @id @default(uuid()) @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
+  categoryId            String    @map("category_id") @db.Uuid
+  accountId             String    @map("account_id") @db.Uuid
+  amount                Decimal   @db.Decimal(12, 2)
+  date                  DateTime  @db.Date
+  comment               String?
+  amortizationMonths    Int?      @map("amortization_months")
   amortizationStartDate DateTime? @map("amortization_start_date") @db.Date
-  isVariable           Boolean   @default(false) @map("is_variable")
-  isRecurring          Boolean   @default(false) @map("is_recurring")
-  recurringGroupId     String?   @map("recurring_group_id") @db.Uuid
-  createdBy            String?   @map("created_by") @db.Uuid
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
-  deletedAt            DateTime? @map("deleted_at")
+  isVariable            Boolean   @default(false) @map("is_variable")
+  isRecurring           Boolean   @default(false) @map("is_recurring")
+  recurringGroupId      String?   @map("recurring_group_id") @db.Uuid
+  createdBy             String?   @map("created_by") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  deletedAt             DateTime? @map("deleted_at")
 
-  category  ExpenseCategory  @relation(fields: [categoryId], references: [id])
-  account   FinancialAccount @relation(fields: [accountId], references: [id])
-  branches  ExpenseBranch[]
+  category ExpenseCategory  @relation(fields: [categoryId], references: [id])
+  account  FinancialAccount @relation(fields: [accountId], references: [id])
+  branches ExpenseBranch[]
 
   @@index([tenantId, date])
   @@index([tenantId, categoryId])
@@ -797,17 +812,17 @@ model AccountOperation {
 // === ЛОГ АУДИТА ===
 
 model AuditLog {
-  id                   String   @id @default(uuid()) @db.Uuid
-  tenantId             String   @map("tenant_id") @db.Uuid
-  employeeId           String   @map("employee_id") @db.Uuid
-  action               String   // create | update | delete
-  entityType           String   @map("entity_type") // Attendance, Payment, Expense...
-  entityId             String   @map("entity_id") @db.Uuid
-  changes              Json?    // {field: {old, new}}
-  isAfterPeriodClose   Boolean  @default(false) @map("is_after_period_close")
-  ipAddress            String?  @map("ip_address")
-  userAgent            String?  @map("user_agent")
-  createdAt            DateTime @default(now()) @map("created_at")
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  employeeId         String   @map("employee_id") @db.Uuid
+  action             String // create | update | delete
+  entityType         String   @map("entity_type") // Attendance, Payment, Expense...
+  entityId           String   @map("entity_id") @db.Uuid
+  changes            Json? // {field: {old, new}}
+  isAfterPeriodClose Boolean  @default(false) @map("is_after_period_close")
+  ipAddress          String?  @map("ip_address")
+  userAgent          String?  @map("user_agent")
+  createdAt          DateTime @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [tenantId], references: [id])
   employee     Employee     @relation(fields: [employeeId], references: [id])
@@ -982,13 +997,13 @@ model AdminUser {
 
 // Тарифные планы
 model BillingPlan {
-  id              String   @id @default(uuid()) @db.Uuid
-  name            String
-  pricePerBranch  Decimal  @db.Decimal(12, 2) @map("price_per_branch")
-  description     String?
-  isActive        Boolean  @default(true) @map("is_active")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  pricePerBranch Decimal  @map("price_per_branch") @db.Decimal(12, 2)
+  description    String?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   subscriptions BillingSubscription[]
 
@@ -1002,7 +1017,7 @@ model BillingSubscription {
   planId          String                    @map("plan_id") @db.Uuid
   status          BillingSubscriptionStatus @default(active)
   branchCount     Int                       @default(1) @map("branch_count")
-  monthlyAmount   Decimal                   @db.Decimal(12, 2) @map("monthly_amount")
+  monthlyAmount   Decimal                   @map("monthly_amount") @db.Decimal(12, 2)
   nextPaymentDate DateTime                  @map("next_payment_date") @db.Date
   gracePeriodEnd  DateTime?                 @map("grace_period_end") @db.Date
   blockedAt       DateTime?                 @map("blocked_at")
@@ -1021,20 +1036,20 @@ model BillingSubscription {
 
 // Счета на оплату
 model BillingInvoice {
-  id              String               @id @default(uuid()) @db.Uuid
-  subscriptionId  String               @map("subscription_id") @db.Uuid
-  organizationId  String               @map("organization_id") @db.Uuid
-  number          String               @unique
-  amount          Decimal              @db.Decimal(12, 2)
-  status          BillingInvoiceStatus @default(pending)
-  periodStart     DateTime             @map("period_start") @db.Date
-  periodEnd       DateTime             @map("period_end") @db.Date
-  dueDate         DateTime             @map("due_date") @db.Date
-  paidAt          DateTime?            @map("paid_at")
-  paidAmount      Decimal?             @db.Decimal(12, 2) @map("paid_amount")
-  comment         String?
-  createdAt       DateTime             @default(now()) @map("created_at")
-  updatedAt       DateTime             @updatedAt @map("updated_at")
+  id             String               @id @default(uuid()) @db.Uuid
+  subscriptionId String               @map("subscription_id") @db.Uuid
+  organizationId String               @map("organization_id") @db.Uuid
+  number         String               @unique
+  amount         Decimal              @db.Decimal(12, 2)
+  status         BillingInvoiceStatus @default(pending)
+  periodStart    DateTime             @map("period_start") @db.Date
+  periodEnd      DateTime             @map("period_end") @db.Date
+  dueDate        DateTime             @map("due_date") @db.Date
+  paidAt         DateTime?            @map("paid_at")
+  paidAmount     Decimal?             @map("paid_amount") @db.Decimal(12, 2)
+  comment        String?
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
 
   subscription BillingSubscription @relation(fields: [subscriptionId], references: [id])
   organization Organization        @relation(fields: [organizationId], references: [id])
@@ -1076,15 +1091,15 @@ enum BillingInvoiceStatus {
 // === ЛИЧНЫЙ КАБИНЕТ КЛИЕНТА ===
 
 model ClientPortalToken {
-  id              String    @id @default(uuid()) @db.Uuid
-  tenantId        String    @map("tenant_id") @db.Uuid
-  clientId        String    @map("client_id") @db.Uuid
-  token           String    @unique
-  isActive        Boolean   @default(true) @map("is_active")
-  pdnConsent      Boolean   @default(false) @map("pdn_consent")
-  pdnConsentDate  DateTime? @map("pdn_consent_date")
-  lastAccessedAt  DateTime? @map("last_accessed_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  clientId       String    @map("client_id") @db.Uuid
+  token          String    @unique
+  isActive       Boolean   @default(true) @map("is_active")
+  pdnConsent     Boolean   @default(false) @map("pdn_consent")
+  pdnConsentDate DateTime? @map("pdn_consent_date")
+  lastAccessedAt DateTime? @map("last_accessed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   client Client @relation(fields: [clientId], references: [id])
 
@@ -1096,18 +1111,18 @@ model ClientPortalToken {
 // === ЗАКРЫТИЕ ПЕРИОДА ===
 
 model Period {
-  id          String       @id @default(uuid()) @db.Uuid
-  tenantId    String       @map("tenant_id") @db.Uuid
-  year        Int
-  month       Int
-  status      PeriodStatus @default(open)
-  closedAt    DateTime?    @map("closed_at")
-  closedBy    String?      @map("closed_by") @db.Uuid
-  reopenedAt  DateTime?    @map("reopened_at")
-  reopenedBy  String?      @map("reopened_by") @db.Uuid
-  comment     String?
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
+  id         String       @id @default(uuid()) @db.Uuid
+  tenantId   String       @map("tenant_id") @db.Uuid
+  year       Int
+  month      Int
+  status     PeriodStatus @default(open)
+  closedAt   DateTime?    @map("closed_at")
+  closedBy   String?      @map("closed_by") @db.Uuid
+  reopenedAt DateTime?    @map("reopened_at")
+  reopenedBy String?      @map("reopened_by") @db.Uuid
+  comment    String?
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
 
   organization       Organization @relation(fields: [tenantId], references: [id])
   closedByEmployee   Employee?    @relation("periodClosedBy", fields: [closedBy], references: [id])
@@ -1188,4 +1203,143 @@ enum BalanceTransactionType {
   refund
   correction
   transfer_to_subscription
+}
+
+enum NotificationType {
+  empty_group
+  unmarked_lesson
+  overdue_payment
+  trial_reminder
+  period_close
+  linked_discount_warning
+}
+
+enum AdminBonusType {
+  per_trial
+  per_sale
+  per_upsale
+}
+
+// === MVP-ТАБЛИЦЫ ===
+
+// Производственный календарь — праздничные и рабочие дни
+model ProductionCalendar {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  date      DateTime @db.Date
+  isWorking Boolean  @map("is_working")
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, date])
+  @@index([tenantId])
+  @@map("production_calendar")
+}
+
+// Шаблон скидки — предопределённые типы скидок организации
+model DiscountTemplate {
+  id          String            @id @default(uuid()) @db.Uuid
+  tenantId    String            @map("tenant_id") @db.Uuid
+  name        String
+  type        DiscountType
+  valueType   DiscountValueType @map("value_type")
+  value       Decimal           @db.Decimal(12, 2)
+  isStackable Boolean           @default(false) @map("is_stackable")
+  isActive    Boolean           @default(true) @map("is_active")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@map("discount_templates")
+}
+
+// Плановый расход — план платежей по категории за месяц
+model PlannedExpense {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  categoryId    String   @map("category_id") @db.Uuid
+  employeeId    String?  @map("employee_id") @db.Uuid
+  branchId      String?  @map("branch_id") @db.Uuid
+  periodYear    Int      @map("period_year")
+  periodMonth   Int      @map("period_month")
+  plannedAmount Decimal  @map("planned_amount") @db.Decimal(12, 2)
+  paidAmount    Decimal  @default(0) @map("paid_amount") @db.Decimal(12, 2)
+  comment       String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  organization Organization    @relation(fields: [tenantId], references: [id])
+  category     ExpenseCategory @relation(fields: [categoryId], references: [id])
+  employee     Employee?       @relation("PlannedExpenseEmployee", fields: [employeeId], references: [id])
+  branch       Branch?         @relation(fields: [branchId], references: [id])
+
+  @@index([tenantId, periodYear, periodMonth])
+  @@map("planned_expenses")
+}
+
+// Настройки бонусов администратора — мотивация за продажи, пробные, допродажи
+model AdminBonusSettings {
+  id         String         @id @default(uuid()) @db.Uuid
+  tenantId   String         @map("tenant_id") @db.Uuid
+  branchId   String?        @map("branch_id") @db.Uuid
+  employeeId String         @map("employee_id") @db.Uuid
+  bonusType  AdminBonusType @map("bonus_type")
+  amount     Decimal        @db.Decimal(12, 2)
+  channels   Json?
+  isActive   Boolean        @default(true) @map("is_active")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  branch       Branch?      @relation(fields: [branchId], references: [id])
+  employee     Employee     @relation(fields: [employeeId], references: [id])
+
+  @@index([tenantId])
+  @@map("admin_bonus_settings")
+}
+
+// Уведомление (колокольчик) — пустые группы, неотмеченные занятия, просроченные оплаты
+model Notification {
+  id         String           @id @default(uuid()) @db.Uuid
+  tenantId   String           @map("tenant_id") @db.Uuid
+  employeeId String           @map("employee_id") @db.Uuid
+  type       NotificationType
+  title      String
+  message    String?
+  entityType String?          @map("entity_type")
+  entityId   String?          @map("entity_id") @db.Uuid
+  isRead     Boolean          @default(false) @map("is_read")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  employee     Employee     @relation(fields: [employeeId], references: [id])
+
+  @@index([tenantId, employeeId, isRead])
+  @@index([tenantId, createdAt])
+  @@map("notifications")
+}
+
+// Комментарий по непродлённому абонементу (отчёт «Непродлённые»)
+model UnprolongedComment {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  clientId       String   @map("client_id") @db.Uuid
+  subscriptionId String   @map("subscription_id") @db.Uuid
+  periodYear     Int      @map("period_year")
+  periodMonth    Int      @map("period_month")
+  comment        String
+  createdAt      DateTime @default(now()) @map("created_at")
+  createdBy      String?  @map("created_by") @db.Uuid
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+  creator      Employee?    @relation("UnprolongedCommentCreator", fields: [createdBy], references: [id])
+
+  @@index([tenantId, periodYear, periodMonth])
+  @@map("unprolonged_comments")
 }
