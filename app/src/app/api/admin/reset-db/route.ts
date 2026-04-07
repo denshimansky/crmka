@@ -18,6 +18,9 @@ export async function POST(req: NextRequest) {
 
   // Удаляем всё в правильном порядке (FK constraints)
   await db.$transaction([
+    db.clientBalanceTransaction.deleteMany(),
+    db.trialLesson.deleteMany(),
+    db.period.deleteMany(),
     db.attendance.deleteMany(),
     db.callCampaignItem.deleteMany(),
     db.callCampaign.deleteMany(),
