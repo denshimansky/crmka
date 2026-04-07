@@ -176,6 +176,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             chargedAmount: { increment: chargeAmount },
           },
         })
+
+        // Lead→Client conversion: первое платное посещение конвертирует лида
+        const client = await tx.client.findUnique({ where: { id: data.clientId } })
+        if (client && client.funnelStatus !== "active_client" && client.clientStatus !== "active") {
+          await tx.client.update({
+            where: { id: data.clientId },
+            data: {
+              funnelStatus: "active_client",
+              clientStatus: "active",
+            },
+          })
+        }
       }
     } else {
       // No subscription
