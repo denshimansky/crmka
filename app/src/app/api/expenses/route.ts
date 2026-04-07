@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { isPeriodLocked } from "@/lib/period-check"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -93,6 +94,12 @@ export async function POST(req: NextRequest) {
     where: { id: data.accountId, tenantId: session.user.tenantId, deletedAt: null },
   })
   if (!account) return NextResponse.json({ error: "Счёт не найден" }, { status: 404 })
+
+  // Проверка закрытия периода
+  const role = (session.user as any).role
+  if (await isPeriodLocked(session.user.tenantId, new Date(data.date), role)) {
+    return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
+  }
 
   const expense = await db.$transaction(async (tx) => {
     const e = await tx.expense.create({

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { isPeriodLocked } from "@/lib/period-check"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -77,6 +78,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
   const data = parsed.data
+
+  // Проверка закрытия периода
+  if (await isPeriodLocked(session.user.tenantId, new Date(data.date), role)) {
+    return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
+  }
 
   // Проверяем клиента
   const client = await db.client.findFirst({

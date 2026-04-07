@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { isPeriodLocked } from "@/lib/period-check"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -42,6 +43,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     },
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
+
+  // Проверка закрытия периода
+  const role = (session.user as any).role
+  if (await isPeriodLocked(tenantId, new Date(lesson.date), role)) {
+    return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
+  }
 
   // Get attendance type
   const attendanceType = await db.attendanceType.findFirst({
@@ -252,6 +259,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
 
+  const role = (session.user as any).role
+
   const lesson = await db.lesson.findFirst({
     where: { id: lessonId, tenantId },
     include: {
@@ -268,6 +277,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     },
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
+
+  // Проверка закрытия периода
+  if (await isPeriodLocked(tenantId, new Date(lesson.date), role)) {
+    return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
+  }
 
   // Get all active enrollments
   const enrollments = await db.groupEnrollment.findMany({
