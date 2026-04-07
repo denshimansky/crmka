@@ -20,15 +20,28 @@ export default async function CapacityReportPage() {
       instructor: { select: { firstName: true, lastName: true } },
       enrollments: {
         where: { isActive: true, deletedAt: null },
-        select: { id: true },
+        select: { id: true, clientId: true },
       },
     },
     orderBy: { name: "asc" },
   })
 
+  // Клиенты со статусом trial_scheduled или awaiting_payment, зачисленные в группы
+  const enrolledClientIds = [...new Set(groups.flatMap(g => g.enrollments.map(e => e.clientId)))]
+  const clientStatuses = enrolledClientIds.length > 0
+    ? await db.client.findMany({
+        where: { id: { in: enrolledClientIds }, tenantId, deletedAt: null },
+        select: { id: true, funnelStatus: true },
+      })
+    : []
+  const clientStatusMap = new Map(clientStatuses.map(c => [c.id, c.funnelStatus]))
+
   const rows = groups.map((g) => {
     const enrolled = g.enrollments.length
     const capacity = g.maxStudents
+    const onTrial = g.enrollments.filter(e => clientStatusMap.get(e.clientId) === "trial_scheduled").length
+    const awaitingPayment = g.enrollments.filter(e => clientStatusMap.get(e.clientId) === "awaiting_payment").length
+    const confirmed = enrolled - onTrial - awaitingPayment
     const free = Math.max(0, capacity - enrolled)
     const percent = capacity > 0 ? Math.round((enrolled / capacity) * 100) : 0
     const instructor = [g.instructor.lastName, g.instructor.firstName].filter(Boolean).join(" ")
@@ -41,6 +54,9 @@ export default async function CapacityReportPage() {
       room: g.room.name,
       instructor,
       enrolled,
+      confirmed,
+      onTrial,
+      awaitingPayment,
       capacity,
       free,
       percent,
@@ -50,6 +66,8 @@ export default async function CapacityReportPage() {
   const totalEnrolled = rows.reduce((s, r) => s + r.enrolled, 0)
   const totalCapacity = rows.reduce((s, r) => s + r.capacity, 0)
   const totalFree = rows.reduce((s, r) => s + r.free, 0)
+  const totalOnTrial = rows.reduce((s, r) => s + r.onTrial, 0)
+  const totalAwaitingPayment = rows.reduce((s, r) => s + r.awaitingPayment, 0)
   const avgPercent = totalCapacity > 0 ? Math.round((totalEnrolled / totalCapacity) * 100) : 0
 
   return (
@@ -107,6 +125,8 @@ export default async function CapacityReportPage() {
                 <TableHead>Филиал</TableHead>
                 <TableHead>Инструктор</TableHead>
                 <TableHead className="text-center">Занято</TableHead>
+                <TableHead className="text-center">Пробные</TableHead>
+                <TableHead className="text-center">Ждут оплату</TableHead>
                 <TableHead className="text-center">Макс</TableHead>
                 <TableHead className="text-center">Свободно</TableHead>
                 <TableHead className="text-right">Загрузка</TableHead>
@@ -124,6 +144,8 @@ export default async function CapacityReportPage() {
                   <TableCell className="text-muted-foreground">{r.branch}</TableCell>
                   <TableCell className="text-muted-foreground">{r.instructor}</TableCell>
                   <TableCell className="text-center font-medium">{r.enrolled}</TableCell>
+                  <TableCell className="text-center text-cyan-600">{r.onTrial || "—"}</TableCell>
+                  <TableCell className="text-center text-yellow-600">{r.awaitingPayment || "—"}</TableCell>
                   <TableCell className="text-center text-muted-foreground">{r.capacity}</TableCell>
                   <TableCell className="text-center">
                     <span className={r.free > 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
@@ -140,6 +162,8 @@ export default async function CapacityReportPage() {
               <TableRow className="font-bold">
                 <TableCell colSpan={4}>Итого</TableCell>
                 <TableCell className="text-center">{totalEnrolled}</TableCell>
+                <TableCell className="text-center text-cyan-600">{totalOnTrial || "—"}</TableCell>
+                <TableCell className="text-center text-yellow-600">{totalAwaitingPayment || "—"}</TableCell>
                 <TableCell className="text-center">{totalCapacity}</TableCell>
                 <TableCell className="text-center text-green-600">{totalFree}</TableCell>
                 <TableCell className="text-right">{avgPercent}%</TableCell>
