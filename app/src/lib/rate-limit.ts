@@ -4,12 +4,13 @@
 const hits = new Map<string, { count: number; resetAt: number }>()
 
 // Cleanup old entries every 5 minutes
-setInterval(() => {
+const _cleanupTimer = setInterval(() => {
   const now = Date.now()
   for (const [key, val] of hits) {
     if (val.resetAt < now) hits.delete(key)
   }
 }, 5 * 60 * 1000)
+_cleanupTimer.unref() // Don't prevent process exit
 
 /**
  * Check rate limit for a given key (usually IP or IP+path).
