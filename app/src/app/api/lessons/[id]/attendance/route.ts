@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
+import { logAudit } from "@/lib/audit"
 
 const markSchema = z.object({
   clientId: z.string().uuid("Некорректный ID клиента"),
@@ -241,6 +242,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return att
   })
 
+  logAudit({
+    tenantId,
+    employeeId,
+    action: "create",
+    entityType: "Attendance",
+    entityId: attendance.id,
+    changes: { lessonId: { new: lessonId }, clientId: { new: data.clientId }, attendanceTypeId: { new: data.attendanceTypeId } },
+    req,
+  })
+
   return NextResponse.json(attendance)
 }
 
@@ -453,6 +464,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     return atts
+  })
+
+  logAudit({
+    tenantId,
+    employeeId,
+    action: "create",
+    entityType: "Attendance",
+    entityId: lessonId,
+    changes: { bulk: { new: true }, count: { new: results.length }, attendanceTypeId: { new: parsed.data.attendanceTypeId } },
+    req,
   })
 
   return NextResponse.json({ count: results.length, attendances: results })

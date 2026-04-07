@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { logAudit, diffChanges } from "@/lib/audit"
 
 const updateSchema = z.object({
   categoryId: z.string().uuid("Выберите статью расхода").optional(),
@@ -98,6 +99,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     },
   })
 
+  const changes = diffChanges(existing as any, { ...existing, ...data } as any, ["categoryId", "accountId", "amount", "date", "comment", "isVariable", "isRecurring", "amortizationMonths"])
+  if (changes) {
+    logAudit({
+      tenantId: session.user.tenantId,
+      employeeId: (session.user as any).employeeId,
+      action: "update",
+      entityType: "Expense",
+      entityId: id,
+      changes,
+      req,
+    })
+  }
+
   return NextResponse.json(result)
 }
 
@@ -124,6 +138,16 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       where: { id },
       data: { deletedAt: new Date() },
     })
+  })
+
+  logAudit({
+    tenantId: session.user.tenantId,
+    employeeId: (session.user as any).employeeId,
+    action: "delete",
+    entityType: "Expense",
+    entityId: id,
+    changes: { amount: { old: Number(existing.amount) }, categoryId: { old: existing.categoryId } },
+    req,
   })
 
   return NextResponse.json({ success: true })

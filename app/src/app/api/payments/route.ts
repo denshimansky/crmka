@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
+import { logAudit } from "@/lib/audit"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -185,6 +186,17 @@ export async function POST(req: NextRequest) {
     }
 
     return p
+  })
+
+  // Аудит (после транзакции, не блокирует)
+  logAudit({
+    tenantId: session.user.tenantId,
+    employeeId: session.user.employeeId,
+    action: "create",
+    entityType: "Payment",
+    entityId: payment.id,
+    changes: { amount: { new: data.amount }, method: { new: data.method }, clientId: { new: data.clientId } },
+    req,
   })
 
   return NextResponse.json(payment, { status: 201 })

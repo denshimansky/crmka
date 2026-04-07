@@ -102,6 +102,7 @@ model Organization {
   billingSubscriptions BillingSubscription[]
   billingInvoices      BillingInvoice[]
   periods              Period[]
+  auditLogs            AuditLog[]
   trialLessons         TrialLesson[]
   clientBalanceTransactions ClientBalanceTransaction[]
 
@@ -178,6 +179,7 @@ model Employee {
   instructorLessons  Lesson[]           @relation("LessonInstructor")
   periodsClosed      Period[]           @relation("periodClosedBy")
   periodsReopened    Period[]           @relation("periodReopenedBy")
+  auditLogs          AuditLog[]
 
   @@unique([tenantId, login])
   @@index([tenantId])
@@ -795,15 +797,22 @@ model AccountOperation {
 // === ЛОГ АУДИТА ===
 
 model AuditLog {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  employeeId String   @map("employee_id") @db.Uuid
-  action     String
-  entity     String
-  entityId   String?  @map("entity_id")
-  details    Json?
-  createdAt  DateTime @default(now()) @map("created_at")
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  employeeId           String   @map("employee_id") @db.Uuid
+  action               String   // create | update | delete
+  entityType           String   @map("entity_type") // Attendance, Payment, Expense...
+  entityId             String   @map("entity_id") @db.Uuid
+  changes              Json?    // {field: {old, new}}
+  isAfterPeriodClose   Boolean  @default(false) @map("is_after_period_close")
+  ipAddress            String?  @map("ip_address")
+  userAgent            String?  @map("user_agent")
+  createdAt            DateTime @default(now()) @map("created_at")
 
+  organization Organization @relation(fields: [tenantId], references: [id])
+  employee     Employee     @relation(fields: [employeeId], references: [id])
+
+  @@index([tenantId, entityType, entityId])
   @@index([tenantId, createdAt])
   @@map("audit_logs")
 }

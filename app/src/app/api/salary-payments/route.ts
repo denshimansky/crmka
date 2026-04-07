@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { z } from "zod"
+import { logAudit } from "@/lib/audit"
 
 const createSchema = z.object({
   employeeId: z.string().uuid("Выберите сотрудника"),
@@ -95,6 +96,16 @@ export async function POST(req: NextRequest) {
     })
 
     return p
+  })
+
+  logAudit({
+    tenantId: session.user.tenantId,
+    employeeId: session.user.employeeId,
+    action: "create",
+    entityType: "SalaryPayment",
+    entityId: payment.id,
+    changes: { amount: { new: data.amount }, employeeId: { new: data.employeeId }, periodYear: { new: data.periodYear }, periodMonth: { new: data.periodMonth } },
+    req,
   })
 
   return NextResponse.json(payment, { status: 201 })

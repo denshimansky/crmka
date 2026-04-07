@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
+import { logAudit } from "@/lib/audit"
 
 const createSchema = z.object({
   categoryId: z.string().uuid("Выберите статью расхода"),
@@ -140,6 +141,17 @@ export async function POST(req: NextRequest) {
     })
 
     return e
+  })
+
+  // Аудит
+  logAudit({
+    tenantId: session.user.tenantId,
+    employeeId: session.user.employeeId,
+    action: "create",
+    entityType: "Expense",
+    entityId: expense.id,
+    changes: { amount: { new: data.amount }, categoryId: { new: data.categoryId }, accountId: { new: data.accountId } },
+    req,
   })
 
   // Перезагружаем с branches

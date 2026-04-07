@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { logAudit } from "@/lib/audit"
 
 const createSchema = z.object({
   type: z.enum(["owner_withdrawal", "encashment", "transfer"], {
@@ -105,6 +106,16 @@ export async function POST(req: NextRequest) {
     }
 
     return op
+  })
+
+  logAudit({
+    tenantId: session.user.tenantId,
+    employeeId: session.user.employeeId,
+    action: "create",
+    entityType: "AccountOperation",
+    entityId: operation.id,
+    changes: { type: { new: data.type }, amount: { new: data.amount }, fromAccountId: { new: data.fromAccountId }, toAccountId: { new: data.toAccountId } },
+    req,
   })
 
   return NextResponse.json(operation, { status: 201 })
