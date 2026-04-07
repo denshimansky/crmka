@@ -101,6 +101,9 @@ model Organization {
   financialAccounts FinancialAccount[]
   billingSubscriptions BillingSubscription[]
   billingInvoices      BillingInvoice[]
+  periods              Period[]
+  trialLessons         TrialLesson[]
+  clientBalanceTransactions ClientBalanceTransaction[]
 
   @@map("organizations")
 }
@@ -173,6 +176,8 @@ model Employee {
   assignedTasks      Task[]             @relation("TaskAssignee")
   instructorGroups   Group[]            @relation("GroupInstructor")
   instructorLessons  Lesson[]           @relation("LessonInstructor")
+  periodsClosed      Period[]           @relation("periodClosedBy")
+  periodsReopened    Period[]           @relation("periodReopenedBy")
 
   @@unique([tenantId, login])
   @@index([tenantId])
@@ -227,6 +232,8 @@ model Client {
   tasks             Task[]
   callCampaignItems CallCampaignItem[]
   portalTokens      ClientPortalToken[]
+  trialLessons      TrialLesson[]
+  balanceTransactions ClientBalanceTransaction[]
 
   @@index([tenantId, funnelStatus])
   @@index([tenantId, clientStatus])
@@ -248,6 +255,7 @@ model Ward {
   client        Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
   enrollments   GroupEnrollment[]
   subscriptions Subscription[]
+  trialLessons  TrialLesson[]
 
   @@index([tenantId])
   @@map("wards")
@@ -304,6 +312,7 @@ model Group {
   lessons       Lesson[]
   enrollments   GroupEnrollment[]
   subscriptions Subscription[]
+  trialLessons  TrialLesson[]
 
   @@index([tenantId])
   @@index([tenantId, branchId])
@@ -344,9 +353,10 @@ model Lesson {
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
-  group       Group        @relation(fields: [groupId], references: [id])
-  instructor  Employee     @relation("LessonInstructor", fields: [instructorId], references: [id])
-  attendances Attendance[]
+  group        Group         @relation(fields: [groupId], references: [id])
+  instructor   Employee      @relation("LessonInstructor", fields: [instructorId], references: [id])
+  attendances  Attendance[]
+  trialLessons TrialLesson[]
 
   @@index([tenantId, date])
   @@index([groupId, date])
@@ -510,6 +520,7 @@ model Subscription {
   payments    Payment[]
   discounts   Discount[]
   attendances Attendance[]
+  balanceTransactions ClientBalanceTransaction[]
 
   @@index([tenantId, clientId])
   @@index([tenantId, periodYear, periodMonth])
@@ -565,6 +576,7 @@ model Payment {
   client       Client        @relation(fields: [clientId], references: [id])
   subscription Subscription? @relation(fields: [subscriptionId], references: [id])
   account      FinancialAccount @relation(fields: [accountId], references: [id])
+  balanceTransactions ClientBalanceTransaction[]
 
   @@index([tenantId, date])
   @@index([tenantId, clientId])
@@ -1070,4 +1082,101 @@ model ClientPortalToken {
   @@index([token])
   @@index([tenantId, clientId])
   @@map("client_portal_tokens")
+}
+
+// === ЗАКРЫТИЕ ПЕРИОДА ===
+
+model Period {
+  id          String       @id @default(uuid()) @db.Uuid
+  tenantId    String       @map("tenant_id") @db.Uuid
+  year        Int
+  month       Int
+  status      PeriodStatus @default(open)
+  closedAt    DateTime?    @map("closed_at")
+  closedBy    String?      @map("closed_by") @db.Uuid
+  reopenedAt  DateTime?    @map("reopened_at")
+  reopenedBy  String?      @map("reopened_by") @db.Uuid
+  comment     String?
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  organization       Organization @relation(fields: [tenantId], references: [id])
+  closedByEmployee   Employee?    @relation("periodClosedBy", fields: [closedBy], references: [id])
+  reopenedByEmployee Employee?    @relation("periodReopenedBy", fields: [reopenedBy], references: [id])
+
+  @@unique([tenantId, year, month])
+  @@map("periods")
+}
+
+enum PeriodStatus {
+  open
+  closed
+  reopened
+}
+
+// === ПРОБНЫЕ ЗАНЯТИЯ ===
+
+model TrialLesson {
+  id            String      @id @default(uuid()) @db.Uuid
+  tenantId      String      @map("tenant_id") @db.Uuid
+  clientId      String      @map("client_id") @db.Uuid
+  wardId        String?     @map("ward_id") @db.Uuid
+  groupId       String      @map("group_id") @db.Uuid
+  lessonId      String?     @map("lesson_id") @db.Uuid
+  status        TrialStatus @default(scheduled)
+  scheduledDate DateTime    @map("scheduled_date") @db.Date
+  attendedAt    DateTime?   @map("attended_at")
+  comment       String?
+  createdBy     String?     @map("created_by") @db.Uuid
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  ward         Ward?        @relation(fields: [wardId], references: [id])
+  group        Group        @relation(fields: [groupId], references: [id])
+  lesson       Lesson?      @relation(fields: [lessonId], references: [id])
+
+  @@index([tenantId, clientId])
+  @@index([tenantId, groupId, scheduledDate])
+  @@map("trial_lessons")
+}
+
+enum TrialStatus {
+  scheduled
+  attended
+  no_show
+  cancelled
+}
+
+// === ТРАНЗАКЦИИ БАЛАНСА КЛИЕНТА ===
+
+model ClientBalanceTransaction {
+  id             String                 @id @default(uuid()) @db.Uuid
+  tenantId       String                 @map("tenant_id") @db.Uuid
+  clientId       String                 @map("client_id") @db.Uuid
+  type           BalanceTransactionType
+  amount         Decimal                @db.Decimal(12, 2)
+  subscriptionId String?                @map("subscription_id") @db.Uuid
+  paymentId      String?                @map("payment_id") @db.Uuid
+  comment        String?
+  createdBy      String?                @map("created_by") @db.Uuid
+  createdAt      DateTime               @default(now()) @map("created_at")
+
+  organization Organization  @relation(fields: [tenantId], references: [id])
+  client       Client        @relation(fields: [clientId], references: [id])
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  payment      Payment?      @relation(fields: [paymentId], references: [id])
+
+  @@index([tenantId, clientId])
+  @@index([tenantId, createdAt])
+  @@map("client_balance_transactions")
+}
+
+enum BalanceTransactionType {
+  payment_received
+  subscription_remainder
+  refund
+  correction
+  transfer_to_subscription
 }
