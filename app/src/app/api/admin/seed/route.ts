@@ -4,6 +4,11 @@ import bcrypt from "bcryptjs"
 
 // POST /api/admin/seed — создать суперадмина + тариф (одноразовый endpoint)
 export async function POST(req: NextRequest) {
+  // Запрещаем в production
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Seed недоступен в production" }, { status: 403 })
+  }
+
   // Проверяем что суперадминов ещё нет — seed можно запустить только один раз
   const existingAdmin = await db.adminUser.findFirst({ where: { role: "superadmin" } })
   if (existingAdmin) {
