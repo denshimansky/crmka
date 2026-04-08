@@ -14,6 +14,7 @@ CRM-система для детских центров и сферы услуг
 - `docs/screens.md` — Спецификация экранов и интерфейсов
 - `docs/questions.md` — Вопросы (все 23 решены)
 - `docs/audit.md` — Аудит документации (все пункты рассмотрены 19.03.2026)
+- `docs/audit-v2.md` — Аудит PRD vs реализация v2 (172 требования, 08.04.2026)
 - `docs/backoffice.md` — Спецификация бэк-офиса SaaS
 - `docs/checklist-review-anna.md` — Чеклист вопросов на ревью с Анной
 - `docs/competitive-analysis.md` — Анализ конкурентов
@@ -72,6 +73,15 @@ CRM-система для детских центров и сферы услуг
 - Documentation first
 - Именование файлов: латиница, дефисы, дата YYYY-MM-DD, нижний регистр
 - Встречи: `meetings/YYYY-MM-DD-название.txt` + резюме `*-summary.md`
+
+### Справка «?» (PageHelp)
+При любом изменении страницы CRM — обновить справку:
+1. Файл текстов: `app/src/lib/page-help-content.ts`
+2. Компонент: `app/src/components/page-help.tsx`
+3. Ключ справки = путь страницы без `(dashboard)/` (например `crm/leads`, `finance/payments`)
+4. **При добавлении новой страницы** — добавить ключ и тексты в `page-help-content.ts`, вставить `<PageHelp pageKey="..." />` рядом с h1
+5. **При изменении логики страницы** — проверить и обновить текст справки
+6. **При удалении страницы** — удалить ключ из `page-help-content.ts`
 
 ## Инфраструктура
 - **Dev-сервер:** Hetzner, Proxmox VM (Ubuntu 24.04, 2 vCPU, 8GB RAM, 60GB SSD)
