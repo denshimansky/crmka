@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     where,
     include: {
       category: { select: { id: true, name: true, isVariable: true } },
-      employee: { select: { id: true, name: true } },
+      employee: { select: { id: true, firstName: true, lastName: true } },
       branch: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     },
     include: {
       category: { select: { id: true, name: true, isVariable: true } },
-      employee: { select: { id: true, name: true } },
+      employee: { select: { id: true, firstName: true, lastName: true } },
       branch: { select: { id: true, name: true } },
     },
   })
