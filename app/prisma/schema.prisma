@@ -1054,7 +1054,13 @@ model BillingInvoice {
   dueDate        DateTime             @map("due_date") @db.Date
   paidAt         DateTime?            @map("paid_at")
   paidAmount     Decimal?             @map("paid_amount") @db.Decimal(12, 2)
+  paidVia        String?              @map("paid_via") // bank_transfer | tbank_api | manual
   comment        String?
+
+  // Т-Банк API
+  tbankInvoiceId String?              @map("tbank_invoice_id")
+  paymentUrl     String?              @map("payment_url")
+
   createdAt      DateTime             @default(now()) @map("created_at")
   updatedAt      DateTime             @updatedAt @map("updated_at")
 
@@ -1063,6 +1069,7 @@ model BillingInvoice {
 
   @@index([organizationId])
   @@index([status])
+  @@index([tbankInvoiceId])
   @@map("billing_invoices")
 }
 
