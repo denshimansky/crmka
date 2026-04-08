@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const items = await db.adminBonusSettings.findMany({
     where,
     include: {
-      employee: { select: { id: true, name: true } },
+      employee: { select: { id: true, firstName: true, lastName: true } },
       branch: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       isActive: data.isActive,
     },
     include: {
-      employee: { select: { id: true, name: true } },
+      employee: { select: { id: true, firstName: true, lastName: true } },
       branch: { select: { id: true, name: true } },
     },
   })

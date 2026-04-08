@@ -21,7 +21,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const item = await db.adminBonusSettings.findFirst({
     where: { id, tenantId: session.user.tenantId },
     include: {
-      employee: { select: { id: true, name: true } },
+      employee: { select: { id: true, firstName: true, lastName: true } },
       branch: { select: { id: true, name: true } },
     },
   })
@@ -53,7 +53,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     where: { id },
     data: parsed.data,
     include: {
-      employee: { select: { id: true, name: true } },
+      employee: { select: { id: true, firstName: true, lastName: true } },
       branch: { select: { id: true, name: true } },
     },
   })
