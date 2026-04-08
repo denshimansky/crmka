@@ -53,7 +53,10 @@ export function NotificationBell() {
     setLoading(true)
     try {
       const res = await fetch("/api/notifications?limit=20")
-      if (res.ok) setNotifications(await res.json())
+      if (res.ok) {
+        const data = await res.json()
+        setNotifications(Array.isArray(data) ? data : data.items || [])
+      }
     } catch { /* ignore */ }
     finally { setLoading(false) }
   }, [])
@@ -80,7 +83,11 @@ export function NotificationBell() {
 
   async function markAsRead(id: string) {
     try {
-      await fetch(`/api/notifications/${id}/read`, { method: "POST" })
+      await fetch(`/api/notifications/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isRead: true }),
+      })
       setNotifications(prev =>
         prev.map(n => n.id === id ? { ...n, isRead: true } : n)
       )
@@ -89,7 +96,7 @@ export function NotificationBell() {
 
   async function markAllAsRead() {
     try {
-      await fetch("/api/notifications/read-all", { method: "POST" })
+      await fetch("/api/notifications/read-all")
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })))
     } catch { /* ignore */ }
   }
