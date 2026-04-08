@@ -57,12 +57,10 @@ export interface CreateInvoiceParams {
 export interface CreateInvoiceResult {
   /** ID счёта в Т-Банк */
   invoiceId: string
-  /**
-   * URL для оплаты (если Т-Банк возвращает).
-   * В текущей документации прямой ссылки нет —
-   * клиент получает счёт на email/в ЛК.
-   */
+  /** URL для оплаты / просмотра в ЛК Т-Банк */
   paymentUrl: string | null
+  /** Ссылка на PDF счёта */
+  pdfUrl: string | null
 }
 
 /** Статусы счёта из Т-Банк API */
@@ -204,13 +202,16 @@ export class TBankClient {
       invoiceId?: string
       id?: string
       paymentUrl?: string
+      pdfUrl?: string
+      incomingInvoiceUrl?: string
     }>("POST", "/invoice/send", body)
 
     const invoiceId = response.invoiceId || response.id || ""
 
     return {
       invoiceId,
-      paymentUrl: response.paymentUrl || null,
+      paymentUrl: response.incomingInvoiceUrl || response.paymentUrl || null,
+      pdfUrl: response.pdfUrl || null,
     }
   }
 

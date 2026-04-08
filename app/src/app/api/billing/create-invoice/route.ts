@@ -149,6 +149,9 @@ export async function POST(req: NextRequest) {
           tbankInvoiceId,
           paymentUrl,
           paidVia: "tbank_api",
+          comment: result.pdfUrl
+            ? `${invoice.comment || ""} | PDF: ${result.pdfUrl}`.trim()
+            : undefined,
         },
       })
     } catch (err) {
