@@ -68,6 +68,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   const { id } = await params
+
+  const existing = await db.group.findFirst({ where: { id, tenantId: session.user.tenantId } })
+  if (!existing) return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
+
   await db.group.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } })
   return NextResponse.json({ ok: true })
 }

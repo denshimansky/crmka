@@ -11,8 +11,8 @@ export async function GET() {
   const { clientId, tenantId } = session
 
   // Клиент
-  const client = await db.client.findUnique({
-    where: { id: clientId },
+  const client = await db.client.findFirst({
+    where: { id: clientId, tenantId },
     select: {
       id: true,
       firstName: true,

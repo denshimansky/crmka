@@ -42,6 +42,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   const { id } = await params
+
+  const existing = await db.direction.findFirst({ where: { id, tenantId: session.user.tenantId } })
+  if (!existing) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
+
   await db.direction.update({ where: { id }, data: { deletedAt: new Date() } })
   return NextResponse.json({ ok: true })
 }

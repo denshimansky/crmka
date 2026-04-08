@@ -64,6 +64,14 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data
 
+  // Проверка принадлежности сотрудника и счёта к тенанту
+  const [employee, account] = await Promise.all([
+    db.employee.findFirst({ where: { id: data.employeeId, tenantId: session.user.tenantId } }),
+    db.financialAccount.findFirst({ where: { id: data.accountId, tenantId: session.user.tenantId } }),
+  ])
+  if (!employee) return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
+  if (!account) return NextResponse.json({ error: "Счёт не найден" }, { status: 404 })
+
   // Проверка закрытия периода
   if (await isPeriodLocked(session.user.tenantId, new Date(Date.UTC(data.periodYear, data.periodMonth - 1, 1)), role)) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })

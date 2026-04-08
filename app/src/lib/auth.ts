@@ -20,18 +20,35 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.login || !credentials?.password) return null
 
-        // Ищем сотрудника по логину (может быть email владельца или login сотрудника)
-        const employee = await db.employee.findFirst({
-          where: {
-            OR: [
-              { login: credentials.login },
-              { email: credentials.login },
-            ],
-            isActive: true,
-            deletedAt: null,
-          },
-          include: { organization: true },
-        })
+        let employee
+
+        if (credentials.login.includes("@")) {
+          // Email — глобально уникален, ищем напрямую
+          employee = await db.employee.findFirst({
+            where: {
+              email: credentials.login,
+              isActive: true,
+              deletedAt: null,
+            },
+            include: { organization: true },
+          })
+        } else {
+          // Login — может совпадать между тенантами
+          const employees = await db.employee.findMany({
+            where: {
+              login: credentials.login,
+              isActive: true,
+              deletedAt: null,
+            },
+            include: { organization: true },
+          })
+
+          if (employees.length > 1) {
+            // Несколько сотрудников с одинаковым логином в разных организациях
+            throw new Error("Используйте email для входа")
+          }
+          employee = employees[0] || null
+        }
 
         if (!employee) return null
 
@@ -45,6 +62,7 @@ export const authOptions: NextAuthOptions = {
           role: employee.role,
           tenantId: employee.tenantId,
           orgName: employee.organization.name,
+          billingStatus: employee.organization.billingStatus,
         }
       },
     }),
@@ -56,7 +74,27 @@ export const authOptions: NextAuthOptions = {
         token.tenantId = (user as any).tenantId
         token.employeeId = user.id
         token.orgName = (user as any).orgName
+        token.billingStatus = (user as any).billingStatus
       }
+
+      // Периодически обновляем billingStatus (каждые 5 минут)
+      const now = Math.floor(Date.now() / 1000)
+      const lastCheck = (token.billingStatusCheckedAt as number) || 0
+      if (token.tenantId && now - lastCheck > 300) {
+        try {
+          const org = await db.organization.findUnique({
+            where: { id: token.tenantId as string },
+            select: { billingStatus: true },
+          })
+          if (org) {
+            token.billingStatus = org.billingStatus
+          }
+          token.billingStatusCheckedAt = now
+        } catch {
+          // Не блокируем работу при ошибках БД
+        }
+      }
+
       return token
     },
     async session({ session, token }) {
@@ -65,6 +103,7 @@ export const authOptions: NextAuthOptions = {
         ;(session.user as any).tenantId = token.tenantId
         ;(session.user as any).employeeId = token.employeeId
         ;(session.user as any).orgName = token.orgName
+        ;(session.user as any).billingStatus = token.billingStatus
       }
       return session
     },

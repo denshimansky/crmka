@@ -24,6 +24,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params
   const body = await req.json()
 
+  const existing = await db.callCampaign.findFirst({
+    where: { id, tenantId: session.user.tenantId, deletedAt: null },
+  })
+  if (!existing) return NextResponse.json({ error: "Кампания не найдена" }, { status: 404 })
+
   const campaign = await db.callCampaign.update({
     where: { id },
     data: { status: body.status },

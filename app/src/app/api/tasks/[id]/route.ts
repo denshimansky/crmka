@@ -49,6 +49,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id } = await params
+
+  const existing = await db.task.findFirst({
+    where: { id, tenantId: session.user.tenantId, deletedAt: null },
+  })
+  if (!existing) return NextResponse.json({ error: "Задача не найдена" }, { status: 404 })
+
   await db.task.update({
     where: { id },
     data: { deletedAt: new Date() },

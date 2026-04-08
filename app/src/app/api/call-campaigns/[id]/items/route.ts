@@ -52,28 +52,38 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   const data = parsed.data
 
-  await db.$transaction(async (tx) => {
-    const prev = await tx.callCampaignItem.findUnique({ where: { id: data.itemId } })
-
-    await tx.callCampaignItem.update({
-      where: { id: data.itemId },
-      data: {
-        status: data.status,
-        result: data.result,
-        comment: data.comment,
-        calledBy: session.user.employeeId,
-        calledAt: new Date(),
-      },
-    })
-
-    // Обновляем счётчик кампании
-    if (prev && (prev.status as string) === "pending" && (data.status as string) !== "pending") {
-      await tx.callCampaign.update({
-        where: { id },
-        data: { completedItems: { increment: 1 } },
+  try {
+    await db.$transaction(async (tx) => {
+      const prev = await tx.callCampaignItem.findFirst({
+        where: { id: data.itemId, tenantId: session.user.tenantId },
       })
+      if (!prev) throw new Error("NOT_FOUND")
+
+      await tx.callCampaignItem.update({
+        where: { id: data.itemId },
+        data: {
+          status: data.status,
+          result: data.result,
+          comment: data.comment,
+          calledBy: session.user.employeeId,
+          calledAt: new Date(),
+        },
+      })
+
+      // Обновляем счётчик кампании
+      if ((prev.status as string) === "pending" && (data.status as string) !== "pending") {
+        await tx.callCampaign.update({
+          where: { id },
+          data: { completedItems: { increment: 1 } },
+        })
+      }
+    })
+  } catch (e: any) {
+    if (e.message === "NOT_FOUND") {
+      return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
     }
-  })
+    throw e
+  }
 
   return NextResponse.json({ success: true })
 }

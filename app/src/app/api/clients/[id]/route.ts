@@ -97,6 +97,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   const { id } = await params
+
+  const existing = await db.client.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+  })
+  if (!existing) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
+
   await db.client.update({
     where: { id },
     data: { deletedAt: new Date() },

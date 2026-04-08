@@ -53,6 +53,12 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data
 
+  // Проверка принадлежности сотрудника к тенанту
+  const employee = await db.employee.findFirst({
+    where: { id: data.employeeId, tenantId: session.user.tenantId },
+  })
+  if (!employee) return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
+
   const adjustment = await db.salaryAdjustment.create({
     data: {
       tenantId: session.user.tenantId,

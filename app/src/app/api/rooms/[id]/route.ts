@@ -25,6 +25,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
 
+  const existing = await db.room.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+  })
+  if (!existing) return NextResponse.json({ error: "Кабинет не найден" }, { status: 404 })
+
   const room = await db.room.update({
     where: { id },
     data: parsed.data,
@@ -41,6 +46,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
 
   const { id } = await params
+
+  const existing = await db.room.findFirst({
+    where: { id, tenantId: session.user.tenantId },
+  })
+  if (!existing) return NextResponse.json({ error: "Кабинет не найден" }, { status: 404 })
 
   await db.room.update({
     where: { id },

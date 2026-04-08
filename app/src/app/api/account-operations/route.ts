@@ -73,6 +73,20 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Проверка принадлежности счетов к тенанту
+  if (data.fromAccountId) {
+    const fromAccount = await db.financialAccount.findFirst({
+      where: { id: data.fromAccountId, tenantId: session.user.tenantId },
+    })
+    if (!fromAccount) return NextResponse.json({ error: "Счёт-источник не найден" }, { status: 404 })
+  }
+  if (data.toAccountId) {
+    const toAccount = await db.financialAccount.findFirst({
+      where: { id: data.toAccountId, tenantId: session.user.tenantId },
+    })
+    if (!toAccount) return NextResponse.json({ error: "Счёт-получатель не найден" }, { status: 404 })
+  }
+
   const operation = await db.$transaction(async (tx) => {
     const op = await tx.accountOperation.create({
       data: {
