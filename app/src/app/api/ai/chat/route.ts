@@ -109,12 +109,22 @@ ${context}`
   }
 }
 
-/** Собирает ключевые метрики из БД для системного промпта */
+/** Собирает ключевые метрики из БД для системного промпта (текущий + 3 предыдущих месяца) */
 async function buildContext(tenantId: string, role: string): Promise<string> {
   const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-  const monthName = now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const fmt = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n))
+
+  // Период: 4 месяца (текущий + 3 предыдущих)
+  const months: { start: Date; end: Date; name: string }[] = []
+  for (let i = 3; i >= 0; i--) {
+    const start = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0)
+    const name = start.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+    months.push({ start, end, name })
+  }
+
+  const periodStart = months[0].start
+  const periodEnd = months[months.length - 1].end
 
   // Параллельные запросы
   const [
@@ -124,92 +134,84 @@ async function buildContext(tenantId: string, role: string): Promise<string> {
     leadCount,
     activeSubscriptions,
     revenueAttendances,
-    expensesAgg,
+    expenses,
     debtors,
     tasksOpen,
     groups,
   ] = await Promise.all([
-    // Организация
     db.organization.findUnique({
       where: { id: tenantId },
       select: { name: true, legalName: true },
     }),
-
-    // Филиалы
     db.branch.findMany({
       where: { tenantId, deletedAt: null },
       select: { id: true, name: true },
     }),
-
-    // Клиенты (с clientStatus = активные клиенты)
     db.client.count({
       where: { tenantId, deletedAt: null, clientStatus: { not: null } },
     }),
-
-    // Лиды (в воронке, ещё не клиенты)
     db.client.count({
       where: { tenantId, deletedAt: null, clientStatus: null, funnelStatus: { not: "active_client" } },
     }),
-
-    // Активные абонементы
     db.subscription.count({
       where: { tenantId, deletedAt: null, status: "active" },
     }),
-
-    // Выручка за месяц
+    // Выручка за весь период
     db.attendance.findMany({
       where: {
         tenantId,
-        lesson: { date: { gte: monthStart, lte: monthEnd } },
+        lesson: { date: { gte: periodStart, lte: periodEnd } },
         attendanceType: { countsAsRevenue: true },
       },
-      select: { chargeAmount: true },
+      select: { chargeAmount: true, lesson: { select: { date: true } } },
     }),
-
-    // Расходы за месяц
-    db.expense.aggregate({
-      where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
-      _sum: { amount: true },
+    // Расходы за весь период
+    db.expense.findMany({
+      where: { tenantId, deletedAt: null, date: { gte: periodStart, lte: periodEnd } },
+      select: { amount: true, date: true },
     }),
-
-    // Должники
     db.subscription.findMany({
       where: { tenantId, deletedAt: null, status: "active", balance: { lt: 0 } },
       select: { balance: true, client: { select: { firstName: true, lastName: true } } },
     }),
-
-    // Открытые задачи
     db.task.count({
       where: { tenantId, deletedAt: null, completedAt: null },
     }),
-
-    // Группы
     db.group.findMany({
       where: { tenantId, deletedAt: null },
       select: { name: true, maxStudents: true, _count: { select: { enrollments: true } } },
     }),
   ])
 
-  const revenue = revenueAttendances.reduce((s, a) => s + Number(a.chargeAmount), 0)
-  const expenses = Number(expensesAgg._sum.amount || 0)
-  const profit = revenue - expenses
   const totalDebt = debtors.reduce((s, d) => s + Math.abs(Number(d.balance)), 0)
-
-  const fmt = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n))
 
   let ctx = `Организация: ${org?.name || "—"}
 Филиалы (${branches.length}): ${branches.map(b => b.name).join(", ") || "—"}
 Дата: ${now.toLocaleDateString("ru-RU")}
-
---- ${monthName} ---
-Клиентов: ${clientCount}
-Лидов: ${leadCount}
+Клиентов: ${clientCount}, Лидов: ${leadCount}
 Активных абонементов: ${activeSubscriptions}
-Выручка: ${fmt(revenue)} ₽
-Расходы: ${fmt(expenses)} ₽
-Прибыль: ${fmt(profit)} ₽
 Открытых задач: ${tasksOpen}
 `
+
+  // Помесячная разбивка
+  for (const m of months) {
+    const mRevenue = revenueAttendances
+      .filter(a => {
+        const d = new Date(a.lesson.date)
+        return d >= m.start && d <= m.end
+      })
+      .reduce((s, a) => s + Number(a.chargeAmount), 0)
+
+    const mExpenses = expenses
+      .filter(e => {
+        const d = new Date(e.date)
+        return d >= m.start && d <= m.end
+      })
+      .reduce((s, e) => s + Number(e.amount), 0)
+
+    const mProfit = mRevenue - mExpenses
+    ctx += `\n--- ${m.name} ---\nВыручка: ${fmt(mRevenue)} ₽ | Расходы: ${fmt(mExpenses)} ₽ | Прибыль: ${fmt(mProfit)} ₽\n`
+  }
 
   if (debtors.length > 0) {
     ctx += `\nДолжники (${debtors.length}, сумма ${fmt(totalDebt)} ₽):\n`
