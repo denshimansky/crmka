@@ -37,6 +37,18 @@ export function rateLimit(
 }
 
 /**
+ * Tenant-level rate limiter (L-1 audit fix).
+ * Limits total requests per tenant to prevent one tenant from overloading the system.
+ * Default: 100 requests per minute per tenant.
+ */
+export function rateLimitTenant(
+  tenantId: string,
+  { maxRequests = 100, windowMs = 60_000 }: { maxRequests?: number; windowMs?: number } = {}
+): { ok: boolean; retryAfter?: number } {
+  return rateLimit(`tenant:${tenantId}`, { maxRequests, windowMs })
+}
+
+/**
  * Extract IP from request headers (works behind nginx/proxy).
  */
 export function getClientIp(req: Request): string {

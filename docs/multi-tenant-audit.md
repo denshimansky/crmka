@@ -278,7 +278,7 @@ const client = await db.client.findUnique({
 
 ## MEDIUM
 
-### M-1. User.email — глобально уникальный constraint
+### M-1. User.email — глобально уникальный constraint — WONTFIX (2026-04-08)
 
 **Файл:** `app/prisma/schema.prisma`, строка 45
 
@@ -291,6 +291,8 @@ User.email — уникален глобально, а не per-tenant. Если
 На практике таблица `users` сейчас не используется напрямую (авторизация через Employee), но constraint может мешать PrismaAdapter.
 
 **Fix:** Убрать `@unique` с User.email (или сделать `@@unique([email, employeeId])`). Или удалить модель User если она не используется.
+
+> **WONTFIX (2026-04-08):** Глобальная уникальность email — это ПРАВИЛЬНОЕ поведение для нашей email-based авторизации. Один email = одна идентичность (владелец). Владелец логинится по email, и email должен однозначно идентифицировать аккаунт. Сотрудники логинятся по login/password, у них email опциональный.
 
 ---
 
@@ -344,13 +346,15 @@ model EmployeeBranch {
 
 ---
 
-### M-5. Subscription PATCH и DELETE — update по { id } после findFirst
+### M-5. Subscription PATCH и DELETE — update по { id } после findFirst — RESOLVED (2026-04-08)
 
 **Файл:** `app/src/app/api/subscriptions/[id]/route.ts`, строки 94, 121
 
 Паттерн "findFirst с tenantId, затем update по { id }" повторяется. Это не race condition в строгом смысле (Prisma сериализует), но архитектурно неправильно — лучше использовать `where: { id, tenantId }` напрямую.
 
 **Fix:** Prisma не поддерживает compound where в update для non-unique fields. Использовать `updateMany` с `where: { id, tenantId }` или оставить findFirst + update в одной транзакции.
+
+> **RESOLVED (2026-04-08):** PATCH и DELETE обёрнуты в `db.$transaction()` — findFirst + update выполняются атомарно, исключая race condition.
 
 ---
 
@@ -366,15 +370,17 @@ Endpoint `/api/admin/seed` на dev-сервере проверяет тольк
 
 ## LOW
 
-### L-1. Нет rate limiting — один тенант может замедлить систему для всех
+### L-1. Нет rate limiting — один тенант может замедлить систему для всех — RESOLVED (2026-04-08)
 
 Отсутствует rate limiting как на уровне API, так и на уровне nginx. Один тенант может отправить 10000 запросов/сек и замедлить работу для всех остальных.
 
 **Fix:** Добавить rate limiting per-tenant (по tenantId из JWT). Например, через middleware или nginx `limit_req_zone` по кастомному заголовку.
 
+> **RESOLVED (2026-04-08):** Добавлена функция `rateLimitTenant()` в `rate-limit.ts` (in-memory, 100 req/min per tenant). Применена к ключевым write-эндпоинтам: payments, clients, subscriptions POST. Для масштабирования заменить на Redis.
+
 ---
 
-### L-2. Reset-DB удаляет ВСЕ тенанты
+### L-2. Reset-DB удаляет ВСЕ тенанты — RESOLVED (2026-04-08)
 
 **Файл:** `app/src/app/api/admin/reset-db/route.ts`
 
@@ -382,21 +388,27 @@ Endpoint `/api/admin/seed` на dev-сервере проверяет тольк
 
 **Fix:** Дополнительная проверка: `if (process.env.NODE_ENV === 'production') throw`.
 
+> **RESOLVED (2026-04-08):** Уже исправлено в предыдущем коммите — в начале обработчика стоит проверка `if (process.env.NODE_ENV === "production") return 403` + обязательная проверка `ALLOW_DESTRUCTIVE_API` + суперадмин-сессия.
+
 ---
 
-### L-3. Нет изоляции файлов (будущее)
+### L-3. Нет изоляции файлов (будущее) — NOTED (2026-04-08)
 
 Сейчас файловые загрузки отсутствуют, но при добавлении (фото, документы) пути должны включать tenantId: `/uploads/{tenantId}/...`.
 
 **Fix:** При реализации загрузки файлов — tenantId в путь.
 
+> **NOTED (2026-04-08):** Загрузки файлов пока не реализованы. При реализации обязательно: пути `/uploads/{tenantId}/...`, валидация tenantId при доступе к файлам. Зафиксировано как требование.
+
 ---
 
-### L-4. JWT не содержит billingStatus — лишний запрос к БД
+### L-4. JWT не содержит billingStatus — лишний запрос к БД — RESOLVED (2026-04-08)
 
 Каждый запрос для проверки блокировки потребует обращения к таблице organizations. Эффективнее хранить billingStatus в JWT с коротким TTL (5 мин) и обновлять при изменении.
 
 **Fix:** Добавить billingStatus в JWT callback, обновлять при /api/billing-status.
+
+> **RESOLVED (2026-04-08):** Уже реализовано в предыдущем коммите — billingStatus добавлен в JWT callback в `auth.ts` с автообновлением каждые 5 минут. Middleware проверяет billingStatus и блокирует запросы для заблокированных организаций.
 
 ---
 

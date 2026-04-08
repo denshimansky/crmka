@@ -48,58 +48,63 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   const data = parsed.data
 
-  const existing = await db.subscription.findFirst({
-    where: { id, tenantId: session.user.tenantId, deletedAt: null },
-  })
-  if (!existing) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
+  // Транзакция: findFirst + update атомарно (M-5 audit fix)
+  const subscription = await db.$transaction(async (tx) => {
+    const existing = await tx.subscription.findFirst({
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
+    })
+    if (!existing) return null
 
-  // Пересчёт сумм при изменении цены/кол-ва занятий/скидки
-  const lessonPrice = data.lessonPrice ?? Number(existing.lessonPrice)
-  const totalLessons = data.totalLessons ?? existing.totalLessons
-  const discountAmount = data.discountAmount ?? Number(existing.discountAmount)
-  const totalAmount = lessonPrice * totalLessons
-  const finalAmount = totalAmount - discountAmount
+    // Пересчёт сумм при изменении цены/кол-ва занятий/скидки
+    const lessonPrice = data.lessonPrice ?? Number(existing.lessonPrice)
+    const totalLessons = data.totalLessons ?? existing.totalLessons
+    const discountAmount = data.discountAmount ?? Number(existing.discountAmount)
+    const totalAmount = lessonPrice * totalLessons
+    const finalAmount = totalAmount - discountAmount
 
-  // Пересчитываем баланс: finalAmount - сумма оплат
-  const paidSum = await db.payment.aggregate({
-    where: { subscriptionId: id, deletedAt: null },
-    _sum: { amount: true },
-  })
-  const paid = Number(paidSum._sum.amount || 0)
-  const balance = finalAmount - paid
+    // Пересчитываем баланс: finalAmount - сумма оплат
+    const paidSum = await tx.payment.aggregate({
+      where: { subscriptionId: id, deletedAt: null },
+      _sum: { amount: true },
+    })
+    const paid = Number(paidSum._sum.amount || 0)
+    const balance = finalAmount - paid
 
-  const updateData: any = {
-    lessonPrice,
-    totalLessons,
-    totalAmount,
-    discountAmount,
-    finalAmount,
-    balance,
-  }
-
-  if (data.status) {
-    updateData.status = data.status
-    if (data.status === "active" && !existing.activatedAt) {
-      updateData.activatedAt = new Date()
+    const updateData: any = {
+      lessonPrice,
+      totalLessons,
+      totalAmount,
+      discountAmount,
+      finalAmount,
+      balance,
     }
-    if (data.status === "withdrawn" && data.withdrawalDate) {
-      updateData.withdrawalDate = new Date(data.withdrawalDate)
+
+    if (data.status) {
+      updateData.status = data.status
+      if (data.status === "active" && !existing.activatedAt) {
+        updateData.activatedAt = new Date()
+      }
+      if (data.status === "withdrawn" && data.withdrawalDate) {
+        updateData.withdrawalDate = new Date(data.withdrawalDate)
+      }
     }
-  }
 
-  if (data.wardId !== undefined) {
-    updateData.wardId = data.wardId
-  }
+    if (data.wardId !== undefined) {
+      updateData.wardId = data.wardId
+    }
 
-  const subscription = await db.subscription.update({
-    where: { id },
-    data: updateData,
-    include: {
-      client: { select: { id: true, firstName: true, lastName: true } },
-      direction: { select: { id: true, name: true } },
-      group: { select: { id: true, name: true } },
-    },
+    return tx.subscription.update({
+      where: { id },
+      data: updateData,
+      include: {
+        client: { select: { id: true, firstName: true, lastName: true } },
+        direction: { select: { id: true, name: true } },
+        group: { select: { id: true, name: true } },
+      },
+    })
   })
+
+  if (!subscription) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
 
   return NextResponse.json(subscription)
 }
@@ -113,15 +118,21 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   const { id } = await params
 
-  const existing = await db.subscription.findFirst({
-    where: { id, tenantId: session.user.tenantId, deletedAt: null },
-  })
-  if (!existing) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
+  // Транзакция: findFirst + update атомарно (M-5 audit fix)
+  const deleted = await db.$transaction(async (tx) => {
+    const existing = await tx.subscription.findFirst({
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
+    })
+    if (!existing) return null
 
-  await db.subscription.update({
-    where: { id },
-    data: { deletedAt: new Date() },
+    await tx.subscription.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    })
+    return true
   })
+
+  if (!deleted) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
 
   return NextResponse.json({ ok: true })
 }
