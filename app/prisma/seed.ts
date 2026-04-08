@@ -1564,7 +1564,485 @@ async function step4_march(
   })
   console.log("  Period Mar: open")
 
-  return { marClients, marSubs }
+  return { marClients, marSubs, churnedFebClients }
+}
+
+// ============================================================
+// STEP 7: CLOSE MARCH + APRIL (1-8)
+// ============================================================
+async function step7_closeMarchAndApril(
+  ctx: Awaited<ReturnType<typeof step1_setup>>,
+  janData: Awaited<ReturnType<typeof step2_january>>,
+  febData: Awaited<ReturnType<typeof step3_february>>,
+  marData: Awaited<ReturnType<typeof step4_march>>
+) {
+  console.log("\n=== STEP 7: Close March + April 1-8 ===")
+  const { T, brAkad, brPark, owner, admin1, admin2, groups, attTypeMap, cats, accCashAkad, accCashPark, accBank, accAcq } = ctx
+
+  // ────────────────────────────────────────
+  // 7A. CLOSE MARCH PERIOD
+  // ────────────────────────────────────────
+
+  // Close March period
+  await db.period.update({
+    where: { tenantId_year_month: { tenantId: T, year: 2026, month: 3 } },
+    data: { status: "closed", closedAt: new Date("2026-04-01"), closedBy: owner.id },
+  })
+  console.log("  Period Mar: closed")
+
+  // Close all March subscriptions
+  const marSubsClosed = await db.subscription.updateMany({
+    where: { tenantId: T, periodYear: 2026, periodMonth: 3, status: "active" },
+    data: { status: "closed", balance: 0 },
+  })
+  console.log("  March subs closed: " + marSubsClosed.count)
+
+  // Salary payments for March
+  const instructors = [
+    ctx.instSergey, ctx.instOlga, ctx.instKaterina, ctx.instDmitriy,
+    ctx.instMaria, ctx.instAlexey, ctx.instIrina, ctx.instPavel, ctx.instNatalya,
+  ]
+  for (const inst of instructors) {
+    const marPay = await db.attendance.aggregate({
+      where: { tenantId: T, instructorPayEnabled: true, lesson: { instructorId: inst.id, date: { gte: new Date("2026-03-01"), lt: new Date("2026-04-01") } } },
+      _sum: { instructorPayAmount: true },
+    })
+    const amount = Number(marPay._sum.instructorPayAmount || 0)
+    if (amount > 0) {
+      await db.salaryPayment.create({
+        data: {
+          tenantId: T, employeeId: inst.id, accountId: accBank.id,
+          amount, date: new Date("2026-04-03"),
+          periodYear: 2026, periodMonth: 3, periodHalf: 2,
+          createdBy: owner.id,
+        },
+      })
+    }
+  }
+  console.log("  SalaryPayments for Mar: done")
+
+  // Mark March billing invoice as paid
+  await db.billingInvoice.updateMany({
+    where: { organizationId: T, number: "INV-2026-003" },
+    data: { status: "paid", paidAt: new Date("2026-04-01"), paidAmount: 10000 },
+  })
+  console.log("  March billing invoice: paid")
+
+  // ────────────────────────────────────────
+  // 7B. APRIL LEADS (8 new)
+  // ────────────────────────────────────────
+  const aprLeadNames = [
+    { first: "Виктория", last: "Романова" }, { first: "Артём", last: "Кудрявцев" },
+    { first: "Анастасия", last: "Белякова" }, { first: "Денис", last: "Горбунов" },
+    { first: "Ксения", last: "Макарова" }, { first: "Олег", last: "Лазарев" },
+    { first: "Алина", last: "Титова" }, { first: "Николай", last: "Фролов" },
+  ]
+  const aprChildNames = ["Арсений", "Василина", "Демьян", "Злата", "Кузьма", "Лукерья", "Мирослав", "Ника"]
+  const aprLeadChannels = ["Инстаграм", "Сарафанное радио", "Авито", "Сайт", "Инстаграм", "Листовки", "Сарафанное радио", "Авито"]
+
+  // funnelStatuses: 0-4 → trial_scheduled (3 attended, 1 no_show, 1 still scheduled for Apr 9)
+  // 5-6 → converted (active_client)
+  // 7 → new
+  const aprLeadStatuses: Array<{ funnel: "trial_scheduled" | "trial_attended" | "active_client" | "new"; client: "active" | null }> = [
+    { funnel: "trial_attended", client: null },   // 0: attended trial
+    { funnel: "trial_attended", client: null },   // 1: attended trial
+    { funnel: "trial_attended", client: null },   // 2: attended trial
+    { funnel: "trial_scheduled", client: null },  // 3: no_show
+    { funnel: "trial_scheduled", client: null },  // 4: still scheduled for Apr 9
+    { funnel: "active_client", client: "active" },// 5: converted
+    { funnel: "active_client", client: "active" },// 6: converted
+    { funnel: "new", client: null },              // 7: new lead
+  ]
+
+  const aprClients: { id: string; wardId: string; branchId: string; idx: number }[] = []
+  const aprAllClientIds: string[] = []
+
+  for (let i = 0; i < 8; i++) {
+    const ln = aprLeadNames[i]
+    const brId = i % 3 === 0 ? brPark.id : brAkad.id
+    const phone = `+7 (9${String(80 + i).padStart(2, "0")}) ${String(500 + i * 3).padStart(3, "0")}-${String(70 + i).padStart(2, "0")}-${String(80 + i).padStart(2, "0")}`
+    const st = aprLeadStatuses[i]
+
+    const client = await db.client.create({
+      data: {
+        tenantId: T, firstName: ln.first, lastName: ln.last, phone,
+        funnelStatus: st.funnel, clientStatus: st.client,
+        segment: "new_client", branchId: brId,
+        comment: `Канал: ${aprLeadChannels[i]}`,
+        createdAt: new Date(Date.UTC(2026, 3, 1 + i)),
+        firstPaymentDate: st.client === "active" ? new Date(Date.UTC(2026, 3, 5 + (i % 3))) : undefined,
+        saleDate: st.client === "active" ? new Date(Date.UTC(2026, 3, 5 + (i % 3))) : undefined,
+      },
+    })
+    aprAllClientIds.push(client.id)
+
+    if (st.client === "active") {
+      const ward = await db.ward.create({
+        data: { tenantId: T, clientId: client.id, firstName: aprChildNames[i], birthDate: new Date(Date.UTC(2020 + (i % 3), i % 12, 10 + i)) },
+      })
+      aprClients.push({ id: client.id, wardId: ward.id, branchId: brId, idx: i })
+    }
+  }
+  console.log("  April leads: 8 (2 converted)")
+
+  // Trial lessons for April leads (indices 0-4)
+  const trialGroupMapping = [0, 2, 4, 6, 1]
+  const trialStatuses: Array<"attended" | "no_show" | "scheduled"> = ["attended", "attended", "attended", "no_show", "scheduled"]
+  const trialDates = [3, 4, 5, 6, 9] // April dates
+
+  for (let i = 0; i < 5; i++) {
+    await db.trialLesson.create({
+      data: {
+        tenantId: T, clientId: aprAllClientIds[i], groupId: groups[trialGroupMapping[i]].id,
+        status: trialStatuses[i],
+        scheduledDate: new Date(Date.UTC(2026, 3, trialDates[i])),
+        attendedAt: trialStatuses[i] === "attended" ? new Date(Date.UTC(2026, 3, trialDates[i])) : undefined,
+      },
+    })
+  }
+  console.log("  April trials: 5 (3 attended, 1 no_show, 1 scheduled)")
+
+  // ────────────────────────────────────────
+  // 7C. APRIL SUBSCRIPTIONS
+  // ────────────────────────────────────────
+
+  type SubRecord = { id: string; clientId: string; wardId: string; groupIdx: number; dirId: string; price: number; totalLessons: number }
+  const aprSubs: SubRecord[] = []
+
+  async function createAprSub(clientId: string, wardId: string, gIdx: number) {
+    const gd = groups[gIdx].def
+    const dir = ctx.dirs.find(d => d.id === gd.dirId)!
+    const price = Number(dir.lessonPrice)
+    const aprDates = daysInMonth(2026, 4, gd.days)
+    const totalLessons = aprDates.length
+    const totalAmount = totalLessons * price
+
+    const sub = await db.subscription.create({
+      data: {
+        tenantId: T, clientId, wardId, directionId: gd.dirId, groupId: groups[gIdx].id,
+        type: "calendar", status: "active", periodYear: 2026, periodMonth: 4,
+        lessonPrice: price, totalLessons, totalAmount, discountAmount: 0, finalAmount: totalAmount,
+        balance: totalAmount, chargedAmount: 0,
+        startDate: new Date("2026-04-01"), endDate: new Date("2026-04-30"),
+        activatedAt: new Date("2026-04-01"), createdBy: owner.id,
+      },
+    })
+    aprSubs.push({ id: sub.id, clientId, wardId, groupIdx: gIdx, dirId: gd.dirId, price, totalLessons })
+    return sub
+  }
+
+  // Jan continuing clients (first 18)
+  const janPrimaryGroupAssign = [0, 2, 4, 6, 7, 1, 3, 5, 8, 11, 12, 13, 14, 15, 16, 0, 2, 4]
+  for (let i = 0; i < 18; i++) {
+    const cl = janData.clients[i]
+    await createAprSub(cl.id, cl.wardId, janPrimaryGroupAssign[i])
+  }
+  // Jan second direction (first 12)
+  const janSecondApr = [2, 5, 6, 11, 8, 4, 7, 9, 12, 13, 14, 15]
+  for (let i = 0; i < 12; i++) {
+    const cl = janData.clients[i]
+    await createAprSub(cl.id, cl.wardId, janSecondApr[i])
+  }
+
+  // Feb continuing clients (first 22, minus 3 churned in Mar)
+  const febActiveCount = 19 // 22 - 3 churned
+  const febPrimaryGroups = [0, 2, 4, 6, 7, 1, 3, 5, 8, 11, 12, 13, 14, 15, 16, 0, 2, 4, 6]
+  for (let i = 0; i < febActiveCount; i++) {
+    const cl = febData.febClients[i]
+    await createAprSub(cl.id, cl.wardId, febPrimaryGroups[i])
+  }
+  // Feb second direction (first 10)
+  const febSecondApr = [2, 5, 6, 11, 8, 4, 7, 9, 12, 13]
+  for (let i = 0; i < 10; i++) {
+    const cl = febData.febClients[i]
+    await createAprSub(cl.id, cl.wardId, febSecondApr[i])
+  }
+
+  // Mar continuing clients (first 37, 3 didn't renew)
+  const marPrimaryGroups = [0, 2, 4, 6, 7, 1, 3, 5, 8, 11, 12, 13, 14, 15, 16, 0, 2, 4, 6, 1, 3, 5, 11, 12, 17, 0, 2, 4, 6, 7, 1, 3, 5, 8, 11, 12, 13]
+  for (let i = 0; i < 37; i++) {
+    const cl = marData.marClients[i]
+    await createAprSub(cl.id, cl.wardId, marPrimaryGroups[i])
+  }
+  // Mar second direction (first 17)
+  const marSecondApr = [2, 5, 6, 11, 8, 4, 7, 9, 12, 13, 14, 15, 3, 0, 1, 16, 17]
+  for (let i = 0; i < 17; i++) {
+    const cl = marData.marClients[i]
+    await createAprSub(cl.id, cl.wardId, marSecondApr[i])
+  }
+
+  // 2 new April clients (converted leads 5,6)
+  const aprNewClientGroups = [0, 4]
+  for (let i = 0; i < aprClients.length; i++) {
+    const cl = aprClients[i]
+    await createAprSub(cl.id, cl.wardId, aprNewClientGroups[i])
+  }
+
+  console.log("  Subscriptions (Apr): " + aprSubs.length)
+
+  // 3 clients didn't renew → UnprolongedComments
+  const didNotRenew = marData.marClients.slice(37, 40)
+  for (let i = 0; i < didNotRenew.length; i++) {
+    const cl = didNotRenew[i]
+    const oldSub = marData.marSubs.find(s => s.clientId === cl.id)
+    if (oldSub) {
+      await db.unprolongedComment.create({
+        data: {
+          tenantId: T, clientId: cl.id, subscriptionId: oldSub.id,
+          periodYear: 2026, periodMonth: 3,
+          comment: ["Временно приостановили", "Уехали на дачу", "Финансовые трудности"][i],
+          createdBy: admin1.id,
+        },
+      })
+    }
+    await db.client.update({
+      where: { id: cl.id },
+      data: { clientStatus: "churned", funnelStatus: "archived", withdrawalDate: new Date("2026-04-01") },
+    })
+  }
+  console.log("  UnprolongedComments (Apr): 3")
+
+  // Enrollments for April subs
+  for (const sub of aprSubs) {
+    const existing = await db.groupEnrollment.findFirst({
+      where: { clientId: sub.clientId, groupId: groups[sub.groupIdx].id, isActive: true },
+    })
+    if (!existing) {
+      await db.groupEnrollment.create({
+        data: {
+          tenantId: T, groupId: groups[sub.groupIdx].id, clientId: sub.clientId, wardId: sub.wardId,
+          enrolledAt: new Date("2026-04-01"), paymentStatus: "active", isActive: true,
+        },
+      })
+    }
+  }
+  console.log("  GroupEnrollments updated for Apr")
+
+  // ────────────────────────────────────────
+  // 7D. APRIL PAYMENTS
+  // ────────────────────────────────────────
+  for (let pi = 0; pi < aprSubs.length; pi++) {
+    const sub = aprSubs[pi]
+    const pm = paymentMethod(pi + 290)
+    const gd = groups[sub.groupIdx].def
+    let accountId: string
+    if (pm.accountKey === "branch") accountId = gd.branchId === brAkad.id ? accCashAkad.id : accCashPark.id
+    else if (pm.accountKey === "acquiring") accountId = accAcq.id
+    else accountId = accBank.id
+
+    await db.payment.create({
+      data: {
+        tenantId: T, clientId: sub.clientId, subscriptionId: sub.id, accountId,
+        amount: sub.totalLessons * sub.price, type: "incoming", method: pm.method,
+        date: new Date(Date.UTC(2026, 3, 1 + (pi % 5))),
+        isFirstPayment: false, createdBy: admin1.id,
+      },
+    })
+  }
+  console.log("  Payments (Apr): " + aprSubs.length)
+
+  // ────────────────────────────────────────
+  // 7E. APRIL LESSONS (Apr 1-8)
+  // ────────────────────────────────────────
+  type LessonRecord = { id: string; groupIdx: number; date: Date; instId: string }
+  const aprLessons: LessonRecord[] = []
+  const aprScheduledLessons: string[] = []
+
+  for (let gi = 0; gi < groups.length; gi++) {
+    const g = groups[gi]
+    const gd = g.def
+    // Generate lessons for April 1-8 only
+    const allAprDates = daysInMonth(2026, 4, gd.days).filter(d => d.getUTCDate() <= 8)
+    for (const dt of allAprDates) {
+      const dayNum = dt.getUTCDate()
+      // April 5 is Sunday (dow=7) — skip if group doesn't meet on Sunday
+      // Actually daysInMonth already filters by group days, so Sunday groups will get Sunday dates
+      // April 1 Wed, 2 Thu, 3 Fri, 4 Sat, 5 Sun, 6 Mon, 7 Tue, 8 Wed
+      // Apr 1-4: completed with attendance; Apr 5-8: depends on date vs "today"
+      // We treat Apr 5 (Sun) and beyond as: Apr 6-8 = scheduled (future), Apr 5 = depends
+      const isCompleted = dayNum <= 4
+
+      const lesson = await db.lesson.create({
+        data: {
+          tenantId: T, groupId: g.id, date: dt, startTime: gd.time, durationMinutes: gd.duration,
+          instructorId: gd.instId, status: isCompleted ? "completed" : "scheduled",
+          topic: (dayNum === 1 || dayNum === 3) ? `Тема занятия ${dayNum} апреля` : undefined,
+        },
+      })
+
+      if (isCompleted) {
+        aprLessons.push({ id: lesson.id, groupIdx: gi, date: dt, instId: gd.instId })
+      } else {
+        aprScheduledLessons.push(lesson.id)
+      }
+    }
+  }
+  console.log("  Lessons (Apr 1-8): " + aprLessons.length + " completed, " + aprScheduledLessons.length + " scheduled")
+
+  // ────────────────────────────────────────
+  // 7F. APRIL ATTENDANCE (completed lessons only)
+  // ────────────────────────────────────────
+  let attCount = 0
+  const aprEnrollMap: Record<number, SubRecord[]> = {}
+  for (const sub of aprSubs) {
+    if (!aprEnrollMap[sub.groupIdx]) aprEnrollMap[sub.groupIdx] = []
+    aprEnrollMap[sub.groupIdx].push(sub)
+  }
+
+  for (const lesson of aprLessons) {
+    const enrolled = aprEnrollMap[lesson.groupIdx] || []
+    for (let si = 0; si < enrolled.length; si++) {
+      const sub = enrolled[si]
+      const atCode = attendanceTypeIndex(si, lesson.date.getUTCDate() + 90, 75)
+      const atType = attTypeMap[atCode]
+      if (!atType) continue
+
+      const gd = groups[lesson.groupIdx].def
+      const dir = ctx.dirs.find(d => d.id === gd.dirId)!
+      const dirPrice = Number(dir.lessonPrice)
+      const salaryKey = `${lesson.instId}_${gd.dirId}`
+      const salaryRate = ctx.salaryRates[salaryKey] || 0
+
+      await db.attendance.create({
+        data: {
+          tenantId: T, lessonId: lesson.id, subscriptionId: sub.id, clientId: sub.clientId,
+          attendanceTypeId: atType.id,
+          chargeAmount: atType.charges ? dirPrice : 0,
+          instructorPayAmount: atType.pays ? salaryRate : 0,
+          instructorPayEnabled: true,
+          markedAt: new Date(lesson.date),
+        },
+      })
+      attCount++
+    }
+  }
+  console.log("  Attendance (Apr 1-4): " + attCount)
+
+  // ────────────────────────────────────────
+  // 7G. APRIL EXPENSES (first week)
+  // ────────────────────────────────────────
+  const aprExpenses = [
+    { catName: "Аренда", amount: 50000, branchId: brAkad.id, date: "2026-04-01" },
+    { catName: "Аренда", amount: 40000, branchId: brPark.id, date: "2026-04-01" },
+    { catName: "Маркетинг", amount: 8000, branchId: brAkad.id, date: "2026-04-03", comment: "Инстаграм — апрель" },
+  ]
+  for (const exp of aprExpenses) {
+    const expense = await db.expense.create({
+      data: {
+        tenantId: T, categoryId: cats[exp.catName], accountId: accBank.id,
+        amount: exp.amount, date: new Date(exp.date),
+        comment: (exp as any).comment || undefined, createdBy: owner.id,
+      },
+    })
+    await db.expenseBranch.create({
+      data: { tenantId: T, expenseId: expense.id, branchId: exp.branchId },
+    })
+  }
+  console.log("  Expenses (Apr): " + aprExpenses.length)
+
+  // ────────────────────────────────────────
+  // 7H. APRIL TASKS
+  // ────────────────────────────────────────
+  const aprTaskDefs = [
+    { title: "Неотмеченное занятие: Танцы 4 апреля", type: "auto" as const, trigger: "unmarked_lesson" as const, due: "2026-04-08", status: "pending" as const },
+    { title: "Просроченная оплата: Горбунов Денис", type: "auto" as const, trigger: "payment_due" as const, due: "2026-04-10", status: "pending" as const },
+    { title: "Пробное занятие: Макарова Ксения (9 апреля)", type: "auto" as const, trigger: "trial_reminder" as const, due: "2026-04-09", status: "pending" as const },
+    { title: "Позвонить непродлившим за март", type: "manual" as const, trigger: undefined, due: "2026-04-12", status: "pending" as const },
+    { title: "Подготовить отчёт за март", type: "manual" as const, trigger: undefined, due: "2026-04-15", status: "pending" as const },
+  ]
+  for (const td of aprTaskDefs) {
+    await db.task.create({
+      data: {
+        tenantId: T, title: td.title, type: td.type, autoTrigger: td.trigger,
+        status: td.status, dueDate: new Date(td.due),
+        assignedTo: admin1.id,
+      },
+    })
+  }
+  console.log("  Tasks (Apr): " + aprTaskDefs.length)
+
+  // ────────────────────────────────────────
+  // 7I. NOTIFICATIONS (fresh, unread)
+  // ────────────────────────────────────────
+  const aprNotifs = [
+    { type: "unmarked_lesson" as const, title: "Неотмеченное занятие", message: "Танцы Вт/Чт/Сб 15:00 — 4 апреля не отмечено", empId: owner.id },
+    { type: "overdue_payment" as const, title: "Просроченная оплата", message: "Горбунов Денис — не оплатил пробное", empId: owner.id },
+    { type: "trial_reminder" as const, title: "Пробное занятие завтра", message: "Макарова Ксения — Английский, 9 апреля", empId: owner.id },
+  ]
+  for (const n of aprNotifs) {
+    await db.notification.create({
+      data: {
+        tenantId: T, employeeId: n.empId, type: n.type, title: n.title, message: n.message,
+        isRead: false, createdAt: new Date("2026-04-08T09:00:00Z"),
+      },
+    })
+  }
+  console.log("  Notifications (Apr, unread): 3")
+
+  // ────────────────────────────────────────
+  // 7J. BILLING INVOICE FOR APRIL
+  // ────────────────────────────────────────
+  const billingSub = await db.billingSubscription.findFirst({ where: { organizationId: T } })
+  if (billingSub) {
+    await db.billingInvoice.create({
+      data: {
+        subscriptionId: billingSub.id, organizationId: T, number: "INV-2026-004",
+        amount: 10000, status: "pending", periodStart: new Date("2026-04-01"), periodEnd: new Date("2026-04-30"),
+        dueDate: new Date("2026-04-10"),
+      },
+    })
+    // Update subscription next payment date
+    await db.billingSubscription.update({
+      where: { id: billingSub.id },
+      data: { nextPaymentDate: new Date("2026-05-01") },
+    })
+  }
+  console.log("  BillingInvoice (Apr): pending")
+
+  // ────────────────────────────────────────
+  // 7K. PERIOD APRIL (open)
+  // ────────────────────────────────────────
+  await db.period.create({
+    data: { tenantId: T, year: 2026, month: 4, status: "open" },
+  })
+  console.log("  Period Apr: open")
+
+  // ────────────────────────────────────────
+  // 7L. REALISM TOUCHES
+  // ────────────────────────────────────────
+  // 2 clients with promised payment dates
+  if (marData.marClients.length > 5) {
+    await db.client.update({
+      where: { id: marData.marClients[3].id },
+      data: { promisedPaymentDate: new Date("2026-04-10") },
+    })
+    await db.client.update({
+      where: { id: marData.marClients[7].id },
+      data: { promisedPaymentDate: new Date("2026-04-12") },
+    })
+  }
+  // 1 client with next contact date
+  if (marData.marClients.length > 10) {
+    await db.client.update({
+      where: { id: marData.marClients[10].id },
+      data: { nextContactDate: new Date("2026-04-09") },
+    })
+  }
+  console.log("  Realism: promisedPaymentDate x2, nextContactDate x1")
+
+  // ────────────────────────────────────────
+  // 7M. SUMMARY COUNTS
+  // ────────────────────────────────────────
+  const aprActiveSubs = await db.subscription.count({ where: { tenantId: T, periodYear: 2026, periodMonth: 4, status: "active" } })
+  const aprLessonCount = await db.lesson.count({ where: { tenantId: T, date: { gte: new Date("2026-04-01"), lte: new Date("2026-04-08") } } })
+  const unreadNotifs = await db.notification.count({ where: { tenantId: T, isRead: false } })
+  const openTasks = await db.task.count({ where: { tenantId: T, status: "pending" } })
+
+  console.log("  ── April Summary ──")
+  console.log(`  Active April subs: ${aprActiveSubs}`)
+  console.log(`  April 1-8 lessons: ${aprLessonCount}`)
+  console.log(`  Unread notifications: ${unreadNotifs}`)
+  console.log(`  Open tasks: ${openTasks}`)
 }
 
 // ============================================================
@@ -1631,15 +2109,16 @@ async function step6_summary(ctx: Awaited<ReturnType<typeof step1_setup>>) {
 // ============================================================
 async function main() {
   console.log("╔════════════════════════════════════════╗")
-  console.log("║  SEED: Умные дети — 3 месяца, 2 филиала  ║")
+  console.log("║  SEED: Умные дети — 4 мес (янв–апр), 2 филиала ║")
   console.log("╚════════════════════════════════════════╝")
 
   const { org } = await step0_backoffice()
   const setupCtx = await step1_setup(org)
   const janData = await step2_january(setupCtx)
   const febData = await step3_february(setupCtx, janData)
-  await step4_march(setupCtx, janData, febData)
+  const marData = await step4_march(setupCtx, janData, febData)
   await step5_portal(setupCtx, janData, febData)
+  await step7_closeMarchAndApril(setupCtx, janData, febData, marData)
   await step6_summary(setupCtx)
 
   console.log("\n✅ Seed complete!")
