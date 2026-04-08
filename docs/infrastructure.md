@@ -13,12 +13,18 @@
 - **Кто пользуется:** разработчик + AI-агент
 
 ### app.umnayacrm.ru (продакшн)
-- **Сервер:** Timeweb Cloud (планируется)
+- **Сервер:** Hetzner (тот же, что и dev — временно, до переезда на Timeweb Cloud)
+- **IP:** 65.108.45.153, SSH порт 2280, пользователь deploy
+- **Директория:** /opt/crmka-prod (отдельный клон репозитория, ветка `production`)
+- **Docker Compose:** docker-compose.prod.yml (контейнеры: crmka-prod-app, crmka-prod-db)
+- **Сеть:** shared-proxy (внешняя Docker network, общая с dev nginx)
 - **Назначение:** реальные клиенты, реальные данные
-- **БД:** только `prisma migrate deploy`, НИКАКИХ reset/seed
-- **Деплой:** автоматический на push в ветку `production` (GitHub Actions)
-- **Бэкапы:** pg_dump каждые 6 часов, хранение 30 дней
+- **БД:** только `prisma migrate deploy`, НИКАКИХ reset/seed. `ALLOW_DESTRUCTIVE_API=false`
+- **Деплой:** автоматический на push в ветку `production` (GitHub Actions → deploy-prod.yml)
+- **Бэкапы:** pg_dump каждые 6 часов → /opt/backups/, хранение 30 дней, бэкап перед каждым деплоем
 - **Кто пользуется:** партнёры (владельцы ДЦ) и их клиенты (родители)
+- **Nginx:** конфиг в /opt/crmka/nginx/conf.d/app-prod.conf (обслуживается dev-nginx)
+- **SSL:** Let's Encrypt, отдельный сертификат для app.umnayacrm.ru
 
 ### QA (на текущем этапе — процесс, не сервер)
 - PR в GitHub → автоматические Playwright-тесты в CI
@@ -46,9 +52,11 @@ feature/xxx  →  PR  →  main  →  dev.umnayacrm.ru
 
 ## Бэкапы (прод)
 
-- **PostgreSQL:** `pg_dump` каждые 6 часов → хранение 30 дней
-- **Перед миграцией:** обязательный бэкап перед `prisma migrate deploy`
-- **Хранение:** отдельный volume или S3-совместимое хранилище
+- **PostgreSQL:** `pg_dump` каждые 6 часов → /opt/backups/crmka-prod-YYYYMMDD-HHMM.sql.gz
+- **Перед миграцией:** обязательный бэкап перед `prisma migrate deploy` (в deploy-prod.yml)
+- **Хранение:** /opt/backups/ на сервере, ротация 30 дней
+- **Скрипт:** /opt/crmka-prod/backup.sh
+- **Cron:** `0 */6 * * *` (пользователь deploy)
 
 ## CI/CD (GitHub Actions)
 
@@ -90,3 +98,35 @@ feature/xxx  →  PR  →  main  →  dev.umnayacrm.ru
 | 100+ партнёров | Вертикальное масштабирование (RAM/CPU) |
 | 500+ партнёров | Горизонтальное (read replicas, CDN) |
 | Нагрузка > 1000 RPS | Kubernetes / managed PostgreSQL |
+
+## Архитектура dev + prod на одном сервере
+
+```
+                        ┌─────────────────────────────────┐
+                        │         Hetzner VM              │
+                        │                                 │
+  80/443 ──────────────►│  nginx (crmka-nginx-1)          │
+                        │    ├─ dev.umnayacrm.ru → app:3000 (dev)
+                        │    └─ app.umnayacrm.ru → crmka-prod-app:3000 (prod)
+                        │                                 │
+                        │  Docker networks:               │
+                        │    internal (dev) ── app, db, nginx
+                        │    internal (prod) ── prod-app, prod-db
+                        │    shared-proxy ── nginx + prod-app
+                        │                                 │
+                        │  /opt/crmka      → dev (main)   │
+                        │  /opt/crmka-prod → prod (production) │
+                        │  /opt/backups    → pg_dump      │
+                        └─────────────────────────────────┘
+```
+
+### Запуск prod (после настройки DNS)
+```bash
+# 1. Направить DNS app.umnayacrm.ru → 65.108.45.153
+# 2. Получить SSL-сертификат
+cd /opt/crmka-prod && ./init-ssl.sh
+# 3. Запустить prod
+docker compose -f docker-compose.prod.yml up -d
+# 4. Применить миграции
+docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy
+```
