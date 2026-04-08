@@ -6,9 +6,14 @@ import bcrypt from "bcryptjs"
 // POST /api/admin/reset-db — полный сброс БД + seed
 // Только для superadmin, только dev-среда
 export async function POST(req: NextRequest) {
-  // Запрещаем в production (кроме dev-сервера с явным разрешением)
-  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DESTRUCTIVE_API !== "true") {
-    return NextResponse.json({ error: "Reset-db недоступен в production" }, { status: 403 })
+  // Полностью запрещаем в production — reset-db слишком опасен
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Reset-db запрещён в production" }, { status: 403 })
+  }
+
+  // Запрещаем без ALLOW_DESTRUCTIVE_API
+  if (process.env.ALLOW_DESTRUCTIVE_API !== "true") {
+    return NextResponse.json({ error: "Reset-db недоступен без ALLOW_DESTRUCTIVE_API" }, { status: 403 })
   }
 
   const session = await getAdminSession()

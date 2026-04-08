@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { getAdminSession } from "@/lib/admin-auth"
 import bcrypt from "bcryptjs"
 
 // POST /api/admin/seed — создать суперадмина + тариф (одноразовый endpoint)
@@ -11,7 +12,12 @@ export async function POST(req: NextRequest) {
 
   // Проверяем что суперадминов ещё нет — seed можно запустить только один раз
   const existingAdmin = await db.adminUser.findFirst({ where: { role: "superadmin" } })
+  // Если суперадмин уже есть — требуем admin-сессию для повторного seed
   if (existingAdmin) {
+    const session = await getAdminSession()
+    if (!session || session.role !== "superadmin") {
+      return NextResponse.json({ error: "Суперадмин уже существует. Требуется авторизация." }, { status: 403 })
+    }
     return NextResponse.json({ error: "Суперадмин уже существует" }, { status: 409 })
   }
 
