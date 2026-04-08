@@ -51,7 +51,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     await db.employeeBranch.deleteMany({ where: { employeeId: id } })
     if (data.branchIds.length > 0) {
       await db.employeeBranch.createMany({
-        data: data.branchIds.map(branchId => ({ employeeId: id, branchId })),
+        data: data.branchIds.map(branchId => ({ tenantId: session.user.tenantId, employeeId: id, branchId })),
       })
     }
   }

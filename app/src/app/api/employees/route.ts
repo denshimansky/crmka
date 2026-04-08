@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
       birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
       role: data.role,
       employeeBranches: data.branchIds?.length
-        ? { create: data.branchIds.map((branchId) => ({ branchId })) }
+        ? { create: data.branchIds.map((branchId) => ({ tenantId: session.user.tenantId, branchId })) }
         : undefined,
     },
     include: {

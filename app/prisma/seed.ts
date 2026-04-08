@@ -225,20 +225,20 @@ async function step1_setup(org: { id: string }) {
 
   // --- EmployeeBranch ---
   const ebData = [
-    { employeeId: admin1.id, branchId: brAkad.id },
-    { employeeId: admin2.id, branchId: brPark.id },
-    { employeeId: instOlga.id, branchId: brAkad.id },
-    { employeeId: instSergey.id, branchId: brAkad.id },
-    { employeeId: instKaterina.id, branchId: brAkad.id },
-    { employeeId: instKaterina.id, branchId: brPark.id },
-    { employeeId: instDmitriy.id, branchId: brAkad.id },
-    { employeeId: instMaria.id, branchId: brAkad.id },
-    { employeeId: instMaria.id, branchId: brPark.id },
-    { employeeId: instAlexey.id, branchId: brAkad.id },
-    { employeeId: instIrina.id, branchId: brPark.id },
-    { employeeId: instPavel.id, branchId: brPark.id },
-    { employeeId: instNatalya.id, branchId: brAkad.id },
-    { employeeId: instNatalya.id, branchId: brPark.id },
+    { tenantId: T, employeeId: admin1.id, branchId: brAkad.id },
+    { tenantId: T, employeeId: admin2.id, branchId: brPark.id },
+    { tenantId: T, employeeId: instOlga.id, branchId: brAkad.id },
+    { tenantId: T, employeeId: instSergey.id, branchId: brAkad.id },
+    { tenantId: T, employeeId: instKaterina.id, branchId: brAkad.id },
+    { tenantId: T, employeeId: instKaterina.id, branchId: brPark.id },
+    { tenantId: T, employeeId: instDmitriy.id, branchId: brAkad.id },
+    { tenantId: T, employeeId: instMaria.id, branchId: brAkad.id },
+    { tenantId: T, employeeId: instMaria.id, branchId: brPark.id },
+    { tenantId: T, employeeId: instAlexey.id, branchId: brAkad.id },
+    { tenantId: T, employeeId: instIrina.id, branchId: brPark.id },
+    { tenantId: T, employeeId: instPavel.id, branchId: brPark.id },
+    { tenantId: T, employeeId: instNatalya.id, branchId: brAkad.id },
+    { tenantId: T, employeeId: instNatalya.id, branchId: brPark.id },
   ]
   await db.employeeBranch.createMany({ data: ebData })
   console.log("  EmployeeBranch: " + ebData.length)

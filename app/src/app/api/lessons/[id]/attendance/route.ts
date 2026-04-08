@@ -131,7 +131,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let att
     if (subscriptionId) {
       const existing = await tx.attendance.findUnique({
-        where: { lessonId_subscriptionId: { lessonId, subscriptionId } },
+        where: { tenantId_lessonId_subscriptionId: { tenantId, lessonId, subscriptionId } },
       })
 
       if (existing) {
