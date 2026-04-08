@@ -9,6 +9,7 @@ import {
   Circle, Clock, BarChart3,
 } from "lucide-react"
 import Link from "next/link"
+import { PageHelp } from "@/components/page-help"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -135,6 +136,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Главная</h1>
+          <PageHelp pageKey="dashboard" />
           <MonthPicker />
         </div>
         <span className="text-sm text-muted-foreground">{dateStr}</span>

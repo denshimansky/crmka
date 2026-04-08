@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { TrendingDown, Repeat, BarChart3 } from "lucide-react"
 import { AddExpenseDialog } from "./add-expense-dialog"
 import { CopyMonthButton } from "./copy-month-button"
+import { PageHelp } from "@/components/page-help"
 import { ExpensesTable } from "./expenses-table"
 
 function formatMoney(amount: number): string {
@@ -106,6 +107,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Расходы</h1>
+          <PageHelp pageKey="finance/expenses" />
           <MonthPicker />
         </div>
         <div className="flex items-center gap-2">

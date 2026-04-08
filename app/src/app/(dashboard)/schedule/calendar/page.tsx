@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Plus, Trash2, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react"
+import { PageHelp } from "@/components/page-help"
 
 const MONTH_NAMES = [
   "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -181,7 +182,10 @@ export default function ProductionCalendarPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Производственный календарь</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Производственный календарь</h1>
+            <PageHelp pageKey="schedule/calendar" />
+          </div>
           <p className="text-sm text-muted-foreground">
             Праздники и рабочие/выходные дни
           </p>

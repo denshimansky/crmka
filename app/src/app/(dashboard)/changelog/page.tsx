@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { PageHelp } from "@/components/page-help"
 
 type ChangeType = "added" | "fixed" | "removed" | "changed"
 
@@ -240,7 +241,10 @@ export default function ChangelogPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Changelog</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Changelog</h1>
+          <PageHelp pageKey="changelog" />
+        </div>
         <p className="text-sm text-muted-foreground">История изменений Умной CRM</p>
       </div>
 

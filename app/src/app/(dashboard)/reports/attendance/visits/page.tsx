@@ -1,3 +1,4 @@
+import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
@@ -88,7 +89,10 @@ export default async function VisitsReportPage({ searchParams }: { searchParams:
           <ArrowLeft className="size-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold">Посещения</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Посещения</h1>
+            <PageHelp pageKey="reports/attendance/visits" />
+          </div>
           <p className="text-sm text-muted-foreground">Отчёт по посещаемости за месяц</p>
         </div>
         <MonthPicker />

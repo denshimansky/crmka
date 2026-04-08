@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Plus, Pencil, Trash2, Tag } from "lucide-react"
+import { PageHelp } from "@/components/page-help"
 
 interface DiscountTemplate {
   id: string
@@ -162,7 +163,10 @@ export default function DiscountTemplatesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Шаблоны скидок</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Шаблоны скидок</h1>
+            <PageHelp pageKey="settings/discount-templates" />
+          </div>
           <p className="text-sm text-muted-foreground">
             Готовые шаблоны для быстрого применения скидок к абонементам
           </p>

@@ -12,6 +12,7 @@ import {
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { CreateGroupDialog } from "./create-group-dialog"
+import { PageHelp } from "@/components/page-help"
 
 const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -72,7 +73,10 @@ export default async function GroupsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Группы</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Группы</h1>
+            <PageHelp pageKey="schedule/groups" />
+          </div>
           <p className="text-sm text-muted-foreground">
             Управление группами и шаблонами расписания
           </p>

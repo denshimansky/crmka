@@ -1,3 +1,4 @@
+import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
@@ -103,7 +104,10 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
           <ArrowLeft className="size-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold">Детализация оттока</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Детализация оттока</h1>
+            <PageHelp pageKey="reports/churn/details" />
+          </div>
           <p className="text-sm text-muted-foreground">Выбывшие клиенты по направлениям и инструкторам</p>
         </div>
         <MonthPicker />

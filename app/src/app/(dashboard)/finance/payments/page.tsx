@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Wallet, Banknote, CreditCard, Globe } from "lucide-react"
 import { AddPaymentDialog } from "./add-payment-dialog"
+import { PageHelp } from "@/components/page-help"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -90,6 +91,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Оплаты</h1>
+          <PageHelp pageKey="finance/payments" />
           <MonthPicker />
         </div>
         <AddPaymentDialog

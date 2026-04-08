@@ -1,3 +1,4 @@
+import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
@@ -108,7 +109,10 @@ export default async function NotRenewedReportPage({ searchParams }: { searchPar
           <ArrowLeft className="size-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold">Непродлённые абонементы</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Непродлённые абонементы</h1>
+            <PageHelp pageKey="reports/churn/not-renewed" />
+          </div>
           <p className="text-sm text-muted-foreground">
             Клиенты с абонементом за {prevMonthName}, не продлившие на текущий месяц
           </p>

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowLeft, Users } from "lucide-react"
 import { GroupTabs } from "./group-tabs"
+import { PageHelp } from "@/components/page-help"
 
 const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -190,6 +191,7 @@ export default async function GroupCardPage({
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{group.name}</h1>
+            <PageHelp pageKey="schedule/groups/[id]" />
             {group.isActive ? (
               <Badge variant="default">Активна</Badge>
             ) : (

@@ -8,6 +8,7 @@ import {
 import { CreateEmployeeDialog } from "./create-employee-dialog"
 import { EditEmployeeDialog } from "./edit-employee-dialog"
 import type { Role } from "@prisma/client"
+import { PageHelp } from "@/components/page-help"
 
 const ROLE_LABELS: Record<Role, string> = {
   owner: "Владелец",
@@ -55,7 +56,10 @@ export default async function StaffPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Сотрудники</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Сотрудники</h1>
+          <PageHelp pageKey="staff" />
+        </div>
         {canEdit && <CreateEmployeeDialog branches={branches} />}
       </div>
 

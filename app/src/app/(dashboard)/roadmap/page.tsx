@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CheckCircle2, Circle, Clock, Rocket, Calendar, CreditCard, BarChart3, Bell, Users, Globe } from "lucide-react"
+import { PageHelp } from "@/components/page-help"
 
 type ModuleStatus = "done" | "in_progress" | "planned" | "future"
 
@@ -133,7 +134,10 @@ export default function RoadmapPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Roadmap</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Roadmap</h1>
+          <PageHelp pageKey="roadmap" />
+        </div>
         <p className="text-sm text-muted-foreground">
           План разработки Умной CRM — {doneCount} из {totalCount} модулей готово ({progress}%)
         </p>

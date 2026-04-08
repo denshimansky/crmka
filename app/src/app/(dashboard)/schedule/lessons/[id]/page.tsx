@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeft, Clock, MapPin, User, BookOpen } from "lucide-react"
 import { AttendanceTable } from "./attendance-table"
+import { PageHelp } from "@/components/page-help"
 
 const LESSON_STATUS_LABELS: Record<string, string> = {
   scheduled: "Запланировано",
@@ -192,6 +193,7 @@ export default async function LessonCardPage({
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{lesson.group.name}</h1>
+            <PageHelp pageKey="schedule/lessons/[id]" />
             <Badge variant={LESSON_STATUS_VARIANT[lesson.status] || "secondary"}>
               {LESSON_STATUS_LABELS[lesson.status] || lesson.status}
             </Badge>

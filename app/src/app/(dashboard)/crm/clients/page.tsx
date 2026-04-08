@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { Badge } from "@/components/ui/badge"
 import { CreateClientDialog } from "./create-client-dialog"
 import { ClientsTable } from "./clients-table"
+import { PageHelp } from "@/components/page-help"
 
 export default async function ClientsPage() {
   const session = await getSession()
@@ -47,6 +48,7 @@ export default async function ClientsPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">Клиенты</h1>
+          <PageHelp pageKey="crm/clients" />
           <Badge variant="secondary">{clients.length}</Badge>
         </div>
         <CreateClientDialog branches={branches} />

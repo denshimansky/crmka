@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Plus, Pencil, TrendingDown, Target, BarChart3, ChevronLeft, ChevronRight } from "lucide-react"
+import { PageHelp } from "@/components/page-help"
 
 const MONTH_NAMES = [
   "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -186,7 +187,10 @@ export default function PlannedExpensesPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Плановые расходы</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Плановые расходы</h1>
+            <PageHelp pageKey="finance/planned-expenses" />
+          </div>
           <p className="text-sm text-muted-foreground">
             План vs факт по статьям расходов
           </p>

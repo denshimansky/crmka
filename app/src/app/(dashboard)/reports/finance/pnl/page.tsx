@@ -1,3 +1,4 @@
+import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
@@ -99,7 +100,10 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
           <ArrowLeft className="size-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold">Финансовый результат (P&L)</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Финансовый результат (P&L)</h1>
+            <PageHelp pageKey="reports/finance/pnl" />
+          </div>
           <p className="text-sm text-muted-foreground">Выручка − Расходы − ЗП = Прибыль</p>
         </div>
         <MonthPicker />

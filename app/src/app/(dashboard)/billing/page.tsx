@@ -11,6 +11,7 @@ import {
 import {
   CreditCard, FileText, Building2, Calendar, Receipt, TrendingUp, Clock,
 } from "lucide-react"
+import { PageHelp } from "@/components/page-help"
 
 interface Plan {
   id: string
@@ -159,7 +160,10 @@ export default function BillingPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Подписка</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Подписка</h1>
+          <PageHelp pageKey="billing" />
+        </div>
         <p className="text-sm text-muted-foreground">Управление подпиской и счетами</p>
       </div>
 

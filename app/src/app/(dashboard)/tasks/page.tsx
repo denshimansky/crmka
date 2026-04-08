@@ -5,6 +5,7 @@ import { CheckCircle2, Clock, AlertTriangle } from "lucide-react"
 import { AddTaskDialog } from "./add-task-dialog"
 import { GenerateTasksButton } from "./generate-tasks-button"
 import { TaskList } from "./task-list"
+import { PageHelp } from "@/components/page-help"
 
 export default async function TasksPage() {
   const session = await getSession()
@@ -64,7 +65,10 @@ export default async function TasksPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Задачи</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Задачи</h1>
+          <PageHelp pageKey="tasks" />
+        </div>
         <div className="flex items-center gap-2">
         <GenerateTasksButton />
         <AddTaskDialog

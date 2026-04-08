@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Banknote, Building, CreditCard, Globe } from "lucide-react"
 import { AddAccountDialog } from "./add-account-dialog"
 import { EditAccountDialog } from "./edit-account-dialog"
+import { PageHelp } from "@/components/page-help"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -77,7 +78,10 @@ export default async function CashPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Касса</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Касса</h1>
+          <PageHelp pageKey="finance/cash" />
+        </div>
         <AddAccountDialog branches={branches} />
       </div>
 

@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Plus, CalendarDays } from "lucide-react"
 import { ScheduleWeekNav } from "./schedule-week-nav"
+import { PageHelp } from "@/components/page-help"
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -112,7 +113,10 @@ export default async function SchedulePage({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Расписание</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Расписание</h1>
+          <PageHelp pageKey="schedule" />
+        </div>
         <div className="flex gap-2">
           <Link href="/schedule/groups">
             <Button variant="outline">Группы</Button>

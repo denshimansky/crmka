@@ -1,3 +1,4 @@
+import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
@@ -91,7 +92,10 @@ export default async function SalaryByInstructorPage({ searchParams }: { searchP
           <ArrowLeft className="size-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold">Сводный по педагогам</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Сводный по педагогам</h1>
+            <PageHelp pageKey="reports/salary/by-instructor" />
+          </div>
           <p className="text-sm text-muted-foreground">Занятия, ученики и начисленная ЗП по инструкторам</p>
         </div>
         <MonthPicker />

@@ -1,3 +1,4 @@
+import { PageHelp } from "@/components/page-help"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -77,7 +78,10 @@ export default async function CapacityReportPage() {
           <ArrowLeft className="size-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold">Свободные места</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Свободные места</h1>
+            <PageHelp pageKey="reports/schedule/capacity" />
+          </div>
           <p className="text-sm text-muted-foreground">Загруженность групп</p>
         </div>
       </div>

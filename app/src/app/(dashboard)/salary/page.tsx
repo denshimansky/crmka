@@ -7,6 +7,7 @@ import { Banknote, TrendingUp, TrendingDown, Users } from "lucide-react"
 import { PaySalaryDialog } from "./pay-salary-dialog"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
+import { PageHelp } from "@/components/page-help"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -131,6 +132,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Зарплата</h1>
+          <PageHelp pageKey="salary" />
           <MonthPicker />
         </div>
         <PaySalaryDialog

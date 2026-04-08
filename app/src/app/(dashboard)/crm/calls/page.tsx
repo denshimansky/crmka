@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Phone, Users } from "lucide-react"
 import Link from "next/link"
 import { CreateCampaignDialog } from "./create-campaign-dialog"
+import { PageHelp } from "@/components/page-help"
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -40,7 +41,10 @@ export default async function CallsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Обзвон</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Обзвон</h1>
+          <PageHelp pageKey="crm/calls" />
+        </div>
         <CreateCampaignDialog />
       </div>
 

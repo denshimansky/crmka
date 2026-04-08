@@ -1,3 +1,4 @@
+import { PageHelp } from "@/components/page-help"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Filter, TrendingDown, Calendar, CreditCard } from "lucide-react"
@@ -65,7 +66,10 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Отчёты</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Отчёты</h1>
+          <PageHelp pageKey="reports" />
+        </div>
         <p className="text-sm text-muted-foreground">
           {readyCount} из {totalCount} отчётов доступно
         </p>

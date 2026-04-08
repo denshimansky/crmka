@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import Link from "next/link"
 import { CreateClientDialog } from "../clients/create-client-dialog"
+import { PageHelp } from "@/components/page-help"
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
@@ -81,7 +82,10 @@ export default async function FunnelPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Лиды</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Лиды</h1>
+          <PageHelp pageKey="crm/leads" />
+        </div>
         <CreateClientDialog branches={branches} />
       </div>
 

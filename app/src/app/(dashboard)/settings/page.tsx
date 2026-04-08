@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { CreateDirectionDialog } from "./create-direction-dialog"
 import { EditDirectionDialog } from "./edit-direction-dialog"
 import { CreateBranchDialog } from "./create-branch-dialog"
+import { PageHelp } from "@/components/page-help"
 import { CreateRoomDialog } from "./create-room-dialog"
 
 export default async function SettingsPage() {
@@ -34,7 +35,10 @@ export default async function SettingsPage() {
   if (!org) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Настройки</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Настройки</h1>
+          <PageHelp pageKey="settings" />
+        </div>
         <Card>
           <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
             Организация не найдена
@@ -46,7 +50,10 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Настройки</h1>
+      <div className="flex items-center gap-2">
+        <h1 className="text-2xl font-bold">Настройки</h1>
+        <PageHelp pageKey="settings" />
+      </div>
 
       <Tabs defaultValue="org">
         <TabsList>

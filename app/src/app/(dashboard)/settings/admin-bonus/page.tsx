@@ -22,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Save, Plus, Trash2, Building2, Users } from "lucide-react"
+import { PageHelp } from "@/components/page-help"
 
 interface AdminBonusSettings {
   id: string | null
@@ -207,7 +208,10 @@ export default function AdminBonusPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Бонусы администраторов</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Бонусы администраторов</h1>
+          <PageHelp pageKey="settings/admin-bonus" />
+        </div>
         <Card>
           <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
             Загрузка...
@@ -220,7 +224,10 @@ export default function AdminBonusPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Бонусы администраторов</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Бонусы администраторов</h1>
+          <PageHelp pageKey="settings/admin-bonus" />
+        </div>
         <p className="text-sm text-muted-foreground">
           Настройка вознаграждений за пробные, продажи и допродажи
         </p>

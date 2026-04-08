@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { AlertTriangle, Users } from "lucide-react"
 import Link from "next/link"
+import { PageHelp } from "@/components/page-help"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -73,7 +74,10 @@ export default async function DebtorsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Должники</h1>
+      <div className="flex items-center gap-2">
+        <h1 className="text-2xl font-bold">Должники</h1>
+        <PageHelp pageKey="finance/debtors" />
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
