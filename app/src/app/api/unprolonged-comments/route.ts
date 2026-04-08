@@ -34,9 +34,9 @@ export async function GET(req: NextRequest) {
   const items = await db.unprolongedComment.findMany({
     where,
     include: {
-      client: { select: { id: true, name: true, phone: true } },
+      client: { select: { id: true, firstName: true, lastName: true, phone: true } },
       subscription: { select: { id: true, status: true } },
-      creator: { select: { id: true, name: true } },
+      creator: { select: { id: true, firstName: true, lastName: true } },
     },
     orderBy: { createdAt: "desc" },
   })
@@ -75,9 +75,9 @@ export async function POST(req: NextRequest) {
       createdBy: session.user.employeeId,
     },
     include: {
-      client: { select: { id: true, name: true, phone: true } },
+      client: { select: { id: true, firstName: true, lastName: true, phone: true } },
       subscription: { select: { id: true, status: true } },
-      creator: { select: { id: true, name: true } },
+      creator: { select: { id: true, firstName: true, lastName: true } },
     },
   })
 

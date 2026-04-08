@@ -16,9 +16,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const item = await db.unprolongedComment.findFirst({
     where: { id, tenantId: session.user.tenantId },
     include: {
-      client: { select: { id: true, name: true, phone: true } },
+      client: { select: { id: true, firstName: true, lastName: true, phone: true } },
       subscription: { select: { id: true, status: true } },
-      creator: { select: { id: true, name: true } },
+      creator: { select: { id: true, firstName: true, lastName: true } },
     },
   })
   if (!item) return NextResponse.json({ error: "Комментарий не найден" }, { status: 404 })
@@ -49,9 +49,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     where: { id },
     data: { comment: parsed.data.comment },
     include: {
-      client: { select: { id: true, name: true, phone: true } },
+      client: { select: { id: true, firstName: true, lastName: true, phone: true } },
       subscription: { select: { id: true, status: true } },
-      creator: { select: { id: true, name: true } },
+      creator: { select: { id: true, firstName: true, lastName: true } },
     },
   })
   return NextResponse.json(item)
