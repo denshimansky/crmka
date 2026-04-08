@@ -14,14 +14,14 @@ export async function GET(req: NextRequest) {
   const logs = await db.auditLog.findMany({
     where: {
       tenantId,
-      entity: "Attendance",
+      entityType: "Attendance",
       action: "update",
       createdAt: { gte: dateFrom, lte: dateTo },
     },
     select: {
       id: true,
       entityId: true,
-      details: true,
+      changes: true,
       createdAt: true,
       employeeId: true,
     },
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   // Filter only those with charge_amount changes
   const filtered = logs.filter((l) => {
-    const details = l.details as any
+    const details = l.changes as any
     return details && (details.chargeAmount || details.charge_amount)
   })
 
@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
   const attMap = new Map(attendances.map((a) => [a.id, a]))
 
   const data = filtered.map((l) => {
-    const details = l.details as any
+    const details = l.changes as any
     const chargeChange = details?.chargeAmount || details?.charge_amount || {}
     const att = l.entityId ? attMap.get(l.entityId) : undefined
 
