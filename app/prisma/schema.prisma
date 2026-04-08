@@ -1020,9 +1020,11 @@ model BillingSubscription {
   planId          String                    @map("plan_id") @db.Uuid
   status          BillingSubscriptionStatus @default(active)
   branchCount     Int                       @default(1) @map("branch_count")
-  monthlyAmount   Decimal                   @map("monthly_amount") @db.Decimal(12, 2)
-  nextPaymentDate DateTime                  @map("next_payment_date") @db.Date
-  gracePeriodEnd  DateTime?                 @map("grace_period_end") @db.Date
+  monthlyAmount       Decimal                   @map("monthly_amount") @db.Decimal(12, 2)
+  billingPeriodMonths Int                       @default(1) @map("billing_period_months")
+  nextPaymentDate     DateTime                  @map("next_payment_date") @db.Date
+  periodEndDate       DateTime?                 @map("period_end_date") @db.Date
+  gracePeriodEnd      DateTime?                 @map("grace_period_end") @db.Date
   blockedAt       DateTime?                 @map("blocked_at")
   startDate       DateTime                  @map("start_date") @db.Date
   endDate         DateTime?                 @map("end_date") @db.Date
@@ -1044,6 +1046,8 @@ model BillingInvoice {
   organizationId String               @map("organization_id") @db.Uuid
   number         String               @unique
   amount         Decimal              @db.Decimal(12, 2)
+  periodMonths   Int                  @default(1) @map("period_months")
+  branchCount    Int                  @default(1) @map("branch_count")
   status         BillingInvoiceStatus @default(pending)
   periodStart    DateTime             @map("period_start") @db.Date
   periodEnd      DateTime             @map("period_end") @db.Date

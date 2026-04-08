@@ -4,11 +4,12 @@ import { useEffect, useState } from "react"
 import { useSession } from "next-auth/react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import {
-  CreditCard, FileText, Building2, Calendar, Receipt, TrendingUp,
+  CreditCard, FileText, Building2, Calendar, Receipt, TrendingUp, Clock,
 } from "lucide-react"
 
 interface Plan {
@@ -23,7 +24,9 @@ interface Subscription {
   status: string
   branchCount: number
   monthlyAmount: string
+  billingPeriodMonths: number
   nextPaymentDate: string
+  periodEndDate: string | null
   startDate: string
   plan: Plan
 }
@@ -71,11 +74,21 @@ const INV_STATUS: Record<string, { label: string; variant: "default" | "secondar
   cancelled: { label: "Отменён", variant: "outline" },
 }
 
+const PERIOD_OPTIONS = [
+  { months: 1, label: "1 мес" },
+  { months: 3, label: "3 мес" },
+  { months: 6, label: "6 мес" },
+  { months: 12, label: "12 мес" },
+]
+
 export default function BillingPage() {
   const { data: session } = useSession()
   const [data, setData] = useState<BillingData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [selectedPeriod, setSelectedPeriod] = useState(1)
+  const [periodSaving, setPeriodSaving] = useState(false)
+  const [periodError, setPeriodError] = useState("")
 
   useEffect(() => {
     fetch("/api/billing")
@@ -83,7 +96,12 @@ export default function BillingPage() {
         if (!r.ok) throw new Error("Нет доступа")
         return r.json()
       })
-      .then(setData)
+      .then((d) => {
+        setData(d)
+        if (d.subscription?.billingPeriodMonths) {
+          setSelectedPeriod(d.subscription.billingPeriodMonths)
+        }
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
@@ -106,6 +124,37 @@ export default function BillingPage() {
 
   const { organization, subscription, invoices, stats } = data
   const ss = subscription ? (SUB_STATUS[subscription.status] || { label: subscription.status, variant: "outline" as const }) : null
+
+  const pricePerBranch = subscription ? Number(subscription.plan.pricePerBranch) : 0
+  const branchCount = subscription ? subscription.branchCount : stats.branchCount
+  const calculatedAmount = pricePerBranch * branchCount * selectedPeriod
+
+  const handlePeriodChange = async () => {
+    if (!subscription) return
+    setPeriodSaving(true)
+    setPeriodError("")
+    try {
+      const res = await fetch("/api/billing", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ billingPeriodMonths: selectedPeriod }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || "Ошибка обновления")
+      }
+      const { subscription: updated } = await res.json()
+      setData((prev) =>
+        prev ? { ...prev, subscription: updated } : prev,
+      )
+    } catch (e: any) {
+      setPeriodError(e.message)
+    } finally {
+      setPeriodSaving(false)
+    }
+  }
+
+  const periodChanged = subscription && selectedPeriod !== subscription.billingPeriodMonths
 
   return (
     <div className="space-y-6">
@@ -185,6 +234,65 @@ export default function BillingPage() {
         </Card>
       </div>
 
+      {/* Период оплаты */}
+      {subscription && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="size-4" />Период оплаты
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-4 gap-3">
+              {PERIOD_OPTIONS.map((opt) => (
+                <button
+                  key={opt.months}
+                  type="button"
+                  onClick={() => setSelectedPeriod(opt.months)}
+                  className={`rounded-lg border-2 p-4 text-center transition-colors cursor-pointer ${
+                    selectedPeriod === opt.months
+                      ? "border-primary bg-primary/5"
+                      : "border-muted hover:border-muted-foreground/30"
+                  }`}
+                >
+                  <div className="text-lg font-bold">{opt.label}</div>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    {(pricePerBranch * branchCount * opt.months).toLocaleString("ru")} ₽
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <div className="space-y-1">
+                <div className="text-sm text-muted-foreground">
+                  Итого: {pricePerBranch.toLocaleString("ru")} ₽ × {branchCount} филиал(ов) × {selectedPeriod} мес
+                </div>
+                <div className="text-xl font-bold">
+                  {calculatedAmount.toLocaleString("ru")} ₽
+                </div>
+                {subscription.periodEndDate && (
+                  <div className="text-sm text-muted-foreground">
+                    Оплачено до: <span className="font-medium text-foreground">{new Date(subscription.periodEndDate).toLocaleDateString("ru")}</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                <Button
+                  onClick={handlePeriodChange}
+                  disabled={!periodChanged || periodSaving}
+                >
+                  {periodSaving ? "Сохранение..." : "Изменить период"}
+                </Button>
+                {periodError && (
+                  <p className="text-sm text-destructive">{periodError}</p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Детали подписки */}
       <div className="grid grid-cols-2 gap-6">
         <Card>
@@ -231,7 +339,11 @@ export default function BillingPage() {
                   <span>{subscription.plan.name}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Сумма/мес:</span>
+                  <span className="text-muted-foreground">Период:</span>
+                  <span>{subscription.billingPeriodMonths} мес.</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Сумма за период:</span>
                   <span>{Number(subscription.monthlyAmount).toLocaleString("ru")} ₽</span>
                 </div>
                 <div className="flex justify-between">
@@ -242,6 +354,12 @@ export default function BillingPage() {
                   <span className="text-muted-foreground">Дата начала:</span>
                   <span>{new Date(subscription.startDate).toLocaleDateString("ru")}</span>
                 </div>
+                {subscription.periodEndDate && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Оплачено до:</span>
+                    <span className="font-medium">{new Date(subscription.periodEndDate).toLocaleDateString("ru")}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Следующая оплата:</span>
                   <span className="font-medium">{new Date(subscription.nextPaymentDate).toLocaleDateString("ru")}</span>
@@ -308,6 +426,13 @@ export default function BillingPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Футер с ссылкой на оферту */}
+      <div className="text-center text-xs text-muted-foreground pt-2">
+        <a href="/offer" target="_blank" rel="noopener noreferrer" className="hover:underline">
+          Договор-оферта
+        </a>
+      </div>
     </div>
   )
 }

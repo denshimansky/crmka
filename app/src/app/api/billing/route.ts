@@ -1,7 +1,9 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+
+const ALLOWED_PERIODS = [1, 3, 6, 12]
 
 // GET /api/billing — подписка текущей организации
 export async function GET() {
@@ -62,4 +64,57 @@ export async function GET() {
       branchCount,
     },
   })
+}
+
+// PUT /api/billing — обновить период оплаты
+export async function PUT(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const tenantId = (session.user as any).tenantId
+  const role = (session.user as any).role
+  if (role !== "owner" && role !== "manager") {
+    return NextResponse.json({ error: "Доступ только для владельца и управляющего" }, { status: 403 })
+  }
+
+  const body = await req.json()
+  const { billingPeriodMonths } = body
+
+  if (!ALLOWED_PERIODS.includes(billingPeriodMonths)) {
+    return NextResponse.json(
+      { error: `Допустимые периоды: ${ALLOWED_PERIODS.join(", ")} мес.` },
+      { status: 400 },
+    )
+  }
+
+  const subscription = await db.billingSubscription.findFirst({
+    where: { organizationId: tenantId, status: { not: "cancelled" } },
+    orderBy: { createdAt: "desc" },
+    include: { plan: true },
+  })
+
+  if (!subscription) {
+    return NextResponse.json({ error: "Подписка не найдена" }, { status: 404 })
+  }
+
+  // Пересчитываем сумму: цена × филиалы × месяцы
+  const pricePerBranch = Number(subscription.plan.pricePerBranch)
+  const newMonthlyAmount = pricePerBranch * subscription.branchCount * billingPeriodMonths
+
+  // Рассчитываем periodEndDate от nextPaymentDate
+  const nextPayment = new Date(subscription.nextPaymentDate)
+  const periodEnd = new Date(nextPayment)
+  periodEnd.setMonth(periodEnd.getMonth() + billingPeriodMonths)
+
+  const updated = await db.billingSubscription.update({
+    where: { id: subscription.id },
+    data: {
+      billingPeriodMonths,
+      monthlyAmount: newMonthlyAmount,
+      periodEndDate: periodEnd,
+    },
+    include: { plan: true },
+  })
+
+  return NextResponse.json({ subscription: updated })
 }
