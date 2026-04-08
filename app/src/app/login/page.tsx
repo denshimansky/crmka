@@ -100,9 +100,6 @@ function LoginForm() {
           </form>
         </CardContent>
       </Card>
-      <p className="mt-4 text-center text-xs text-muted-foreground">
-        <Link href="/offer" className="hover:underline">Договор-оферта</Link>
-      </p>
     </div>
   )
 }
