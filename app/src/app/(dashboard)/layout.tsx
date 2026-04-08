@@ -1,6 +1,7 @@
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { BillingBanner } from "@/components/billing-banner"
+import { AiChat } from "@/components/ai-chat"
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -15,6 +16,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {children}
         </main>
       </SidebarInset>
+      <AiChat />
     </SidebarProvider>
   )
 }
