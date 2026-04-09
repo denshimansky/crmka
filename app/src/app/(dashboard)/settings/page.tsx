@@ -11,6 +11,7 @@ import { EditDirectionDialog } from "./edit-direction-dialog"
 import { CreateBranchDialog } from "./create-branch-dialog"
 import { PageHelp } from "@/components/page-help"
 import { CreateRoomDialog } from "./create-room-dialog"
+import { RoleDisplayNamesForm } from "./role-display-names-form"
 
 export default async function SettingsPage() {
   const session = await getSession()
@@ -91,6 +92,12 @@ export default async function SettingsPage() {
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Оплата пробных занятий педагогу</span>
+                    <Badge variant={org.payForTrialLessons ? "default" : "secondary"}>
+                      {org.payForTrialLessons ? "Только платные" : "Нет"}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Дедлайн отметки посещений</span>
                     <span className="text-sm font-medium">{org.attendanceDeadline} дн.</span>
                   </div>
@@ -121,6 +128,12 @@ export default async function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+          </div>
+
+          <div className="mt-6">
+            <RoleDisplayNamesForm
+              initialValues={(org.roleDisplayNames as Record<string, string>) ?? {}}
+            />
           </div>
         </TabsContent>
 
