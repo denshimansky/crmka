@@ -41,9 +41,9 @@ test.describe.serial("Расходы — полный CRUD", () => {
     await dialog.locator("input").first().fill(ACCOUNT_NAME)
 
     await dialog.locator("[data-slot='select-trigger']").first().click()
-    await page.waitForTimeout(300)
-    await page.locator("[data-slot='select-item']", { hasText: "Касса" }).click()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
+    await page.locator("[data-slot='select-item']:visible", { hasText: "Касса" }).first().click()
+    await page.waitForTimeout(500)
 
     await dialog.locator("button:has-text('Создать')").click()
     await page.waitForTimeout(2000)

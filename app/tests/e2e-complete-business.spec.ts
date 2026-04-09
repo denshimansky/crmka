@@ -51,9 +51,9 @@ test.describe.serial("Полный бизнес-сценарий", () => {
 
     // Тип = Касса
     await dialog.locator("[data-slot='select-trigger']").first().click()
-    await page.waitForTimeout(300)
-    await page.locator("[data-slot='select-item']", { hasText: "Касса" }).click()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
+    await page.locator("[data-slot='select-item']:visible", { hasText: "Касса" }).first().click()
+    await page.waitForTimeout(500)
 
     await dialog.locator("button:has-text('Создать')").click()
     await page.waitForTimeout(2000)
@@ -102,9 +102,9 @@ test.describe.serial("Полный бизнес-сценарий", () => {
 
     // Роль = Инструктор
     await dialog.locator("[data-slot='select-trigger']").first().click()
-    await page.waitForTimeout(300)
-    await page.locator("[data-slot='select-item']", { hasText: "Инструктор" }).click()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
+    await page.locator("[data-slot='select-item']:visible", { hasText: "Инструктор" }).first().click()
+    await page.waitForTimeout(500)
 
     await dialog.locator("button:has-text('Создать')").click()
     await expect(dialog).not.toBeVisible({ timeout: 5000 })
@@ -273,8 +273,8 @@ test.describe.serial("Полный бизнес-сценарий", () => {
     await page.locator("button[role='tab']:has-text('Абонементы')").click()
     await page.waitForTimeout(500)
 
-    // Кнопка + Абонемент (dialog trigger внутри вкладки, не disabled кнопка в шапке и не таб)
-    await page.locator("[aria-haspopup='dialog']:has-text('Абонемент')").click()
+    // Кнопка + Абонемент (внутри вкладки, не disabled кнопка в шапке и не таб)
+    await page.locator("button:has-text('Абонемент'):not([role='tab']):not([disabled])").click()
     const dialog = page.locator("div[role='dialog']")
     await expect(dialog).toBeVisible()
 

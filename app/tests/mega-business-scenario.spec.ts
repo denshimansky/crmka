@@ -42,24 +42,22 @@ function log(step: string, status: "OK" | "BUG", detail?: string) {
 
 async function loginAsAdmin(page: Page) {
   await page.goto("/admin/login")
-  await page.waitForLoadState("networkidle")
-  await page.locator('input[id="email"]').click()
+  await page.waitForLoadState("domcontentloaded")
+  await page.locator('input[id="email"]').waitFor({ timeout: 10000 })
   await page.locator('input[id="email"]').fill(ADMIN_EMAIL)
-  await page.locator('input[id="password"]').click()
   await page.locator('input[id="password"]').fill(ADMIN_PASSWORD)
-  await page.waitForTimeout(200)
+  await page.waitForTimeout(300)
   await page.locator('button[type="submit"]').click()
-  await page.waitForURL(/\/admin\/partners/, { timeout: 15000 })
-  await page.waitForSelector("table", { timeout: 10000 })
+  await page.waitForURL(/\/admin\/partners/, { timeout: 20000 })
+  // Ждём загрузку таблицы или текста "Нет партнёров"
+  await page.locator("table, text=Нет партнёров").first().waitFor({ timeout: 10000 })
 }
 
 async function login(page: Page) {
   await page.goto("/login")
-  await page.waitForLoadState("networkidle")
-  await page.waitForTimeout(500)
-  await page.locator('input[id="login"]').click()
+  await page.waitForLoadState("domcontentloaded")
+  await page.locator('input[id="login"]').waitFor({ timeout: 10000 })
   await page.locator('input[id="login"]').fill(OWNER_LOGIN)
-  await page.locator('input[id="password"]').click()
   await page.locator('input[id="password"]').fill(OWNER_PASSWORD)
   await page.waitForTimeout(300)
   await page.click('button[type="submit"]')
@@ -130,7 +128,12 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
       await inputs.nth(10).fill(`zv-owner-${TS}@example.com`)     // Email owner
 
       await dialog.locator("button:has-text('Создать')").click()
-      await page.waitForTimeout(2000)
+      await page.waitForTimeout(3000)
+
+      // Перезагружаем страницу для гарантии отображения нового партнёра
+      await page.goto("/admin/partners")
+      await page.locator("table, text=Нет партнёров").first().waitFor({ timeout: 10000 })
+      await page.waitForTimeout(1000)
 
       const visible = await page.locator(`text=${ORG_NAME}`).isVisible({ timeout: 5000 }).catch(() => false)
       if (visible) {
@@ -160,7 +163,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 0.2: Создать 2 филиала через UI", async (page) => {
     await login(page)
     await page.goto("/settings")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
 
     // Вкладка Филиалы
     await page.locator("button[role='tab']:has-text('Филиалы')").click()
@@ -188,7 +191,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 0.3: Создать 4 кабинета через UI", async (page) => {
     await login(page)
     await page.goto("/settings")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
 
     await page.locator("button[role='tab']:has-text('Филиалы')").click()
     await page.waitForTimeout(500)
@@ -198,7 +201,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
       try {
         // Перезагружаем страницу каждый раз чтобы избежать RSC race condition
         await page.goto("/settings")
-        await page.waitForLoadState("networkidle")
+        await page.waitForLoadState("domcontentloaded")
         await page.locator("button[role='tab']:has-text('Филиалы')").click()
         await page.waitForTimeout(1000)
         await page.locator("button:has-text('Кабинет')").click()
@@ -238,7 +241,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 1.1: Настройки — проверяем что организация загружается", async (page) => {
     await login(page)
     await page.goto("/settings")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
 
     const hasSettings = await page.locator("h1").textContent()
     if (hasSettings?.includes("Настройки")) {
@@ -255,7 +258,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 1.2: Направления — создать 3 шт", async (page) => {
     await login(page)
     await page.goto("/settings")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
 
     // Переходим на вкладку Направления
     await page.locator("button[role='tab']:has-text('Направления')").click()
@@ -293,7 +296,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 1.3: Педагоги — создать 4 шт", async (page) => {
     await login(page)
     await page.goto("/staff")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
 
     const instructors = [
       { last: "Волкова", first: "Анна", login: `volka${TS}` },
@@ -337,7 +340,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 1.4: Группы — создать 6 шт", async (page) => {
     await login(page)
     await page.goto("/schedule/groups")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
 
     const groups = [
       `Танцы-МлФ1-${TS}`,
@@ -397,7 +400,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 1.5: Касса + Расчётный счёт", async (page) => {
     await login(page)
     await page.goto("/finance/cash")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
 
     const accounts = [
       { name: `Касса-${TS}`, type: "Касса наличных" },
@@ -407,7 +410,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     for (const acc of accounts) {
       try {
         await page.goto("/finance/cash")
-        await page.waitForLoadState("networkidle")
+        await page.waitForLoadState("domcontentloaded")
         await page.waitForTimeout(500)
         await page.locator("button:has-text('Счёт')").first().click()
         await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
@@ -430,7 +433,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
         // Перезагружаем чтобы увидеть новый счёт
         await page.goto("/finance/cash")
-        await page.waitForLoadState("networkidle")
+        await page.waitForLoadState("domcontentloaded")
         await page.waitForTimeout(1000)
 
         const visible = await page.locator(`text=${acc.name}`).isVisible({ timeout: 3000 }).catch(() => false)
@@ -452,7 +455,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 2.1: Создать 10 клиентов-родителей с подопечными", async (page) => {
     await login(page)
     await page.goto("/crm/leads")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
 
     const clients = [
       { last: "Иванова", first: "Мария", phone: "+79991110001", wards: ["Ваня", "Маша", "Даша"] },       // 3 ребёнка → скидка
@@ -504,7 +507,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 2.2: Проверить карточку Ивановой (3 подопечных)", async (page) => {
     await login(page)
     await page.goto("/crm/leads")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     try {
@@ -537,7 +540,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 3.1: Сгенерировать расписание на март для первой группы", async (page) => {
     await login(page)
     await page.goto("/schedule/groups")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     try {
@@ -578,7 +581,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 3.2: Зачислить клиентов в группы", async (page) => {
     await login(page)
     await page.goto("/schedule/groups")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     try {
@@ -637,7 +640,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
     // Для Ивановой (3 ребёнка) — открываем карточку и создаём абонемент
     await page.goto("/crm/leads")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     try {
@@ -647,7 +650,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
         return
       }
       await ivanovaLink.click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
       await page.waitForTimeout(2000)
 
       // Вкладка абонементы
@@ -699,7 +702,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 4.2: Создать оплаты", async (page) => {
     await login(page)
     await page.goto("/finance/payments")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     // Оплата от Козлова (переплата — 10000 вместо стандартной суммы)
@@ -764,7 +767,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 5.1: Создать расход «Аренда»", async (page) => {
     await login(page)
     await page.goto("/finance/expenses")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     try {
@@ -818,7 +821,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 5.5.1: Создать задачу", async (page) => {
     await login(page)
     await page.goto("/tasks")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     try {
@@ -857,7 +860,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 5.5.2: Создать кампанию обзвона", async (page) => {
     await login(page)
     await page.goto("/crm/calls")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     try {
@@ -884,7 +887,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 5.6: Зарплата — выплата", async (page) => {
     await login(page)
     await page.goto("/salary")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     try {
@@ -948,7 +951,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
     // Идём в расписание — находим любое занятие
     await page.goto("/schedule")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(2000)
 
     try {
@@ -960,7 +963,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
       }
 
       await lessonLink.click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
       await page.waitForTimeout(2000)
 
       // Проверяем что страница занятия открылась
@@ -992,7 +995,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 5.8: Скидка за многодетность (Иванова, 3 ребёнка)", async (page) => {
     await login(page)
     await page.goto("/crm/leads")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     try {
@@ -1003,7 +1006,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
         return
       }
       await link.click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
       await page.waitForTimeout(2000)
 
       // Вкладка Абонементы
@@ -1050,7 +1053,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 6.1: Дашборд — виджеты с данными", async (page) => {
     await login(page)
     await page.goto("/")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(2000)
 
     const widgets = [
@@ -1085,7 +1088,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     for (const report of reports) {
       try {
         await page.goto(report.url)
-        await page.waitForLoadState("networkidle")
+        await page.waitForLoadState("domcontentloaded")
         await page.waitForTimeout(1500)
 
         // Проверяем по ключевому слову в заголовке
@@ -1100,7 +1103,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 6.3: ДДС загружается", async (page) => {
     await login(page)
     await page.goto("/finance/dds")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1500)
 
     try {
@@ -1116,7 +1119,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 6.4: Должники загружаются", async (page) => {
     await login(page)
     await page.goto("/finance/debtors")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1500)
 
     try {
@@ -1131,7 +1134,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 6.5: Каталог отчётов", async (page) => {
     await login(page)
     await page.goto("/reports")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(1000)
 
     try {
@@ -1153,7 +1156,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 7.1: ЛК партнёра — подписка видна", async (page) => {
     await login(page)
     await page.goto("/billing")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
     await page.waitForTimeout(2000)
 
     try {

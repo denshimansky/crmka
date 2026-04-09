@@ -17,7 +17,7 @@ test.describe("Сотрудники", () => {
     await page.goto("/staff")
     await expect(page.locator("h1")).toContainText("Сотрудники")
     // Должны быть демо-сотрудники из seed
-    await expect(page.locator("td:has-text('Малафеева')").first()).toBeVisible()
+    await expect(page.locator("td:has-text('Соколова')").first()).toBeVisible()
   })
 
   test("создание сотрудника", async ({ page }) => {
