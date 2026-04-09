@@ -13,8 +13,10 @@ const updateSchema = z.object({
   salaryDay1: z.number().min(1).max(28).optional(),
   salaryDay2: z.number().min(1).max(31).optional(),
   payForAbsence: z.boolean().optional(),
+  payForTrialLessons: z.boolean().optional(),
   attendanceDeadline: z.number().min(1).max(90).optional(),
   roleDisplayNames: z.record(z.string()).optional(),
+  rolePermissions: z.record(z.record(z.boolean())).optional(),
   onboardingCompleted: z.boolean().optional(),
 })
 

@@ -61,6 +61,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
 
+  // Fetch org setting for trial lesson instructor pay
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { payForTrialLessons: true },
+  })
+
   // === Вся бизнес-логика в транзакции ===
   const attendance = await db.$transaction(async (tx) => {
     // Calculate charge amount
@@ -124,6 +130,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             instructorPayAmount = salaryRate.ratePerStudent
           }
         }
+      }
+    }
+
+    // Trial lesson instructor pay logic:
+    // - Setting OFF → never pay for trials
+    // - Setting ON → pay only if chargeAmount > 0 (paid trial)
+    if (lesson.isTrial && Number(instructorPayAmount) > 0) {
+      if (!org?.payForTrialLessons || Number(chargeAmount) === 0) {
+        instructorPayAmount = new Prisma.Decimal(0)
       }
     }
 
@@ -317,13 +332,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     },
   })
 
-  // Get salary rate
+  // Get salary rate (use substitute instructor's rate if present)
+  const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
   const salaryRate = await db.salaryRate.findFirst({
     where: {
       tenantId,
-      employeeId: lesson.instructorId,
+      employeeId: effectiveInstructorId,
       directionId: lesson.group.directionId,
     },
+  })
+
+  // Fetch org setting for trial lesson instructor pay
+  const orgBulk = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { payForTrialLessons: true },
   })
 
   // === Предзагрузка existing attendances (batch вместо N+1) ===
@@ -357,6 +379,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           isFirstForLesson = false
         } else if (salaryRate.scheme === "fixed_plus_per_student" && salaryRate.ratePerStudent) {
           instructorPayAmount = salaryRate.ratePerStudent
+        }
+      }
+
+      // Trial lesson instructor pay logic (same as single attendance)
+      if (lesson.isTrial && Number(instructorPayAmount) > 0) {
+        if (!orgBulk?.payForTrialLessons || Number(chargeAmount) === 0) {
+          instructorPayAmount = new Prisma.Decimal(0)
         }
       }
 

@@ -80,11 +80,13 @@ model Organization {
   salaryDay1         Int?     @default(15) @map("salary_day_1")
   salaryDay2         Int?     @default(30) @map("salary_day_2")
   payForAbsence      Boolean  @default(false) @map("pay_for_absence")
+  payForTrialLessons Boolean  @default(false) @map("pay_for_trial_lessons")
   attendanceDeadline Int      @default(14) @map("attendance_deadline")
   debtLimit          Decimal? @map("debt_limit") @db.Decimal(12, 2)
   makeupDaysLimit    Int?     @map("makeup_days_limit")
   makeupDeadlineDays Int?     @map("makeup_deadline_days")
   roleDisplayNames   Json?    @map("role_display_names")
+  rolePermissions    Json?    @map("role_permissions")
   onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
 
   // Биллинг
@@ -652,6 +654,7 @@ model Attendance {
   instructorPayAmount  Decimal   @default(0) @map("instructor_pay_amount") @db.Decimal(12, 2)
   instructorPayEnabled Boolean   @default(true) @map("instructor_pay_enabled")
   isTrial              Boolean   @default(false) @map("is_trial")
+  isMakeup             Boolean   @default(false) @map("is_makeup")
   markedBy             String?   @map("marked_by") @db.Uuid
   markedAt             DateTime? @map("marked_at")
   isAfterPeriodClose   Boolean   @default(false) @map("is_after_period_close")
