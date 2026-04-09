@@ -8,6 +8,7 @@ import { Plus, CalendarDays } from "lucide-react"
 import { ScheduleWeekNav } from "./schedule-week-nav"
 import { CancelDayDialog } from "./cancel-day-dialog"
 import { SchedulePrintButton } from "@/components/schedule-print"
+import { CopyMonthDialog } from "./copy-month-dialog"
 import { PageHelp } from "@/components/page-help"
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -143,6 +144,7 @@ export default async function SchedulePage({
         <div className="flex-1">
           <ScheduleWeekNav weekOffset={weekOffset} weekLabel={weekLabel} />
         </div>
+        <CopyMonthDialog />
         <CancelDayDialog defaultDate={defaultDate} branches={branches} />
         <SchedulePrintButton />
       </div>
