@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { CheckCircle2, Loader2, Users } from "lucide-react"
+import { CheckCircle2, Loader2, Users, UserCheck, X } from "lucide-react"
 
 interface AbsenceReasonData {
   id: string
@@ -64,6 +64,11 @@ interface SalaryRateData {
   fixedPerShift: number | null
 }
 
+interface InstructorOption {
+  id: string
+  name: string
+}
+
 interface AttendanceTableProps {
   lessonId: string
   topic: string | null
@@ -72,6 +77,10 @@ interface AttendanceTableProps {
   attendanceTypes: AttendanceTypeData[]
   salaryRate: SalaryRateData | null
   absenceReasons?: AbsenceReasonData[]
+  instructorName?: string
+  substituteInstructorId?: string | null
+  substituteInstructorName?: string | null
+  instructors?: InstructorOption[]
 }
 
 function formatMoney(amount: number): string {
@@ -87,6 +96,10 @@ export function AttendanceTable({
   attendanceTypes,
   salaryRate,
   absenceReasons = [],
+  instructorName,
+  substituteInstructorId: initSubstituteId,
+  substituteInstructorName: initSubstituteName,
+  instructors = [],
 }: AttendanceTableProps) {
   const router = useRouter()
   const [students, setStudents] = useState(initialStudents)
@@ -96,6 +109,9 @@ export function AttendanceTable({
   const [savingHomework, setSavingHomework] = useState(false)
   const [markingAll, setMarkingAll] = useState(false)
   const [loadingStudentId, setLoadingStudentId] = useState<string | null>(null)
+  const [substituteId, setSubstituteId] = useState<string | null>(initSubstituteId || null)
+  const [substituteName, setSubstituteName] = useState<string | null>(initSubstituteName || null)
+  const [savingSubstitute, setSavingSubstitute] = useState(false)
 
   const presentType = attendanceTypes.find((t) => t.code === "present")
 
@@ -118,6 +134,32 @@ export function AttendanceTable({
     },
     [lessonId]
   )
+
+  // Set/remove substitute instructor
+  async function setSubstituteInstructor(instructorId: string | null) {
+    setSavingSubstitute(true)
+    try {
+      const res = await fetch(`/api/lessons/${lessonId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ substituteInstructorId: instructorId }),
+      })
+      if (res.ok) {
+        setSubstituteId(instructorId)
+        if (instructorId) {
+          const inst = instructors.find((i) => i.id === instructorId)
+          setSubstituteName(inst?.name || null)
+        } else {
+          setSubstituteName(null)
+        }
+        router.refresh()
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setSavingSubstitute(false)
+    }
+  }
 
   // Mark single student
   async function markAttendance(
@@ -289,6 +331,63 @@ export function AttendanceTable({
 
   return (
     <div className="space-y-6">
+      {/* Substitute Instructor */}
+      {instructors.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-4">
+              <UserCheck className="size-5 text-muted-foreground" />
+              <div className="flex-1">
+                <div className="text-xs text-muted-foreground">Педагог группы</div>
+                <div className="text-sm font-medium">{instructorName}</div>
+              </div>
+              {substituteId ? (
+                <div className="flex items-center gap-2">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Замена</div>
+                    <div className="text-sm font-medium text-orange-600 dark:text-orange-400">
+                      {substituteName}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8"
+                    title="Отменить замену"
+                    disabled={savingSubstitute}
+                    onClick={() => setSubstituteInstructor(null)}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Select
+                    value=""
+                    onValueChange={(val) => {
+                      if (val) setSubstituteInstructor(val)
+                    }}
+                  >
+                    <SelectTrigger className="w-[200px]">
+                      <span className="text-muted-foreground">
+                        {savingSubstitute ? "Сохранение..." : "Назначить замену"}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {instructors.map((i) => (
+                        <SelectItem key={i.id} value={i.id}>
+                          {i.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Topic & Homework */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">

@@ -9,6 +9,11 @@ const updateSchema = z.object({
   homework: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   status: z.enum(["scheduled", "completed", "cancelled"]).optional(),
   cancelReason: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  substituteInstructorId: z.any().transform(v => {
+    if (v === null || v === "") return null
+    if (typeof v === "string" && v.trim()) return v.trim()
+    return undefined
+  }),
 })
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -28,6 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         },
       },
       instructor: { select: { id: true, firstName: true, lastName: true } },
+      substituteInstructor: { select: { id: true, firstName: true, lastName: true } },
       attendances: {
         include: {
           attendanceType: true,
@@ -91,11 +97,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     orderBy: { sortOrder: "asc" },
   })
 
-  // Get salary rate for this instructor + direction
+  // Get salary rate — if substitute, use their rate
+  const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
   const salaryRate = await db.salaryRate.findFirst({
     where: {
       tenantId,
-      employeeId: lesson.instructorId,
+      employeeId: effectiveInstructorId,
       directionId: lesson.group.directionId,
     },
   })
@@ -163,6 +170,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       id: lesson.instructor.id,
       name: [lesson.instructor.lastName, lesson.instructor.firstName].filter(Boolean).join(" "),
     },
+    substituteInstructor: lesson.substituteInstructor
+      ? {
+          id: lesson.substituteInstructor.id,
+          name: [lesson.substituteInstructor.lastName, lesson.substituteInstructor.firstName].filter(Boolean).join(" "),
+        }
+      : null,
     salaryRate: salaryRate
       ? {
           scheme: salaryRate.scheme,
@@ -206,6 +219,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (data.homework !== undefined) updateData.homework = data.homework
   if (data.status !== undefined) updateData.status = data.status
   if (data.cancelReason !== undefined) updateData.cancelReason = data.cancelReason
+  if (data.substituteInstructorId !== undefined) updateData.substituteInstructorId = data.substituteInstructorId
 
   const lesson = await db.lesson.update({
     where: { id },

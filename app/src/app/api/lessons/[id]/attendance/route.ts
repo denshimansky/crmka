@@ -100,7 +100,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const salaryRate = await tx.salaryRate.findFirst({
         where: {
           tenantId,
-          employeeId: lesson.instructorId,
+          employeeId: lesson.substituteInstructorId || lesson.instructorId,
           directionId: lesson.group.directionId,
         },
       })

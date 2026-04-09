@@ -53,6 +53,7 @@ export default async function LessonCardPage({
         },
       },
       instructor: { select: { id: true, firstName: true, lastName: true } },
+      substituteInstructor: { select: { id: true, firstName: true, lastName: true } },
       attendances: {
         include: {
           attendanceType: true,
@@ -63,6 +64,13 @@ export default async function LessonCardPage({
   })
 
   if (!lesson) notFound()
+
+  // Get instructors for substitute selection
+  const instructors = await db.employee.findMany({
+    where: { tenantId, deletedAt: null, role: { in: ["instructor", "owner", "manager"] } },
+    select: { id: true, firstName: true, lastName: true },
+    orderBy: { lastName: "asc" },
+  })
 
   // Get enrolled students
   const enrollments = await db.groupEnrollment.findMany({
@@ -117,11 +125,12 @@ export default async function LessonCardPage({
     select: { id: true, name: true },
   })
 
-  // Get salary rate
+  // Get salary rate — use substitute instructor rate if present
+  const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
   const salaryRate = await db.salaryRate.findFirst({
     where: {
       tenantId,
-      employeeId: lesson.instructorId,
+      employeeId: effectiveInstructorId,
       directionId: lesson.group.directionId,
     },
   })
@@ -188,6 +197,16 @@ export default async function LessonCardPage({
     : null
 
   const instructorName = [lesson.instructor.lastName, lesson.instructor.firstName].filter(Boolean).join(" ")
+  const substituteInstructorName = lesson.substituteInstructor
+    ? [lesson.substituteInstructor.lastName, lesson.substituteInstructor.firstName].filter(Boolean).join(" ")
+    : null
+
+  const instructorsData = instructors
+    .filter((i) => i.id !== lesson.instructorId)
+    .map((i) => ({
+      id: i.id,
+      name: [i.lastName, i.firstName].filter(Boolean).join(" "),
+    }))
 
   return (
     <div className="space-y-6">
@@ -271,6 +290,10 @@ export default async function LessonCardPage({
         attendanceTypes={attendanceTypesData}
         salaryRate={salaryRateData}
         absenceReasons={absenceReasons}
+        instructorName={instructorName}
+        substituteInstructorId={lesson.substituteInstructorId}
+        substituteInstructorName={substituteInstructorName}
+        instructors={instructorsData}
       />
     </div>
   )
