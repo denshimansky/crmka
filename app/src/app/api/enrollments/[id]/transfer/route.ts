@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { recalcLinkedDiscounts } from "@/lib/linked-discount"
 
 const transferSchema = z.object({
   targetGroupId: z.string().uuid("Некорректный ID группы"),
@@ -98,15 +99,16 @@ export async function POST(
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const [, newEnrollment] = await db.$transaction([
-    db.groupEnrollment.update({
+  const result = await db.$transaction(async (tx) => {
+    await tx.groupEnrollment.update({
       where: { id },
       data: {
         isActive: false,
         withdrawnAt: today,
       },
-    }),
-    db.groupEnrollment.create({
+    })
+
+    const newEnrollment = await tx.groupEnrollment.create({
       data: {
         tenantId,
         groupId: targetGroupId,
@@ -125,8 +127,25 @@ export async function POST(
           select: { id: true, firstName: true, lastName: true, birthDate: true },
         },
       },
-    }),
-  ])
+    })
 
-  return NextResponse.json(newEnrollment, { status: 201 })
+    // SUB-07: пересчитать связанные скидки при деактивации зачисления
+    const linkedDiscountChanges = await recalcLinkedDiscounts(
+      tx,
+      tenantId,
+      enrollment.clientId
+    )
+
+    return { newEnrollment, linkedDiscountChanges }
+  })
+
+  const response: any = { ...result.newEnrollment }
+  if (result.linkedDiscountChanges.length > 0) {
+    response._linkedDiscountWarning = {
+      message: `Связанная скидка снята с ${result.linkedDiscountChanges.length} абонемент(ов), т.к. активных абонементов стало меньше 2`,
+      affected: result.linkedDiscountChanges,
+    }
+  }
+
+  return NextResponse.json(response, { status: 201 })
 }

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { recalcLinkedDiscounts } from "@/lib/linked-discount"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -49,7 +50,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const data = parsed.data
 
   // Транзакция: findFirst + update атомарно (M-5 audit fix)
-  const subscription = await db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const existing = await tx.subscription.findFirst({
       where: { id, tenantId: session.user.tenantId, deletedAt: null },
     })
@@ -93,7 +94,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       updateData.wardId = data.wardId
     }
 
-    return tx.subscription.update({
+    const subscription = await tx.subscription.update({
       where: { id },
       data: updateData,
       include: {
@@ -102,11 +103,32 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         group: { select: { id: true, name: true } },
       },
     })
+
+    // SUB-07: при отчислении/закрытии пересчитать связанные скидки
+    let linkedDiscountChanges: Awaited<ReturnType<typeof recalcLinkedDiscounts>> = []
+    if (data.status === "withdrawn" || data.status === "closed") {
+      linkedDiscountChanges = await recalcLinkedDiscounts(
+        tx,
+        session.user.tenantId,
+        existing.clientId,
+        id
+      )
+    }
+
+    return { subscription, linkedDiscountChanges }
   })
 
-  if (!subscription) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
+  if (!result) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
 
-  return NextResponse.json(subscription)
+  const response: any = { ...result.subscription }
+  if (result.linkedDiscountChanges.length > 0) {
+    response._linkedDiscountWarning = {
+      message: `Связанная скидка снята с ${result.linkedDiscountChanges.length} абонемент(ов), т.к. активных абонементов стало меньше 2`,
+      affected: result.linkedDiscountChanges,
+    }
+  }
+
+  return NextResponse.json(response)
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

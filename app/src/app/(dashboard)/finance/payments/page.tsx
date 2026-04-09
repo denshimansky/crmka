@@ -5,8 +5,9 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Wallet, Banknote, CreditCard, Globe } from "lucide-react"
+import { Wallet, Banknote, CreditCard, Undo2 } from "lucide-react"
 import { AddPaymentDialog } from "./add-payment-dialog"
+import { RefundPaymentDialog } from "./refund-payment-dialog"
 import { PageHelp } from "@/components/page-help"
 
 function formatMoney(amount: number): string {
@@ -58,16 +59,19 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
   })
 
   // Считаем суммы
-  const totalIncoming = payments.reduce((sum, p) => sum + Number(p.amount), 0)
-  const byCash = payments.filter(p => p.method === "cash").reduce((sum, p) => sum + Number(p.amount), 0)
-  const byAcquiring = payments.filter(p => p.method === "acquiring" || p.method === "bank_transfer").reduce((sum, p) => sum + Number(p.amount), 0)
-  const byOnline = payments.filter(p => ["online_yukassa", "online_robokassa", "sbp_qr"].includes(p.method)).reduce((sum, p) => sum + Number(p.amount), 0)
+  const incomingPayments = payments.filter(p => p.type !== "refund")
+  const refundPayments = payments.filter(p => p.type === "refund")
+  const totalIncoming = incomingPayments.reduce((sum, p) => sum + Number(p.amount), 0)
+  const totalRefunds = refundPayments.reduce((sum, p) => sum + Math.abs(Number(p.amount)), 0)
+  const byCash = incomingPayments.filter(p => p.method === "cash").reduce((sum, p) => sum + Number(p.amount), 0)
+  const byAcquiring = incomingPayments.filter(p => p.method === "acquiring" || p.method === "bank_transfer").reduce((sum, p) => sum + Number(p.amount), 0)
+  const byOnline = incomingPayments.filter(p => ["online_yukassa", "online_robokassa", "sbp_qr"].includes(p.method)).reduce((sum, p) => sum + Number(p.amount), 0)
 
   const summary = [
     { title: "Поступления", value: totalIncoming, icon: Wallet, color: "text-green-600", bg: "bg-green-50" },
+    { title: "Возвраты", value: totalRefunds, icon: Undo2, color: "text-red-600", bg: "bg-red-50" },
     { title: "Наличные", value: byCash, icon: Banknote, color: "text-emerald-600", bg: "bg-emerald-50" },
     { title: "Безнал / Эквайринг", value: byAcquiring, icon: CreditCard, color: "text-blue-600", bg: "bg-blue-50" },
-    { title: "Онлайн / СБП", value: byOnline, icon: Globe, color: "text-purple-600", bg: "bg-purple-50" },
   ]
 
   // Данные для диалога
@@ -94,10 +98,16 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
           <PageHelp pageKey="finance/payments" />
           <MonthPicker />
         </div>
-        <AddPaymentDialog
-          clients={clients.map(c => ({ id: c.id, name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени" }))}
-          accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
-        />
+        <div className="flex gap-2">
+          <RefundPaymentDialog
+            clients={clients.map(c => ({ id: c.id, name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени" }))}
+            accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
+          />
+          <AddPaymentDialog
+            clients={clients.map(c => ({ id: c.id, name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени" }))}
+            accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
+          />
+        </div>
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -143,16 +153,23 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
             <TableBody>
               {payments.map((p) => {
                 const clientName = [p.client.lastName, p.client.firstName].filter(Boolean).join(" ") || "Без имени"
+                const isRefund = p.type === "refund"
                 const subInfo = p.subscription
                   ? `${p.subscription.direction.name} (${String(p.subscription.periodMonth).padStart(2, "0")}.${p.subscription.periodYear})`
                   : p.comment || "—"
+                const amt = Number(p.amount)
                 return (
-                  <TableRow key={p.id}>
+                  <TableRow key={p.id} className={isRefund ? "bg-red-50/50 dark:bg-red-950/10" : undefined}>
                     <TableCell className="text-muted-foreground">{formatDate(p.date)}</TableCell>
-                    <TableCell className="font-medium">{clientName}</TableCell>
+                    <TableCell className="font-medium">
+                      {clientName}
+                      {isRefund && (
+                        <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">Возврат</Badge>
+                      )}
+                    </TableCell>
                     <TableCell>{subInfo}</TableCell>
-                    <TableCell className="text-right font-medium text-green-600">
-                      {formatMoney(Number(p.amount))}
+                    <TableCell className={`text-right font-medium ${isRefund ? "text-red-600" : "text-green-600"}`}>
+                      {isRefund ? `−${formatMoney(Math.abs(amt))}` : formatMoney(amt)}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{METHOD_LABELS[p.method] || p.method}</Badge>
