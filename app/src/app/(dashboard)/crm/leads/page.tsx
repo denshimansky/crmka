@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import Link from "next/link"
 import { CreateClientDialog } from "../clients/create-client-dialog"
 import { PageHelp } from "@/components/page-help"
+import { QuickLeadButton } from "@/components/quick-lead-button"
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
@@ -160,6 +161,8 @@ export default async function FunnelPage() {
           </Table>
         </div>
       )}
+
+      <QuickLeadButton />
     </div>
   )
 }

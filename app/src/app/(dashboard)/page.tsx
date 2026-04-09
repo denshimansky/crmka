@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
+import { QuickLeadButton } from "@/components/quick-lead-button"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -273,6 +274,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </CardContent>
         </Card>
       )}
+
+      <QuickLeadButton />
     </div>
   )
 }
