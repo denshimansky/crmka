@@ -32,7 +32,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { CalendarDays, ExternalLink, Plus, Trash2, UserPlus, Users } from "lucide-react"
+import { ArrowRightLeft, CalendarDays, ExternalLink, Plus, Trash2, UserPlus, Users } from "lucide-react"
 import Link from "next/link"
 
 interface LessonData {
@@ -101,6 +101,14 @@ interface GroupInfo {
   maxStudents: number
 }
 
+interface TransferGroupOption {
+  id: string
+  name: string
+  directionName: string
+  enrolled: number
+  maxStudents: number
+}
+
 interface GroupTabsProps {
   groupId: string
   lessons: LessonData[]
@@ -116,6 +124,7 @@ interface GroupTabsProps {
   branches: BranchOption[]
   instructors: InstructorOption[]
   groupInfo: GroupInfo
+  groupsForTransfer: TransferGroupOption[]
 }
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
@@ -154,6 +163,7 @@ export function GroupTabs({
   branches,
   instructors,
   groupInfo,
+  groupsForTransfer,
 }: GroupTabsProps) {
   const router = useRouter()
 
@@ -181,6 +191,7 @@ export function GroupTabs({
           groupId={groupId}
           enrollments={enrollments}
           clients={clients}
+          groupsForTransfer={groupsForTransfer}
           onRefresh={() => router.refresh()}
         />
       </TabsContent>
@@ -363,11 +374,13 @@ function StudentsTab({
   groupId,
   enrollments,
   clients,
+  groupsForTransfer,
   onRefresh,
 }: {
   groupId: string
   enrollments: EnrollmentData[]
   clients: ClientOption[]
+  groupsForTransfer: TransferGroupOption[]
   onRefresh: () => void
 }) {
   const [enrollOpen, setEnrollOpen] = useState(false)
@@ -375,6 +388,14 @@ function StudentsTab({
   const [enrollError, setEnrollError] = useState<string | null>(null)
   const [selectedClientId, setSelectedClientId] = useState("")
   const [selectedWardId, setSelectedWardId] = useState("")
+
+  // Transfer state
+  const [transferOpen, setTransferOpen] = useState(false)
+  const [transferEnrollmentId, setTransferEnrollmentId] = useState("")
+  const [transferStudentName, setTransferStudentName] = useState("")
+  const [targetGroupId, setTargetGroupId] = useState("")
+  const [transferring, setTransferring] = useState(false)
+  const [transferError, setTransferError] = useState<string | null>(null)
 
   const selectedClient = clients.find((c) => c.id === selectedClientId)
   const activeEnrollments = enrollments.filter((e) => e.isActive)
@@ -405,6 +426,41 @@ function StudentsTab({
       setEnrollError("Не удалось зачислить ученика")
     } finally {
       setEnrolling(false)
+    }
+  }
+
+  function openTransfer(enrollment: EnrollmentData) {
+    setTransferEnrollmentId(enrollment.id)
+    setTransferStudentName(enrollment.wardName || enrollment.clientName)
+    setTargetGroupId("")
+    setTransferError(null)
+    setTransferOpen(true)
+  }
+
+  async function handleTransfer() {
+    if (!targetGroupId) {
+      setTransferError("Выберите группу для перевода")
+      return
+    }
+    setTransferring(true)
+    setTransferError(null)
+    try {
+      const res = await fetch(`/api/enrollments/${transferEnrollmentId}/transfer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetGroupId }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        setTransferError(data.error || "Ошибка перевода")
+        return
+      }
+      setTransferOpen(false)
+      onRefresh()
+    } catch {
+      setTransferError("Не удалось выполнить перевод")
+    } finally {
+      setTransferring(false)
     }
   }
 
@@ -511,6 +567,7 @@ function StudentsTab({
               <TableHead>Телефон</TableHead>
               <TableHead>Дата зачисления</TableHead>
               <TableHead>Статус оплаты</TableHead>
+              <TableHead className="w-[50px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -531,6 +588,17 @@ function StudentsTab({
                   <Badge variant={e.paymentStatus === "active" ? "default" : "secondary"}>
                     {PAYMENT_STATUS_LABELS[e.paymentStatus] || e.paymentStatus}
                   </Badge>
+                </TableCell>
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8"
+                    title="Перевести в другую группу"
+                    onClick={() => openTransfer(e)}
+                  >
+                    <ArrowRightLeft className="size-4 text-muted-foreground" />
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}
@@ -560,6 +628,63 @@ function StudentsTab({
           </Table>
         </div>
       )}
+
+      {/* Диалог перевода */}
+      <Dialog
+        open={transferOpen}
+        onOpenChange={(val) => {
+          setTransferOpen(val)
+          if (!val) setTransferError(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Перевод ученика</DialogTitle>
+            <DialogDescription>
+              {transferStudentName} — выберите группу для перевода
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {transferError && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {transferError}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Целевая группа</Label>
+              <Select value={targetGroupId} onValueChange={(v) => { if (v) setTargetGroupId(v) }}>
+                <SelectTrigger className="w-full">
+                  {targetGroupId
+                    ? groupsForTransfer.find((g) => g.id === targetGroupId)?.name
+                    : <span className="text-muted-foreground">Выберите группу</span>}
+                </SelectTrigger>
+                <SelectContent>
+                  {groupsForTransfer.map((g) => (
+                    <SelectItem
+                      key={g.id}
+                      value={g.id}
+                      disabled={g.enrolled >= g.maxStudents}
+                    >
+                      {g.name} ({g.directionName}) — {g.enrolled}/{g.maxStudents}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferOpen(false)}>
+              Отмена
+            </Button>
+            <Button onClick={handleTransfer} disabled={transferring || !targetGroupId}>
+              {transferring ? "Перевод..." : "Перевести"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
