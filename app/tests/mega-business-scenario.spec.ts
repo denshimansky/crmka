@@ -1056,15 +1056,18 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
     const widgets = [
       "Активные абонементы",
-      "Выручка",
-      "Расходы",
+      "Выручка за месяц",
+      "Расходы за месяц",
       "Должники",
       "Задачи на сегодня",
-      "Воронка",
+      "Воронка продаж",
     ]
 
+    // Wait for client-side hydration (DashboardGrid is a client component)
+    await page.waitForTimeout(3000)
+
     for (const widget of widgets) {
-      const visible = await page.locator(`text=${widget}`).first().isVisible({ timeout: 2000 }).catch(() => false)
+      const visible = await page.locator(`text=${widget}`).first().isVisible({ timeout: 5000 }).catch(() => false)
       log(`Дашборд: виджет «${widget}»`, visible ? "OK" : "BUG", visible ? undefined : "Не виден")
     }
   })
