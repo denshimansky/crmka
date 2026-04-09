@@ -3,7 +3,8 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Building2, MapPin, Palette, Plus } from "lucide-react"
+import { Building2, MapPin, Megaphone, Palette, Plus, UserX } from "lucide-react"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { CreateDirectionDialog } from "./create-direction-dialog"
 import { EditDirectionDialog } from "./edit-direction-dialog"
@@ -264,11 +265,68 @@ export default async function SettingsPage() {
 
         {/* Справочники */}
         <TabsContent value="refs">
-          <Card>
-            <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
-              Раздел в разработке
-            </CardContent>
-          </Card>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <Link href="/settings/channels" className="block">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="flex items-start gap-3 p-5">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Megaphone className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Каналы привлечения</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Откуда приходят клиенты: сайт, соцсети, рекомендация
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href="/settings/absence-reasons" className="block">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="flex items-start gap-3 p-5">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <UserX className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Причины пропусков</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Болезнь, отпуск, погода и другие причины отсутствия
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href="/settings/discount-templates" className="block">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="flex items-start gap-3 p-5">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Palette className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Шаблоны скидок</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Готовые шаблоны для быстрого применения скидок
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href="/settings/admin-bonus" className="block">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="flex items-start gap-3 p-5">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Plus className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Мотивация администратора</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Бонусная система для администраторов
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
