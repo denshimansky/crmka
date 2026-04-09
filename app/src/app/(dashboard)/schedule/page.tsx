@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Plus, CalendarDays } from "lucide-react"
 import { ScheduleWeekNav } from "./schedule-week-nav"
+import { CancelDayDialog } from "./cancel-day-dialog"
 import { PageHelp } from "@/components/page-help"
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -65,6 +66,12 @@ export default async function SchedulePage({
 
   const { monday, sunday } = getWeekRange(weekOffset)
 
+  const branches = await db.branch.findMany({
+    where: { tenantId, deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  })
+
   const lessons = await db.lesson.findMany({
     where: {
       tenantId,
@@ -109,6 +116,7 @@ export default async function SchedulePage({
 
   const weekLabel = formatWeekLabel(monday, sunday)
   const hasLessons = lessons.length > 0
+  const defaultDate = monday.toISOString().slice(0, 10)
 
   return (
     <div className="space-y-6">
@@ -130,7 +138,12 @@ export default async function SchedulePage({
         </div>
       </div>
 
-      <ScheduleWeekNav weekOffset={weekOffset} weekLabel={weekLabel} />
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
+          <ScheduleWeekNav weekOffset={weekOffset} weekLabel={weekLabel} />
+        </div>
+        <CancelDayDialog defaultDate={defaultDate} branches={branches} />
+      </div>
 
       {!hasLessons ? (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
