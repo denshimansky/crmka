@@ -406,7 +406,7 @@ test.describe.serial("Расширенный mega-тест: Расписание
       await page.waitForTimeout(1500)
 
       // Ищем кнопку возврата (Undo2 icon)
-      const refundBtn = page.locator("button:has(svg.lucide-undo-2), button[title='Возврат']")
+      const refundBtn = page.locator("button:has(svg.lucide-undo2), button[title='Возврат']")
       const hasRefundBtn = await refundBtn.first().isVisible({ timeout: 5000 }).catch(() => false)
 
       if (hasRefundBtn) {
@@ -473,7 +473,7 @@ test.describe.serial("Расширенный mega-тест: Расписание
       }
 
       // Ищем кнопку переноса баланса (ArrowLeftRight)
-      const transferBtn = page.locator("button:has(svg.lucide-arrow-left-right), button[title='Перенести баланс']")
+      const transferBtn = page.locator("button:has(svg.lucide-arrow-left-right), button[title='Перенос баланса']")
       const hasTransferBtn = await transferBtn.first().isVisible({ timeout: 5000 }).catch(() => false)
 
       if (hasTransferBtn) {

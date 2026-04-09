@@ -140,7 +140,7 @@ export function ScheduleFilterableGrid({
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
         <Filter className="size-4 text-muted-foreground" />
-        <Select value={roomFilter} onValueChange={setRoomFilter}>
+        <Select value={roomFilter} onValueChange={(v) => setRoomFilter(v ?? "")}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Кабинет" />
           </SelectTrigger>
@@ -153,7 +153,7 @@ export function ScheduleFilterableGrid({
           </SelectContent>
         </Select>
 
-        <Select value={directionFilter} onValueChange={setDirectionFilter}>
+        <Select value={directionFilter} onValueChange={(v) => setDirectionFilter(v ?? "")}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Направление" />
           </SelectTrigger>
@@ -166,7 +166,7 @@ export function ScheduleFilterableGrid({
           </SelectContent>
         </Select>
 
-        <Select value={instructorFilter} onValueChange={setInstructorFilter}>
+        <Select value={instructorFilter} onValueChange={(v) => setInstructorFilter(v ?? "")}>
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Педагог" />
           </SelectTrigger>

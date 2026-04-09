@@ -685,7 +685,7 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
       //   <Settings2 /> + <span className="hidden sm:inline">Настроить</span>
       // Текст «Настроить» скрыт на маленьких viewport — ищем по иконке Settings2
       // или по data-slot="dialog-trigger" с иконкой
-      const settingsBtn = page.locator("[data-slot='dialog-trigger']:has(svg.lucide-settings-2), button:has(svg.lucide-settings-2)")
+      const settingsBtn = page.locator("[data-slot='dialog-trigger']:has(svg.lucide-settings2), button:has(svg.lucide-settings2)")
       if (!await settingsBtn.first().isVisible({ timeout: 5000 }).catch(() => false)) {
         // Fallback: по тексту «Настроить» (на широком viewport)
         const textBtn = page.locator("button:has-text('Настроить')")
@@ -748,7 +748,7 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
 
       // Возвращаем обратно — открываем снова и кликаем тот же switch
       if (!await dialog.isVisible({ timeout: 500 }).catch(() => false)) {
-        const settingsBtnAgain = page.locator("[data-slot='dialog-trigger']:has(svg.lucide-settings-2), button:has(svg.lucide-settings-2)")
+        const settingsBtnAgain = page.locator("[data-slot='dialog-trigger']:has(svg.lucide-settings2), button:has(svg.lucide-settings2)")
         if (await settingsBtnAgain.first().isVisible({ timeout: 2000 }).catch(() => false)) {
           await settingsBtnAgain.first().click()
           await page.waitForTimeout(500)
