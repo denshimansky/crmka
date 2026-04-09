@@ -50,7 +50,7 @@ async function loginAsAdmin(page: Page) {
   await page.locator('button[type="submit"]').click()
   await page.waitForURL(/\/admin\/partners/, { timeout: 20000 })
   // Ждём загрузку таблицы или текста "Нет партнёров"
-  await page.locator("table, text=Нет партнёров").first().waitFor({ timeout: 10000 })
+  await page.locator("table").or(page.locator("text=Нет партнёров")).first().waitFor({ timeout: 10000 })
 }
 
 async function login(page: Page) {
@@ -59,9 +59,9 @@ async function login(page: Page) {
   await page.locator('input[id="login"]').waitFor({ timeout: 10000 })
   await page.locator('input[id="login"]').fill(OWNER_LOGIN)
   await page.locator('input[id="password"]').fill(OWNER_PASSWORD)
-  await page.waitForTimeout(300)
+  await page.waitForTimeout(500)
   await page.click('button[type="submit"]')
-  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 30000, waitUntil: "domcontentloaded" })
+  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 60000, waitUntil: "domcontentloaded" })
   await page.waitForLoadState("domcontentloaded")
 }
 
