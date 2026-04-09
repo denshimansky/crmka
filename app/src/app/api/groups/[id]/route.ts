@@ -12,6 +12,7 @@ const updateSchema = z.object({
   instructorId: z.string().uuid().optional(),
   maxStudents: z.number().min(1).optional(),
   isActive: z.boolean().optional(),
+  archive: z.boolean().optional(),
 })
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -19,8 +20,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id } = await params
+  // Позволяем получить и архивную группу (deletedAt != null) для просмотра
   const group = await db.group.findFirst({
-    where: { id, tenantId: session.user.tenantId, deletedAt: null },
+    where: { id, tenantId: session.user.tenantId },
     include: {
       direction: true,
       branch: true,
@@ -52,9 +54,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const existing = await db.group.findFirst({ where: { id, tenantId: session.user.tenantId } })
   if (!existing) return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
 
+  const { archive, ...updateData } = parsed.data
+
+  // Архивирование / восстановление
+  if (archive === true) {
+    const group = await db.group.update({
+      where: { id },
+      data: { deletedAt: new Date(), isActive: false },
+      include: { direction: true, room: true, instructor: { select: { firstName: true, lastName: true } } },
+    })
+    return NextResponse.json(group)
+  }
+  if (archive === false) {
+    const group = await db.group.update({
+      where: { id },
+      data: { deletedAt: null, isActive: true },
+      include: { direction: true, room: true, instructor: { select: { firstName: true, lastName: true } } },
+    })
+    return NextResponse.json(group)
+  }
+
   const group = await db.group.update({
     where: { id },
-    data: parsed.data,
+    data: updateData,
     include: { direction: true, room: true, instructor: { select: { firstName: true, lastName: true } } },
   })
   return NextResponse.json(group)

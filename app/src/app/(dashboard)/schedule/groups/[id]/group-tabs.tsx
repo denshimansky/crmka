@@ -32,7 +32,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertTriangle, ArrowRightLeft, CalendarDays, ExternalLink, Plus, Trash2, UserPlus, Users } from "lucide-react"
+import { AlertTriangle, Archive, ArchiveRestore, ArrowRightLeft, CalendarDays, ExternalLink, Plus, Trash2, UserPlus, Users } from "lucide-react"
 import Link from "next/link"
 
 interface LessonData {
@@ -120,6 +120,7 @@ interface GroupTabsProps {
   currentYear: number
   monthLabel: string
   isActive: boolean
+  isArchived: boolean
   directions: DirectionOption[]
   branches: BranchOption[]
   instructors: InstructorOption[]
@@ -159,6 +160,7 @@ export function GroupTabs({
   currentYear,
   monthLabel,
   isActive,
+  isArchived,
   directions,
   branches,
   instructors,
@@ -203,6 +205,7 @@ export function GroupTabs({
           templates={templates}
           scheduleStr={scheduleStr}
           isActive={isActive}
+          isArchived={isArchived}
           currentMonth={currentMonth}
           currentYear={currentYear}
           directions={directions}
@@ -770,6 +773,7 @@ function SettingsTab({
   templates,
   scheduleStr,
   isActive,
+  isArchived,
   currentMonth,
   currentYear,
   directions,
@@ -782,6 +786,7 @@ function SettingsTab({
   templates: TemplateData[]
   scheduleStr: string
   isActive: boolean
+  isArchived: boolean
   currentMonth: number
   currentYear: number
   directions: DirectionOption[]
@@ -1206,23 +1211,109 @@ function SettingsTab({
         </div>
       </div>
 
-      <div className="space-y-2">
-        <h3 className="text-base font-medium">Управление</h3>
-        <div className="flex gap-2">
-          {isActive ? (
-            <Button variant="destructive" disabled>
-              Архивировать группу
-            </Button>
-          ) : (
-            <Button variant="outline" disabled>
-              Восстановить из архива
-            </Button>
-          )}
+      <ArchiveSection groupId={groupId} isArchived={isArchived} onRefresh={onRefresh} />
+    </div>
+  )
+}
+
+// --- Архивация ---
+
+function ArchiveSection({
+  groupId,
+  isArchived,
+  onRefresh,
+}: {
+  groupId: string
+  isArchived: boolean
+  onRefresh: () => void
+}) {
+  const router = useRouter()
+  const [loading, setLoading] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleArchiveToggle() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/groups/${groupId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archive: !isArchived }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        setError(data.error || "Ошибка")
+        return
+      }
+      setConfirmOpen(false)
+      if (!isArchived) {
+        // После архивации — перенаправляем в список групп
+        router.push("/schedule/groups")
+      } else {
+        onRefresh()
+      }
+    } catch {
+      setError("Не удалось выполнить операцию")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-base font-medium">Управление</h3>
+      {error && (
+        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
         </div>
-        <p className="text-xs text-muted-foreground">
-          Архивация будет доступна в следующей версии
-        </p>
-      </div>
+      )}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        {!isArchived ? (
+          <DialogTrigger render={<Button variant="destructive" />}>
+            <Archive className="mr-2 size-4" />
+            Архивировать группу
+          </DialogTrigger>
+        ) : (
+          <DialogTrigger render={<Button variant="outline" />}>
+            <ArchiveRestore className="mr-2 size-4" />
+            Восстановить из архива
+          </DialogTrigger>
+        )}
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {!isArchived ? "Архивировать группу?" : "Восстановить группу?"}
+            </DialogTitle>
+            <DialogDescription>
+              {!isArchived
+                ? "Группа будет скрыта из расписания и списков зачисления. Данные сохранятся, группу можно будет восстановить."
+                : "Группа снова станет активной и появится в расписании и списках зачисления."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>
+              Отмена
+            </DialogClose>
+            <Button
+              variant={!isArchived ? "destructive" : "default"}
+              onClick={handleArchiveToggle}
+              disabled={loading}
+            >
+              {loading
+                ? "Выполняется..."
+                : !isArchived
+                  ? "Архивировать"
+                  : "Восстановить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <p className="text-xs text-muted-foreground">
+        {!isArchived
+          ? "Архивная группа не участвует в расписании и зачислении"
+          : "Группа архивирована. Восстановите для активного использования."}
+      </p>
     </div>
   )
 }

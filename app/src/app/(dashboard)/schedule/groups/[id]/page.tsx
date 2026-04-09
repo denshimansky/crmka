@@ -50,7 +50,7 @@ export default async function GroupCardPage({
   const tenantId = session.user.tenantId
 
   const group = await db.group.findFirst({
-    where: { id, tenantId, deletedAt: null },
+    where: { id, tenantId },
     include: {
       direction: true,
       branch: true,
@@ -205,10 +205,12 @@ export default async function GroupCardPage({
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{group.name}</h1>
             <PageHelp pageKey="schedule/groups/[id]" />
-            {group.isActive ? (
+            {group.deletedAt ? (
+              <Badge variant="outline">Архив</Badge>
+            ) : group.isActive ? (
               <Badge variant="default">Активна</Badge>
             ) : (
-              <Badge variant="secondary">Архив</Badge>
+              <Badge variant="secondary">Неактивна</Badge>
             )}
           </div>
           <p className="text-sm text-muted-foreground">
@@ -237,6 +239,7 @@ export default async function GroupCardPage({
         currentYear={currentYear}
         monthLabel={monthLabel}
         isActive={group.isActive}
+        isArchived={group.deletedAt !== null}
         directions={directions}
         branches={branches.map((b) => ({
           id: b.id,

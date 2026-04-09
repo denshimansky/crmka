@@ -13,16 +13,26 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { CreateGroupDialog } from "./create-group-dialog"
 import { PageHelp } from "@/components/page-help"
+import { ArchiveToggle } from "./archive-toggle"
 
 const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
-export default async function GroupsPage() {
+export default async function GroupsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ showArchived?: string }>
+}) {
+  const sp = await searchParams
+  const showArchived = sp.showArchived === "1"
   const session = await getSession()
   const tenantId = session.user.tenantId
 
   const [groups, directions, branches, rooms, instructors] = await Promise.all([
     db.group.findMany({
-      where: { tenantId, deletedAt: null },
+      where: {
+        tenantId,
+        ...(showArchived ? {} : { deletedAt: null }),
+      },
       include: {
         direction: true,
         branch: true,
@@ -81,11 +91,14 @@ export default async function GroupsPage() {
             Управление группами и шаблонами расписания
           </p>
         </div>
-        <CreateGroupDialog
-          directions={directionsOptions}
-          branches={branchesWithRooms}
-          instructors={instructorOptions}
-        />
+        <div className="flex items-center gap-2">
+          <ArchiveToggle showArchived={showArchived} />
+          <CreateGroupDialog
+            directions={directionsOptions}
+            branches={branchesWithRooms}
+            instructors={instructorOptions}
+          />
+        </div>
       </div>
 
       {groups.length === 0 ? (
@@ -119,8 +132,10 @@ export default async function GroupsPage() {
                 .map((t) => `${DAY_SHORT[t.dayOfWeek]} ${t.startTime}`)
                 .join(", ")
 
+              const isArchived = group.deletedAt !== null
+
               return (
-                <TableRow key={group.id}>
+                <TableRow key={group.id} className={isArchived ? "opacity-50 bg-muted/30" : ""}>
                   <TableCell>
                     <Link
                       href={`/schedule/groups/${group.id}`}
@@ -153,10 +168,12 @@ export default async function GroupsPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    {group.isActive ? (
+                    {isArchived ? (
+                      <Badge variant="outline">Архив</Badge>
+                    ) : group.isActive ? (
                       <Badge variant="default">Активна</Badge>
                     ) : (
-                      <Badge variant="secondary">Архив</Badge>
+                      <Badge variant="secondary">Неактивна</Badge>
                     )}
                   </TableCell>
                   <TableCell>
