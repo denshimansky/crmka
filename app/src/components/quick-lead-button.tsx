@@ -13,7 +13,8 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   Select, SelectTrigger, SelectContent, SelectItem,
 } from "@/components/ui/select"
-import { Plus } from "lucide-react"
+import { AlertTriangle, Plus } from "lucide-react"
+import { useDuplicateCheck, getStatusLabel } from "@/hooks/use-duplicate-check"
 
 interface ChannelOption {
   id: string
@@ -32,6 +33,8 @@ export function QuickLeadButton() {
   const [channelId, setChannelId] = useState<string>("")
   const [channels, setChannels] = useState<ChannelOption[]>([])
   const [comment, setComment] = useState("")
+
+  const { duplicates } = useDuplicateCheck(phone)
 
   const loadChannels = async () => {
     try {
@@ -126,6 +129,31 @@ export function QuickLeadButton() {
             {error && (
               <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {error}
+              </div>
+            )}
+
+            {duplicates.length > 0 && (
+              <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-200">
+                <div className="flex items-center gap-1.5 font-medium mb-1">
+                  <AlertTriangle className="size-4" />
+                  Найден похожий контакт
+                </div>
+                {duplicates.map((d) => {
+                  const name = [d.lastName, d.firstName].filter(Boolean).join(" ") || "Без имени"
+                  return (
+                    <div key={d.id} className="ml-5.5">
+                      <a
+                        href={`/crm/clients/${d.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline hover:no-underline"
+                      >
+                        {name}
+                      </a>
+                      {" "}({d.phone}) — {getStatusLabel(d)}
+                    </div>
+                  )
+                })}
               </div>
             )}
 

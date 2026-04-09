@@ -13,7 +13,8 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   Select, SelectTrigger, SelectContent, SelectItem,
 } from "@/components/ui/select"
-import { Plus, Trash2 } from "lucide-react"
+import { AlertTriangle, Plus, Trash2 } from "lucide-react"
+import { useDuplicateCheck, getStatusLabel } from "@/hooks/use-duplicate-check"
 
 interface Branch {
   id: string
@@ -49,6 +50,8 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
   const [channels, setChannels] = useState<ChannelOption[]>([])
   const [comment, setComment] = useState("")
   const [wards, setWards] = useState<WardInput[]>([])
+
+  const { duplicates } = useDuplicateCheck(phone)
 
   // Load channels on open
   const loadChannels = async () => {
@@ -175,6 +178,31 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
             {error && (
               <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {error}
+              </div>
+            )}
+
+            {duplicates.length > 0 && (
+              <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-200">
+                <div className="flex items-center gap-1.5 font-medium mb-1">
+                  <AlertTriangle className="size-4" />
+                  Найден похожий контакт
+                </div>
+                {duplicates.map((d) => {
+                  const name = [d.lastName, d.firstName].filter(Boolean).join(" ") || "Без имени"
+                  return (
+                    <div key={d.id} className="ml-5.5">
+                      <a
+                        href={`/crm/clients/${d.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline hover:no-underline"
+                      >
+                        {name}
+                      </a>
+                      {" "}({d.phone}) — {getStatusLabel(d)}
+                    </div>
+                  )
+                })}
               </div>
             )}
 
