@@ -128,3 +128,63 @@
     @apply font-sans;
   }
 }
+
+/* Print styles for schedule */
+@media print {
+  /* Hide navigation, sidebar, buttons */
+  [data-sidebar],
+  nav,
+  header,
+  .no-print,
+  button,
+  [role="dialog"] {
+    display: none !important;
+  }
+
+  /* Show print-only content */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Reset layout */
+  body {
+    font-size: 11px;
+    color: #000;
+    background: #fff;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Grid / table adjustments */
+  .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  .min-w-\[900px\] {
+    min-width: auto !important;
+  }
+
+  /* Keep borders visible */
+  .border,
+  [class*="border-"] {
+    border-color: #ccc !important;
+  }
+
+  /* No shadows */
+  .shadow-lg,
+  .shadow-md,
+  .shadow-sm,
+  .shadow {
+    box-shadow: none !important;
+  }
+
+  /* Page setup */
+  @page {
+    size: landscape;
+    margin: 10mm;
+  }
+}

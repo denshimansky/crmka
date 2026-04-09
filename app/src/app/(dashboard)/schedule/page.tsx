@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Plus, CalendarDays } from "lucide-react"
 import { ScheduleWeekNav } from "./schedule-week-nav"
 import { CancelDayDialog } from "./cancel-day-dialog"
+import { SchedulePrintButton } from "@/components/schedule-print"
 import { PageHelp } from "@/components/page-help"
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -143,6 +144,14 @@ export default async function SchedulePage({
           <ScheduleWeekNav weekOffset={weekOffset} weekLabel={weekLabel} />
         </div>
         <CancelDayDialog defaultDate={defaultDate} branches={branches} />
+        <SchedulePrintButton />
+      </div>
+
+      {/* Print-only header */}
+      <div className="print-only hidden">
+        <h2 className="text-lg font-bold text-center mb-2">
+          Расписание на {weekLabel}
+        </h2>
       </div>
 
       {!hasLessons ? (
