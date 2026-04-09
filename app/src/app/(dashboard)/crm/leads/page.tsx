@@ -1,5 +1,6 @@
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -7,6 +8,7 @@ import Link from "next/link"
 import { CreateClientDialog } from "../clients/create-client-dialog"
 import { PageHelp } from "@/components/page-help"
 import { QuickLeadButton } from "@/components/quick-lead-button"
+import { LeadsSortSelect } from "./leads-sort-select"
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
@@ -36,15 +38,34 @@ function formatDate(date: Date): string {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
-export default async function FunnelPage() {
+function buildOrderBy(sort: string): Prisma.ClientOrderByWithRelationInput[] {
+  switch (sort) {
+    case "name":
+      return [{ lastName: { sort: "asc", nulls: "last" } }, { firstName: "asc" }]
+    case "createdAt":
+      return [{ createdAt: "desc" }]
+    case "nextContactDate":
+    default:
+      return [{ nextContactDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }]
+  }
+}
+
+export default async function FunnelPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string }>
+}) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const { sort = "nextContactDate" } = await searchParams
 
   const branches = await db.branch.findMany({
     where: { tenantId, deletedAt: null },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   })
+
+  const orderBy = buildOrderBy(sort)
 
   // Лиды (не active_client) — рабочая воронка
   const leads = await db.client.findMany({
@@ -64,7 +85,7 @@ export default async function FunnelPage() {
       branch: { select: { name: true } },
       assignee: { select: { firstName: true, lastName: true } },
     },
-    orderBy: [{ funnelStatus: "asc" }, { createdAt: "desc" }],
+    orderBy,
     take: 200,
   })
 
@@ -80,6 +101,9 @@ export default async function FunnelPage() {
     "new", "trial_scheduled", "trial_attended", "awaiting_payment",
   ]
 
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -87,7 +111,10 @@ export default async function FunnelPage() {
           <h1 className="text-2xl font-bold">Лиды</h1>
           <PageHelp pageKey="crm/leads" />
         </div>
-        <CreateClientDialog branches={branches} />
+        <div className="flex items-center gap-2">
+          <LeadsSortSelect />
+          <CreateClientDialog branches={branches} />
+        </div>
       </div>
 
       {/* Счётчики */}
@@ -150,7 +177,11 @@ export default async function FunnelPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">{lead.branch?.name || "—"}</TableCell>
                     <TableCell className="text-muted-foreground">{assignee}</TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className={
+                      lead.nextContactDate && new Date(lead.nextContactDate) < today
+                        ? "font-medium text-destructive"
+                        : "text-muted-foreground"
+                    }>
                       {lead.nextContactDate ? formatDate(lead.nextContactDate) : "—"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{formatDate(lead.createdAt)}</TableCell>
