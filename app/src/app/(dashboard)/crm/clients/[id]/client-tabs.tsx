@@ -23,7 +23,7 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Pencil, X, Ban } from "lucide-react"
+import { Plus, Pencil, X, Ban, CalendarDays } from "lucide-react"
 import { AddWardForm } from "./add-ward-form"
 import { CommunicationFeed } from "@/components/communication-feed"
 
@@ -821,6 +821,90 @@ function AddSubscriptionDialog({
   )
 }
 
+// ===== Schedule Tab =====
+
+interface ScheduleLesson {
+  id: string
+  date: string
+  startTime: string
+  durationMinutes: number
+  groupName: string
+  directionName: string
+  roomName: string
+  instructorName: string
+}
+
+const DAY_NAMES = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"]
+
+function formatScheduleDate(iso: string): string {
+  const d = new Date(iso)
+  const day = DAY_NAMES[d.getDay()]
+  return `${d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })} (${day})`
+}
+
+function ScheduleTab({ clientId }: { clientId: string }) {
+  const [lessons, setLessons] = useState<ScheduleLesson[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`/api/clients/${clientId}/schedule`)
+        if (res.ok) setLessons(await res.json())
+      } catch { /* ignore */ }
+      finally { setLoading(false) }
+    }
+    load()
+  }, [clientId])
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="size-4 text-muted-foreground" />
+          <CardTitle className="text-base">Расписание ученика ({lessons.length})</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">Загрузка...</p>
+        ) : lessons.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            Нет предстоящих занятий. Проверьте, что ученик зачислен в группу и расписание сгенерировано.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Дата</TableHead>
+                <TableHead>Время</TableHead>
+                <TableHead>Направление</TableHead>
+                <TableHead>Группа</TableHead>
+                <TableHead>Педагог</TableHead>
+                <TableHead>Кабинет</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lessons.map((l) => (
+                <TableRow key={l.id}>
+                  <TableCell className="whitespace-nowrap">{formatScheduleDate(l.date)}</TableCell>
+                  <TableCell className="whitespace-nowrap">{l.startTime}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{l.directionName}</Badge>
+                  </TableCell>
+                  <TableCell>{l.groupName}</TableCell>
+                  <TableCell className="text-muted-foreground">{l.instructorName}</TableCell>
+                  <TableCell className="text-muted-foreground">{l.roomName}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // ===== Main Component =====
 
 export function ClientTabs({
@@ -836,6 +920,7 @@ export function ClientTabs({
         <TabsTrigger value="wards">Подопечные</TabsTrigger>
         <TabsTrigger value="subscriptions">Абонементы</TabsTrigger>
         <TabsTrigger value="payments">Оплаты</TabsTrigger>
+        <TabsTrigger value="schedule">Расписание</TabsTrigger>
         <TabsTrigger value="attendance">Посещения</TabsTrigger>
         <TabsTrigger value="communications">Коммуникации</TabsTrigger>
         <TabsTrigger value="history">История</TabsTrigger>
@@ -884,6 +969,10 @@ export function ClientTabs({
 
       <TabsContent value="payments">
         <PaymentsTab clientId={clientId} />
+      </TabsContent>
+
+      <TabsContent value="schedule">
+        <ScheduleTab clientId={clientId} />
       </TabsContent>
 
       <TabsContent value="attendance">
