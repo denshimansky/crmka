@@ -20,6 +20,11 @@ interface Branch {
   name: string
 }
 
+interface ChannelOption {
+  id: string
+  name: string
+}
+
 interface WardInput {
   firstName: string
   lastName: string
@@ -40,8 +45,21 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
   const [email, setEmail] = useState("")
   const [socialLink, setSocialLink] = useState("")
   const [branchId, setBranchId] = useState<string>("")
+  const [channelId, setChannelId] = useState<string>("")
+  const [channels, setChannels] = useState<ChannelOption[]>([])
   const [comment, setComment] = useState("")
   const [wards, setWards] = useState<WardInput[]>([])
+
+  // Load channels on open
+  const loadChannels = async () => {
+    try {
+      const res = await fetch("/api/lead-channels")
+      if (res.ok) {
+        const data = await res.json()
+        setChannels(data.filter((c: any) => c.isActive))
+      }
+    } catch { /* ignore */ }
+  }
 
   function resetForm() {
     setLastName("")
@@ -52,6 +70,7 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
     setEmail("")
     setSocialLink("")
     setBranchId("")
+    setChannelId("")
     setComment("")
     setWards([])
     setError(null)
@@ -101,6 +120,7 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
           email: email.trim() || undefined,
           socialLink: socialLink.trim() || undefined,
           branchId: branchId || undefined,
+          channelId: channelId || undefined,
           comment: comment.trim() || undefined,
           wards: wards
             .filter((w) => w.firstName.trim())
@@ -133,6 +153,7 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen)
+        if (nextOpen) loadChannels()
         if (!nextOpen) resetForm()
       }}
     >
@@ -245,6 +266,25 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
                     {branches.map((b) => (
                       <SelectItem key={b.id} value={b.id}>
                         {b.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Канал привлечения */}
+            {channels.length > 0 && (
+              <div>
+                <Label>Канал привлечения</Label>
+                <Select value={channelId} onValueChange={(v) => { if (v) setChannelId(v) }}>
+                  <SelectTrigger className="w-full">
+                    {channelId ? channels.find(c => c.id === channelId)?.name : <span className="text-muted-foreground">Откуда узнал</span>}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {channels.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

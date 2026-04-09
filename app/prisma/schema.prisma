@@ -112,6 +112,8 @@ model Organization {
   notifications             Notification[]
   unprolongedComments       UnprolongedComment[]
   employeeBranches          EmployeeBranch[]
+  leadChannels              LeadChannel[]
+  absenceReasons            AbsenceReason[]
 
   @@map("organizations")
 }
@@ -186,6 +188,7 @@ model Employee {
   assignedTasks              Task[]               @relation("TaskAssignee")
   instructorGroups           Group[]              @relation("GroupInstructor")
   instructorLessons          Lesson[]             @relation("LessonInstructor")
+  substituteIn               Lesson[]             @relation("SubstituteInstructor")
   periodsClosed              Period[]             @relation("periodClosedBy")
   periodsReopened            Period[]             @relation("periodReopenedBy")
   auditLogs                  AuditLog[]
@@ -239,6 +242,7 @@ model Client {
   organization        Organization               @relation(fields: [tenantId], references: [id])
   branch              Branch?                    @relation(fields: [branchId], references: [id])
   assignee            Employee?                  @relation("AssignedClients", fields: [assignedTo], references: [id])
+  channel             LeadChannel?               @relation(fields: [channelId], references: [id])
   wards               Ward[]
   enrollments         GroupEnrollment[]
   subscriptions       Subscription[]
@@ -364,15 +368,17 @@ model Lesson {
   status          LessonStatus @default(scheduled)
   cancelReason    String?      @map("cancel_reason")
   isMakeup        Boolean      @default(false) @map("is_makeup")
-  topic           String?
-  homework        String?
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
+  topic                   String?
+  homework                String?
+  substituteInstructorId  String?      @map("substitute_instructor_id") @db.Uuid
+  createdAt               DateTime     @default(now()) @map("created_at")
+  updatedAt               DateTime     @updatedAt @map("updated_at")
 
-  group        Group         @relation(fields: [groupId], references: [id])
-  instructor   Employee      @relation("LessonInstructor", fields: [instructorId], references: [id])
-  attendances  Attendance[]
-  trialLessons TrialLesson[]
+  group                Group         @relation(fields: [groupId], references: [id])
+  instructor           Employee      @relation("LessonInstructor", fields: [instructorId], references: [id])
+  substituteInstructor Employee?     @relation("SubstituteInstructor", fields: [substituteInstructorId], references: [id])
+  attendances          Attendance[]
+  trialLessons         TrialLesson[]
 
   @@index([tenantId, date])
   @@index([groupId, date])
@@ -647,10 +653,11 @@ model Attendance {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  lesson         Lesson         @relation(fields: [lessonId], references: [id])
-  subscription   Subscription?  @relation(fields: [subscriptionId], references: [id])
-  client         Client         @relation(fields: [clientId], references: [id])
-  attendanceType AttendanceType @relation(fields: [attendanceTypeId], references: [id])
+  lesson         Lesson          @relation(fields: [lessonId], references: [id])
+  subscription   Subscription?   @relation(fields: [subscriptionId], references: [id])
+  client         Client          @relation(fields: [clientId], references: [id])
+  attendanceType AttendanceType  @relation(fields: [attendanceTypeId], references: [id])
+  absenceReason  AbsenceReason?  @relation(fields: [absenceReasonId], references: [id])
 
   @@unique([tenantId, lessonId, subscriptionId])
   @@index([tenantId, lessonId])
@@ -833,6 +840,42 @@ model AuditLog {
   @@index([tenantId, entityType, entityId])
   @@index([tenantId, createdAt])
   @@map("audit_logs")
+}
+
+// === СПРАВОЧНИК КАНАЛОВ ПРИВЛЕЧЕНИЯ ===
+
+model LeadChannel {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  isSystem  Boolean   @default(false) @map("is_system")
+  isActive  Boolean   @default(true) @map("is_active")
+  sortOrder Int       @default(0) @map("sort_order")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  clients      Client[]
+
+  @@index([tenantId])
+  @@map("lead_channels")
+}
+
+// === СПРАВОЧНИК ПРИЧИН ПРОПУСКОВ ===
+
+model AbsenceReason {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  isSystem  Boolean   @default(false) @map("is_system")
+  isActive  Boolean   @default(true) @map("is_active")
+  sortOrder Int       @default(0) @map("sort_order")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  attendances  Attendance[]
+
+  @@index([tenantId])
+  @@map("absence_reasons")
 }
 
 // === ENUMS ===
