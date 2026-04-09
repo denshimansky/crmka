@@ -637,11 +637,9 @@ export function AttendanceTable({
             <div className="flex items-center gap-2">
               {/* Makeup dialog */}
               <Dialog open={makeupDialogOpen} onOpenChange={setMakeupDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm" variant="outline">
+                <DialogTrigger render={<Button size="sm" variant="outline" />}>
                     <UserPlus className="mr-2 size-4" />
                     Добавить на отработку
-                  </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-[500px]">
                   <DialogHeader>

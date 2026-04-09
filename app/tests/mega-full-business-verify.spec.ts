@@ -60,7 +60,7 @@ async function loginAsAdmin(page: Page) {
   await page.waitForTimeout(300)
   await page.locator('button[type="submit"]').click()
   await page.waitForURL(/\/admin\/partners/, { timeout: 20000 })
-  await page.locator("table, text=Нет партнёров").first().waitFor({ timeout: 10000 })
+  await page.locator("table").or(page.locator("text=Нет партнёров")).first().waitFor({ timeout: 10000 })
 }
 
 async function login(page: Page) {
