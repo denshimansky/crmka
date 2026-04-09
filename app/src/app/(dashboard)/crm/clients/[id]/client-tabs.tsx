@@ -1073,19 +1073,25 @@ function PaymentsTab({ clientId }: { clientId: string }) {
               {payments.map((p) => {
                 const amt = Number(p.amount)
                 const isRefund = p.type === "refund" || amt < 0
+                const isTransfer = p.type === "transfer_in"
                 const subInfo = p.subscription
                   ? `${p.subscription.direction.name} (${String(p.subscription.periodMonth).padStart(2, "0")}.${p.subscription.periodYear})`
                   : p.comment || "—"
                 return (
-                  <TableRow key={p.id} className={isRefund ? "bg-red-50/50 dark:bg-red-950/10" : undefined}>
+                  <TableRow key={p.id} className={isRefund ? "bg-red-50/50 dark:bg-red-950/10" : isTransfer ? "bg-blue-50/50 dark:bg-blue-950/10" : undefined}>
                     <TableCell className="text-muted-foreground">{formatDate(p.date)}</TableCell>
                     <TableCell>
                       {subInfo}
-                      {isRefund && (
+                      {isRefund && !isTransfer && amt < 0 && p.comment?.startsWith("Перенос") ? (
+                        <Badge variant="outline" className="ml-2 text-[10px] px-1.5 py-0 border-blue-300 text-blue-700 dark:text-blue-400">Перенос</Badge>
+                      ) : isRefund ? (
                         <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">Возврат</Badge>
+                      ) : null}
+                      {isTransfer && (
+                        <Badge variant="outline" className="ml-2 text-[10px] px-1.5 py-0 border-blue-300 text-blue-700 dark:text-blue-400">Перенос</Badge>
                       )}
                     </TableCell>
-                    <TableCell className={`text-right font-medium ${isRefund ? "text-red-600" : "text-green-600"}`}>
+                    <TableCell className={`text-right font-medium ${isRefund ? "text-red-600" : isTransfer ? "text-blue-600" : "text-green-600"}`}>
                       {isRefund ? `−${formatMoney(Math.abs(amt))}` : formatMoney(amt)}
                     </TableCell>
                     <TableCell>
