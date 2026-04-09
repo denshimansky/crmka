@@ -21,3 +21,4 @@ meetings/*.txt
 
 # SSL certs (generated on server)
 nginx/certbot/
+.github/workflows/deploy-prod.yml
