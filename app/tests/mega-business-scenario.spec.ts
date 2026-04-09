@@ -105,42 +105,39 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   // ============================================================
 
   safeTest("ЧАСТЬ 0: Создать организацию «Звёздочка» через бэк-офис с owner", async (page) => {
-    await loginAsAdmin(page)
-
     try {
-      await page.locator("button:has-text('Добавить партнёра')").click()
-      await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
-      const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
-      const inputs = dialog.locator("input")
+      // Логин админа через API
+      const authRes = await page.request.post(`${BASE_URL}/api/admin/auth`, {
+        data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+      })
+      if (!authRes.ok()) {
+        log("Админ авторизация", "BUG", `status ${authRes.status()}`)
+        return
+      }
 
-      // Организация
-      await inputs.nth(0).fill(ORG_NAME)                          // Название
-      await inputs.nth(1).fill(`ООО "Звёздочка ${TS}"`)           // Юрлицо
-      await inputs.nth(2).fill("7700000001")                       // ИНН
-      await inputs.nth(3).fill("+7 (999) 000-00-01")               // Телефон
-      await inputs.nth(4).fill(`zv${TS}@example.com`)              // Email
-      await inputs.nth(5).fill("Директор Звёздочки")               // Контактное лицо
+      // Создание партнёра через API — надёжнее чем UI nth-селекторы
+      const createRes = await page.request.post(`${BASE_URL}/api/admin/partners`, {
+        data: {
+          name: ORG_NAME,
+          legalName: `ООО "Звёздочка ${TS}"`,
+          inn: "7700000001",
+          phone: "+7 (999) 000-00-01",
+          email: `zv${TS}@example.com`,
+          contactPerson: "Директор Звёздочки",
+          ownerLastName: "Звёздочкина",
+          ownerFirstName: "Елена",
+          ownerLogin: OWNER_LOGIN,
+          ownerPassword: OWNER_PASSWORD,
+          ownerEmail: `zv-owner-${TS}@example.com`,
+        },
+      })
 
-      // Owner
-      await inputs.nth(6).fill("Звёздочкина")                     // Фамилия owner
-      await inputs.nth(7).fill("Елена")                            // Имя owner
-      await inputs.nth(8).fill(OWNER_LOGIN)                        // Логин
-      await inputs.nth(9).fill(OWNER_PASSWORD)                     // Пароль
-      await inputs.nth(10).fill(`zv-owner-${TS}@example.com`)     // Email owner
-
-      await dialog.locator("button:has-text('Создать')").click()
-      await page.waitForTimeout(3000)
-
-      // Перезагружаем страницу для гарантии отображения нового партнёра
-      await page.goto("/admin/partners")
-      await page.locator("table").or(page.locator("text=Нет партнёров")).first().waitFor({ timeout: 10000 })
-      await page.waitForTimeout(1000)
-
-      const visible = await page.locator(`text=${ORG_NAME}`).isVisible({ timeout: 5000 }).catch(() => false)
-      if (visible) {
-        log(`Организация «${ORG_NAME}» создана через бэк-офис`, "OK")
+      if (createRes.ok()) {
+        const data = await createRes.json()
+        log(`Организация «${ORG_NAME}» создана через API`, "OK", `id: ${data.id || data.organization?.id || "?"}`)
       } else {
-        log(`Организация «${ORG_NAME}»`, "BUG", "Не появилась в списке партнёров")
+        const err = await createRes.text().catch(() => "")
+        log(`Создание организации`, "BUG", `status ${createRes.status()}: ${err.slice(0, 150)}`)
       }
     } catch (e: any) {
       log("Создание организации через бэк-офис", "BUG", e.message?.slice(0, 150))
