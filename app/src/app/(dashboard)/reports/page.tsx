@@ -35,6 +35,7 @@ const reportGroups: ReportGroup[] = [
     reports: [
       { name: "Детализация оттока", href: "/reports/churn/details", description: "Выбывшие клиенты по направлениям и инструкторам", ready: true },
       { name: "Непродлённые абонементы", href: "/reports/churn/not-renewed", description: "Активные в прошлом месяце без списаний", ready: true },
+      { name: "Потенциальный отток", href: "/reports/churn/potential", description: "Ученики с 3+ прогулами за месяц", ready: true },
     ],
   },
   {
