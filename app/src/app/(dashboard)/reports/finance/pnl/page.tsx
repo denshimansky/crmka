@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ArrowLeft, TrendingUp, TrendingDown, DollarSign } from "lucide-react"
 import Link from "next/link"
 import { DrilldownAmount } from "@/components/drilldown-amount"
+import { ReportExport } from "@/components/report-export"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -96,6 +97,14 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     { label: "Рентабельность", amount: profitability, bold: true, color: profitability >= 0 ? "text-green-700" : "text-red-700" },
   ]
 
+  // Данные для экспорта
+  const exportRows = pnlRows
+    .filter((r) => r.label !== "")
+    .map((r) => ({
+      label: r.label,
+      amount: r.label === "Рентабельность" ? `${r.amount.toFixed(1)}%` : Math.round(r.amount),
+    }))
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -110,6 +119,16 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
           <p className="text-sm text-muted-foreground">Выручка − Расходы − ЗП = Прибыль</p>
         </div>
         <MonthPicker />
+        <ReportExport
+          title="Финансовый результат (P&L)"
+          filename={`pnl-${monthKey}`}
+          columns={[
+            { header: "Показатель", key: "label", width: 40 },
+            { header: "Сумма", key: "amount", width: 18 },
+          ]}
+          rows={exportRows}
+          period={monthName}
+        />
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">

@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { DrilldownAmount } from "@/components/drilldown-amount"
+import { ReportExport } from "@/components/report-export"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -61,6 +62,17 @@ export default async function RevenueReportPage({ searchParams }: { searchParams
   const monthKey = `${year}-${String(month).padStart(2, "0")}`
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
+  // Данные для экспорта
+  const exportRows = [
+    ...directionRows.map((r) => ({
+      direction: r.name,
+      lessons: r.count,
+      amount: Math.round(r.amount),
+      share: totalRevenue > 0 ? `${Math.round((r.amount / totalRevenue) * 100)}%` : "0%",
+    })),
+    { direction: "Итого", lessons: totalLessons, amount: Math.round(totalRevenue), share: "100%" },
+  ]
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -75,6 +87,18 @@ export default async function RevenueReportPage({ searchParams }: { searchParams
           <p className="text-sm text-muted-foreground">Выручка от отработанных занятий по направлениям</p>
         </div>
         <MonthPicker />
+        <ReportExport
+          title="Выручка по направлениям"
+          filename={`revenue-${monthKey}`}
+          columns={[
+            { header: "Направление", key: "direction", width: 30 },
+            { header: "Занятий", key: "lessons", width: 12 },
+            { header: "Выручка", key: "amount", width: 18 },
+            { header: "Доля", key: "share", width: 10 },
+          ]}
+          rows={exportRows}
+          period={monthName}
+        />
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">

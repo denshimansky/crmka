@@ -8,6 +8,7 @@ import { PaySalaryDialog } from "./pay-salary-dialog"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { PageHelp } from "@/components/page-help"
+import { ReportExport } from "@/components/report-export"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -127,6 +128,19 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
     { title: "Осталось", value: formatMoney(totalRemaining), icon: Users, color: "text-orange-600", bg: "bg-orange-50" },
   ]
 
+  const monthKey = `${year}-${String(month).padStart(2, "0")}`
+
+  // Данные для экспорта
+  const salaryExportRows = displayRows.map((r) => ({
+    name: r.name,
+    role: ROLE_LABELS[r.role] || r.role,
+    accrued: Math.round(r.accrued),
+    bonuses: Math.round(r.bonuses),
+    penalties: Math.round(r.penalties),
+    paid: Math.round(r.paid),
+    remaining: Math.round(r.remaining),
+  }))
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -134,6 +148,21 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
           <h1 className="text-2xl font-bold">Зарплата</h1>
           <PageHelp pageKey="salary" />
           <MonthPicker />
+          <ReportExport
+            title="Зарплатная ведомость"
+            filename={`salary-${monthKey}`}
+            columns={[
+              { header: "Сотрудник", key: "name", width: 25 },
+              { header: "Роль", key: "role", width: 16 },
+              { header: "Начислено", key: "accrued", width: 14 },
+              { header: "Премии", key: "bonuses", width: 14 },
+              { header: "Штрафы", key: "penalties", width: 14 },
+              { header: "Выплачено", key: "paid", width: 14 },
+              { header: "Осталось", key: "remaining", width: 14 },
+            ]}
+            rows={salaryExportRows}
+            period={monthName}
+          />
         </div>
         <PaySalaryDialog
           employees={displayRows.map(r => ({ id: r.id, name: r.name, remaining: r.remaining }))}

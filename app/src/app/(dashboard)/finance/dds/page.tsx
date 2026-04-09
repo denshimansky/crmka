@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ArrowDownCircle, ArrowUpCircle, Wallet } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
 import { DrilldownAmount } from "@/components/drilldown-amount"
+import { ReportExport } from "@/components/report-export"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -94,6 +95,23 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
     ...(totalEncashments > 0 ? [{ name: "Инкассации", amount: totalEncashments }] : []),
   ].sort((a, b) => b.amount - a.amount)
 
+  // Данные для экспорта
+  const ddsExportRows = [
+    { type: "ПРИХОД", category: "", amount: "" },
+    ...Array.from(incomeByMethod.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([method, amount]) => ({ type: "", category: method, amount: Math.round(amount) })),
+    { type: "", category: "Итого приход", amount: Math.round(totalIncome) },
+    { type: "", category: "", amount: "" },
+    { type: "РАСХОД", category: "", amount: "" },
+    ...expenseRows.map((r) => ({ type: "", category: r.name, amount: Math.round(r.amount) })),
+    { type: "", category: "Итого расход", amount: Math.round(totalOutflow) },
+    { type: "", category: "", amount: "" },
+    { type: "ОСТАТКИ", category: "", amount: "" },
+    ...accounts.map((a) => ({ type: "", category: a.name, amount: Math.round(Number(a.balance)) })),
+    { type: "", category: "Итого", amount: Math.round(totalBalance) },
+  ]
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -104,7 +122,20 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
           </div>
           <p className="text-sm text-muted-foreground">Движение денежных средств</p>
         </div>
-        <MonthPicker />
+        <div className="flex items-center gap-2">
+          <MonthPicker />
+          <ReportExport
+            title="Движение денежных средств"
+            filename={`dds-${monthKey}`}
+            columns={[
+              { header: "Раздел", key: "type", width: 14 },
+              { header: "Статья", key: "category", width: 30 },
+              { header: "Сумма", key: "amount", width: 18 },
+            ]}
+            rows={ddsExportRows}
+            period={monthName}
+          />
+        </div>
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">

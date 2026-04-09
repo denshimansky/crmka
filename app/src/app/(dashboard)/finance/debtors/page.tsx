@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { AlertTriangle, Users } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
+import { ReportExport } from "@/components/report-export"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -77,6 +78,24 @@ export default async function DebtorsPage() {
       <div className="flex items-center gap-2">
         <h1 className="text-2xl font-bold">Должники</h1>
         <PageHelp pageKey="finance/debtors" />
+        <ReportExport
+          title="Должники"
+          filename="debtors"
+          columns={[
+            { header: "Клиент", key: "name", width: 25 },
+            { header: "Филиал", key: "branchName", width: 18 },
+            { header: "Направление", key: "directions", width: 25 },
+            { header: "Долг", key: "debt", width: 14 },
+            { header: "Телефон", key: "phone", width: 18 },
+          ]}
+          rows={rows.map((r) => ({
+            name: r.name,
+            branchName: r.branchName,
+            directions: r.directions,
+            debt: r.debt,
+            phone: r.phone || "—",
+          }))}
+        />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">

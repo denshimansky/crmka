@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { ReportExport } from "@/components/report-export"
 
 function formatPercent(value: number, total: number): string {
   if (total === 0) return "0%"
@@ -82,6 +83,16 @@ export default async function VisitsReportPage({ searchParams }: { searchParams:
 
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
+  const monthKey = `${year}-${String(month).padStart(2, "0")}`
+
+  // Данные для экспорта
+  const visitExportRows = groupRows.map((r) => ({
+    group: r.name,
+    direction: r.direction,
+    count: r.count,
+    share: formatPercent(r.count, totalVisits),
+  }))
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -96,6 +107,18 @@ export default async function VisitsReportPage({ searchParams }: { searchParams:
           <p className="text-sm text-muted-foreground">Отчёт по посещаемости за месяц</p>
         </div>
         <MonthPicker />
+        <ReportExport
+          title="Посещения по группам"
+          filename={`visits-${monthKey}`}
+          columns={[
+            { header: "Группа", key: "group", width: 25 },
+            { header: "Направление", key: "direction", width: 25 },
+            { header: "Отметок", key: "count", width: 12 },
+            { header: "Доля", key: "share", width: 10 },
+          ]}
+          rows={visitExportRows}
+          period={monthName}
+        />
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
