@@ -55,6 +55,7 @@ const reportGroups: ReportGroup[] = [
     color: "text-purple-600",
     reports: [
       { name: "Финрез (P&L)", href: "/reports/finance/pnl", description: "Выручка − расходы − ЗП = прибыль", ready: true },
+      { name: "P&L по направлениям", href: "/reports/finance/pnl-directions", description: "Прибыль и убытки в разрезе направлений", ready: true },
       { name: "Выручка", href: "/reports/finance/revenue", description: "Отработанные абонементы по направлениям", ready: true },
       { name: "Сводный по педагогам", href: "/reports/salary/by-instructor", description: "Занятия, ученики, ЗП по инструкторам", ready: true },
       { name: "Должники", href: "/finance/debtors", description: "Плановый / фактический долг", ready: true },
