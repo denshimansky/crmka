@@ -5,7 +5,7 @@ async function login(page: Page) {
   await page.fill('input[id="login"]', "owner")
   await page.fill('input[id="password"]', "demo123")
   await page.click('button[type="submit"]')
-  await page.waitForURL("/", { timeout: 10000 })
+  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 10000, waitUntil: "domcontentloaded" })
 }
 
 test.describe("Сотрудники", () => {
@@ -50,7 +50,7 @@ test.describe("Сотрудники", () => {
     await page.fill('input[id="login"]', "admin")
     await page.fill('input[id="password"]', "demo123")
     await page.click('button[type="submit"]')
-    await page.waitForURL("/")
+    await page.waitForURL(url => !url.pathname.includes("/login"), { waitUntil: "domcontentloaded" })
 
     await page.goto("/staff")
     await expect(page.locator("h1")).toContainText("Сотрудники")

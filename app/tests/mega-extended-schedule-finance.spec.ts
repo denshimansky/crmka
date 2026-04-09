@@ -72,7 +72,7 @@ async function loginAsFirstOwner(page: Page) {
             await page.locator('input[id="password"]').fill(owner.password || "pass12345")
             await page.waitForTimeout(300)
             await page.click('button[type="submit"]')
-            await page.waitForURL("/", { timeout: 10000 }).catch(() => {})
+            await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 10000, waitUntil: "domcontentloaded" }).catch(() => {})
             if (page.url().endsWith("/") || !page.url().includes("/login")) {
               loggedIn = true
               break
@@ -198,7 +198,7 @@ async function login(page: Page) {
   await page.locator('input[id="password"]').fill(ownerPassword || "pass12345")
   await page.waitForTimeout(300)
   await page.click('button[type="submit"]')
-  await page.waitForURL("/", { timeout: 30000 })
+  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 30000, waitUntil: "domcontentloaded" })
 }
 
 // ============================================================

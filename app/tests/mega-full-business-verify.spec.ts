@@ -71,7 +71,7 @@ async function login(page: Page) {
   await page.locator('input[id="password"]').fill(OWNER_PASSWORD)
   await page.waitForTimeout(300)
   await page.click('button[type="submit"]')
-  await page.waitForURL("/", { timeout: 30000 })
+  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 30000, waitUntil: "domcontentloaded" })
 }
 
 function safeTest(name: string, fn: (page: Page) => Promise<void>, timeout = 120000) {

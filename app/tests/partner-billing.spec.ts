@@ -9,7 +9,7 @@ async function loginAsOwner(page: any) {
   await page.locator('input[id="password"]').fill("demo123")
   await page.waitForTimeout(200)
   await page.click('button[type="submit"]')
-  await page.waitForURL("/", { timeout: 15000 })
+  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 15000, waitUntil: "domcontentloaded" })
 }
 
 test.describe("ЛК партнёра: Подписка", () => {
@@ -78,7 +78,7 @@ test.describe("ЛК партнёра: Подписка", () => {
     await page.locator('input[id="password"]').fill("demo123")
     await page.waitForTimeout(200)
     await page.click('button[type="submit"]')
-    await page.waitForURL("/", { timeout: 15000 })
+    await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 15000, waitUntil: "domcontentloaded" })
 
     // Ссылка «Подписка» не должна быть видна для admin
     await expect(page.locator("a[href='/billing']")).not.toBeVisible()

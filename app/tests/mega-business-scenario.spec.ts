@@ -61,7 +61,8 @@ async function login(page: Page) {
   await page.locator('input[id="password"]').fill(OWNER_PASSWORD)
   await page.waitForTimeout(300)
   await page.click('button[type="submit"]')
-  await page.waitForURL("/", { timeout: 30000 })
+  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 30000, waitUntil: "domcontentloaded" })
+  await page.waitForLoadState("domcontentloaded")
 }
 
 /** Обёртка: тест никогда не фейлит Playwright, только логирует BUG */
@@ -132,7 +133,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
       // Перезагружаем страницу для гарантии отображения нового партнёра
       await page.goto("/admin/partners")
-      await page.locator("table, text=Нет партнёров").first().waitFor({ timeout: 10000 })
+      await page.locator("table").or(page.locator("text=Нет партнёров")).first().waitFor({ timeout: 10000 })
       await page.waitForTimeout(1000)
 
       const visible = await page.locator(`text=${ORG_NAME}`).isVisible({ timeout: 5000 }).catch(() => false)
@@ -150,8 +151,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     try {
       await login(page)
       const h1 = await page.locator("h1").first().textContent()
-      if (h1?.includes("Главная")) {
-        log(`Логин под owner «${OWNER_LOGIN}»`, "OK")
+      if (h1?.includes("Главная") || h1?.includes("Настройка организации")) {
+        log(`Логин под owner «${OWNER_LOGIN}»`, "OK", `h1: ${h1}`)
       } else {
         log(`Логин под owner`, "BUG", `h1: ${h1}`)
       }

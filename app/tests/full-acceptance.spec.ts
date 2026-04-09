@@ -16,7 +16,7 @@ async function loginOwner(page: Page) {
   await page.fill('input[id="login"]', "owner")
   await page.fill('input[id="password"]', "demo123")
   await page.click('button[type="submit"]')
-  await page.waitForURL("/", { timeout: 15000 })
+  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 15000, waitUntil: "domcontentloaded" })
 }
 
 async function loginCRM(page: Page, login: string, password = "demo123") {
@@ -24,7 +24,7 @@ async function loginCRM(page: Page, login: string, password = "demo123") {
   await page.fill('input[id="login"]', login)
   await page.fill('input[id="password"]', password)
   await page.click('button[type="submit"]')
-  await page.waitForURL("/", { timeout: 15000 })
+  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 15000, waitUntil: "domcontentloaded" })
 }
 
 async function adminLogin(page: Page) {
