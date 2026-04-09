@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { DrilldownAmount } from "@/components/drilldown-amount"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -57,6 +58,7 @@ export default async function RevenueReportPage({ searchParams }: { searchParams
 
   const avgPerLesson = totalLessons > 0 ? totalRevenue / totalLessons : 0
 
+  const monthKey = `${year}-${String(month).padStart(2, "0")}`
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   return (
@@ -84,7 +86,16 @@ export default async function RevenueReportPage({ searchParams }: { searchParams
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Выручка</p>
-            <p className="text-2xl font-bold text-green-600">{formatMoney(totalRevenue)}</p>
+            <p className="text-2xl font-bold text-green-600">
+              <DrilldownAmount
+                amount={formatMoney(totalRevenue)}
+                report="revenue"
+                field="revenue"
+                month={monthKey}
+                title="Детализация выручки"
+                className="text-green-600"
+              />
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -137,7 +148,15 @@ export default async function RevenueReportPage({ searchParams }: { searchParams
                   <TableRow className="font-bold">
                     <TableCell>Итого</TableCell>
                     <TableCell className="text-right">{totalLessons}</TableCell>
-                    <TableCell className="text-right">{formatMoney(totalRevenue)}</TableCell>
+                    <TableCell className="text-right">
+                      <DrilldownAmount
+                        amount={formatMoney(totalRevenue)}
+                        report="revenue"
+                        field="revenue"
+                        month={monthKey}
+                        title="Детализация выручки — все направления"
+                      />
+                    </TableCell>
                     <TableCell className="text-right">100%</TableCell>
                   </TableRow>
                 </TableBody>

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowLeft, TrendingUp, TrendingDown, DollarSign } from "lucide-react"
 import Link from "next/link"
+import { DrilldownAmount } from "@/components/drilldown-amount"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -70,12 +71,14 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
 
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
+  const monthKey = `${year}-${String(month).padStart(2, "0")}`
+
   // Строки P&L
-  const pnlRows = [
-    { label: "Выручка (отработанные занятия)", amount: revenue, bold: true, color: "text-green-700" },
+  const pnlRows: { label: string; amount: number; bold: boolean; color: string; drillField?: string }[] = [
+    { label: "Выручка (отработанные занятия)", amount: revenue, bold: true, color: "text-green-700", drillField: "revenue" },
     { label: "", amount: 0, bold: false, color: "" }, // separator
     { label: "Переменные расходы:", amount: totalVariableCosts, bold: true, color: "text-red-700" },
-    { label: "  ЗП инструкторов (начислено)", amount: totalSalaryAccrued, bold: false, color: "text-red-600" },
+    { label: "  ЗП инструкторов (начислено)", amount: totalSalaryAccrued, bold: false, color: "text-red-600", drillField: "salary" },
     ...Array.from(expenseByCategory.entries())
       .filter(([, v]) => v.isVariable)
       .sort((a, b) => b[1].amount - a[1].amount)
@@ -83,7 +86,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     { label: "", amount: 0, bold: false, color: "" },
     { label: "Маржа (Выручка − Переменные)", amount: margin, bold: true, color: margin >= 0 ? "text-green-700" : "text-red-700" },
     { label: "", amount: 0, bold: false, color: "" },
-    { label: "Постоянные расходы:", amount: fixedExpenses, bold: true, color: "text-orange-700" },
+    { label: "Постоянные расходы:", amount: fixedExpenses, bold: true, color: "text-orange-700", drillField: "expenses" },
     ...Array.from(expenseByCategory.entries())
       .filter(([, v]) => !v.isVariable)
       .sort((a, b) => b[1].amount - a[1].amount)
@@ -163,7 +166,20 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
                 return (
                   <TableRow key={i} className={row.bold ? "font-bold" : ""}>
                     <TableCell className={row.color}>{row.label}</TableCell>
-                    <TableCell className={`text-right ${row.color}`}>{formatMoney(row.amount)}</TableCell>
+                    <TableCell className={`text-right ${row.color}`}>
+                      {row.drillField ? (
+                        <DrilldownAmount
+                          amount={formatMoney(row.amount)}
+                          report="pnl"
+                          field={row.drillField}
+                          month={monthKey}
+                          title={`Детализация: ${row.label.trim()}`}
+                          className={row.color}
+                        />
+                      ) : (
+                        formatMoney(row.amount)
+                      )}
+                    </TableCell>
                   </TableRow>
                 )
               })}

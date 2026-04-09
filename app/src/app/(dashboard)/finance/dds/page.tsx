@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowDownCircle, ArrowUpCircle, Wallet } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
+import { DrilldownAmount } from "@/components/drilldown-amount"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -82,6 +83,7 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
   // === Остатки ===
   const totalBalance = accounts.reduce((s, a) => s + Number(a.balance), 0)
 
+  const monthKey = `${year}-${String(month).padStart(2, "0")}`
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   // Строки расхода для таблицы
@@ -119,7 +121,16 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Приход</p>
-              <p className="text-lg font-bold text-green-600">{formatMoney(totalIncome)}</p>
+              <p className="text-lg font-bold text-green-600">
+                <DrilldownAmount
+                  amount={formatMoney(totalIncome)}
+                  report="dds"
+                  field="payments"
+                  month={monthKey}
+                  title="Детализация прихода"
+                  className="text-green-600"
+                />
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -130,7 +141,16 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Расход</p>
-              <p className="text-lg font-bold text-red-600">{formatMoney(totalOutflow)}</p>
+              <p className="text-lg font-bold text-red-600">
+                <DrilldownAmount
+                  amount={formatMoney(totalOutflow)}
+                  report="dds"
+                  field="outflow"
+                  month={monthKey}
+                  title="Детализация расхода"
+                  className="text-red-600"
+                />
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -169,7 +189,16 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
                   ))}
                   <TableRow className="font-bold">
                     <TableCell>Итого приход</TableCell>
-                    <TableCell className="text-right text-green-700">{formatMoney(totalIncome)}</TableCell>
+                    <TableCell className="text-right text-green-700">
+                      <DrilldownAmount
+                        amount={formatMoney(totalIncome)}
+                        report="dds"
+                        field="payments"
+                        month={monthKey}
+                        title="Детализация прихода"
+                        className="text-green-700"
+                      />
+                    </TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
@@ -196,7 +225,16 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
                   ))}
                   <TableRow className="font-bold">
                     <TableCell>Итого расход</TableCell>
-                    <TableCell className="text-right text-red-700">{formatMoney(totalOutflow)}</TableCell>
+                    <TableCell className="text-right text-red-700">
+                      <DrilldownAmount
+                        amount={formatMoney(totalOutflow)}
+                        report="dds"
+                        field="outflow"
+                        month={monthKey}
+                        title="Детализация расхода"
+                        className="text-red-700"
+                      />
+                    </TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
