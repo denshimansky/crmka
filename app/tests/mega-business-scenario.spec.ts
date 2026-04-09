@@ -107,7 +107,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   safeTest("ЧАСТЬ 0: Создать организацию «Звёздочка» через бэк-офис с owner", async (page) => {
     try {
       // Логин админа через API
-      const authRes = await page.request.post(`${BASE_URL}/api/admin/auth`, {
+      const authRes = await page.request.post(`/api/admin/auth`, {
         data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
       })
       if (!authRes.ok()) {
@@ -116,7 +116,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
       }
 
       // Создание партнёра через API — надёжнее чем UI nth-селекторы
-      const createRes = await page.request.post(`${BASE_URL}/api/admin/partners`, {
+      const createRes = await page.request.post(`/api/admin/partners`, {
         data: {
           name: ORG_NAME,
           legalName: `ООО "Звёздочка ${TS}"`,
