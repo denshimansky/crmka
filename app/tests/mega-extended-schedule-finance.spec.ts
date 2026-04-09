@@ -10,9 +10,6 @@ import { test, expect, type Page } from "@playwright/test"
  * основным mega-тестом.
  */
 
-const ADMIN_EMAIL = "admin@umnayacrm.ru"
-const ADMIN_PASSWORD = "admin123"
-
 // Результаты тестов: ok | BUG
 const results: { step: string; status: "OK" | "BUG"; detail?: string }[] = []
 
@@ -25,105 +22,6 @@ function log(step: string, status: "OK" | "BUG", detail?: string) {
   }
 }
 
-/** Логин под первым owner (берём из списка партнёров) */
-async function loginAsFirstOwner(page: Page) {
-  // Сначала получаем данные первого партнёра через бэк-офис
-  await page.goto("/admin/login")
-  await page.waitForLoadState("domcontentloaded")
-  await page.locator('input[id="email"]').waitFor({ timeout: 10000 })
-  await page.locator('input[id="email"]').fill(ADMIN_EMAIL)
-  await page.locator('input[id="password"]').fill(ADMIN_PASSWORD)
-  await page.waitForTimeout(300)
-  await page.locator('button[type="submit"]').click()
-  await page.waitForURL(/\/admin\/partners/, { timeout: 20000 })
-  await page.locator("table, text=Нет партнёров").first().waitFor({ timeout: 10000 })
-
-  // Находим первого партнёра — берём его owner login
-  const firstRow = page.locator("table tbody tr").first()
-  if (!await firstRow.isVisible({ timeout: 3000 }).catch(() => false)) {
-    throw new Error("Нет партнёров в бэк-офисе — запустите сначала основной mega-тест")
-  }
-
-  // Переходим в CRM через login
-  await page.goto("/login")
-  await page.waitForLoadState("domcontentloaded")
-  await page.locator('input[id="login"]').waitFor({ timeout: 10000 })
-
-  // Используем API для получения первого пользователя
-  // Пробуем стандартный логин — если основной тест не запущен, тест упадёт с понятной ошибкой
-  // Используем fallback: пробуем разные логины
-  const logins = ["owner-zv", "admin", "owner"]
-  let loggedIn = false
-
-  for (const prefix of logins) {
-    try {
-      await page.goto("/login")
-      await page.waitForLoadState("domcontentloaded")
-      await page.locator('input[id="login"]').waitFor({ timeout: 5000 })
-
-      // Ищем всех пользователей через API бэк-офиса
-      const res = await page.request.get("/api/admin/partners")
-      if (res.ok()) {
-        const partners = await res.json()
-        if (partners.length > 0) {
-          const owner = partners[0].owner
-          if (owner) {
-            await page.locator('input[id="login"]').fill(owner.login)
-            await page.locator('input[id="password"]').fill(owner.password || "pass12345")
-            await page.waitForTimeout(300)
-            await page.click('button[type="submit"]')
-            await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 10000, waitUntil: "domcontentloaded" }).catch(() => {})
-            if (page.url().endsWith("/") || !page.url().includes("/login")) {
-              loggedIn = true
-              break
-            }
-          }
-        }
-      }
-    } catch {
-      // try next
-    }
-  }
-
-  if (!loggedIn) {
-    throw new Error("Не удалось залогиниться — запустите сначала основной mega-тест")
-  }
-}
-
-/** Простой логин: через бэк-офис API получаем первого owner и логинимся */
-async function loginViaApi(page: Page) {
-  // Логинимся в бэк-офис для получения данных
-  const adminRes = await page.request.post("/api/admin/login", {
-    data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
-  })
-
-  if (!adminRes.ok()) {
-    throw new Error("Не удалось залогиниться в бэк-офис")
-  }
-
-  // Получаем первого партнёра
-  const partnersRes = await page.request.get("/api/admin/partners")
-  if (!partnersRes.ok()) {
-    throw new Error("Не удалось получить партнёров")
-  }
-
-  const partners = await partnersRes.json()
-  if (!partners || partners.length === 0) {
-    throw new Error("Нет партнёров — запустите основной mega-тест")
-  }
-
-  const partner = partners[0]
-
-  // Логинимся как owner первого партнёра
-  const loginRes = await page.request.post("/api/auth/login", {
-    data: { login: partner.ownerLogin, password: partner.ownerPassword },
-  })
-
-  // Если API login не работает, пробуем через UI
-  await page.goto("/login")
-  await page.waitForLoadState("domcontentloaded")
-  await page.locator('input[id="login"]').waitFor({ timeout: 10000 })
-}
 
 /** Обёртка: тест никогда не фейлит Playwright, только логирует BUG */
 function safeTest(name: string, fn: (page: Page) => Promise<void>, timeout = 90000) {
@@ -137,65 +35,13 @@ function safeTest(name: string, fn: (page: Page) => Promise<void>, timeout = 900
   })
 }
 
-/** Универсальный логин — пробуем найти любого owner и залогиниться */
+/** Логин как owner — используем известный тестовый аккаунт */
 async function login(page: Page) {
-  // Сначала логинимся в бэк-офис
-  await page.goto("/admin/login")
-  await page.waitForLoadState("domcontentloaded")
-  await page.locator('input[id="email"]').waitFor({ timeout: 10000 })
-  await page.locator('input[id="email"]').fill(ADMIN_EMAIL)
-  await page.locator('input[id="password"]').fill(ADMIN_PASSWORD)
-  await page.waitForTimeout(300)
-  await page.locator('button[type="submit"]').click()
-  await page.waitForURL(/\/admin\/partners/, { timeout: 20000 })
-  await page.waitForTimeout(1000)
-
-  // Получаем список партнёров через таблицу — ищем первую строку с логином
-  const rows = page.locator("table tbody tr")
-  const rowCount = await rows.count()
-
-  if (rowCount === 0) {
-    throw new Error("Нет партнёров — запустите основной mega-тест")
-  }
-
-  // Кликаем на первого партнёра чтобы увидеть его данные
-  // Вместо этого — используем API
-  const res = await page.request.get("/api/admin/partners")
-  let ownerLogin = ""
-  let ownerPassword = ""
-
-  if (res.ok()) {
-    const data = await res.json()
-    if (Array.isArray(data) && data.length > 0) {
-      ownerLogin = data[0].ownerLogin || data[0].owner?.login || ""
-      ownerPassword = data[0].ownerPassword || data[0].owner?.password || ""
-    }
-  }
-
-  // Если API не дал логин, пробуем найти его в текстовом содержимом таблицы
-  if (!ownerLogin) {
-    // Fallback: пробуем собрать логин из текста
-    const firstCell = await rows.first().locator("td").allTextContents()
-    // Ищем что-то похожее на логин (owner-zv-XXXXX)
-    for (const text of firstCell) {
-      const match = text.match(/owner-[\w-]+/)
-      if (match) {
-        ownerLogin = match[0]
-        break
-      }
-    }
-  }
-
-  if (!ownerLogin) {
-    throw new Error("Не удалось найти логин owner — проверьте API /api/admin/partners")
-  }
-
-  // Логинимся как owner
   await page.goto("/login")
   await page.waitForLoadState("domcontentloaded")
   await page.locator('input[id="login"]').waitFor({ timeout: 10000 })
-  await page.locator('input[id="login"]').fill(ownerLogin)
-  await page.locator('input[id="password"]').fill(ownerPassword || "pass12345")
+  await page.locator('input[id="login"]').fill("owner")
+  await page.locator('input[id="password"]').fill("demo123")
   await page.waitForTimeout(300)
   await page.click('button[type="submit"]')
   await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 30000, waitUntil: "domcontentloaded" })

@@ -31,24 +31,18 @@ async function loginAsAdmin(page: Page) {
   await page.waitForTimeout(300)
   await page.locator('button[type="submit"]').click()
   await page.waitForURL(/\/admin\/partners/, { timeout: 20000 })
-  await page.locator("table, text=Нет партнёров").first().waitFor({ timeout: 10000 })
+  await page.locator("table").or(page.locator("text=Нет партнёров")).first().waitFor({ timeout: 10000 })
 }
 
 async function loginAsOwner(page: Page) {
-  // Логинимся как первый доступный owner — через admin создаём сессию
-  // Сначала пробуем войти через /login, если есть хотя бы один owner
   await page.goto("/login")
   await page.waitForLoadState("domcontentloaded")
   await page.locator('input[id="login"]').waitFor({ timeout: 10000 })
-  // Используем известного тестового owner из основного mega-теста
-  // Или пробуем через API получить список
-  // Берём стандартный тестовый аккаунт если есть
-  await page.locator('input[id="login"]').fill("demo")
+  await page.locator('input[id="login"]').fill("owner")
   await page.locator('input[id="password"]').fill("demo123")
   await page.waitForTimeout(300)
   await page.click('button[type="submit"]')
-  // Ждём либо dashboard, либо ошибку
-  await page.waitForTimeout(3000)
+  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 30000, waitUntil: "domcontentloaded" })
 }
 
 /** Обёртка: тест никогда не фейлит Playwright, только логирует BUG */
@@ -131,7 +125,7 @@ test.describe.serial("Mega-тест (расширение): Отчёты, Бэк
     await page.waitForTimeout(1500)
 
     try {
-      const hasPage = await page.locator("h1, h2, table, text=P&L, text=направлени").first().isVisible({ timeout: 5000 }).catch(() => false)
+      const hasPage = await page.locator("h1").or(page.locator("h2")).or(page.locator("table")).first().isVisible({ timeout: 5000 }).catch(() => false)
       if (!hasPage) {
         log("15.3 P&L по направлениям: страница", "BUG", "Страница не загрузилась")
         return
@@ -156,7 +150,7 @@ test.describe.serial("Mega-тест (расширение): Отчёты, Бэк
     await page.waitForTimeout(1500)
 
     try {
-      const hasPage = await page.locator("h1, h2, table, text=еотмечен").first().isVisible({ timeout: 5000 }).catch(() => false)
+      const hasPage = await page.locator("h1").or(page.locator("h2")).or(page.locator("table")).first().isVisible({ timeout: 5000 }).catch(() => false)
       if (hasPage) {
         log("15.4 Неотмеченные: страница загрузилась", "OK")
       } else {
@@ -174,7 +168,7 @@ test.describe.serial("Mega-тест (расширение): Отчёты, Бэк
     await page.waitForTimeout(1500)
 
     try {
-      const hasPage = await page.locator("h1, h2, table, text=епродлён").first().isVisible({ timeout: 5000 }).catch(() => false)
+      const hasPage = await page.locator("h1").or(page.locator("h2")).or(page.locator("table")).first().isVisible({ timeout: 5000 }).catch(() => false)
       if (hasPage) {
         log("15.5 Непродлённые: страница загрузилась", "OK")
       } else {
@@ -192,7 +186,7 @@ test.describe.serial("Mega-тест (расширение): Отчёты, Бэк
     await page.waitForTimeout(1500)
 
     try {
-      const hasPage = await page.locator("h1, h2, table, text=отенциальн, text=тток").first().isVisible({ timeout: 5000 }).catch(() => false)
+      const hasPage = await page.locator("h1").or(page.locator("h2")).or(page.locator("table")).first().isVisible({ timeout: 5000 }).catch(() => false)
       if (hasPage) {
         log("15.6 Потенциальный отток: страница загрузилась", "OK")
       } else {
@@ -239,7 +233,7 @@ test.describe.serial("Mega-тест (расширение): Отчёты, Бэк
     await page.waitForTimeout(1500)
 
     try {
-      const hasPage = await page.locator("h1, h2, table, text=P&L, text=Прибыль").first().isVisible({ timeout: 5000 }).catch(() => false)
+      const hasPage = await page.locator("h1").or(page.locator("h2")).or(page.locator("table")).first().isVisible({ timeout: 5000 }).catch(() => false)
       if (!hasPage) {
         log("15.8 P&L: страница", "BUG", "Страница не загрузилась")
         return
@@ -365,7 +359,7 @@ test.describe.serial("Mega-тест (расширение): Отчёты, Бэк
     await page.waitForTimeout(1500)
 
     try {
-      const hasPage = await page.locator("h1, h2, text=Тарифы, text=Тарифные планы, text=План").first().isVisible({ timeout: 5000 }).catch(() => false)
+      const hasPage = await page.locator("h1").or(page.locator("h2")).first().isVisible({ timeout: 5000 }).catch(() => false)
       if (hasPage) {
         log("16.4 Тарифные планы: страница загрузилась", "OK")
       } else {
@@ -383,7 +377,7 @@ test.describe.serial("Mega-тест (расширение): Отчёты, Бэк
     await page.waitForTimeout(1500)
 
     try {
-      const hasPage = await page.locator("h1, h2, text=Счета, text=Счёт, table").first().isVisible({ timeout: 5000 }).catch(() => false)
+      const hasPage = await page.locator("h1").or(page.locator("h2")).first().isVisible({ timeout: 5000 }).catch(() => false)
       if (hasPage) {
         log("16.5 Счета: страница загрузилась", "OK")
       } else {
@@ -596,7 +590,7 @@ test.describe.serial("Mega-тест (расширение): Отчёты, Бэк
     await page.waitForTimeout(1500)
 
     try {
-      const hasPage = await page.locator("h1, h2, text=Зарплат, text=арплат").first().isVisible({ timeout: 5000 }).catch(() => false)
+      const hasPage = await page.locator("h1").or(page.locator("h2")).first().isVisible({ timeout: 5000 }).catch(() => false)
       if (!hasPage) {
         log("19.1 Зарплата: страница", "BUG", "Страница зарплаты не загрузилась")
         return
@@ -630,7 +624,7 @@ test.describe.serial("Mega-тест (расширение): Отчёты, Бэк
     await page.waitForTimeout(1500)
 
     try {
-      const hasPage = await page.locator("h1, h2, text=Changelog, text=Изменения, text=Обновления, text=Версия, text=changelog").first().isVisible({ timeout: 5000 }).catch(() => false)
+      const hasPage = await page.locator("h1").or(page.locator("h2")).first().isVisible({ timeout: 5000 }).catch(() => false)
       if (hasPage) {
         log("19.2 Changelog: страница загрузилась", "OK")
       } else {
@@ -648,7 +642,7 @@ test.describe.serial("Mega-тест (расширение): Отчёты, Бэк
     await page.waitForTimeout(1500)
 
     try {
-      const hasPage = await page.locator("h1, h2, text=Roadmap, text=Дорожная карта, text=Планы, text=roadmap").first().isVisible({ timeout: 5000 }).catch(() => false)
+      const hasPage = await page.locator("h1").or(page.locator("h2")).first().isVisible({ timeout: 5000 }).catch(() => false)
       if (hasPage) {
         log("19.3 Roadmap: страница загрузилась", "OK")
       } else {
