@@ -135,6 +135,56 @@ export default async function LessonCardPage({
     },
   })
 
+  // Build makeup students (isMakeup attendances — students not enrolled in this group)
+  const enrolledClientKeys = new Set(
+    enrollments.map(e => `${e.clientId}:${e.wardId || ""}`)
+  )
+  const makeupAttendances = lesson.attendances.filter(a => a.isMakeup)
+
+  // Fetch client info for makeup students
+  const makeupClientIds = [...new Set(makeupAttendances.map(a => a.clientId))]
+  const makeupClients = makeupClientIds.length > 0
+    ? await db.client.findMany({
+        where: { id: { in: makeupClientIds }, tenantId },
+        select: { id: true, firstName: true, lastName: true, phone: true },
+      })
+    : []
+  const makeupWardIds = makeupAttendances.map(a => a.wardId).filter(Boolean) as string[]
+  const makeupWards = makeupWardIds.length > 0
+    ? await db.ward.findMany({
+        where: { id: { in: makeupWardIds } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : []
+
+  const makeupStudents = makeupAttendances.map(a => {
+    const client = makeupClients.find(c => c.id === a.clientId)
+    const ward = a.wardId ? makeupWards.find(w => w.id === a.wardId) : null
+    return {
+      enrollmentId: `makeup-${a.id}`,
+      clientId: a.clientId,
+      clientName: client
+        ? [client.lastName, client.firstName].filter(Boolean).join(" ") || "Без имени"
+        : "Без имени",
+      clientPhone: client?.phone || null,
+      wardId: a.wardId,
+      wardName: ward ? [ward.lastName, ward.firstName].filter(Boolean).join(" ") : null,
+      subscriptionId: a.subscriptionId,
+      lessonPrice: a.subscription ? Number(a.subscription.lessonPrice) : 0,
+      isMakeup: true as const,
+      attendance: {
+        id: a.id,
+        attendanceTypeId: a.attendanceTypeId,
+        attendanceTypeName: a.attendanceType.name,
+        attendanceTypeCode: a.attendanceType.code,
+        chargeAmount: Number(a.chargeAmount),
+        instructorPayAmount: Number(a.instructorPayAmount),
+        instructorPayEnabled: a.instructorPayEnabled,
+        absenceReasonId: a.absenceReasonId,
+      },
+    }
+  })
+
   // Build serialized data for client component
   const students = enrollments.map((enrollment) => {
     const attendance = lesson.attendances.find(
@@ -284,9 +334,11 @@ export default async function LessonCardPage({
       {/* Attendance table (client component) */}
       <AttendanceTable
         lessonId={id}
+        groupId={lesson.groupId}
         topic={lesson.topic}
         homework={lesson.homework}
         students={students}
+        makeupStudents={makeupStudents}
         attendanceTypes={attendanceTypesData}
         salaryRate={salaryRateData}
         absenceReasons={absenceReasons}

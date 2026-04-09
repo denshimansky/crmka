@@ -3,10 +3,19 @@
 import { useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -21,7 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { CheckCircle2, Loader2, Users, UserCheck, X } from "lucide-react"
+import { CheckCircle2, Loader2, Users, UserCheck, UserPlus, X } from "lucide-react"
 
 interface AbsenceReasonData {
   id: string
@@ -37,6 +46,7 @@ interface StudentData {
   wardName: string | null
   subscriptionId: string | null
   lessonPrice: number
+  isMakeup?: boolean
   attendance: {
     id: string
     attendanceTypeId: string
@@ -69,11 +79,24 @@ interface InstructorOption {
   name: string
 }
 
+interface MakeupSearchResult {
+  clientId: string
+  clientName: string
+  wardId: string | null
+  wardName: string | null
+  subscriptionId: string
+  subscriptionLabel: string
+  balance: number
+  lessonPrice: number
+}
+
 interface AttendanceTableProps {
   lessonId: string
+  groupId?: string
   topic: string | null
   homework: string | null
   students: StudentData[]
+  makeupStudents?: StudentData[]
   attendanceTypes: AttendanceTypeData[]
   salaryRate: SalaryRateData | null
   absenceReasons?: AbsenceReasonData[]
@@ -90,9 +113,11 @@ function formatMoney(amount: number): string {
 
 export function AttendanceTable({
   lessonId,
+  groupId,
   topic: initialTopic,
   homework: initialHomework,
   students: initialStudents,
+  makeupStudents: initialMakeupStudents = [],
   attendanceTypes,
   salaryRate,
   absenceReasons = [],
@@ -103,6 +128,7 @@ export function AttendanceTable({
 }: AttendanceTableProps) {
   const router = useRouter()
   const [students, setStudents] = useState(initialStudents)
+  const [makeupStudents, setMakeupStudents] = useState(initialMakeupStudents)
   const [topic, setTopic] = useState(initialTopic || "")
   const [homework, setHomework] = useState(initialHomework || "")
   const [savingTopic, setSavingTopic] = useState(false)
@@ -113,7 +139,17 @@ export function AttendanceTable({
   const [substituteName, setSubstituteName] = useState<string | null>(initSubstituteName || null)
   const [savingSubstitute, setSavingSubstitute] = useState(false)
 
+  // Makeup dialog state
+  const [makeupDialogOpen, setMakeupDialogOpen] = useState(false)
+  const [makeupSearch, setMakeupSearch] = useState("")
+  const [makeupSearchResults, setMakeupSearchResults] = useState<MakeupSearchResult[]>([])
+  const [makeupSearching, setMakeupSearching] = useState(false)
+  const [addingMakeup, setAddingMakeup] = useState(false)
+
   const presentType = attendanceTypes.find((t) => t.code === "present")
+
+  // All students combined (enrolled + makeup)
+  const allStudents = [...students, ...makeupStudents]
 
   // Auto-save topic
   const saveField = useCallback(
@@ -202,7 +238,7 @@ export function AttendanceTable({
             }
           }
 
-          setStudents((prev) =>
+          const updateFn = (prev: StudentData[]) =>
             prev.map((s) =>
               s.enrollmentId === student.enrollmentId
                 ? {
@@ -219,7 +255,12 @@ export function AttendanceTable({
                   }
                 : s
             )
-          )
+
+          if (student.isMakeup) {
+            setMakeupStudents(updateFn)
+          } else {
+            setStudents(updateFn)
+          }
         }
       }
     } catch {
@@ -293,15 +334,71 @@ export function AttendanceTable({
         }),
       })
       // Update local state
-      setStudents((prev) =>
+      const updateFn = (prev: StudentData[]) =>
         prev.map((s) =>
           s.enrollmentId === student.enrollmentId && s.attendance
             ? { ...s, attendance: { ...s.attendance, absenceReasonId } }
             : s
         )
-      )
+      if (student.isMakeup) {
+        setMakeupStudents(updateFn)
+      } else {
+        setStudents(updateFn)
+      }
     } catch {
       // silently fail
+    }
+  }
+
+  // Makeup: search for students from other groups
+  async function searchMakeupStudents(query: string) {
+    setMakeupSearch(query)
+    if (query.length < 2) {
+      setMakeupSearchResults([])
+      return
+    }
+    setMakeupSearching(true)
+    try {
+      const res = await fetch(
+        `/api/lessons/${lessonId}/makeup/search?q=${encodeURIComponent(query)}&groupId=${groupId || ""}`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setMakeupSearchResults(data)
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setMakeupSearching(false)
+    }
+  }
+
+  // Makeup: add student
+  async function addMakeupStudent(result: MakeupSearchResult) {
+    setAddingMakeup(true)
+    try {
+      const res = await fetch(`/api/lessons/${lessonId}/makeup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: result.clientId,
+          wardId: result.wardId,
+          subscriptionId: result.subscriptionId,
+        }),
+      })
+      if (res.ok) {
+        setMakeupDialogOpen(false)
+        setMakeupSearch("")
+        setMakeupSearchResults([])
+        router.refresh()
+      } else {
+        const err = await res.json()
+        alert(err.error || "Ошибка при добавлении на отработку")
+      }
+    } catch {
+      alert("Ошибка сети")
+    } finally {
+      setAddingMakeup(false)
     }
   }
 
@@ -311,9 +408,9 @@ export function AttendanceTable({
     return !!type && !type.chargesSubscription && !type.paysInstructor
   }
 
-  // Summary calculations
-  const markedStudents = students.filter((s) => s.attendance)
-  const unmarkedStudents = students.filter((s) => !s.attendance)
+  // Summary calculations — include makeup students
+  const markedStudents = allStudents.filter((s) => s.attendance)
+  const unmarkedStudents = allStudents.filter((s) => !s.attendance)
 
   const typeCounts = attendanceTypes.map((t) => ({
     name: t.name,
@@ -328,6 +425,118 @@ export function AttendanceTable({
     (sum, s) => sum + (s.attendance?.instructorPayEnabled ? (s.attendance?.instructorPayAmount || 0) : 0),
     0
   )
+
+  function renderStudentRow(student: StudentData) {
+    const isLoading = loadingStudentId === student.enrollmentId
+    const displayName = student.wardName || student.clientName
+
+    return (
+      <TableRow key={student.enrollmentId}>
+        <TableCell>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{displayName}</span>
+              {student.isMakeup && (
+                <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">
+                  отработка
+                </Badge>
+              )}
+            </div>
+            {student.wardName && (
+              <div className="text-xs text-muted-foreground">
+                {student.clientName}
+              </div>
+            )}
+          </div>
+        </TableCell>
+        <TableCell>
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Сохранение...
+            </div>
+          ) : (
+            <Select
+              value={student.attendance?.attendanceTypeId || ""}
+              onValueChange={(val) => {
+                if (val) markAttendance(student, val)
+              }}
+            >
+              <SelectTrigger className="w-full">
+                {student.attendance?.attendanceTypeName || (
+                  <span className="text-muted-foreground">Не отмечен</span>
+                )}
+              </SelectTrigger>
+              <SelectContent>
+                {attendanceTypes.map((type) => (
+                  <SelectItem key={type.id} value={type.id}>
+                    {type.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </TableCell>
+        <TableCell>
+          {student.attendance &&
+           isAbsentType(student.attendance.attendanceTypeId) &&
+           absenceReasons.length > 0 ? (
+            <Select
+              value={student.attendance.absenceReasonId || ""}
+              onValueChange={(val) =>
+                saveAbsenceReason(student, val || null)
+              }
+            >
+              <SelectTrigger className="w-full text-xs">
+                {student.attendance.absenceReasonId
+                  ? absenceReasons.find(
+                      (r) => r.id === student.attendance?.absenceReasonId
+                    )?.name || "\u2014"
+                  : <span className="text-muted-foreground">Причина</span>}
+              </SelectTrigger>
+              <SelectContent>
+                {absenceReasons.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <span className="text-muted-foreground">{"\u2014"}</span>
+          )}
+        </TableCell>
+        <TableCell className="text-right">
+          {student.attendance
+            ? formatMoney(student.attendance.chargeAmount)
+            : <span className="text-muted-foreground">{"\u2014"}</span>
+          }
+        </TableCell>
+        <TableCell className="text-right">
+          {student.attendance
+            ? formatMoney(
+                student.attendance.instructorPayEnabled
+                  ? student.attendance.instructorPayAmount
+                  : 0
+              )
+            : <span className="text-muted-foreground">{"\u2014"}</span>
+          }
+        </TableCell>
+        <TableCell className="text-center">
+          {student.attendance ? (
+            <div className="flex justify-center">
+              <Checkbox
+                checked={student.attendance.instructorPayEnabled}
+                onCheckedChange={() => toggleInstructorPay(student)}
+              />
+            </div>
+          ) : (
+            <span className="text-muted-foreground">{"\u2014"}</span>
+          )}
+        </TableCell>
+      </TableRow>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -423,31 +632,104 @@ export function AttendanceTable({
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">
-              Посещаемость ({markedStudents.length}/{students.length})
+              Посещаемость ({markedStudents.length}/{allStudents.length})
             </CardTitle>
-            {presentType && (
-              <Button
-                size="sm"
-                onClick={markAllPresent}
-                disabled={markingAll || unmarkedStudents.length === 0}
-              >
-                {markingAll ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                    Отмечаем...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="mr-2 size-4" />
-                    Отметить всех — Явка
-                  </>
-                )}
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {/* Makeup dialog */}
+              <Dialog open={makeupDialogOpen} onOpenChange={setMakeupDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" variant="outline">
+                    <UserPlus className="mr-2 size-4" />
+                    Добавить на отработку
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[500px]">
+                  <DialogHeader>
+                    <DialogTitle>Добавить ученика на отработку</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <Input
+                        placeholder="Поиск по имени или фамилии..."
+                        value={makeupSearch}
+                        onChange={(e) => searchMakeupStudents(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                    {makeupSearching && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
+                        <Loader2 className="size-4 animate-spin" />
+                        Поиск...
+                      </div>
+                    )}
+                    {!makeupSearching && makeupSearch.length >= 2 && makeupSearchResults.length === 0 && (
+                      <div className="text-sm text-muted-foreground text-center py-4">
+                        Ученики не найдены
+                      </div>
+                    )}
+                    {makeupSearchResults.length > 0 && (
+                      <div className="max-h-[300px] overflow-y-auto space-y-2">
+                        {makeupSearchResults.map((result) => (
+                          <div
+                            key={`${result.clientId}-${result.wardId || ""}-${result.subscriptionId}`}
+                            className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent"
+                          >
+                            <div>
+                              <div className="font-medium text-sm">
+                                {result.wardName || result.clientName}
+                              </div>
+                              {result.wardName && (
+                                <div className="text-xs text-muted-foreground">
+                                  {result.clientName}
+                                </div>
+                              )}
+                              <div className="text-xs text-muted-foreground">
+                                {result.subscriptionLabel} — баланс: {formatMoney(result.balance)}
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              disabled={addingMakeup}
+                              onClick={() => addMakeupStudent(result)}
+                            >
+                              {addingMakeup ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                "Добавить"
+                              )}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              {presentType && (
+                <Button
+                  size="sm"
+                  onClick={markAllPresent}
+                  disabled={markingAll || unmarkedStudents.length === 0}
+                >
+                  {markingAll ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      Отмечаем...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="mr-2 size-4" />
+                      Отметить всех — Явка
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {students.length === 0 ? (
+          {allStudents.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground">
               <Users className="mx-auto size-10 opacity-50 mb-2" />
               <p>В группе нет зачисленных учеников</p>
@@ -465,110 +747,8 @@ export function AttendanceTable({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {students.map((student) => {
-                  const isLoading = loadingStudentId === student.enrollmentId
-                  const displayName = student.wardName || student.clientName
-
-                  return (
-                    <TableRow key={student.enrollmentId}>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{displayName}</div>
-                          {student.wardName && (
-                            <div className="text-xs text-muted-foreground">
-                              {student.clientName}
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {isLoading ? (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Loader2 className="size-4 animate-spin" />
-                            Сохранение...
-                          </div>
-                        ) : (
-                          <Select
-                            value={student.attendance?.attendanceTypeId || ""}
-                            onValueChange={(val) => {
-                              if (val) markAttendance(student, val)
-                            }}
-                          >
-                            <SelectTrigger className="w-full">
-                              {student.attendance?.attendanceTypeName || (
-                                <span className="text-muted-foreground">Не отмечен</span>
-                              )}
-                            </SelectTrigger>
-                            <SelectContent>
-                              {attendanceTypes.map((type) => (
-                                <SelectItem key={type.id} value={type.id}>
-                                  {type.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {student.attendance &&
-                         isAbsentType(student.attendance.attendanceTypeId) &&
-                         absenceReasons.length > 0 ? (
-                          <Select
-                            value={student.attendance.absenceReasonId || ""}
-                            onValueChange={(val) =>
-                              saveAbsenceReason(student, val || null)
-                            }
-                          >
-                            <SelectTrigger className="w-full text-xs">
-                              {student.attendance.absenceReasonId
-                                ? absenceReasons.find(
-                                    (r) => r.id === student.attendance?.absenceReasonId
-                                  )?.name || "—"
-                                : <span className="text-muted-foreground">Причина</span>}
-                            </SelectTrigger>
-                            <SelectContent>
-                              {absenceReasons.map((r) => (
-                                <SelectItem key={r.id} value={r.id}>
-                                  {r.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {student.attendance
-                          ? formatMoney(student.attendance.chargeAmount)
-                          : <span className="text-muted-foreground">—</span>
-                        }
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {student.attendance
-                          ? formatMoney(
-                              student.attendance.instructorPayEnabled
-                                ? student.attendance.instructorPayAmount
-                                : 0
-                            )
-                          : <span className="text-muted-foreground">—</span>
-                        }
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {student.attendance ? (
-                          <div className="flex justify-center">
-                            <Checkbox
-                              checked={student.attendance.instructorPayEnabled}
-                              onCheckedChange={() => toggleInstructorPay(student)}
-                            />
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
+                {students.map(renderStudentRow)}
+                {makeupStudents.length > 0 && makeupStudents.map(renderStudentRow)}
               </TableBody>
             </Table>
           )}
@@ -592,6 +772,11 @@ export function AttendanceTable({
                   {unmarkedStudents.length > 0 && (
                     <div className="text-sm text-muted-foreground">
                       <span className="font-medium">Не отмечено:</span> {unmarkedStudents.length}
+                    </div>
+                  )}
+                  {makeupStudents.length > 0 && (
+                    <div className="text-sm text-orange-600">
+                      <span className="font-medium">Отработки:</span> {makeupStudents.length}
                     </div>
                   )}
                 </div>
