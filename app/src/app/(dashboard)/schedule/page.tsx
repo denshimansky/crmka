@@ -28,6 +28,18 @@ function getColorForIndex(index: number): string {
   return DIRECTION_COLORS[index % Object.keys(DIRECTION_COLORS).length] || DIRECTION_COLORS[0]
 }
 
+function getOccupancyStyle(enrolled: number, max: number): { className: string; label: string } {
+  if (max === 0) return { className: "border-l-4 border-l-gray-400", label: "—" }
+  const ratio = enrolled / max
+  if (ratio > 0.9) {
+    return { className: "border-l-4 border-l-red-500", label: "заполнена" }
+  }
+  if (ratio >= 0.7) {
+    return { className: "border-l-4 border-l-yellow-500", label: "почти заполнена" }
+  }
+  return { className: "border-l-4 border-l-green-500", label: "свободно" }
+}
+
 function formatDateShort(date: Date): string {
   return date.toLocaleDateString("ru-RU", { day: "numeric" })
 }
@@ -149,6 +161,16 @@ export default async function SchedulePage({
         <SchedulePrintButton />
       </div>
 
+      {/* Occupancy legend */}
+      {hasLessons && (
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="font-medium">Заполняемость:</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-green-500" /> &lt;70% — свободно</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-yellow-500" /> 70–90% — почти заполнена</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-red-500" /> &gt;90% — заполнена</span>
+        </div>
+      )}
+
       {/* Print-only header */}
       <div className="print-only hidden">
         <h2 className="text-lg font-bold text-center mb-2">
@@ -200,18 +222,19 @@ export default async function SchedulePage({
                           const colorClass = directionColorMap.get(lesson.group.directionId) || DIRECTION_COLORS[0]
                           const enrolled = lesson.group._count.enrollments
                           const max = lesson.group.maxStudents
+                          const occupancy = getOccupancyStyle(enrolled, max)
                           const instructorName = [lesson.instructor.lastName, lesson.instructor.firstName?.[0] + "."]
                             .filter(Boolean)
                             .join(" ")
                           return (
                             <Link key={lesson.id} href={`/schedule/lessons/${lesson.id}`}>
-                              <Card className={`cursor-pointer border p-2 text-xs ${colorClass} hover:opacity-80`}>
+                              <Card className={`cursor-pointer border p-2 text-xs ${colorClass} ${occupancy.className} hover:opacity-80`} title={occupancy.label}>
                                 <div className="font-bold">{lesson.startTime}</div>
                                 <div className="font-medium">{lesson.group.name}</div>
                                 <div className="opacity-70">{instructorName}</div>
                                 <div className="mt-1 flex items-center justify-between">
-                                  <span>{enrolled}/{max}</span>
-                                  {enrolled / max > 0.8 && (
+                                  <span className="font-semibold">{enrolled}/{max}</span>
+                                  {max > 0 && enrolled / max > 0.9 && (
                                     <Badge variant="destructive" className="h-4 px-1 text-[10px]">!</Badge>
                                   )}
                                 </div>
