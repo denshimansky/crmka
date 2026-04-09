@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Banknote, TrendingUp, TrendingDown, Users } from "lucide-react"
 import { PaySalaryDialog } from "./pay-salary-dialog"
+import { SalaryCorrections } from "./salary-corrections"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { PageHelp } from "@/components/page-help"
@@ -49,15 +50,22 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
     },
     select: {
       instructorPayAmount: true,
-      lesson: { select: { instructorId: true } },
+      lesson: { select: { instructorId: true, substituteInstructorId: true } },
     },
   })
 
-  // Агрегация начислений по инструкторам
+  // Агрегация начислений по инструкторам (замена → заменяющему)
   const accrualsByEmployee = new Map<string, number>()
+  const substituteLessonCount = new Map<string, number>()
   for (const a of attendances) {
-    const empId = a.lesson.instructorId
+    const empId = a.lesson.substituteInstructorId || a.lesson.instructorId
     accrualsByEmployee.set(empId, (accrualsByEmployee.get(empId) || 0) + Number(a.instructorPayAmount))
+    if (a.lesson.substituteInstructorId) {
+      substituteLessonCount.set(
+        a.lesson.substituteInstructorId,
+        (substituteLessonCount.get(a.lesson.substituteInstructorId) || 0) + 1
+      )
+    }
   }
 
   // Премии и штрафы за месяц
@@ -95,7 +103,8 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
     const penalties = penaltiesByEmployee.get(emp.id) || 0
     const paid = paidByEmployee.get(emp.id) || 0
     const remaining = accrued + bonuses - penalties - paid
-    return { id: emp.id, name, role: emp.role, accrued, bonuses, penalties, paid, remaining }
+    const substitutions = substituteLessonCount.get(emp.id) || 0
+    return { id: emp.id, name, role: emp.role, accrued, bonuses, penalties, paid, remaining, substitutions }
   }).filter(r => r.accrued > 0 || r.bonuses > 0 || r.penalties > 0 || r.paid > 0 || r.remaining !== 0)
 
   // Если нет данных, покажем всех с начислениями = 0
@@ -103,7 +112,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
     id: emp.id,
     name: [emp.lastName, emp.firstName].filter(Boolean).join(" ") || "Без имени",
     role: emp.role,
-    accrued: 0, bonuses: 0, penalties: 0, paid: 0, remaining: 0,
+    accrued: 0, bonuses: 0, penalties: 0, paid: 0, remaining: 0, substitutions: 0,
   }))
 
   const totalAccrued = displayRows.reduce((s, r) => s + r.accrued, 0)
@@ -193,6 +202,8 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
         ))}
       </div>
 
+      <SalaryCorrections year={year} month={month} />
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Ведомость</CardTitle>
@@ -214,7 +225,12 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
               <TableBody>
                 {displayRows.map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {r.name}
+                      {r.substitutions > 0 && (
+                        <Badge variant="secondary" className="ml-2 text-xs">замена ({r.substitutions})</Badge>
+                      )}
+                    </TableCell>
                     <TableCell><Badge variant="outline">{ROLE_LABELS[r.role] || r.role}</Badge></TableCell>
                     <TableCell className="text-right">{formatMoney(r.accrued)}</TableCell>
                     <TableCell className="text-right text-green-600">{r.bonuses > 0 ? formatMoney(r.bonuses) : "—"}</TableCell>
