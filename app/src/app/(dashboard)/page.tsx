@@ -11,6 +11,7 @@ import {
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
 import { QuickLeadButton } from "@/components/quick-lead-button"
+import { OnboardingWizard } from "@/components/onboarding-wizard"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -19,6 +20,21 @@ function formatMoney(amount: number): string {
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+
+  // Проверяем онбординг
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { onboardingCompleted: true, name: true, inn: true },
+  })
+
+  if (org && !org.onboardingCompleted) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold">Настройка организации</h1>
+        <OnboardingWizard orgName={org.name} orgInn={org.inn} />
+      </div>
+    )
+  }
 
   const { year, month } = getMonthFromParams(await searchParams)
   const now = new Date()

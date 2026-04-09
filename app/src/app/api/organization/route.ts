@@ -15,6 +15,7 @@ const updateSchema = z.object({
   payForAbsence: z.boolean().optional(),
   attendanceDeadline: z.number().min(1).max(90).optional(),
   roleDisplayNames: z.record(z.string()).optional(),
+  onboardingCompleted: z.boolean().optional(),
 })
 
 export async function GET() {

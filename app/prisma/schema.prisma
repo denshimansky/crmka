@@ -85,6 +85,7 @@ model Organization {
   makeupDaysLimit    Int?     @map("makeup_days_limit")
   makeupDeadlineDays Int?     @map("makeup_deadline_days")
   roleDisplayNames   Json?    @map("role_display_names")
+  onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
 
   // Биллинг
   billingStatus BillingStatus @default(active) @map("billing_status")
