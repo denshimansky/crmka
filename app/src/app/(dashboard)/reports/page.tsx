@@ -46,6 +46,7 @@ const reportGroups: ReportGroup[] = [
     reports: [
       { name: "Свободные места", href: "/reports/schedule/capacity", description: "Занято / свободно / % по группам", ready: true },
       { name: "Посещения", href: "/reports/attendance/visits", description: "Явки, прогулы, перерасчёты по группам", ready: true },
+      { name: "Неотмеченные дети", href: "/reports/attendance/unmarked", description: "Занятия, где не проставлены посещения", ready: true },
     ],
   },
   {
