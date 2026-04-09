@@ -568,7 +568,7 @@ function StudentsTab({
               <DialogClose render={<Button variant="outline" />}>
                 Отмена
               </DialogClose>
-              <Button onClick={handleEnroll} disabled={enrolling || !selectedClientId}>
+              <Button onClick={() => handleEnroll()} disabled={enrolling || !selectedClientId}>
                 {enrolling ? "Зачисление..." : "Зачислить"}
               </Button>
             </DialogFooter>
