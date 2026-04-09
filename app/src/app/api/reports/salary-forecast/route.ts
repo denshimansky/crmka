@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
         select: {
           id: true,
           instructorId: true,
+          substituteInstructorId: true,
           group: {
             select: {
               directionId: true,
@@ -52,13 +53,14 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  // Count students per instructor+direction
+  // Count students per instructor+direction (attribute to substitute when present)
   const instrDirKey = (instrId: string, dirId: string) => `${instrId}:${dirId}`
   const studentCounts = new Map<string, number>()
   const lessonSets = new Map<string, Set<string>>()
 
   for (const a of attendances) {
-    const key = instrDirKey(a.lesson.instructorId, a.lesson.group.directionId)
+    const effectiveId = a.lesson.substituteInstructorId || a.lesson.instructorId
+    const key = instrDirKey(effectiveId, a.lesson.group.directionId)
     studentCounts.set(key, (studentCounts.get(key) || 0) + 1)
     if (!lessonSets.has(key)) lessonSets.set(key, new Set())
     lessonSets.get(key)!.add(a.lesson.id)

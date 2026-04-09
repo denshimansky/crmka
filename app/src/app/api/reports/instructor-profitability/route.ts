@@ -29,24 +29,29 @@ export async function GET(req: NextRequest) {
         select: {
           id: true,
           instructorId: true,
+          substituteInstructorId: true,
           instructor: { select: { firstName: true, lastName: true } },
+          substituteInstructor: { select: { firstName: true, lastName: true } },
           group: { select: { branchId: true } },
         },
       },
     },
   })
 
-  // Aggregate per instructor
+  // Aggregate per instructor (substitute gets the salary attribution)
   const instrData = new Map<
     string,
     { name: string; revenue: number; salary: number; lessons: Set<string>; branchId: string }
   >()
 
   for (const a of attendances) {
-    const iId = a.lesson.instructorId
+    const iId = a.lesson.substituteInstructorId || a.lesson.instructorId
+    const instr = a.lesson.substituteInstructorId && a.lesson.substituteInstructor
+      ? a.lesson.substituteInstructor
+      : a.lesson.instructor
     if (!instrData.has(iId)) {
       instrData.set(iId, {
-        name: [a.lesson.instructor.lastName, a.lesson.instructor.firstName].filter(Boolean).join(" "),
+        name: [instr.lastName, instr.firstName].filter(Boolean).join(" "),
         revenue: 0,
         salary: 0,
         lessons: new Set(),

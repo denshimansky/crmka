@@ -26,18 +26,22 @@ export async function GET(req: NextRequest) {
   const instrIds = instructors.map((i) => i.id)
 
   // Salary accrued from attendances
+  // Include lessons where an instructor is either the primary or substitute
   const attendances = await db.attendance.findMany({
     where: {
       tenantId,
       lesson: {
         date: { gte: dateFrom, lte: dateTo },
-        instructorId: { in: instrIds },
+        OR: [
+          { instructorId: { in: instrIds }, substituteInstructorId: null },
+          { substituteInstructorId: { in: instrIds } },
+        ],
       },
       instructorPayEnabled: true,
     },
     select: {
       instructorPayAmount: true,
-      lesson: { select: { instructorId: true, date: true } },
+      lesson: { select: { instructorId: true, substituteInstructorId: true, date: true } },
     },
   })
 
@@ -94,7 +98,8 @@ export async function GET(req: NextRequest) {
   }
 
   for (const a of attendances) {
-    const iId = a.lesson.instructorId
+    // Pay goes to substitute instructor when present
+    const iId = a.lesson.substituteInstructorId || a.lesson.instructorId
     const s = instrMap.get(iId)
     if (!s) continue
     const amt = Number(a.instructorPayAmount)

@@ -21,7 +21,9 @@ export async function GET(req: NextRequest) {
       id: true,
       durationMinutes: true,
       instructorId: true,
+      substituteInstructorId: true,
       instructor: { select: { firstName: true, lastName: true } },
+      substituteInstructor: { select: { firstName: true, lastName: true } },
       attendances: {
         where: { attendanceType: { code: "present" } },
         select: { id: true },
@@ -40,31 +42,36 @@ export async function GET(req: NextRequest) {
     },
     select: {
       instructorPayAmount: true,
-      lesson: { select: { instructorId: true } },
+      lesson: { select: { instructorId: true, substituteInstructorId: true } },
     },
   })
 
-  // Aggregate
+  // Aggregate (attribute to substitute instructor when present)
   const instrData = new Map<string, { name: string; hours: number; salary: number }>()
 
   for (const l of filledLessons) {
-    const prev = instrData.get(l.instructorId) || {
-      name: [l.instructor.lastName, l.instructor.firstName].filter(Boolean).join(" "),
+    const effectiveId = l.substituteInstructorId || l.instructorId
+    const instr = l.substituteInstructorId && l.substituteInstructor
+      ? l.substituteInstructor
+      : l.instructor
+    const prev = instrData.get(effectiveId) || {
+      name: [instr.lastName, instr.firstName].filter(Boolean).join(" "),
       hours: 0,
       salary: 0,
     }
     prev.hours += l.durationMinutes / 60
-    instrData.set(l.instructorId, prev)
+    instrData.set(effectiveId, prev)
   }
 
   for (const a of attendances) {
-    const prev = instrData.get(a.lesson.instructorId) || {
+    const effectiveId = a.lesson.substituteInstructorId || a.lesson.instructorId
+    const prev = instrData.get(effectiveId) || {
       name: "",
       hours: 0,
       salary: 0,
     }
     prev.salary += Number(a.instructorPayAmount)
-    instrData.set(a.lesson.instructorId, prev)
+    instrData.set(effectiveId, prev)
   }
 
   const data = [...instrData.entries()]

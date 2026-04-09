@@ -17,7 +17,12 @@ export async function GET(req: NextRequest) {
     date: { gte: dateFrom, lte: dateTo },
     status: { not: "cancelled" },
   }
-  if (instructorId) lessonWhere.instructorId = instructorId
+  if (instructorId) {
+    lessonWhere.OR = [
+      { instructorId, substituteInstructorId: null },
+      { substituteInstructorId: instructorId },
+    ]
+  }
 
   const lessons = await db.lesson.findMany({
     where: lessonWhere,
@@ -26,7 +31,9 @@ export async function GET(req: NextRequest) {
       date: true,
       durationMinutes: true,
       instructorId: true,
+      substituteInstructorId: true,
       instructor: { select: { firstName: true, lastName: true } },
+      substituteInstructor: { select: { firstName: true, lastName: true } },
       attendances: {
         where: { attendanceType: { code: "present" } },
         select: { id: true },
@@ -37,17 +44,20 @@ export async function GET(req: NextRequest) {
   // Only lessons with at least 1 present student
   const filledLessons = lessons.filter((l) => l.attendances.length > 0)
 
-  // Group by instructor then by day
+  // Group by effective instructor (substitute when present) then by day
   const instrData = new Map<
     string,
     { name: string; byDay: Record<string, number>; totalHours: number }
   >()
 
   for (const l of filledLessons) {
-    const iId = l.instructorId
+    const iId = l.substituteInstructorId || l.instructorId
+    const instr = l.substituteInstructorId && l.substituteInstructor
+      ? l.substituteInstructor
+      : l.instructor
     if (!instrData.has(iId)) {
       instrData.set(iId, {
-        name: [l.instructor.lastName, l.instructor.firstName].filter(Boolean).join(" "),
+        name: [instr.lastName, instr.firstName].filter(Boolean).join(" "),
         byDay: {},
         totalHours: 0,
       })
