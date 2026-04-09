@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
+import { distributeFixedExpenses, type FixedExpenseItem } from "@/lib/expense-distribution"
 
 /** 7.2. Финансовый результат (P&L) */
 export async function GET(req: NextRequest) {
@@ -22,9 +23,34 @@ export async function GET(req: NextRequest) {
 
   const attendances = await db.attendance.findMany({
     where: attWhere,
-    select: { chargeAmount: true },
+    select: {
+      chargeAmount: true,
+      lesson: {
+        select: {
+          group: {
+            select: {
+              directionId: true,
+              direction: { select: { name: true } },
+              branchId: true,
+              branch: { select: { name: true } },
+            },
+          },
+        },
+      },
+    },
   })
   const revenue = attendances.reduce((s, a) => s + Number(a.chargeAmount), 0)
+
+  // Revenue by direction (for fixed expense distribution)
+  const revenueByDirection: Record<string, { name: string; revenue: number }> = {}
+  for (const a of attendances) {
+    const dirId = a.lesson.group.directionId
+    const dirName = a.lesson.group.direction.name
+    if (!revenueByDirection[dirId]) {
+      revenueByDirection[dirId] = { name: dirName, revenue: 0 }
+    }
+    revenueByDirection[dirId].revenue += Number(a.chargeAmount)
+  }
 
   // Expenses
   const expWhere: any = { tenantId, deletedAt: null, date: { gte: dateFrom, lte: dateTo } }
@@ -32,7 +58,7 @@ export async function GET(req: NextRequest) {
 
   const expenses = await db.expense.findMany({
     where: expWhere,
-    include: { category: { select: { name: true, isSalary: true, isVariable: true } } },
+    include: { category: { select: { id: true, name: true, isSalary: true, isVariable: true } } },
   })
 
   const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
@@ -74,6 +100,41 @@ export async function GET(req: NextRequest) {
     }))
     .sort((a, b) => b.amount - a.amount)
 
+  // FIN-16: Distribute fixed expenses by direction revenue
+  const fixedExpenseItems: FixedExpenseItem[] = expenses
+    .filter((e) => !e.category.isVariable)
+    .reduce<FixedExpenseItem[]>((acc, e) => {
+      const existing = acc.find((x) => x.id === e.category.id)
+      if (existing) {
+        existing.amount += Number(e.amount)
+      } else {
+        acc.push({ id: e.category.id, category: e.category.name, amount: Number(e.amount) })
+      }
+      return acc
+    }, [])
+
+  const revenueMap: Record<string, number> = {}
+  for (const [dirId, info] of Object.entries(revenueByDirection)) {
+    revenueMap[dirId] = info.revenue
+  }
+
+  const distribution = distributeFixedExpenses(fixedExpenseItems, revenueMap)
+
+  // Build distribution summary for response
+  const distributionByDirection = Object.entries(distribution.byKey).map(([dirId, items]) => ({
+    directionId: dirId,
+    directionName: revenueByDirection[dirId]?.name ?? dirId,
+    revenue: revenueByDirection[dirId]?.revenue ?? 0,
+    revenueShare: revenue > 0 ? Math.round(((revenueByDirection[dirId]?.revenue ?? 0) / revenue) * 1000) / 10 : 0,
+    distributedFixedExpenses: distribution.totalByKey[dirId],
+    items: items.map((item) => ({
+      category: item.category,
+      originalAmount: item.originalAmount,
+      distributedAmount: item.distributedAmount,
+      share: item.share,
+    })),
+  }))
+
   return NextResponse.json({
     data: {
       revenue,
@@ -85,6 +146,11 @@ export async function GET(req: NextRequest) {
       netProfit,
       profitability: Math.round(profitability * 10) / 10,
       expensesByCategory: expenseRows,
+      // FIN-16: distribution breakdown
+      fixedExpenseDistribution: {
+        totalFixed: distribution.totalFixed,
+        byDirection: distributionByDirection,
+      },
     },
     metadata: {
       dateFrom: dateFrom.toISOString(),

@@ -6,10 +6,12 @@ import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign } from "lucide-react"
+import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, SplitSquareVertical } from "lucide-react"
 import Link from "next/link"
 import { DrilldownAmount } from "@/components/drilldown-amount"
 import { ReportExport } from "@/components/report-export"
+import { distributeFixedExpenses, type FixedExpenseItem } from "@/lib/expense-distribution"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -30,14 +32,37 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       lesson: { date: { gte: monthStart, lte: monthEnd } },
       attendanceType: { countsAsRevenue: true },
     },
-    select: { chargeAmount: true },
+    select: {
+      chargeAmount: true,
+      lesson: {
+        select: {
+          group: {
+            select: {
+              directionId: true,
+              direction: { select: { name: true } },
+            },
+          },
+        },
+      },
+    },
   })
   const revenue = attendances.reduce((s, a) => s + Number(a.chargeAmount), 0)
+
+  // Выручка по направлениям (для распределения постоянных расходов)
+  const revenueByDirection: Record<string, { name: string; revenue: number }> = {}
+  for (const a of attendances) {
+    const dirId = a.lesson.group.directionId
+    const dirName = a.lesson.group.direction.name
+    if (!revenueByDirection[dirId]) {
+      revenueByDirection[dirId] = { name: dirName, revenue: 0 }
+    }
+    revenueByDirection[dirId].revenue += Number(a.chargeAmount)
+  }
 
   // === РАСХОДЫ ===
   const expenses = await db.expense.findMany({
     where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
-    include: { category: { select: { name: true, isSalary: true, isVariable: true } } },
+    include: { category: { select: { id: true, name: true, isSalary: true, isVariable: true } } },
   })
 
   const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
@@ -69,6 +94,35 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const margin = revenue - totalVariableCosts
   const netProfit = revenue - totalExpenses - totalSalaryAccrued
   const profitability = revenue > 0 ? (netProfit / revenue) * 100 : 0
+
+  // === FIN-16: Распределение постоянных расходов по направлениям ===
+  const fixedExpenseItems: FixedExpenseItem[] = expenses
+    .filter(e => !e.category.isVariable)
+    .reduce<FixedExpenseItem[]>((acc, e) => {
+      const existing = acc.find(x => x.id === e.category.id)
+      if (existing) {
+        existing.amount += Number(e.amount)
+      } else {
+        acc.push({ id: e.category.id, category: e.category.name, amount: Number(e.amount) })
+      }
+      return acc
+    }, [])
+
+  const revenueMap: Record<string, number> = {}
+  for (const [dirId, info] of Object.entries(revenueByDirection)) {
+    revenueMap[dirId] = info.revenue
+  }
+  const distribution = distributeFixedExpenses(fixedExpenseItems, revenueMap)
+
+  const directionEntries = Object.entries(revenueByDirection)
+    .map(([dirId, info]) => ({
+      directionId: dirId,
+      name: info.name,
+      revenue: info.revenue,
+      revenueShare: revenue > 0 ? Math.round((info.revenue / revenue) * 1000) / 10 : 0,
+      distributedFixed: distribution.totalByKey[dirId] ?? 0,
+    }))
+    .sort((a, b) => b.revenue - a.revenue)
 
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
@@ -206,6 +260,87 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
           </Table>
         </CardContent>
       </Card>
+
+      {/* FIN-16: Распределение постоянных расходов по направлениям */}
+      {directionEntries.length > 0 && fixedExpenses > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <SplitSquareVertical className="size-4 text-orange-600" />
+              <CardTitle className="text-base">Распределение постоянных расходов по направлениям</CardTitle>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Badge variant="outline" className="text-xs">авто</Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-xs">Постоянные расходы распределяются пропорционально доле выручки каждого направления</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Формула: доля направления = выручка направления / общая выручка
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Направление</TableHead>
+                  <TableHead className="text-right">Выручка</TableHead>
+                  <TableHead className="text-right">Доля</TableHead>
+                  <TableHead className="text-right">Пост. расходы (распред.)</TableHead>
+                  <TableHead className="text-right">P&L направления</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {directionEntries.map((dir) => {
+                  const dirNetProfit = dir.revenue - dir.distributedFixed
+                  return (
+                    <TableRow key={dir.directionId}>
+                      <TableCell className="font-medium">{dir.name}</TableCell>
+                      <TableCell className="text-right text-green-700">{formatMoney(dir.revenue)}</TableCell>
+                      <TableCell className="text-right">{dir.revenueShare}%</TableCell>
+                      <TableCell className="text-right text-orange-600">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger className="cursor-help underline decoration-dotted underline-offset-4">
+                              {formatMoney(dir.distributedFixed)}
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <div className="space-y-1 text-xs">
+                                {(distribution.byKey[dir.directionId] ?? []).map((item, idx) => (
+                                  <div key={idx} className="flex justify-between gap-4">
+                                    <span>{item.category}</span>
+                                    <span>{formatMoney(item.distributedAmount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
+                      <TableCell className={`text-right font-medium ${dirNetProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
+                        {formatMoney(dirNetProfit)}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+                <TableRow className="font-bold border-t-2">
+                  <TableCell>Итого</TableCell>
+                  <TableCell className="text-right text-green-700">{formatMoney(revenue)}</TableCell>
+                  <TableCell className="text-right">100%</TableCell>
+                  <TableCell className="text-right text-orange-600">{formatMoney(fixedExpenses)}</TableCell>
+                  <TableCell className={`text-right ${revenue - fixedExpenses >= 0 ? "text-green-700" : "text-red-700"}`}>
+                    {formatMoney(revenue - fixedExpenses)}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
