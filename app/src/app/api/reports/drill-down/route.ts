@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
       rows = expenses.map((e) => [
         formatDate(e.date),
         e.category.name,
-        e.description || "—",
+        e.comment || "—",
         Number(e.amount),
       ])
     } else if (field === "salary") {
@@ -201,7 +201,7 @@ export async function GET(req: NextRequest) {
         ...expenses.map((e) => [
           formatDate(e.date),
           "Расход",
-          `${e.category.name}${e.description ? ": " + e.description : ""}`,
+          `${e.category.name}${e.comment ? ": " + e.comment : ""}`,
           Number(e.amount),
         ] as (string | number)[]),
         ...salaryPayments.map((p) => {

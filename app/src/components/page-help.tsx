@@ -1,7 +1,6 @@
 "use client"
 
 import { HelpCircle } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import {
   Sheet,
   SheetContent,
@@ -10,10 +9,10 @@ import {
   SheetTrigger,
   SheetDescription,
 } from "@/components/ui/sheet"
-import { pageHelpContent, type PageHelpKey } from "@/lib/page-help-content"
+import { pageHelpContent } from "@/lib/page-help-content"
 
 interface PageHelpProps {
-  pageKey: PageHelpKey
+  pageKey: string
 }
 
 export function PageHelp({ pageKey }: PageHelpProps) {
@@ -22,15 +21,11 @@ export function PageHelp({ pageKey }: PageHelpProps) {
 
   return (
     <Sheet>
-      <SheetTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
-          title="Справка по странице"
-        >
-          <HelpCircle className="size-4" />
-        </Button>
+      <SheetTrigger
+        className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        title="Справка по странице"
+      >
+        <HelpCircle className="size-4" />
       </SheetTrigger>
       <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
         <SheetHeader>

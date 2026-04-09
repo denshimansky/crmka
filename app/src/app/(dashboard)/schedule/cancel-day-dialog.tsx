@@ -135,7 +135,7 @@ export function CancelDayDialog({ defaultDate, branches }: CancelDayDialogProps)
             {branches.length > 1 && (
               <div>
                 <Label>Филиал (опционально)</Label>
-                <Select value={branchId} onValueChange={(v) => setBranchId(v)}>
+                <Select value={branchId} onValueChange={(v) => setBranchId(v || "")}>
                   <SelectTrigger className="w-full">
                     {branchId
                       ? branches.find((b) => b.id === branchId)?.name

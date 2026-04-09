@@ -112,7 +112,7 @@ export async function POST(
         groupId: targetGroupId,
         clientId: enrollment.clientId,
         wardId: enrollment.wardId,
-        selectedDays: null,
+        selectedDays: undefined,
         enrolledAt: today,
         isActive: true,
         paymentStatus: enrollment.paymentStatus,
