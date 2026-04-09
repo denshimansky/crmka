@@ -32,7 +32,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowRightLeft, CalendarDays, ExternalLink, Plus, Trash2, UserPlus, Users } from "lucide-react"
+import { AlertTriangle, ArrowRightLeft, CalendarDays, ExternalLink, Plus, Trash2, UserPlus, Users } from "lucide-react"
 import Link from "next/link"
 
 interface LessonData {
@@ -191,6 +191,7 @@ export function GroupTabs({
           groupId={groupId}
           enrollments={enrollments}
           clients={clients}
+          maxStudents={groupInfo.maxStudents}
           groupsForTransfer={groupsForTransfer}
           onRefresh={() => router.refresh()}
         />
@@ -374,12 +375,14 @@ function StudentsTab({
   groupId,
   enrollments,
   clients,
+  maxStudents,
   groupsForTransfer,
   onRefresh,
 }: {
   groupId: string
   enrollments: EnrollmentData[]
   clients: ClientOption[]
+  maxStudents: number
   groupsForTransfer: TransferGroupOption[]
   onRefresh: () => void
 }) {
@@ -388,6 +391,10 @@ function StudentsTab({
   const [enrollError, setEnrollError] = useState<string | null>(null)
   const [selectedClientId, setSelectedClientId] = useState("")
   const [selectedWardId, setSelectedWardId] = useState("")
+
+  // Capacity warning state
+  const [capacityWarningOpen, setCapacityWarningOpen] = useState(false)
+  const [capacityWarningInfo, setCapacityWarningInfo] = useState<{ enrolled: number; maxStudents: number } | null>(null)
 
   // Transfer state
   const [transferOpen, setTransferOpen] = useState(false)
@@ -401,7 +408,7 @@ function StudentsTab({
   const activeEnrollments = enrollments.filter((e) => e.isActive)
   const inactiveEnrollments = enrollments.filter((e) => !e.isActive)
 
-  async function handleEnroll() {
+  async function handleEnroll(force = false) {
     setEnrolling(true)
     setEnrollError(null)
     try {
@@ -411,11 +418,19 @@ function StudentsTab({
         body: JSON.stringify({
           clientId: selectedClientId,
           wardId: selectedWardId || null,
+          force,
         }),
       })
+      const data = await res.json()
       if (!res.ok) {
-        const data = await res.json()
         setEnrollError(data.error || "Ошибка зачисления")
+        return
+      }
+      // Check for capacity warning
+      if (data.warning === "group_full") {
+        setCapacityWarningInfo({ enrolled: data.enrolled, maxStudents: data.maxStudents })
+        setEnrollOpen(false)
+        setCapacityWarningOpen(true)
         return
       }
       setEnrollOpen(false)
@@ -427,6 +442,11 @@ function StudentsTab({
     } finally {
       setEnrolling(false)
     }
+  }
+
+  async function handleForceEnroll() {
+    setCapacityWarningOpen(false)
+    await handleEnroll(true)
   }
 
   function openTransfer(enrollment: EnrollmentData) {
@@ -628,6 +648,50 @@ function StudentsTab({
           </Table>
         </div>
       )}
+
+      {/* Диалог предупреждения о превышении лимита */}
+      <Dialog
+        open={capacityWarningOpen}
+        onOpenChange={(val) => {
+          setCapacityWarningOpen(val)
+          if (!val) setCapacityWarningInfo(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-5 text-amber-500" />
+              Группа заполнена
+            </DialogTitle>
+            <DialogDescription>
+              {capacityWarningInfo
+                ? `Группа заполнена (${capacityWarningInfo.enrolled}/${capacityWarningInfo.maxStudents}). Всё равно зачислить?`
+                : "Группа заполнена. Всё равно зачислить?"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300">
+            Количество учеников превышает установленный лимит группы. Зачисление возможно, но рекомендуется увеличить лимит или перевести ученика в другую группу.
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCapacityWarningOpen(false)
+                setCapacityWarningInfo(null)
+              }}
+            >
+              Отмена
+            </Button>
+            <Button
+              variant="default"
+              onClick={handleForceEnroll}
+              disabled={enrolling}
+            >
+              {enrolling ? "Зачисление..." : "Зачислить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Диалог перевода */}
       <Dialog

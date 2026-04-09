@@ -40,6 +40,7 @@ const enrollSchema = z.object({
     .optional()
     .transform((v) => (v?.trim() === "" ? null : v?.trim() ?? null)),
   selectedDays: z.array(z.number()).nullable().optional(),
+  force: z.boolean().optional(),
 })
 
 export async function POST(
@@ -69,7 +70,21 @@ export async function POST(
     )
   }
 
-  const { clientId, wardId, selectedDays } = parsed.data
+  const { clientId, wardId, selectedDays, force } = parsed.data
+
+  // Проверяем лимит группы
+  if (!force) {
+    const activeCount = await db.groupEnrollment.count({
+      where: { groupId: id, tenantId, isActive: true, deletedAt: null },
+    })
+    if (activeCount >= group.maxStudents) {
+      return NextResponse.json({
+        warning: "group_full",
+        enrolled: activeCount,
+        maxStudents: group.maxStudents,
+      })
+    }
+  }
 
   // Проверяем нет ли дубля
   const existing = await db.groupEnrollment.findFirst({
