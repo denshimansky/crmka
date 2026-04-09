@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog"
 import { Plus, Pencil, X, Ban } from "lucide-react"
 import { AddWardForm } from "./add-ward-form"
+import { CommunicationFeed } from "@/components/communication-feed"
 
 interface Ward {
   id: string
@@ -836,6 +837,7 @@ export function ClientTabs({
         <TabsTrigger value="subscriptions">Абонементы</TabsTrigger>
         <TabsTrigger value="payments">Оплаты</TabsTrigger>
         <TabsTrigger value="attendance">Посещения</TabsTrigger>
+        <TabsTrigger value="communications">Коммуникации</TabsTrigger>
         <TabsTrigger value="history">История</TabsTrigger>
       </TabsList>
 
@@ -890,6 +892,10 @@ export function ClientTabs({
             Будет в модуле 5
           </CardContent>
         </Card>
+      </TabsContent>
+
+      <TabsContent value="communications">
+        <CommunicationFeed clientId={clientId} />
       </TabsContent>
 
       <TabsContent value="history">

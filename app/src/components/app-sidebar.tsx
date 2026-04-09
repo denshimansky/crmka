@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   Landmark, ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
   UserCog, Settings, Sparkles, ChevronDown, LogOut, Map, FileText, Crown,
-  CalendarDays, Tag, Target, Award,
+  CalendarDays, Tag, Target, Award, Plug,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import {
@@ -59,6 +59,7 @@ const otherItems = [
   { title: "Настройки", href: "/settings", icon: Settings },
   { title: "Шаблоны скидок", href: "/settings/discount-templates", icon: Tag },
   { title: "Бонусы админов", href: "/settings/admin-bonus", icon: Award },
+  { title: "Интеграции", href: "/settings/integrations", icon: Plug },
   { title: "Roadmap", href: "/roadmap", icon: Map },
   { title: "Changelog", href: "/changelog", icon: FileText },
 ]
