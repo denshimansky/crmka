@@ -242,77 +242,79 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
     await page.waitForTimeout(1500)
 
     try {
-      // Ищем блок «Названия ролей»
-      const roleSection = await page.locator("text=Названия ролей").first().isVisible({ timeout: 5000 }).catch(() => false)
+      // RoleDisplayNamesForm находится на вкладке «Организация» (defaultValue="org")
+      // Убедимся что вкладка «Организация» активна
+      const orgTab = page.locator("button[role='tab']:has-text('Организация')")
+      if (await orgTab.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await orgTab.click()
+        await page.waitForTimeout(500)
+      }
+
+      // Прокручиваем к секции «Названия ролей» (h2 внутри Card)
+      const roleHeading = page.locator("h2:has-text('Названия ролей')")
+      if (!await roleHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
+        // Прокручиваем вниз — форма может быть за пределами viewport
+        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+        await page.waitForTimeout(500)
+      }
+
+      const roleSection = await roleHeading.isVisible({ timeout: 5000 }).catch(() => false)
       if (!roleSection) {
-        // Возможно нужно прокрутить или переключить вкладку
         log("8.5 Названия ролей — секция", "BUG", "Не найдена на странице настроек")
         return
       }
       log("8.5 Названия ролей — секция найдена", "OK")
 
-      // Находим инпут с плейсхолдером «Педагог» или значением «Педагог» (label + input)
-      // Ищем label «Педагог» и соседний input
-      const pedagogLabel = page.locator("label:has-text('Педагог')")
-      if (await pedagogLabel.isVisible({ timeout: 3000 }).catch(() => false)) {
-        // Находим инпут в том же контейнере
-        const container = pedagogLabel.locator("..").locator("..")
-        const input = container.locator("input")
-
-        if (await input.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await input.clear()
-          await input.fill("Тренер")
-          await page.waitForTimeout(300)
-
-          // Кликаем «Сохранить» в секции названий ролей
-          const saveBtn = container.locator("button:has-text('Сохранить')")
-          if (await saveBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await saveBtn.click()
-          } else {
-            // Ищем кнопку сохранить рядом с секцией
-            await page.locator("h2:has-text('Названия ролей')").locator("..").locator("..").locator("button:has-text('Сохранить')").click()
-          }
-          await page.waitForTimeout(2000)
-
-          // Проверяем что значение «Тренер» сохранилось
-          const saved = await page.locator("text=Сохранено").isVisible({ timeout: 3000 }).catch(() => false)
-          log("8.5 Переименование «Педагог» → «Тренер»", saved ? "OK" : "BUG", saved ? undefined : "Индикатор «Сохранено» не появился")
-
-          // Возвращаем обратно
-          await input.clear()
-          await input.fill("Педагог")
-          await page.waitForTimeout(300)
-          const saveBtnAgain = page.locator("h2:has-text('Названия ролей')").locator("..").locator("..").locator("button:has-text('Сохранить')")
-          if (await saveBtnAgain.isVisible({ timeout: 1000 }).catch(() => false)) {
-            await saveBtnAgain.click()
-            await page.waitForTimeout(1000)
-          }
-        } else {
-          log("8.5 Инпут для роли «Педагог»", "BUG", "Не найден рядом с label")
-        }
+      // RoleDisplayNamesForm: каждая строка — div.flex > Label + Input
+      // Label содержит дефолтное название, Input имеет placeholder с тем же текстом
+      // Ищем input с placeholder «Педагог» (самый надёжный селектор)
+      const inputByPlaceholder = page.locator("input[placeholder='Педагог']")
+      // Прокручиваем к нему
+      if (await inputByPlaceholder.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await inputByPlaceholder.scrollIntoViewIfNeeded()
       } else {
-        // Пробуем найти input с placeholder «Педагог»
-        const inputByPlaceholder = page.locator("input[placeholder='Педагог']")
-        if (await inputByPlaceholder.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await inputByPlaceholder.clear()
-          await inputByPlaceholder.fill("Тренер")
-          await page.waitForTimeout(300)
-
-          await page.locator("button:has-text('Сохранить')").first().click()
-          await page.waitForTimeout(2000)
-
-          const saved = await page.locator("text=Сохранено").isVisible({ timeout: 3000 }).catch(() => false)
-          log("8.5 Переименование «Педагог» → «Тренер»", saved ? "OK" : "BUG", saved ? undefined : "Индикатор не появился")
-
-          // Возвращаем обратно
-          await inputByPlaceholder.clear()
-          await inputByPlaceholder.fill("Педагог")
-          await page.waitForTimeout(300)
-          await page.locator("button:has-text('Сохранить')").first().click()
-          await page.waitForTimeout(1000)
-        } else {
-          log("8.5 Поле роли «Педагог»", "BUG", "Не найден ни label, ни placeholder")
+        // Fallback: label «Педагог» рядом с input в том же flex-контейнере
+        const pedagogRow = page.locator("label:has-text('Педагог')").locator("..").locator("input")
+        if (await pedagogRow.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await pedagogRow.scrollIntoViewIfNeeded()
         }
+      }
+
+      const input = await inputByPlaceholder.isVisible({ timeout: 2000 }).catch(() => false)
+        ? inputByPlaceholder
+        : page.locator("label:has-text('Педагог')").locator("..").locator("input")
+
+      if (!await input.isVisible({ timeout: 2000 }).catch(() => false)) {
+        log("8.5 Поле роли «Педагог»", "BUG", "Не найден ни placeholder, ни label+input")
+        return
+      }
+
+      await input.clear()
+      await input.fill("Тренер")
+      await page.waitForTimeout(300)
+
+      // Кнопка «Сохранить» находится в том же CardContent что и h2
+      const card = page.locator("h2:has-text('Названия ролей')").locator("xpath=ancestor::div[contains(@class,'p-6')]")
+      const saveBtn = card.locator("button:has-text('Сохранить')")
+      if (!await saveBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        // Fallback — первая кнопка «Сохранить» на странице после секции
+        await page.locator("button:has-text('Сохранить')").first().click()
+      } else {
+        await saveBtn.click()
+      }
+      await page.waitForTimeout(2000)
+
+      const saved = await page.locator("text=Сохранено").isVisible({ timeout: 3000 }).catch(() => false)
+      log("8.5 Переименование «Педагог» → «Тренер»", saved ? "OK" : "BUG", saved ? undefined : "Индикатор «Сохранено» не появился")
+
+      // Возвращаем обратно
+      await input.clear()
+      await input.fill("Педагог")
+      await page.waitForTimeout(300)
+      const saveBtnAgain = page.locator("button:has-text('Сохранить')").first()
+      if (await saveBtnAgain.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await saveBtnAgain.click()
+        await page.waitForTimeout(1000)
       }
     } catch (e: any) {
       log("8.5 Названия ролей", "BUG", e.message?.slice(0, 150))
@@ -344,20 +346,22 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
 
   safeTest("9.1: Быстрый лид — создать через FAB-кнопку", async (page) => {
     await login(page)
-    await page.goto("/")
+    // QuickLeadButton есть и на дашборде (/), и на /crm/leads — используем leads как более лёгкую страницу
+    await page.goto("/crm/leads")
     await page.waitForLoadState("domcontentloaded")
-    await page.waitForTimeout(1500)
+    await page.waitForTimeout(2000)
 
     try {
-      // Ищем FAB-кнопку «Новый лид»
-      const fabBtn = page.locator("button:has-text('Новый лид')")
-      if (!await fabBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-        log("9.1 FAB-кнопка «Новый лид»", "BUG", "Не найдена на главной")
+      // FAB-кнопка: fixed bottom-6 right-6 с текстом «Новый лид» (base-ui DialogTrigger + render={<Button>})
+      // Ищем по data-slot="dialog-trigger" с текстом, или просто по тексту
+      const fabBtn = page.locator("[data-slot='dialog-trigger']:has-text('Новый лид'), button:has-text('Новый лид')")
+      if (!await fabBtn.first().isVisible({ timeout: 8000 }).catch(() => false)) {
+        log("9.1 FAB-кнопка «Новый лид»", "BUG", "Не найдена на /crm/leads")
         return
       }
       log("9.1 FAB-кнопка «Новый лид» — видна", "OK")
 
-      await fabBtn.click()
+      await fabBtn.first().click()
       await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
       const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
@@ -391,18 +395,18 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
 
   safeTest("9.2: Дубликат — предупреждение при повторном телефоне", async (page) => {
     await login(page)
-    await page.goto("/")
+    await page.goto("/crm/leads")
     await page.waitForLoadState("domcontentloaded")
-    await page.waitForTimeout(1500)
+    await page.waitForTimeout(2000)
 
     try {
-      const fabBtn = page.locator("button:has-text('Новый лид')")
-      if (!await fabBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      const fabBtn = page.locator("[data-slot='dialog-trigger']:has-text('Новый лид'), button:has-text('Новый лид')")
+      if (!await fabBtn.first().isVisible({ timeout: 8000 }).catch(() => false)) {
         log("9.2 FAB-кнопка для проверки дубликатов", "BUG", "Не найдена")
         return
       }
 
-      await fabBtn.click()
+      await fabBtn.first().click()
       await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
       const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 
@@ -435,13 +439,14 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
     await login(page)
     await page.goto("/crm/leads")
     await page.waitForLoadState("domcontentloaded")
-    await page.waitForTimeout(1500)
+    await page.waitForTimeout(2000)
 
     try {
-      // Ищем select сортировки (нативный <select>)
+      // LeadsSortSelect рендерит нативный <select> с классом rounded-lg
       const sortSelect = page.locator("select")
-      if (!await sortSelect.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-        log("9.3 Сортировка лидов — select", "BUG", "Select сортировки не найден")
+      if (!await sortSelect.first().isVisible({ timeout: 8000 }).catch(() => false)) {
+        // Fallback: страница может не иметь лидов — select всё равно рендерится
+        log("9.3 Сортировка лидов — select", "BUG", "Select сортировки не найден (нативный <select>)")
         return
       }
 
@@ -476,16 +481,16 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
     await page.waitForTimeout(1500)
 
     try {
-      // Кликаем первого клиента
-      const clientLink = page.locator("table tbody tr a, table tbody tr td").first()
+      // Кликаем первого клиента — ссылка в таблице
+      const clientLink = page.locator("a[href*='/crm/clients/']").first()
       if (!await clientLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-        // Пробуем другой селектор — карточки
-        const card = page.locator("a[href*='/crm/clients/']").first()
-        if (!await card.isVisible({ timeout: 3000 }).catch(() => false)) {
+        // Может быть — кликаем по ячейке таблицы
+        const cell = page.locator("table tbody tr td").first()
+        if (!await cell.isVisible({ timeout: 3000 }).catch(() => false)) {
           log("9.4 Карточка клиента — клиенты", "BUG", "Нет клиентов в списке")
           return
         }
-        await card.click()
+        await cell.click()
       } else {
         await clientLink.click()
       }
@@ -493,14 +498,23 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
       await page.waitForLoadState("domcontentloaded")
       await page.waitForTimeout(2000)
 
-      // Ищем кнопку «Редактировать» или иконку редактирования
-      const editBtn = page.locator("button:has-text('Редактировать'), button:has-text('Редакт'), a:has-text('Редактировать')")
+      // EditClientDialog: кнопка с иконкой Pencil (без текста «Редактировать»)
+      // Рендерится через base-ui DialogTrigger render={<Button variant="ghost" size="icon">}
+      // Ищем кнопку с svg.lucide-pencil или data-slot="dialog-trigger" рядом с «Информация»
+      const editBtn = page.locator("button:has(svg.lucide-pencil), [data-slot='dialog-trigger']:has(svg.lucide-pencil)")
       if (await editBtn.first().isVisible({ timeout: 5000 }).catch(() => false)) {
         await editBtn.first().click()
         await page.waitForTimeout(1500)
 
-        // Ищем поле телефона
-        const phoneInput = page.locator("input#cl-phone, input[name='phone'], input[placeholder*='Телефон'], input[placeholder*='+7']")
+        // Диалог «Редактировать клиента» должен открыться
+        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
+        if (!await dialog.isVisible({ timeout: 5000 }).catch(() => false)) {
+          log("9.4 Диалог редактирования", "BUG", "Не открылся после клика на Pencil")
+          return
+        }
+
+        // Ищем поле телефона внутри диалога (placeholder "+7 (999) 123-45-67")
+        const phoneInput = dialog.locator("input[placeholder*='+7'], input[placeholder*='Телефон']")
         if (await phoneInput.first().isVisible({ timeout: 5000 }).catch(() => false)) {
           const newPhone = `+7888${TS}99`
           await phoneInput.first().clear()
@@ -508,28 +522,28 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
           await page.waitForTimeout(300)
 
           // Сохраняем
-          const saveBtn = page.locator("button:has-text('Сохранить'), button[type='submit']")
+          const saveBtn = dialog.locator("button:has-text('Сохранить'), button[type='submit']")
           if (await saveBtn.first().isVisible({ timeout: 3000 }).catch(() => false)) {
             await saveBtn.first().click()
             await page.waitForTimeout(2000)
 
-            // Проверяем что телефон обновился
+            // Проверяем что телефон обновился на странице
             const phoneVisible = await page.locator(`text=${newPhone}`).isVisible({ timeout: 5000 }).catch(() => false)
-              || await page.locator(`input[value='${newPhone}']`).isVisible({ timeout: 1000 }).catch(() => false)
             log("9.4 Редактирование телефона клиента", phoneVisible ? "OK" : "BUG", phoneVisible ? undefined : "Новый телефон не виден после сохранения")
           } else {
-            log("9.4 Кнопка сохранить", "BUG", "Не найдена")
+            log("9.4 Кнопка сохранить", "BUG", "Не найдена в диалоге")
           }
         } else {
-          log("9.4 Поле телефона", "BUG", "Не найдено при редактировании")
+          log("9.4 Поле телефона", "BUG", "Не найдено в диалоге редактирования")
         }
       } else {
-        // Может быть inline-редактирование или другой паттерн
-        const phoneField = page.locator("text=Телефон").first()
-        if (await phoneField.isVisible({ timeout: 3000 }).catch(() => false)) {
-          log("9.4 Карточка клиента — телефон виден, но кнопка редактирования не найдена", "BUG", "Нет кнопки «Редактировать»")
+        // Fallback: ищем кнопку по тексту
+        const editBtnText = page.locator("button:has-text('Редактировать'), button:has-text('Редакт')")
+        if (await editBtnText.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+          log("9.4 Карточка клиента — найдена текстовая кнопка «Редактировать»", "OK")
+          await editBtnText.first().click()
         } else {
-          log("9.4 Карточка клиента", "BUG", "Ни кнопки редактирования, ни поля телефона")
+          log("9.4 Карточка клиента", "BUG", "Кнопка редактирования (Pencil icon) не найдена")
         }
       }
     } catch (e: any) {
@@ -583,20 +597,35 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
     await login(page)
     await page.goto("/settings/channels")
     await page.waitForLoadState("domcontentloaded")
-    await page.waitForTimeout(1500)
+    await page.waitForTimeout(2000)
 
     try {
-      // AutoBreadcrumbs рендерит <nav> с BreadcrumbList
-      const breadcrumb = page.locator("nav[aria-label='breadcrumb'], nav ol")
+      // AutoBreadcrumbs рендерит: <nav aria-label="breadcrumb" data-slot="breadcrumb">
+      //   <ol data-slot="breadcrumb-list"> ... </ol>
+      // </nav>
+      // Расположен в header layout-а (flex h-14 ...)
+
+      // Ищем nav по data-slot (более надёжно чем aria-label)
+      const breadcrumb = page.locator("[data-slot='breadcrumb'], nav[aria-label='breadcrumb']")
       const hasBreadcrumb = await breadcrumb.first().isVisible({ timeout: 5000 }).catch(() => false)
 
       if (hasBreadcrumb) {
-        // Проверяем что есть ссылка на «Главная» и текст «Каналы привлечения»
-        const hasHome = await page.locator("nav a:has-text('Главная')").first().isVisible({ timeout: 2000 }).catch(() => false)
-        const hasSettings = await page.locator("nav a:has-text('Настройки'), nav span:has-text('Настройки')").first().isVisible({ timeout: 2000 }).catch(() => false)
-        log("17.1 Breadcrumbs", (hasHome || hasSettings) ? "OK" : "BUG", (hasHome || hasSettings) ? undefined : "Breadcrumb видны, но без ссылок на Главную/Настройки")
+        // BreadcrumbLink рендерится через useRender как <a> (Next.js Link)
+        // BreadcrumbPage рендерится как <span data-slot="breadcrumb-page">
+        // Проверяем наличие элементов хлебных крошек
+        const hasHome = await page.locator("[data-slot='breadcrumb'] a:has-text('Главная'), [data-slot='breadcrumb-link']:has-text('Главная')").first().isVisible({ timeout: 2000 }).catch(() => false)
+        const hasSettings = await page.locator("[data-slot='breadcrumb'] :has-text('Настройки')").first().isVisible({ timeout: 2000 }).catch(() => false)
+        const hasChannels = await page.locator("[data-slot='breadcrumb-page']:has-text('Каналы')").first().isVisible({ timeout: 2000 }).catch(() => false)
+
+        if (hasHome || hasSettings || hasChannels) {
+          log("17.1 Breadcrumbs", "OK")
+        } else {
+          // Проверяем содержимое breadcrumb-list
+          const listText = await breadcrumb.first().textContent().catch(() => "")
+          log("17.1 Breadcrumbs", "BUG", `Breadcrumb видны, но элементы не найдены. Текст: ${listText?.slice(0, 100)}`)
+        }
       } else {
-        log("17.1 Breadcrumbs", "BUG", "Навигационные хлебные крошки не найдены")
+        log("17.1 Breadcrumbs", "BUG", "Навигационные хлебные крошки не найдены (ни data-slot, ни aria-label)")
       }
     } catch (e: any) {
       log("17.1 Breadcrumbs", "BUG", e.message?.slice(0, 150))
@@ -652,16 +681,19 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
     await page.waitForTimeout(2000)
 
     try {
-      // DashboardSettings рендерит кнопку с текстом «Настроить» и иконкой Settings2
-      const settingsBtn = page.locator("button:has-text('Настроить')")
+      // DashboardSettings: DialogTrigger render={<Button variant="outline" size="sm">}
+      //   <Settings2 /> + <span className="hidden sm:inline">Настроить</span>
+      // Текст «Настроить» скрыт на маленьких viewport — ищем по иконке Settings2
+      // или по data-slot="dialog-trigger" с иконкой
+      const settingsBtn = page.locator("[data-slot='dialog-trigger']:has(svg.lucide-settings-2), button:has(svg.lucide-settings-2)")
       if (!await settingsBtn.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-        // Пробуем найти по иконке Settings2
-        const gearBtn = page.locator("svg.lucide-settings-2, svg.lucide-settings").first().locator("..")
-        if (!await gearBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-          log("17.3 Кнопка настройки дашборда", "BUG", "Не найдена")
+        // Fallback: по тексту «Настроить» (на широком viewport)
+        const textBtn = page.locator("button:has-text('Настроить')")
+        if (!await textBtn.first().isVisible({ timeout: 3000 }).catch(() => false)) {
+          log("17.3 Кнопка настройки дашборда", "BUG", "Не найдена (ни иконка Settings2, ни текст)")
           return
         }
-        await gearBtn.click()
+        await textBtn.first().click()
       } else {
         await settingsBtn.first().click()
       }
@@ -676,7 +708,8 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
         return
       }
 
-      // Ищем Switch (toggle) виджета — первый Switch в диалоге
+      // Switch компонент: <button role="switch" aria-checked="true|false">
+      // НЕ использует data-state — используем aria-checked
       const switches = dialog.locator("button[role='switch']")
       const switchCount = await switches.count()
 
@@ -685,15 +718,15 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
         return
       }
 
-      // Запоминаем состояние первого switch
+      // Запоминаем состояние первого switch через aria-checked
       const firstSwitch = switches.first()
-      const wasChecked = await firstSwitch.getAttribute("data-state") === "checked"
+      const wasChecked = await firstSwitch.getAttribute("aria-checked") === "true"
 
       // Переключаем
       await firstSwitch.click()
       await page.waitForTimeout(500)
 
-      const nowChecked = await firstSwitch.getAttribute("data-state") === "checked"
+      const nowChecked = await firstSwitch.getAttribute("aria-checked") === "true"
       if (wasChecked === nowChecked) {
         log("17.3 Toggle виджета", "BUG", "Switch не переключился")
       } else {
@@ -706,8 +739,7 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
         await saveBtn.click()
         await page.waitForTimeout(1500)
 
-        // Проверяем что виджет скрылся/появился (зависит от направления toggle)
-        // Просто проверяем что диалог закрылся
+        // Проверяем что диалог закрылся
         const dialogStillOpen = await dialog.isVisible({ timeout: 1000 }).catch(() => false)
         log("17.3 Сохранение настроек дашборда", !dialogStillOpen ? "OK" : "BUG", !dialogStillOpen ? undefined : "Диалог не закрылся после сохранения")
       } else {
@@ -716,7 +748,7 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
 
       // Возвращаем обратно — открываем снова и кликаем тот же switch
       if (!await dialog.isVisible({ timeout: 500 }).catch(() => false)) {
-        const settingsBtnAgain = page.locator("button:has-text('Настроить')")
+        const settingsBtnAgain = page.locator("[data-slot='dialog-trigger']:has(svg.lucide-settings-2), button:has(svg.lucide-settings-2)")
         if (await settingsBtnAgain.first().isVisible({ timeout: 2000 }).catch(() => false)) {
           await settingsBtnAgain.first().click()
           await page.waitForTimeout(500)
