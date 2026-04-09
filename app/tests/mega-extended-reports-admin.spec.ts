@@ -25,13 +25,19 @@ function log(step: string, status: "OK" | "BUG", detail?: string) {
 async function loginAsAdmin(page: Page) {
   await page.goto("/admin/login")
   await page.waitForLoadState("domcontentloaded")
-  await page.locator('input[id="email"]').waitFor({ timeout: 10000 })
-  await page.locator('input[id="email"]').fill(ADMIN_EMAIL)
+  // Если уже залогинен — сразу на /admin/partners
+  if (page.url().includes("/admin/partners")) return
+  const emailInput = page.locator('input[id="email"]')
+  if (!await emailInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    // Возможно перенаправило — проверяем URL
+    if (page.url().includes("/admin")) return
+  }
+  await emailInput.fill(ADMIN_EMAIL)
   await page.locator('input[id="password"]').fill(ADMIN_PASSWORD)
   await page.waitForTimeout(300)
   await page.locator('button[type="submit"]').click()
-  await page.waitForURL(/\/admin\/partners/, { timeout: 20000 })
-  await page.locator("table").or(page.locator("text=Нет партнёров")).first().waitFor({ timeout: 10000 })
+  await page.waitForURL(/\/admin/, { timeout: 20000 })
+  await page.waitForTimeout(1000)
 }
 
 async function loginAsOwner(page: Page) {

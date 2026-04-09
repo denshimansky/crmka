@@ -185,25 +185,31 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
       // Ждём загрузку матрицы (таблица с чекбоксами)
       await page.waitForSelector("table", { timeout: 10000 })
 
-      // Находим первый не-disabled чекбокс (не owner-column) и кликаем
-      const checkboxes = page.locator("table button[role='checkbox']:not([disabled])")
+      // Находим не-disabled чекбоксы (Base UI: disabled attr или aria-disabled)
+      const allCheckboxes = page.locator("table button[role='checkbox']")
+      const totalCount = await allCheckboxes.count()
+
+      // Фильтруем: не disabled и не aria-disabled
+      const checkboxes = page.locator("table button[role='checkbox']:not([disabled]):not([aria-disabled='true'])")
       const count = await checkboxes.count()
 
       if (count === 0) {
-        log("8.4 Права ролей — нет доступных чекбоксов", "BUG", "Все чекбоксы disabled")
+        log("8.4 Права ролей — нет доступных чекбоксов", "BUG", `Всего ${totalCount}, все disabled (возможно user.role !== owner)`)
         return
       }
 
-      // Запоминаем текущее состояние первого чекбокса
+      // Запоминаем текущее состояние первого чекбокса (Base UI: data-checked, aria-checked)
       const firstCheckbox = checkboxes.first()
-      const wasChecked = await firstCheckbox.getAttribute("data-state") === "checked"
+      const wasChecked = await firstCheckbox.getAttribute("aria-checked") === "true"
+        || await firstCheckbox.getAttribute("data-checked") !== null
 
       // Кликаем
       await firstCheckbox.click()
       await page.waitForTimeout(500)
 
       // Проверяем что состояние изменилось
-      const nowChecked = await firstCheckbox.getAttribute("data-state") === "checked"
+      const nowChecked = await firstCheckbox.getAttribute("aria-checked") === "true"
+        || await firstCheckbox.getAttribute("data-checked") !== null
       if (wasChecked === nowChecked) {
         log("8.4 Права ролей — чекбокс не переключился", "BUG", `was: ${wasChecked}, now: ${nowChecked}`)
       } else {
@@ -293,14 +299,13 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
       await input.fill("Тренер")
       await page.waitForTimeout(300)
 
-      // Кнопка «Сохранить» находится в том же CardContent что и h2
-      const card = page.locator("h2:has-text('Названия ролей')").locator("xpath=ancestor::div[contains(@class,'p-6')]")
-      const saveBtn = card.locator("button:has-text('Сохранить')")
-      if (!await saveBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-        // Fallback — первая кнопка «Сохранить» на странице после секции
-        await page.locator("button:has-text('Сохранить')").first().click()
-      } else {
+      // Кнопка «Сохранить» — ищем ближайшую после секции ролей
+      const saveBtn = page.locator("button:has-text('Сохранить')").first()
+      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await saveBtn.click()
+      } else {
+        log("8.5 Кнопка «Сохранить» для ролей", "BUG", "Не найдена")
+        return
       }
       await page.waitForTimeout(2000)
 
