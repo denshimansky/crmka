@@ -2,14 +2,13 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Plus, CalendarDays } from "lucide-react"
 import { ScheduleWeekNav } from "./schedule-week-nav"
 import { CancelDayDialog } from "./cancel-day-dialog"
 import { SchedulePrintButton } from "@/components/schedule-print"
 import { CopyMonthDialog } from "./copy-month-dialog"
 import { PageHelp } from "@/components/page-help"
+import { ScheduleFilterableGrid } from "./schedule-filters"
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -26,22 +25,6 @@ const DIRECTION_COLORS: Record<number, string> = {
 
 function getColorForIndex(index: number): string {
   return DIRECTION_COLORS[index % Object.keys(DIRECTION_COLORS).length] || DIRECTION_COLORS[0]
-}
-
-function getOccupancyStyle(enrolled: number, max: number): { className: string; label: string } {
-  if (max === 0) return { className: "border-l-4 border-l-gray-400", label: "—" }
-  const ratio = enrolled / max
-  if (ratio > 0.9) {
-    return { className: "border-l-4 border-l-red-500", label: "заполнена" }
-  }
-  if (ratio >= 0.7) {
-    return { className: "border-l-4 border-l-yellow-500", label: "почти заполнена" }
-  }
-  return { className: "border-l-4 border-l-green-500", label: "свободно" }
-}
-
-function formatDateShort(date: Date): string {
-  return date.toLocaleDateString("ru-RU", { day: "numeric" })
 }
 
 function getWeekRange(offset: number = 0) {
@@ -102,12 +85,12 @@ export default async function SchedulePage({
           },
         },
       },
-      instructor: { select: { firstName: true, lastName: true } },
+      instructor: { select: { id: true, firstName: true, lastName: true } },
     },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
   })
 
-  // Собираем уникальные кабинеты
+  // Collect unique rooms
   const roomMap = new Map<string, { id: string; name: string }>()
   for (const lesson of lessons) {
     if (!roomMap.has(lesson.group.room.id)) {
@@ -116,21 +99,68 @@ export default async function SchedulePage({
   }
   const rooms = Array.from(roomMap.values())
 
-  // Цвета для направлений
-  const directionIds = [...new Set(lessons.map((l) => l.group.directionId))]
-  const directionColorMap = new Map<string, string>()
-  directionIds.forEach((id, i) => directionColorMap.set(id, getColorForIndex(i)))
+  // Collect unique directions
+  const directionMap = new Map<string, { id: string; name: string }>()
+  for (const lesson of lessons) {
+    if (!directionMap.has(lesson.group.direction.id)) {
+      directionMap.set(lesson.group.direction.id, {
+        id: lesson.group.direction.id,
+        name: lesson.group.direction.name,
+      })
+    }
+  }
+  const directions = Array.from(directionMap.values()).sort((a, b) =>
+    a.name.localeCompare(b.name, "ru")
+  )
 
-  // Дни недели с датами
+  // Collect unique instructors
+  const instructorMap = new Map<string, { id: string; firstName: string | null; lastName: string }>()
+  for (const lesson of lessons) {
+    if (!instructorMap.has(lesson.instructor.id)) {
+      instructorMap.set(lesson.instructor.id, lesson.instructor)
+    }
+  }
+  const instructors = Array.from(instructorMap.values()).sort((a, b) =>
+    a.lastName.localeCompare(b.lastName, "ru")
+  )
+
+  // Direction color map
+  const directionIds = [...new Set(lessons.map((l) => l.group.directionId))]
+  const directionColorMap: Record<string, string> = {}
+  directionIds.forEach((id, i) => {
+    directionColorMap[id] = getColorForIndex(i)
+  })
+
+  // Week days as ISO date strings
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday)
     d.setDate(monday.getDate() + i)
-    return d
+    return d.toISOString().slice(0, 10)
   })
 
   const weekLabel = formatWeekLabel(monday, sunday)
   const hasLessons = lessons.length > 0
   const defaultDate = monday.toISOString().slice(0, 10)
+
+  // Serialize lessons for client component (Date -> string)
+  const serializedLessons = lessons.map((l) => ({
+    id: l.id,
+    date: l.date.toISOString().slice(0, 10),
+    startTime: l.startTime,
+    instructorId: l.instructorId,
+    group: {
+      name: l.group.name,
+      directionId: l.group.directionId,
+      maxStudents: l.group.maxStudents,
+      room: { id: l.group.room.id, name: l.group.room.name },
+      direction: { id: l.group.direction.id, name: l.group.direction.name },
+      _count: { enrollments: l.group._count.enrollments },
+    },
+    instructor: {
+      firstName: l.instructor.firstName,
+      lastName: l.instructor.lastName,
+    },
+  }))
 
   return (
     <div className="space-y-6">
@@ -192,64 +222,15 @@ export default async function SchedulePage({
           </Link>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <div className="min-w-[900px]">
-            <div className="grid gap-px bg-border" style={{ gridTemplateColumns: `120px repeat(7, 1fr)` }}>
-              {/* Header */}
-              <div className="bg-background p-2" />
-              {weekDays.map((day, i) => (
-                <div key={i} className="bg-background p-2 text-center text-sm font-medium">
-                  {DAY_NAMES[i]} {formatDateShort(day)}
-                </div>
-              ))}
-
-              {/* Rows by room */}
-              {rooms.map((room) => (
-                <>
-                  <div key={room.id} className="bg-background p-2 text-sm font-medium text-muted-foreground">
-                    {room.name}
-                  </div>
-                  {weekDays.map((day, di) => {
-                    const dayStr = day.toISOString().slice(0, 10)
-                    const dayLessons = lessons.filter(
-                      (l) =>
-                        l.group.room.id === room.id &&
-                        l.date.toISOString().slice(0, 10) === dayStr
-                    )
-                    return (
-                      <div key={`${room.id}-${di}`} className="min-h-[100px] bg-background p-1 space-y-1">
-                        {dayLessons.map((lesson) => {
-                          const colorClass = directionColorMap.get(lesson.group.directionId) || DIRECTION_COLORS[0]
-                          const enrolled = lesson.group._count.enrollments
-                          const max = lesson.group.maxStudents
-                          const occupancy = getOccupancyStyle(enrolled, max)
-                          const instructorName = [lesson.instructor.lastName, lesson.instructor.firstName?.[0] + "."]
-                            .filter(Boolean)
-                            .join(" ")
-                          return (
-                            <Link key={lesson.id} href={`/schedule/lessons/${lesson.id}`}>
-                              <Card className={`cursor-pointer border p-2 text-xs ${colorClass} ${occupancy.className} hover:opacity-80`} title={occupancy.label}>
-                                <div className="font-bold">{lesson.startTime}</div>
-                                <div className="font-medium">{lesson.group.name}</div>
-                                <div className="opacity-70">{instructorName}</div>
-                                <div className="mt-1 flex items-center justify-between">
-                                  <span className="font-semibold">{enrolled}/{max}</span>
-                                  {max > 0 && enrolled / max > 0.9 && (
-                                    <Badge variant="destructive" className="h-4 px-1 text-[10px]">!</Badge>
-                                  )}
-                                </div>
-                              </Card>
-                            </Link>
-                          )
-                        })}
-                      </div>
-                    )
-                  })}
-                </>
-              ))}
-            </div>
-          </div>
-        </div>
+        <ScheduleFilterableGrid
+          lessons={serializedLessons}
+          rooms={rooms}
+          directions={directions}
+          instructors={instructors}
+          weekDays={weekDays}
+          dayNames={DAY_NAMES}
+          directionColorMap={directionColorMap}
+        />
       )}
     </div>
   )
