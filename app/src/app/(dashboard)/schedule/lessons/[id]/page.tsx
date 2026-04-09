@@ -110,6 +110,13 @@ export default async function LessonCardPage({
     orderBy: { sortOrder: "asc" },
   })
 
+  // Get absence reasons
+  const absenceReasons = await db.absenceReason.findMany({
+    where: { tenantId, isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true },
+  })
+
   // Get salary rate
   const salaryRate = await db.salaryRate.findFirst({
     where: {
@@ -157,6 +164,7 @@ export default async function LessonCardPage({
             chargeAmount: Number(attendance.chargeAmount),
             instructorPayAmount: Number(attendance.instructorPayAmount),
             instructorPayEnabled: attendance.instructorPayEnabled,
+            absenceReasonId: attendance.absenceReasonId,
           }
         : null,
     }
@@ -262,6 +270,7 @@ export default async function LessonCardPage({
         students={students}
         attendanceTypes={attendanceTypesData}
         salaryRate={salaryRateData}
+        absenceReasons={absenceReasons}
       />
     </div>
   )

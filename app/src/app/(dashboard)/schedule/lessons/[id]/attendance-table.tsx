@@ -23,6 +23,11 @@ import {
 } from "@/components/ui/table"
 import { CheckCircle2, Loader2, Users } from "lucide-react"
 
+interface AbsenceReasonData {
+  id: string
+  name: string
+}
+
 interface StudentData {
   enrollmentId: string
   clientId: string
@@ -40,6 +45,7 @@ interface StudentData {
     chargeAmount: number
     instructorPayAmount: number
     instructorPayEnabled: boolean
+    absenceReasonId?: string | null
   } | null
 }
 
@@ -65,6 +71,7 @@ interface AttendanceTableProps {
   students: StudentData[]
   attendanceTypes: AttendanceTypeData[]
   salaryRate: SalaryRateData | null
+  absenceReasons?: AbsenceReasonData[]
 }
 
 function formatMoney(amount: number): string {
@@ -79,6 +86,7 @@ export function AttendanceTable({
   students: initialStudents,
   attendanceTypes,
   salaryRate,
+  absenceReasons = [],
 }: AttendanceTableProps) {
   const router = useRouter()
   const [students, setStudents] = useState(initialStudents)
@@ -230,6 +238,37 @@ export function AttendanceTable({
     await markAttendance(student, student.attendance.attendanceTypeId, newEnabled)
   }
 
+  // Save absence reason
+  async function saveAbsenceReason(student: StudentData, absenceReasonId: string | null) {
+    if (!student.attendance) return
+    try {
+      await fetch(`/api/lessons/${lessonId}/attendance`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          attendanceId: student.attendance.id,
+          absenceReasonId,
+        }),
+      })
+      // Update local state
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.enrollmentId === student.enrollmentId && s.attendance
+            ? { ...s, attendance: { ...s.attendance, absenceReasonId } }
+            : s
+        )
+      )
+    } catch {
+      // silently fail
+    }
+  }
+
+  // Check if attendance type is "absent" (no charge, no instructor pay)
+  function isAbsentType(attendanceTypeId: string): boolean {
+    const type = attendanceTypes.find((t) => t.id === attendanceTypeId)
+    return !!type && !type.chargesSubscription && !type.paysInstructor
+  }
+
   // Summary calculations
   const markedStudents = students.filter((s) => s.attendance)
   const unmarkedStudents = students.filter((s) => !s.attendance)
@@ -320,6 +359,7 @@ export function AttendanceTable({
                 <TableRow>
                   <TableHead className="w-[200px]">Ученик</TableHead>
                   <TableHead className="w-[180px]">Тип дня</TableHead>
+                  <TableHead className="w-[150px]">Причина</TableHead>
                   <TableHead className="w-[120px] text-right">Списание</TableHead>
                   <TableHead className="w-[120px] text-right">ЗП инструктора</TableHead>
                   <TableHead className="w-[80px] text-center">Оплата инструктору</TableHead>
@@ -368,6 +408,35 @@ export function AttendanceTable({
                               ))}
                             </SelectContent>
                           </Select>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {student.attendance &&
+                         isAbsentType(student.attendance.attendanceTypeId) &&
+                         absenceReasons.length > 0 ? (
+                          <Select
+                            value={student.attendance.absenceReasonId || ""}
+                            onValueChange={(val) =>
+                              saveAbsenceReason(student, val || null)
+                            }
+                          >
+                            <SelectTrigger className="w-full text-xs">
+                              {student.attendance.absenceReasonId
+                                ? absenceReasons.find(
+                                    (r) => r.id === student.attendance?.absenceReasonId
+                                  )?.name || "—"
+                                : <span className="text-muted-foreground">Причина</span>}
+                            </SelectTrigger>
+                            <SelectContent>
+                              {absenceReasons.map((r) => (
+                                <SelectItem key={r.id} value={r.id}>
+                                  {r.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
                       <TableCell className="text-right">

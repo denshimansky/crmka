@@ -478,3 +478,35 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   return NextResponse.json({ count: results.length, attendances: results })
 }
+
+// PATCH: Update absence reason on an attendance record
+const patchSchema = z.object({
+  attendanceId: z.string().uuid(),
+  absenceReasonId: z.string().uuid().nullable(),
+})
+
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { id: lessonId } = await params
+  const tenantId = (session.user as any).tenantId
+
+  const body = await req.json()
+  const parsed = patchSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Ошибка валидации" }, { status: 400 })
+  }
+
+  const existing = await db.attendance.findFirst({
+    where: { id: parsed.data.attendanceId, lessonId, tenantId },
+  })
+  if (!existing) return NextResponse.json({ error: "Отметка не найдена" }, { status: 404 })
+
+  const updated = await db.attendance.update({
+    where: { id: parsed.data.attendanceId },
+    data: { absenceReasonId: parsed.data.absenceReasonId },
+  })
+
+  return NextResponse.json(updated)
+}
