@@ -3,7 +3,7 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Building2, MapPin, Megaphone, Palette, Plus, UserX } from "lucide-react"
+import { Building2, MapPin, Megaphone, Palette, Plus, Shield, UserX } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { CreateDirectionDialog } from "./create-direction-dialog"
@@ -334,6 +334,21 @@ export default async function SettingsPage() {
                     <h3 className="font-medium">Мотивация администратора</h3>
                     <p className="text-xs text-muted-foreground mt-1">
                       Бонусная система для администраторов
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href="/settings/role-permissions" className="block">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="flex items-start gap-3 p-5">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Shield className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Права ролей</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Настройка доступа для каждой роли: что видят и могут делать сотрудники
                     </p>
                   </div>
                 </CardContent>
