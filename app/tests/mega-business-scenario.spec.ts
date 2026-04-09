@@ -119,9 +119,9 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
       const createRes = await page.request.post(`/api/admin/partners`, {
         data: {
           name: ORG_NAME,
-          legalName: `ООО "Звёздочка ${TS}"`,
-          inn: "7700000001",
-          phone: "+7 (999) 000-00-01",
+          legalName: `ООО Звёздочка ${TS}`,
+          inn: `77${TS}`.slice(0, 10),
+          phone: `+7999${TS}`.slice(0, 16),
           email: `zv${TS}@example.com`,
           contactPerson: "Директор Звёздочки",
           ownerLastName: "Звёздочкина",
