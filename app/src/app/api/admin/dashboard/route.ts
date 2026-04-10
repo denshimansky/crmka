@@ -64,7 +64,6 @@ export async function GET() {
     by: ["tenantId"],
     where: {
       createdAt: { gte: sevenDaysAgo },
-      tenantId: { not: null },
     },
     _max: { createdAt: true },
   })
