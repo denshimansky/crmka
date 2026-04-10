@@ -850,7 +850,7 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">Абонементы ({subs.length})</CardTitle>
-          <AddSubscriptionDialog clientId={clientId} wards={wards} onSuccess={handleSubUpdated} />
+          <AddSubscriptionDialog clientId={clientId} wards={wards} subscriptions={subs} onSuccess={handleSubUpdated} />
         </div>
       </CardHeader>
       <CardContent>
@@ -1255,10 +1255,12 @@ interface GroupOption {
 function AddSubscriptionDialog({
   clientId,
   wards,
+  subscriptions,
   onSuccess,
 }: {
   clientId: string
   wards: Ward[]
+  subscriptions: Subscription[]
   onSuccess: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -1266,6 +1268,11 @@ function AddSubscriptionDialog({
   const [error, setError] = useState<string | null>(null)
   const [directions, setDirections] = useState<DirectionOption[]>([])
   const [groups, setGroups] = useState<GroupOption[]>([])
+
+  // SUB-12: абонементы с положительным балансом для авто-предложения переноса
+  const subsWithBalance = subscriptions.filter(s =>
+    Number(s.balance) > 0 && (s.status === "closed" || s.status === "churned")
+  )
 
   const [directionId, setDirectionId] = useState("")
   const [groupId, setGroupId] = useState("")
@@ -1400,6 +1407,20 @@ function AddSubscriptionDialog({
           {error && (
             <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
+            </div>
+          )}
+
+          {subsWithBalance.length > 0 && (
+            <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-200">
+              <p className="font-medium">Есть остаток на предыдущих абонементах:</p>
+              {subsWithBalance.map(s => (
+                <p key={s.id} className="mt-1">
+                  {s.direction.name} ({s.periodMonth}/{s.periodYear}) — <b>{formatMoney(Number(s.balance))}</b>
+                </p>
+              ))}
+              <p className="mt-1.5 text-xs text-blue-600 dark:text-blue-300">
+                После создания нового абонемента используйте кнопку ↔ для переноса баланса
+              </p>
             </div>
           )}
 

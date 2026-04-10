@@ -77,6 +77,39 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           data: { completedItems: { increment: 1 } },
         })
       }
+
+      // CALL-04: запись результата обзвона в Communication историю клиента
+      if (prev.clientId) {
+        const campaign = await tx.callCampaign.findUnique({
+          where: { id },
+          select: { name: true },
+        })
+
+        const statusLabels: Record<string, string> = {
+          called: "Дозвонились",
+          no_answer: "Не ответил",
+          callback: "Перезвонить",
+          completed: "Завершён",
+        }
+
+        await tx.communication.create({
+          data: {
+            tenantId: session.user.tenantId,
+            clientId: prev.clientId,
+            type: "call_campaign_result",
+            channel: "phone",
+            direction: "outgoing",
+            content: [statusLabels[data.status] || data.status, data.result, data.comment].filter(Boolean).join(" — "),
+            metadata: {
+              campaignId: id,
+              campaignName: campaign?.name,
+              status: data.status,
+              result: data.result,
+            },
+            employeeId: session.user.employeeId || undefined,
+          },
+        })
+      }
     })
   } catch (e: any) {
     if (e.message === "NOT_FOUND") {
