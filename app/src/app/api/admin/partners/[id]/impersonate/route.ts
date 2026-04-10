@@ -41,7 +41,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   await db.auditLog.create({
     data: {
       tenantId: id,
-      userId: session.adminId,
+      employeeId: owner.id,
       action: "impersonate",
       entityType: "employee",
       entityId: owner.id,
