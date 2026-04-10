@@ -15,6 +15,7 @@ interface AdminUser {
 }
 
 const navItems = [
+  { title: "Дашборд", href: "/admin/dashboard", icon: LayoutDashboard },
   { title: "Партнёры", href: "/admin/partners", icon: Building2 },
   { title: "Тарифы", href: "/admin/plans", icon: CreditCard },
   { title: "Счета", href: "/admin/invoices", icon: Receipt },
