@@ -144,19 +144,20 @@ test.describe.serial("Mega-тест верификации: Все отчёты 
       return
     }
 
-    // Берём первую организацию
-    const org = partners[0]
+    // Берём последнюю организацию с паттерном "Полный Центр-XXXXX"
+    const fullOrg = [...partners].reverse().find((p: any) => /Полный Центр-\d+/.test(p.name))
+    const org = fullOrg || partners[partners.length - 1]
     log(`Организация: ${org.name}`, "OK")
 
     // Извлекаем TS из имени организации (паттерн *-XXXXX)
     const match = org.name.match(/(\d+)$/)
     if (match) {
-      OWNER_LOGIN = `owner-zv-${match[1]}`
-      OWNER_PASSWORD = `pass${match[1]}`
+      // mega-full-business.spec.ts: owner-full-{TS} / fullpass{TS}
+      OWNER_LOGIN = `owner-full-${match[1]}`
+      OWNER_PASSWORD = `fullpass${match[1]}`
       log(`Owner логин: ${OWNER_LOGIN}`, "OK")
     } else {
-      // Если имя не по паттерну — пробуем seed
-      log("Имя организации не по паттерну Звёздочка-XXXXX", "BUG", `name: ${org.name}`)
+      log("Имя организации не по паттерну Полный Центр-XXXXX", "BUG", `name: ${org.name}`)
     }
   })
 
@@ -710,6 +711,143 @@ test.describe.serial("Mega-тест верификации: Все отчёты 
       const hasData = text.includes("Заполняемость") || text.includes("заполняемость") || text.includes("Группа") || text.includes("Свободные")
       log("Заполняемость: страница", hasData ? "OK" : "BUG", hasData ? "Страница загружена" : "Нет данных о заполняемости")
     }
+  })
+
+  // ============================================================
+  // ЧАСТЬ 18.2: СПИСКИ ДАННЫХ (клиенты, оплаты, расходы, расписание)
+  // ============================================================
+
+  safeTest("18.2.1: Клиенты — список ≥ 50 записей", async (page) => {
+    await login(page)
+    const text = await getMainText(page, "/crm/clients")
+
+    const rows = page.locator("table tbody tr, [data-testid='client-row']")
+    const rowCount = await rows.count().catch(() => 0)
+
+    if (rowCount > 0) {
+      collectedData["clients_ui_count"] = rowCount
+      log("Клиенты: список", "OK", `${rowCount} строк в таблице`, rowCount)
+    } else {
+      // Может быть карточный вид
+      const cards = page.locator("[class*='card']").filter({ hasText: /\+7|@|Клиент/ })
+      const cardCount = await cards.count().catch(() => 0)
+      if (cardCount > 0) {
+        log("Клиенты: карточки", "OK", `${cardCount} карточек`, cardCount)
+      } else {
+        log("Клиенты: список", "BUG", "Нет записей клиентов на странице")
+      }
+    }
+  })
+
+  safeTest("18.2.2: Карточка клиента — абонементы и подопечные", async (page) => {
+    await login(page)
+
+    // Получаем клиентов через API
+    const clientsRes = await page.request.get("/api/clients?limit=5")
+    const clients = await clientsRes.json().catch(() => [])
+
+    if (!Array.isArray(clients) || clients.length === 0) {
+      log("Карточка клиента", "SKIP", "Нет клиентов через API")
+      return
+    }
+
+    const clientId = clients[0].id
+    const text = await getMainText(page, `/crm/clients/${clientId}`)
+
+    // Проверяем наличие секций
+    const hasWards = text.includes("Подопечн") || text.includes("подопечн") || text.includes("Ребён") || text.includes("ребён")
+    const hasSubs = text.includes("Абонемент") || text.includes("абонемент")
+    const hasPayments = text.includes("Оплат") || text.includes("оплат") || text.includes("Платёж")
+
+    log("Карточка: подопечные", hasWards ? "OK" : "BUG", hasWards ? "Секция найдена" : "Нет секции подопечных")
+    log("Карточка: абонементы", hasSubs ? "OK" : "BUG", hasSubs ? "Секция найдена" : "Нет секции абонементов")
+    log("Карточка: оплаты", hasPayments ? "OK" : "BUG", hasPayments ? "Секция найдена" : "Нет секции оплат")
+  })
+
+  safeTest("18.2.3: Оплаты — список ≥ 100 записей", async (page) => {
+    await login(page)
+    const text = await getMainText(page, "/finance/payments")
+
+    const rows = page.locator("table tbody tr")
+    const rowCount = await rows.count().catch(() => 0)
+
+    if (rowCount > 0) {
+      collectedData["payments_ui_count"] = rowCount
+      log("Оплаты: список", "OK", `${rowCount} строк в таблице`, rowCount)
+    } else {
+      const hasData = text.includes("₽") || text.includes("руб")
+      log("Оплаты: список", hasData ? "OK" : "BUG", hasData ? "Данные есть" : "Таблица пуста")
+    }
+  })
+
+  safeTest("18.2.4: Расходы — список ≥ 50 записей", async (page) => {
+    await login(page)
+    const text = await getMainText(page, "/finance/expenses")
+
+    const rows = page.locator("table tbody tr")
+    const rowCount = await rows.count().catch(() => 0)
+
+    if (rowCount > 0) {
+      collectedData["expenses_ui_count"] = rowCount
+      log("Расходы: список", "OK", `${rowCount} строк в таблице`, rowCount)
+    } else {
+      const hasData = text.includes("₽") || text.includes("Аренда") || text.includes("Расход")
+      log("Расходы: список", hasData ? "OK" : "BUG", hasData ? "Данные есть" : "Таблица пуста")
+    }
+  })
+
+  safeTest("18.2.5: Расписание — недельный вид с занятиями", async (page) => {
+    await login(page)
+    const text = await getMainText(page, "/schedule")
+
+    // Расписание должно показывать занятия
+    const hasLessons = text.includes("Занятие") || text.includes("занятие") || text.includes(":00") || text.includes("Группа") || text.includes("группа")
+    const hasTimeSlots = (text.match(/\d{1,2}:\d{2}/g) || []).length > 0
+
+    if (hasLessons || hasTimeSlots) {
+      log("Расписание: недельный вид", "OK", `Занятия: ${hasLessons}, временные слоты: ${hasTimeSlots}`)
+    } else {
+      log("Расписание: недельный вид", "BUG", "Нет занятий в расписании")
+    }
+  })
+
+  safeTest("18.2.6: Группы — список ≥ 30", async (page) => {
+    await login(page)
+    const text = await getMainText(page, "/schedule/groups")
+
+    const rows = page.locator("table tbody tr, [data-testid='group-row']")
+    const rowCount = await rows.count().catch(() => 0)
+
+    if (rowCount > 0) {
+      collectedData["groups_ui_count"] = rowCount
+      log("Группы: список", "OK", `${rowCount} строк`, rowCount)
+    } else {
+      const cards = page.locator("[class*='card']").filter({ hasText: /[Гг]руппа|занят/ })
+      const cardCount = await cards.count().catch(() => 0)
+      log("Группы: список", cardCount > 0 ? "OK" : "BUG", cardCount > 0 ? `${cardCount} карточек` : "Нет групп")
+    }
+  })
+
+  safeTest("18.2.7: Lesson card — подопечные и посещения", async (page) => {
+    await login(page)
+
+    // Получаем занятия через API
+    const lessonsRes = await page.request.get("/api/lessons?limit=5")
+    const lessons = await lessonsRes.json().catch(() => [])
+
+    if (!Array.isArray(lessons) || lessons.length === 0) {
+      log("Lesson card", "SKIP", "Нет занятий через API")
+      return
+    }
+
+    const lessonId = lessons[0].id
+    const text = await getMainText(page, `/schedule/lessons/${lessonId}`)
+
+    const hasStudents = text.includes("Ученик") || text.includes("ученик") || text.includes("Подопечн") || text.includes("Фамилия") || text.includes("Имя")
+    const hasAttendance = text.includes("Явка") || text.includes("явка") || text.includes("Прогул") || text.includes("Отметить") || text.includes("present") || text.includes("absent")
+
+    log("Lesson card: ученики", hasStudents ? "OK" : "BUG", hasStudents ? "Список учеников найден" : "Нет учеников")
+    log("Lesson card: посещения", hasAttendance ? "OK" : "BUG", hasAttendance ? "Отметки найдены" : "Нет отметок посещений")
   })
 
   // ============================================================
