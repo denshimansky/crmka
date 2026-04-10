@@ -7,7 +7,7 @@ import { signOut } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   Landmark, ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
-  UserCog, Settings, Sparkles, ChevronDown, LogOut, Map, FileText, Crown,
+  UserCog, Settings, Sparkles, ChevronDown, LogOut, Crown,
   CalendarDays, Tag, Target, Award, Plug, Copy, Upload,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
@@ -62,8 +62,6 @@ const otherItems = [
   { title: "Шаблоны скидок", href: "/settings/discount-templates", icon: Tag },
   { title: "Бонусы админов", href: "/settings/admin-bonus", icon: Award },
   { title: "Интеграции", href: "/settings/integrations", icon: Plug },
-  { title: "Roadmap", href: "/roadmap", icon: Map },
-  { title: "Changelog", href: "/changelog", icon: FileText },
 ]
 
 function getInitials(name: string | null | undefined): string {
