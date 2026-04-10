@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  ArrowLeft, Building2, CreditCard, FileText, Pencil, Plus, Users,
+  ArrowLeft, Building2, CreditCard, FileText, LogIn, Pencil, Plus, Users,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -98,6 +98,7 @@ export default function PartnerDetailPage() {
   const [invoiceForm, setInvoiceForm] = useState({ subscriptionId: "", periodStart: "", periodEnd: "", dueDate: "" })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [impersonating, setImpersonating] = useState(false)
 
   const fetchPartner = () => {
     fetch(`/api/admin/partners/${id}`)
@@ -204,6 +205,25 @@ export default function PartnerDetailPage() {
     fetchPartner()
   }
 
+  const handleImpersonate = async () => {
+    if (!confirm("Войти в CRM как владелец этой организации? Действие будет записано в аудит.")) return
+    setImpersonating(true)
+    try {
+      const res = await fetch(`/api/admin/partners/${id}/impersonate`, { method: "POST" })
+      if (!res.ok) {
+        const d = await res.json()
+        alert(d.error || "Ошибка")
+        return
+      }
+      // Cookie установлена — открываем CRM в новой вкладке
+      window.open("/", "_blank")
+    } catch {
+      alert("Ошибка сети")
+    } finally {
+      setImpersonating(false)
+    }
+  }
+
   if (loading) return <div className="p-6 text-muted-foreground">Загрузка...</div>
   if (!partner) return <div className="p-6 text-destructive">Партнёр не найден</div>
 
@@ -224,6 +244,9 @@ export default function PartnerDetailPage() {
           </div>
           {partner.legalName && <p className="text-sm text-muted-foreground">{partner.legalName}</p>}
         </div>
+        <Button variant="secondary" size="sm" onClick={handleImpersonate} disabled={impersonating}>
+          <LogIn className="mr-2 size-4" />{impersonating ? "Вход..." : "Войти как партнёр"}
+        </Button>
         <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
           <Pencil className="mr-2 size-4" />Редактировать
         </Button>

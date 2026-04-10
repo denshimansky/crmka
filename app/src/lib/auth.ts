@@ -104,6 +104,9 @@ export const authOptions: NextAuthOptions = {
         ;(session.user as any).employeeId = token.employeeId
         ;(session.user as any).orgName = token.orgName
         ;(session.user as any).billingStatus = token.billingStatus
+        if (token.impersonatedBy) {
+          ;(session.user as any).impersonatedBy = token.impersonatedBy
+        }
       }
       return session
     },
