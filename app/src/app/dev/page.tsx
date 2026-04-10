@@ -22,7 +22,7 @@ const publicPages: NavCard[] = [
     description: "Прогресс разработки, модули, фазы до MVP",
     href: "/roadmap",
     icon: Map,
-    badge: "80%",
+    badge: "95%",
     badgeVariant: "default",
   },
   {
@@ -30,7 +30,7 @@ const publicPages: NavCard[] = [
     description: "История версий и изменений",
     href: "/changelog",
     icon: FileText,
-    badge: "v1.5.2",
+    badge: "v1.5.3",
     badgeVariant: "secondary",
   },
   {
@@ -125,7 +125,7 @@ export default function DevPage() {
           <div>
             <h1 className="text-2xl font-bold">Умная CRM</h1>
             <p className="text-sm text-muted-foreground">
-              CRM для детских центров и сферы услуг — v1.5.2-alpha
+              CRM для детских центров и сферы услуг — v1.5.3-alpha
             </p>
           </div>
         </div>
@@ -208,7 +208,7 @@ export default function DevPage() {
             </div>
             <div className="flex items-center gap-3">
               <span className="w-24 shrink-0 text-muted-foreground">10 апреля</span>
-              <span>42+ доработок, impersonation (v1.5.2)</span>
+              <span>60+ доработок, 95% PRD (v1.5.3)</span>
               <Badge variant="default" className="text-xs">Сейчас</Badge>
             </div>
             <div className="flex items-center gap-3">
