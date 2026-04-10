@@ -2105,6 +2105,199 @@ async function step6_summary(ctx: Awaited<ReturnType<typeof step1_setup>>) {
 }
 
 // ============================================================
+// STEP 8: ENRICHMENT (missing demo data)
+// ============================================================
+async function step8_enrichment(
+  ctx: Awaited<ReturnType<typeof step1_setup>>,
+  janData: Awaited<ReturnType<typeof step2_january>>,
+  marData: Awaited<ReturnType<typeof step4_march>>,
+) {
+  console.log("\n=== STEP 8: Enrichment ===")
+  const { T, brAkad, brPark, owner, admin1, accCashAkad, accCashPark, accBank, accAcq, cats } = ctx
+
+  // ─── 8A. DUPLICATE CLIENTS (same phone → detected by /api/clients/duplicates) ───
+  const dupPhone1 = "+7 (910) 100-20-10" // same as jan client 0 (Антонова)
+  const dupPhone2 = "+7 (911) 103-22-11" // same as jan client 1 (Березин)
+  await db.client.create({
+    data: {
+      tenantId: T, firstName: "Мария", lastName: "Антонова-Дубль",
+      phone: dupPhone1, funnelStatus: "new", segment: "new_client", branchId: brPark.id,
+      comment: "Дубликат — та же мама, записала второго ребёнка",
+      createdAt: new Date(Date.UTC(2026, 2, 15)),
+    },
+  })
+  await db.client.create({
+    data: {
+      tenantId: T, firstName: "Алексей", lastName: "Березин",
+      phone: dupPhone2, funnelStatus: "trial_attended", segment: "new_client", branchId: brAkad.id,
+      comment: "Дубликат — повторная запись через сайт",
+      createdAt: new Date(Date.UTC(2026, 2, 20)),
+    },
+  })
+  // Third duplicate: 3 records with same phone
+  const dupPhone3 = "+7 (912) 106-24-12"
+  await db.client.create({
+    data: {
+      tenantId: T, firstName: "Елена", lastName: "Виноградова-2",
+      phone: dupPhone3, funnelStatus: "new", segment: "new_client", branchId: brAkad.id,
+      comment: "Дубликат — звонок по рекомендации",
+      createdAt: new Date(Date.UTC(2026, 2, 25)),
+    },
+  })
+  console.log("  Duplicates: 3 clients with duplicate phones")
+
+  // ─── 8B. RECURRING EXPENSES (mark existing pattern + add new) ───
+  // Mark rent/internet/utilities as recurring for future months
+  await db.expense.updateMany({
+    where: { tenantId: T, category: { name: { in: ["Аренда", "Коммунальные", "Интернет"] } } },
+    data: { isRecurring: true },
+  })
+  console.log("  Recurring expenses: marked Аренда, Коммунальные, Интернет")
+
+  // ─── 8C. PLANNED EXPENSES (all 4 months) ───
+  const planDefs = [
+    // January
+    { catName: "Аренда", month: 1, amount: 90000, branchId: brAkad.id },
+    { catName: "Маркетинг", month: 1, amount: 25000, branchId: null },
+    { catName: "Коммунальные", month: 1, amount: 15000, branchId: null },
+    // February
+    { catName: "Аренда", month: 2, amount: 90000, branchId: brAkad.id },
+    { catName: "Маркетинг", month: 2, amount: 20000, branchId: null },
+    { catName: "Коммунальные", month: 2, amount: 15000, branchId: null },
+    { catName: "Канцтовары", month: 2, amount: 8000, branchId: null },
+    // March (already 2 in seed, add more)
+    { catName: "Коммунальные", month: 3, amount: 15000, branchId: null },
+    { catName: "Канцтовары", month: 3, amount: 8000, branchId: null },
+    { catName: "Интернет", month: 3, amount: 5000, branchId: null },
+    // April
+    { catName: "Аренда", month: 4, amount: 90000, branchId: brAkad.id },
+    { catName: "Маркетинг", month: 4, amount: 15000, branchId: null },
+    { catName: "Коммунальные", month: 4, amount: 15000, branchId: null },
+    { catName: "Канцтовары", month: 4, amount: 5000, branchId: null },
+    { catName: "Интернет", month: 4, amount: 5000, branchId: null },
+  ]
+  for (const pd of planDefs) {
+    await db.plannedExpense.create({
+      data: {
+        tenantId: T, categoryId: cats[pd.catName],
+        branchId: pd.branchId, periodYear: 2026, periodMonth: pd.month,
+        plannedAmount: pd.amount,
+      },
+    })
+  }
+  console.log("  PlannedExpenses: " + planDefs.length)
+
+  // ─── 8D. ACCOUNT OPERATIONS (withdrawals, encashments, transfers) ───
+  const opsDef = [
+    // January: encashment (cash → bank), owner withdrawal
+    { type: "encashment" as const, from: accCashAkad.id, to: accBank.id, amount: 50000, date: "2026-01-31", desc: "Инкассация январь — Академический" },
+    { type: "owner_withdrawal" as const, from: accCashPark.id, to: null, amount: 20000, date: "2026-01-28", desc: "Выемка владельца — январь" },
+    // February
+    { type: "encashment" as const, from: accCashAkad.id, to: accBank.id, amount: 60000, date: "2026-02-28", desc: "Инкассация февраль — Академический" },
+    { type: "encashment" as const, from: accCashPark.id, to: accBank.id, amount: 30000, date: "2026-02-28", desc: "Инкассация февраль — Парковый" },
+    { type: "owner_withdrawal" as const, from: accCashAkad.id, to: null, amount: 30000, date: "2026-02-15", desc: "Выемка владельца — февраль" },
+    // March
+    { type: "encashment" as const, from: accCashAkad.id, to: accBank.id, amount: 80000, date: "2026-03-31", desc: "Инкассация март — Академический" },
+    { type: "encashment" as const, from: accCashPark.id, to: accBank.id, amount: 40000, date: "2026-03-31", desc: "Инкассация март — Парковый" },
+    { type: "transfer" as const, from: accAcq.id, to: accBank.id, amount: 45000, date: "2026-03-25", desc: "Перевод эквайринг → р/с" },
+    { type: "owner_withdrawal" as const, from: accBank.id, to: null, amount: 100000, date: "2026-03-20", desc: "Дивиденды владельца — март" },
+    // April
+    { type: "encashment" as const, from: accCashAkad.id, to: accBank.id, amount: 30000, date: "2026-04-05", desc: "Инкассация первая неделя апреля" },
+    { type: "owner_withdrawal" as const, from: accCashPark.id, to: null, amount: 15000, date: "2026-04-04", desc: "Выемка — апрель" },
+  ]
+  for (const op of opsDef) {
+    await db.accountOperation.create({
+      data: {
+        tenantId: T, type: op.type,
+        fromAccountId: op.from, toAccountId: op.to,
+        amount: op.amount, date: new Date(op.date),
+        description: op.desc, createdBy: owner.id,
+      },
+    })
+  }
+  console.log("  AccountOperations: " + opsDef.length)
+
+  // ─── 8E. DEBTORS (unpaid subscriptions for April) ───
+  // Create 3 clients whose April subscriptions are NOT paid
+  const debtorNames = [
+    { first: "Агеева", last: "Алёна", child: "Тимур" },
+    { first: "Беляков", last: "Борислав", child: "Ульяна" },
+    { first: "Грищенко", last: "Вера", child: "Дима" },
+  ]
+  for (let i = 0; i < debtorNames.length; i++) {
+    const dn = debtorNames[i]
+    const brId = i === 0 ? brAkad.id : brPark.id
+    const client = await db.client.create({
+      data: {
+        tenantId: T, firstName: dn.first, lastName: dn.last,
+        phone: `+7 (999) 88${i}-00-0${i}`,
+        funnelStatus: "active_client", clientStatus: "active",
+        segment: "regular", branchId: brId,
+        createdAt: new Date(Date.UTC(2026, 0, 10)),
+        firstPaymentDate: new Date(Date.UTC(2026, 0, 15)),
+        saleDate: new Date(Date.UTC(2026, 0, 15)),
+      },
+    })
+    const ward = await db.ward.create({
+      data: { tenantId: T, clientId: client.id, firstName: dn.child, birthDate: new Date(Date.UTC(2019, i * 3, 10)) },
+    })
+    // Create April subscription WITHOUT payment → debtor
+    const gIdx = i * 2 // groups 0, 2, 4
+    const gd = ctx.groups[gIdx].def
+    const dir = ctx.dirs.find(d => d.id === gd.dirId)!
+    const price = Number(dir.lessonPrice)
+    const aprDates = daysInMonth(2026, 4, gd.days)
+    const totalAmount = aprDates.length * price
+
+    await db.subscription.create({
+      data: {
+        tenantId: T, clientId: client.id, wardId: ward.id,
+        directionId: gd.dirId, groupId: ctx.groups[gIdx].id,
+        type: "calendar", status: "active", periodYear: 2026, periodMonth: 4,
+        lessonPrice: price, totalLessons: aprDates.length, totalAmount, discountAmount: 0, finalAmount: totalAmount,
+        balance: totalAmount, chargedAmount: 0,
+        startDate: new Date("2026-04-01"), endDate: new Date("2026-04-30"),
+        activatedAt: new Date("2026-04-01"), createdBy: owner.id,
+      },
+    })
+    // NO payment created → they appear as debtors
+    // Enrollment
+    await db.groupEnrollment.create({
+      data: {
+        tenantId: T, groupId: ctx.groups[gIdx].id, clientId: client.id, wardId: ward.id,
+        enrolledAt: new Date("2026-04-01"), paymentStatus: "active", isActive: true,
+      },
+    })
+  }
+  // Set promised payment date for first debtor
+  console.log("  Debtors: 3 clients with unpaid April subscriptions")
+
+  // ─── 8F. COMMUNICATION HISTORY ───
+  const commDefs = [
+    { clientId: janData.clients[0].id, type: "call_outgoing" as const, channel: "phone" as const, direction: "outgoing" as const, content: "Звонили по поводу пробного. Запись подтверждена.", date: "2026-01-05" },
+    { clientId: janData.clients[0].id, type: "note" as const, channel: "internal" as const, direction: "internal" as const, content: "Мама просила перенести занятие на среду.", date: "2026-01-12" },
+    { clientId: janData.clients[1].id, type: "call_outgoing" as const, channel: "phone" as const, direction: "outgoing" as const, content: "Напоминание об оплате. Обещал оплатить до пятницы.", date: "2026-01-14" },
+    { clientId: janData.clients[2].id, type: "whatsapp_outgoing" as const, channel: "whatsapp" as const, direction: "outgoing" as const, content: "Отправили расписание на февраль.", date: "2026-01-28" },
+    { clientId: janData.clients[3].id, type: "call_incoming" as const, channel: "phone" as const, direction: "incoming" as const, content: "Спрашивали про скидку на второго ребёнка.", date: "2026-02-05" },
+    { clientId: janData.clients[4].id, type: "note" as const, channel: "internal" as const, direction: "internal" as const, content: "Частые пропуски. Обсудить с инструктором.", date: "2026-02-10" },
+    { clientId: janData.clients[0].id, type: "call_outgoing" as const, channel: "phone" as const, direction: "outgoing" as const, content: "Продлили абонемент на март. Оплата наличными.", date: "2026-03-01" },
+    { clientId: janData.clients[5].id, type: "sms_outgoing" as const, channel: "sms" as const, direction: "outgoing" as const, content: "Напоминание: завтра занятие в 10:00.", date: "2026-03-15" },
+  ]
+  for (const cd of commDefs) {
+    await db.communication.create({
+      data: {
+        tenantId: T, clientId: cd.clientId, type: cd.type,
+        channel: cd.channel, direction: cd.direction, content: cd.content,
+        employeeId: admin1.id, createdAt: new Date(cd.date),
+      },
+    })
+  }
+  console.log("  Communications: " + commDefs.length)
+
+  console.log("  ── Enrichment complete ──")
+}
+
+// ============================================================
 // MAIN
 // ============================================================
 async function main() {
@@ -2119,6 +2312,7 @@ async function main() {
   const marData = await step4_march(setupCtx, janData, febData)
   await step5_portal(setupCtx, janData, febData)
   await step7_closeMarchAndApril(setupCtx, janData, febData, marData)
+  await step8_enrichment(setupCtx, janData, marData)
   await step6_summary(setupCtx)
 
   console.log("\n✅ Seed complete!")
