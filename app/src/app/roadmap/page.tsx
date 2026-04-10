@@ -44,7 +44,7 @@ const modules: RoadmapModule[] = [
   {
     name: "CRM",
     icon: Users,
-    done: 36,
+    done: 37,
     total: 38,
     items: [
       { id: "CRM-01", text: "Карточка лида/клиента", status: "done" },
@@ -57,7 +57,7 @@ const modules: RoadmapModule[] = [
       { id: "CRM-10", text: "Защита от дублей + предупреждение", status: "done" },
       { id: "CRM-12", text: "Объединение дубликатов (merge)", status: "done" },
       { id: "CRM-17", text: "Отчёт «Допродажи и возвраты»", status: "done" },
-      { id: "CRM-18", text: "Автосортировка лидов", status: "partial" },
+      { id: "CRM-18", text: "Автосортировка лидов", status: "done" },
       { id: "CRM-22", text: "Быстрое создание лида «+»", status: "done" },
       { id: "CRM-19", text: "Сегментация клиентов", status: "done" },
       { id: "CRM-20", text: "Модуль обзвона", status: "done" },
@@ -67,18 +67,19 @@ const modules: RoadmapModule[] = [
   {
     name: "Расписание",
     icon: Calendar,
-    done: 10,
+    done: 14,
     total: 16,
     items: [
       { id: "SCH-01", text: "Иерархия: филиал → кабинет → группа", status: "done" },
       { id: "SCH-02", text: "Группы с шаблонами", status: "done" },
       { id: "SCH-03", text: "Помесячная генерация", status: "done" },
       { id: "SCH-03a", text: "Закрытие/архив группы", status: "done" },
-      { id: "SCH-04", text: "Просмотр по кабинетам/инструкторам", status: "partial" },
-      { id: "SCH-05", text: "Цветовая индикация заполняемости", status: "partial" },
+      { id: "SCH-04", text: "Фильтры по кабинетам/инструкторам/направлениям", status: "done" },
+      { id: "SCH-05", text: "Цветовая индикация заполняемости", status: "done" },
       { id: "SCH-07", text: "Перевод между группами", status: "done" },
-      { id: "SCH-08", text: "Замена инструктора", status: "partial" },
-      { id: "SCH-09", text: "Массовая отмена занятий (праздники)", status: "partial" },
+      { id: "SCH-08", text: "Замена инструктора + ЗП заменяющему", status: "done" },
+      { id: "SCH-09", text: "Массовая отмена занятий (праздники)", status: "done" },
+      { id: "SCH-11", text: "Разовые занятия / отработки", status: "done" },
       { id: "SCH-13", text: "Массовое копирование расписания", status: "future" },
       { id: "SCH-14", text: "Индивидуальное расписание", status: "future" },
       { id: "SCH-17", text: "Печать расписания", status: "future" },
@@ -87,24 +88,25 @@ const modules: RoadmapModule[] = [
   {
     name: "Посещения",
     icon: CheckCircle2,
-    done: 13,
-    total: 13,
+    done: 14,
+    total: 14,
     items: [
       { id: "ATT-01…08", text: "Отметка, автосписание, закрытие периода", status: "done" },
       { id: "ATT-09", text: "Отчёт «Неотмеченные дети»", status: "done" },
       { id: "ATT-10", text: "Отчёт «Потенциальный отток»", status: "done" },
+      { id: "ATT-13…14", text: "Тема занятия, ДЗ, lesson card", status: "done" },
     ],
   },
   {
     name: "Абонементы",
     icon: CreditCard,
-    done: 11,
+    done: 12,
     total: 14,
     items: [
       { id: "SUB-01…06", text: "Календарный тип, баланс, скидки, отчисление", status: "done" },
       { id: "SUB-07", text: "Связанная скидка: пересчёт", status: "done" },
-      { id: "SUB-11", text: "Возврат средств", status: "partial" },
-      { id: "SUB-12", text: "Перенос баланса", status: "done" },
+      { id: "SUB-11", text: "Возврат абонемента (полный flow)", status: "done" },
+      { id: "SUB-12", text: "Перенос баланса", status: "partial" },
       { id: "SUB-13", text: "Тип «Фиксированный»", status: "future" },
       { id: "SUB-14", text: "Тип «Пакетный»", status: "future" },
       { id: "SUB-15", text: "Разовая услуга", status: "future" },
@@ -113,14 +115,14 @@ const modules: RoadmapModule[] = [
   {
     name: "Финансы",
     icon: BarChart3,
-    done: 29,
+    done: 31,
     total: 31,
     items: [
       { id: "FIN-01…14", text: "Расходы, ДДС, кассы, P&L, оплаты, СБП", status: "done" },
-      { id: "FIN-15", text: "P&L по направлениям", status: "done" },
-      { id: "FIN-16", text: "Автораспределение расходов", status: "partial" },
+      { id: "FIN-15", text: "P&L по направлениям (формат B)", status: "done" },
+      { id: "FIN-16", text: "Автораспределение расходов", status: "done" },
       { id: "FIN-18", text: "Возврат средств клиенту", status: "done" },
-      { id: "FIN-21", text: "Онлайн-оплата: webhook", status: "partial" },
+      { id: "FIN-21", text: "Онлайн-оплата: webhook (idempotency, IP whitelist)", status: "done" },
       { id: "FIN-26", text: "Drill-down в отчётах", status: "done" },
       { id: "FIN-27", text: "Экспорт Excel", status: "done" },
     ],
@@ -128,14 +130,14 @@ const modules: RoadmapModule[] = [
   {
     name: "Зарплата",
     icon: CreditCard,
-    done: 14,
+    done: 17,
     total: 17,
     items: [
       { id: "SAL-01…09", text: "3 схемы ЗП, автоначисление, премии, бонус админа", status: "done" },
-      { id: "SAL-10", text: "Оплата пробных", status: "partial" },
-      { id: "SAL-11", text: "ЗП при замене инструктора", status: "partial" },
+      { id: "SAL-10", text: "Оплата пробных (payForTrialLessons)", status: "done" },
+      { id: "SAL-11", text: "ЗП при замене инструктора", status: "done" },
       { id: "SAL-11a", text: "Документы сотрудника (PDF)", status: "future" },
-      { id: "SAL-11b", text: "Корректировки прошлых периодов", status: "partial" },
+      { id: "SAL-11b", text: "Корректировки прошлых периодов", status: "done" },
     ],
   },
   {
@@ -174,14 +176,14 @@ const modules: RoadmapModule[] = [
   {
     name: "Администрирование",
     icon: Settings,
-    done: 13,
+    done: 14,
     total: 15,
     items: [
       { id: "ADM-01…02", text: "Мультитенант, RLS, 5 ролей", status: "done" },
       { id: "ADM-03", text: "Настройка прав ролей (матрица)", status: "done" },
       { id: "ADM-05", text: "Wizard онбординга (6 шагов)", status: "done" },
       { id: "ADM-08", text: "Справочник каналов", status: "done" },
-      { id: "ADM-09", text: "Справочник причин отчисления", status: "partial" },
+      { id: "ADM-09", text: "Справочник причин отчисления", status: "done" },
       { id: "ADM-09a", text: "Справочник причин пропусков", status: "done" },
       { id: "ADM-11", text: "Импорт клиентов (CSV/XLSX)", status: "done" },
       { id: "ADM-14", text: "Кастомные названия ролей", status: "future" },
@@ -221,17 +223,20 @@ const modules: RoadmapModule[] = [
 
 const phases: Phase[] = [
   {
-    name: "Фаза 1: Финализация PARTIAL",
+    name: "Фаза 1: Финализация",
     period: "Апрель 2026",
     status: "active",
     tasks: [
-      { text: "Фильтры расписания по кабинетам/инструкторам", status: "not_done" },
-      { text: "Цветовая индикация заполняемости групп", status: "not_done" },
-      { text: "Логика ЗП при замене инструктора", status: "not_done" },
-      { text: "Массовая отмена занятий (праздники)", status: "not_done" },
-      { text: "Возвраты — полный UI flow", status: "not_done" },
-      { text: "Онлайн-оплата — webhook, idempotency", status: "not_done" },
-      { text: "Справочник причин отчисления (модель)", status: "not_done" },
+      { text: "Фильтры расписания по кабинетам/инструкторам", status: "done" },
+      { text: "Цветовая индикация заполняемости групп", status: "done" },
+      { text: "Замена инструктора + ЗП заменяющему", status: "done" },
+      { text: "Массовая отмена занятий (праздники)", status: "done" },
+      { text: "Возвраты — полный UI flow", status: "done" },
+      { text: "Онлайн-оплата — webhook (idempotency, IP whitelist)", status: "done" },
+      { text: "P&L по направлениям, автораспределение расходов", status: "done" },
+      { text: "Автосортировка лидов, допродажи, объединение дубликатов", status: "done" },
+      { text: "Оплата пробных, корректировки прошлых периодов", status: "done" },
+      { text: "Автопредложение переноса баланса при новом абонементе", status: "not_done" },
       { text: "Связь обзвонов с историей коммуникации", status: "not_done" },
     ],
   },
@@ -262,7 +267,7 @@ const phases: Phase[] = [
 ]
 
 const postMvp = [
-  { version: "v1.1", items: ["Модуль «Склад» (5 задач)", "Модуль «Кандидаты» (4 задачи)", "Массовое копирование расписания", "Абонемент тип «Фикс»", "Печать расписания", "Документы сотрудника (PDF)", "Кастомные названия ролей"] },
+  { version: "v1.1", items: ["Модуль «Склад» (5 задач)", "Модуль «Кандидаты» (4 задачи)", "Массовое копирование расписания", "Абонемент тип «Фикс»", "Печать расписания", "Документы сотрудника (PDF)", "Индивидуальное расписание ученика", "Кастомные названия ролей"] },
   { version: "v2.0", items: ["Абонемент тип «Пакетный»", "Разовая услуга", "Настраиваемый дашборд (drag & drop)", "Телеграм-бот уведомлений", "Интеграция с Мой Класс / AmoCRM"] },
 ]
 
@@ -335,7 +340,7 @@ export default function RoadmapPage() {
       <div>
         <h1 className="text-2xl font-bold">Roadmap</h1>
         <p className="text-sm text-muted-foreground">
-          Умная CRM v1.5.2-alpha — план разработки до MVP (1 июня 2026)
+          Умная CRM v1.5.3-alpha — план разработки до MVP (1 июня 2026)
         </p>
       </div>
 
