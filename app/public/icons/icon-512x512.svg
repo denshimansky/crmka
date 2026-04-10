@@ -1,4 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="80" fill="#0a0a0a"/>
-  <text x="256" y="320" text-anchor="middle" font-family="system-ui, sans-serif" font-size="220" font-weight="700" fill="#ffffff">C</text>
+  <rect width="512" height="512" rx="96" fill="#0a0a0a"/>
+  <g transform="translate(256,256)" fill="#ffffff">
+    <path d="M0-128 C16-44 44-16 128 0 C44 16 16 44 0 128 C-16 44-44 16-128 0 C-44-16-16-44 0-128Z"/>
+  </g>
+  <g transform="translate(380,112)" fill="#ffffff" opacity="0.7">
+    <path d="M0-36 C5-12 12-5 36 0 C12 5 5 12 0 36 C-5 12-12 5-36 0 C-12-5-5-12 0-36Z"/>
+  </g>
 </svg>
