@@ -374,6 +374,18 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     }
   })
 
+  safeTest("ЧАСТЬ 1.6: Завершить онбординг", async (page) => {
+    await login(page)
+    try {
+      const res = await page.request.patch("/api/organization", {
+        data: { onboardingCompleted: true },
+      })
+      log("Онбординг завершён", res.ok() ? "OK" : "BUG", res.ok() ? undefined : `status ${res.status()}`)
+    } catch (e: any) {
+      log("Онбординг", "BUG", e.message?.slice(0, 100))
+    }
+  })
+
   // ============================================================
   // ЧАСТЬ 2: КЛИЕНТЫ
   // ============================================================
@@ -663,6 +675,10 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
       await dialog.locator("button:has-text('Сохранить')").click()
       await page.waitForTimeout(2000)
+
+      // Reload to see server data
+      await page.reload({ waitUntil: "domcontentloaded" })
+      await page.waitForTimeout(1000)
 
       const hasPayment = await page.locator("text=10 000").isVisible({ timeout: 3000 }).catch(() => false)
         || await page.locator("text=10000").isVisible({ timeout: 1000 }).catch(() => false)
