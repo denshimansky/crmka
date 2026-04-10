@@ -42,7 +42,7 @@ const OP_TYPE_LABELS: Record<string, string> = {
   transfer: "Перевод",
 }
 
-export default async function CashPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+export default async function CashPage({ searchParams }: { searchParams: Promise<{ year?: string; month?: string }> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
   const params = await searchParams
@@ -55,12 +55,8 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
 
   // Parse month filter (default: current month)
   const now = new Date()
-  let filterYear = now.getFullYear()
-  let filterMonth = now.getMonth() + 1
-  if (params.month) {
-    const [y, m] = params.month.split("-").map(Number)
-    if (y && m) { filterYear = y; filterMonth = m }
-  }
+  const filterYear = Number(params.year) || now.getFullYear()
+  const filterMonth = Number(params.month) || (now.getMonth() + 1)
 
   const monthStart = new Date(Date.UTC(filterYear, filterMonth - 1, 1))
   const monthEnd = new Date(Date.UTC(filterYear, filterMonth, 0, 23, 59, 59, 999))
@@ -128,7 +124,7 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
           <PageHelp pageKey="finance/cash" />
         </div>
         <div className="flex items-center gap-2">
-          <MonthPicker paramName="month" />
+          <MonthPicker />
           <AddAccountDialog branches={branches} />
         </div>
       </div>
