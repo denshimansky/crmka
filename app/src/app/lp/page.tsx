@@ -1,7 +1,7 @@
 import Link from "next/link"
 import {
   Users, Calendar, CreditCard, BarChart3, Package, UserPlus,
-  Shield, Smartphone, Zap, Check, ArrowRight, Sparkles,
+  Shield, Smartphone, Zap, Check, ArrowRight, Sparkles, BotMessageSquare,
 } from "lucide-react"
 
 const features = [
@@ -31,9 +31,9 @@ const features = [
     desc: "Закупка, перемещение в кабинеты, списание, амортизация. Баланс по филиалам и кабинетам.",
   },
   {
-    icon: UserPlus,
-    title: "HR и кандидаты",
-    desc: "Воронка найма: новый → собеседование → пробный день → принят. История встреч, перевод в сотрудники.",
+    icon: BotMessageSquare,
+    title: "AI-ассистент",
+    desc: "Спросите «какая выручка за месяц?» — и получите ответ с цифрами из вашей базы. Claude Haiku анализирует данные CRM в реальном времени.",
   },
 ]
 
@@ -41,6 +41,7 @@ const advantages = [
   { icon: Shield, text: "5 ролей с настройкой прав — от владельца до «только чтение»" },
   { icon: Smartphone, text: "PWA — работает как приложение на телефоне" },
   { icon: Zap, text: "Замена 1С за 15 минут — wizard онбординга и импорт из CSV" },
+  { icon: BotMessageSquare, text: "AI-аналитик — задайте вопрос и получите цифры из своей базы" },
 ]
 
 const faq = [
@@ -63,6 +64,10 @@ const faq = [
   {
     q: "Что будет, если не оплатить вовремя?",
     a: "Грейс-период 1 рабочий день. Данные не удаляются — система блокируется до оплаты. Разблокировка мгновенная.",
+  },
+  {
+    q: "Как работает AI-ассистент?",
+    a: "Чат-виджет в правом нижнем углу. Задаёте вопрос — AI анализирует данные вашей организации (выручку, должников, загрузку групп) и отвечает с конкретными цифрами. До 50 запросов в день, доступен в тарифе Премиум.",
   },
 ]
 
@@ -150,7 +155,7 @@ export default function LandingPage() {
       {/* Advantages */}
       <section className="bg-gray-50 py-16">
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {advantages.map((a) => (
               <div key={a.text} className="flex items-start gap-3 rounded-lg bg-white p-5 border">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
