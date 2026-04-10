@@ -18,6 +18,20 @@ interface Release {
 
 const releases: Release[] = [
   {
+    version: "1.5.3-alpha",
+    date: "10.04.2026",
+    title: "Синхронизация roadmap, обогащение демо-данных, касса с фильтром",
+    changes: [
+      { type: "added", text: "Демо-данные: дубликаты клиентов, должники, операции между счетами, история коммуникаций, плановые расходы" },
+      { type: "added", text: "Касса: фильтр по месяцам (MonthPicker), таблица операций между счетами (инкассация, выемки, переводы)" },
+      { type: "added", text: "Playwright: тест верификации seed-данных на 15 страницах" },
+      { type: "changed", text: "Roadmap синхронизирован с кодовой базой: 95% (168/172 требований PRD)" },
+      { type: "changed", text: "Страница /dev: версия v1.5.3, готовность 95%" },
+      { type: "fixed", text: "Повторяющиеся расходы отмечены isRecurring в seed-данных" },
+      { type: "removed", text: "Roadmap и Changelog убраны из сайдбара CRM (доступны только на /dev)" },
+    ],
+  },
+  {
     version: "1.5.2-alpha",
     date: "10.04.2026",
     title: "Бэк-офис: impersonation, управленческий дашборд",
