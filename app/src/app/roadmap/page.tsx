@@ -241,7 +241,8 @@ const phases: Phase[] = [
     status: "upcoming",
     tasks: [
       { text: "Глобальный переключатель филиала", status: "not_done" },
-      { text: "PWA — настройка next-pwa", status: "not_done" },
+      { text: "Хлебные крошки", status: "done" },
+      { text: "PWA (service worker + manifest)", status: "done" },
       { text: "Баги от пилотных партнёров", status: "not_done" },
       { text: "Оптимизация производительности", status: "not_done" },
       { text: "Обновление тестов под новые фичи", status: "not_done" },
