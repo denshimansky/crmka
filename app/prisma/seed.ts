@@ -2298,6 +2298,136 @@ async function step8_enrichment(
 }
 
 // ============================================================
+// STEP 9: CANDIDATES + STOCK (INV + CAND)
+// ============================================================
+async function step9_stockAndCandidates(ctx: Awaited<ReturnType<typeof step1_setup>>) {
+  console.log("\n=== STEP 9: Stock & Candidates ===")
+  const { T, brAkad, brPark, instOlga } = ctx
+
+  // Rooms для перемещений
+  const rooms = await db.room.findMany({ where: { tenantId: T } })
+  const roomAkad1 = rooms.find(r => r.name === "Большой зал")!
+  const roomPark1 = rooms.find(r => r.name === "Зал")!
+
+  // 9A: Товары на складе
+  const [paper, markers, sanitizer, crayons, notebooks] = await Promise.all([
+    db.stockItem.create({ data: { tenantId: T, name: "Бумага A4", unit: "пачка", defaultUnitCost: 350 } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Маркеры для доски", unit: "уп.", defaultUnitCost: 420 } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Антисептик", unit: "шт", defaultUnitCost: 180 } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Мелки цветные", unit: "уп.", defaultUnitCost: 250 } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Тетради", unit: "шт", defaultUnitCost: 45 } }),
+  ])
+  console.log("  StockItems: 5")
+
+  // 9B: Закупки (purchase → stockBalance)
+  const purchases = [
+    { item: paper, branch: brAkad, qty: 20, cost: 350 },
+    { item: paper, branch: brPark, qty: 10, cost: 350 },
+    { item: markers, branch: brAkad, qty: 15, cost: 420 },
+    { item: sanitizer, branch: brAkad, qty: 30, cost: 180 },
+    { item: sanitizer, branch: brPark, qty: 20, cost: 180 },
+    { item: crayons, branch: brAkad, qty: 25, cost: 250 },
+    { item: notebooks, branch: brAkad, qty: 100, cost: 45 },
+    { item: notebooks, branch: brPark, qty: 50, cost: 45 },
+  ]
+  for (const p of purchases) {
+    const totalCost = p.qty * p.cost
+    await db.stockMovement.create({
+      data: {
+        tenantId: T, stockItemId: p.item.id, type: "purchase",
+        quantity: p.qty, unitCost: p.cost, totalCost,
+        fromBranchId: p.branch.id, date: new Date("2026-01-15"),
+      },
+    })
+    await db.stockBalance.upsert({
+      where: { stockItemId_branchId: { stockItemId: p.item.id, branchId: p.branch.id } },
+      create: { tenantId: T, stockItemId: p.item.id, branchId: p.branch.id, quantity: p.qty, totalCost },
+      update: { quantity: { increment: p.qty }, totalCost: { increment: totalCost } },
+    })
+  }
+  console.log("  Purchases: " + purchases.length)
+
+  // 9C: Перемещения в кабинеты
+  const transfers = [
+    { item: paper, fromBranch: brAkad, toRoom: roomAkad1, qty: 5 },
+    { item: markers, fromBranch: brAkad, toRoom: roomAkad1, qty: 4 },
+    { item: sanitizer, fromBranch: brAkad, toRoom: roomAkad1, qty: 10 },
+    { item: sanitizer, fromBranch: brPark, toRoom: roomPark1, qty: 8 },
+    { item: crayons, fromBranch: brAkad, toRoom: roomAkad1, qty: 10 },
+    { item: notebooks, fromBranch: brPark, toRoom: roomPark1, qty: 20 },
+  ]
+  for (const t of transfers) {
+    const bal = await db.stockBalance.findUnique({
+      where: { stockItemId_branchId: { stockItemId: t.item.id, branchId: t.fromBranch.id } },
+    })
+    const unitCost = bal ? Number(bal.totalCost) / Number(bal.quantity) : 0
+    const totalCost = unitCost * t.qty
+
+    await db.stockMovement.create({
+      data: {
+        tenantId: T, stockItemId: t.item.id, type: "transfer_to_room",
+        quantity: t.qty, unitCost, totalCost,
+        fromBranchId: t.fromBranch.id, toRoomId: t.toRoom.id,
+        date: new Date("2026-02-01"),
+      },
+    })
+    await db.stockBalance.update({
+      where: { stockItemId_branchId: { stockItemId: t.item.id, branchId: t.fromBranch.id } },
+      data: { quantity: { decrement: t.qty }, totalCost: { decrement: totalCost } },
+    })
+    await db.roomBalance.upsert({
+      where: { roomId_stockItemId: { roomId: t.toRoom.id, stockItemId: t.item.id } },
+      create: { tenantId: T, roomId: t.toRoom.id, stockItemId: t.item.id, quantity: t.qty, totalCost },
+      update: { quantity: { increment: t.qty }, totalCost: { increment: totalCost } },
+    })
+  }
+  console.log("  Transfers to rooms: " + transfers.length)
+
+  // 9D: Кандидаты
+  const candidateDefs = [
+    { first: "Анна", last: "Волкова", phone: "+7 905 111-22-33", status: "INTERVIEW" as const,
+      history: [
+        { date: "2026-03-10T10:00:00Z", comment: "Прислала резюме, хорошее образование (педфак МГУ)" },
+        { date: "2026-03-20T14:00:00Z", comment: "Собеседование. Хорошее впечатление, знает методику Монтессори" },
+      ] },
+    { first: "Дмитрий", last: "Зайцев", phone: "+7 906 222-33-44", status: "TRIAL_DAY" as const,
+      history: [
+        { date: "2026-03-05T11:00:00Z", comment: "Откликнулся на HeadHunter, опыт 3 года в детском центре" },
+        { date: "2026-03-15T10:00:00Z", comment: "Собеседование прошло хорошо" },
+        { date: "2026-04-01T09:00:00Z", comment: "Пробный день: провёл занятие по робототехнике, дети в восторге" },
+      ] },
+    { first: "Елена", last: "Кузнецова", phone: "+7 907 333-44-55", status: "NEW" as const,
+      history: [
+        { date: "2026-04-05T16:00:00Z", comment: "Рекомендация от Ольги Петровой. Опыт преподавания английского 5 лет" },
+      ] },
+    { first: "Михаил", last: "Орлов", phone: "+7 908 444-55-66", status: "REJECTED" as const,
+      history: [
+        { date: "2026-02-20T10:00:00Z", comment: "Резюме — без профильного образования" },
+        { date: "2026-03-01T11:00:00Z", comment: "Собеседование. Не готов работать по выходным. Отказ." },
+      ] },
+  ]
+  for (const c of candidateDefs) {
+    await db.employee.create({
+      data: {
+        tenantId: T,
+        firstName: c.first,
+        lastName: c.last,
+        phone: c.phone,
+        type: "CANDIDATE",
+        candidateStatus: c.status,
+        interviewHistory: c.history,
+        login: `candidate_${c.last.toLowerCase()}`,
+        passwordHash: "",
+        role: "instructor",
+      },
+    })
+  }
+  console.log("  Candidates: " + candidateDefs.length)
+
+  console.log("  ── Stock & Candidates complete ──")
+}
+
+// ============================================================
 // MAIN
 // ============================================================
 async function main() {
@@ -2313,6 +2443,7 @@ async function main() {
   await step5_portal(setupCtx, janData, febData)
   await step7_closeMarchAndApril(setupCtx, janData, febData, marData)
   await step8_enrichment(setupCtx, janData, marData)
+  await step9_stockAndCandidates(setupCtx)
   await step6_summary(setupCtx)
 
   console.log("\n✅ Seed complete!")
