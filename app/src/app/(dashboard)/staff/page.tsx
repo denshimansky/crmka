@@ -9,6 +9,7 @@ import { CreateEmployeeDialog } from "./create-employee-dialog"
 import { EditEmployeeDialog } from "./edit-employee-dialog"
 import type { Role } from "@prisma/client"
 import { PageHelp } from "@/components/page-help"
+import Link from "next/link"
 
 const ROLE_LABELS: Record<Role, string> = {
   owner: "Владелец",
@@ -60,7 +61,14 @@ export default async function StaffPage() {
           <h1 className="text-2xl font-bold">Сотрудники</h1>
           <PageHelp pageKey="staff" />
         </div>
-        {canEdit && <CreateEmployeeDialog branches={branches} />}
+        <div className="flex items-center gap-2">
+          {canEdit && (
+            <Link href="/staff/candidates" className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-4">
+              Кандидаты
+            </Link>
+          )}
+          {canEdit && <CreateEmployeeDialog branches={branches} />}
+        </div>
       </div>
 
       {employees.length === 0 ? (
