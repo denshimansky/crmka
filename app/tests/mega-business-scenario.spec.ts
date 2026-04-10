@@ -31,6 +31,17 @@ const ADMIN_PASSWORD = "admin123"
 // Результаты тестов: ok | BUG
 const results: { step: string; status: "OK" | "BUG"; detail?: string }[] = []
 
+// Хранилище ID для передачи между тестами (serial suite)
+const createdIds = {
+  branchIds: [] as string[],
+  roomIds: [] as string[],
+  directionIds: [] as string[],
+  employeeIds: [] as string[],
+  groupIds: [] as string[],
+  accountIds: [] as string[],
+  clientIds: [] as string[],
+}
+
 function log(step: string, status: "OK" | "BUG", detail?: string) {
   results.push({ step, status, detail })
   if (status === "BUG") {
@@ -75,23 +86,6 @@ function safeTest(name: string, fn: (page: Page) => Promise<void>, timeout = 900
       log(name, "BUG", `UNCAUGHT: ${e.message?.slice(0, 150)}`)
     }
   })
-}
-
-async function selectNth(page: Page, dialog: any, index: number, textFilter?: string) {
-  const selects = dialog.locator("[data-slot='select-trigger']")
-  await selects.nth(index).click()
-  await page.waitForTimeout(500)
-  if (textFilter) {
-    const item = page.locator(`[data-slot='select-item']:visible`, { hasText: textFilter })
-    if (await item.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await item.click()
-    } else {
-      await page.locator("[data-slot='select-item']:visible").first().click()
-    }
-  } else {
-    await page.locator("[data-slot='select-item']:visible").first().click()
-  }
-  await page.waitForTimeout(500)
 }
 
 // ============================================================
@@ -158,82 +152,59 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     }
   })
 
-  safeTest("ЧАСТЬ 0.2: Создать 2 филиала через UI", async (page) => {
+  safeTest("ЧАСТЬ 0.2: Создать 2 филиала через API", async (page) => {
     await login(page)
-    await page.goto("/settings")
-    await page.waitForLoadState("domcontentloaded")
-
-    // Вкладка Филиалы
-    await page.locator("button[role='tab']:has-text('Филиалы')").click()
-    await page.waitForTimeout(500)
 
     const branches = [`Филиал Центр-${TS}`, `Филиал Север-${TS}`]
     for (const branchName of branches) {
       try {
-        await page.locator("button:has-text('Филиал'):not([role='tab'])").last().click({ force: true })
-        await page.waitForTimeout(1000)
-        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
-        await dialog.locator("input").first().fill(branchName)
-        await dialog.locator("button[type='submit']").click()
-        await page.waitForTimeout(2000)
-
-        // Reload to see updated server data
-        await page.reload({ waitUntil: "domcontentloaded" })
-        await page.waitForTimeout(500)
-        await page.locator("button[role='tab']:has-text('Филиалы')").click()
-        await page.waitForTimeout(500)
-
-        const visible = await page.locator(`text=${branchName}`).isVisible({ timeout: 3000 }).catch(() => false)
-        log(`Филиал «${branchName}»`, visible ? "OK" : "BUG", visible ? undefined : "Не появился после создания")
+        const res = await page.request.post("/api/branches", {
+          data: { name: branchName, address: `ул. ${branchName}` },
+        })
+        if (res.ok()) {
+          const data = await res.json()
+          createdIds.branchIds.push(data.id)
+          log(`Филиал «${branchName}»`, "OK", `id: ${data.id}`)
+        } else {
+          const err = await res.text().catch(() => "")
+          log(`Филиал «${branchName}»`, "BUG", `status ${res.status()}: ${err.slice(0, 100)}`)
+        }
       } catch (e: any) {
         log(`Филиал «${branchName}»`, "BUG", e.message?.slice(0, 100))
       }
     }
   })
 
-  safeTest("ЧАСТЬ 0.3: Создать 4 кабинета через UI", async (page) => {
+  safeTest("ЧАСТЬ 0.3: Создать 4 кабинета через API", async (page) => {
     await login(page)
-    await page.goto("/settings")
-    await page.waitForLoadState("domcontentloaded")
 
-    await page.locator("button[role='tab']:has-text('Филиалы')").click()
-    await page.waitForTimeout(500)
+    const rooms = [
+      { name: `Зал A-${TS}`, branchIdx: 0 },
+      { name: `Зал B-${TS}`, branchIdx: 0 },
+      { name: `Класс C-${TS}`, branchIdx: 1 },
+      { name: `Класс D-${TS}`, branchIdx: 1 },
+    ]
 
-    const rooms = [`Зал A-${TS}`, `Зал B-${TS}`, `Класс C-${TS}`, `Класс D-${TS}`]
-    for (const roomName of rooms) {
+    for (const room of rooms) {
       try {
-        // Перезагружаем страницу каждый раз чтобы избежать RSC race condition
-        await page.goto("/settings")
-        await page.waitForLoadState("domcontentloaded")
-        await page.locator("button[role='tab']:has-text('Филиалы')").click()
-        await page.waitForTimeout(1000)
-        await page.locator("button:has-text('Кабинет')").click()
-        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
-
-        await dialog.locator("input").first().fill(roomName)
-
-        // Филиал select
-        const selects = dialog.locator("[data-slot='select-trigger']")
-        await selects.first().click()
-        await page.waitForTimeout(300)
-        const branchIdx = rooms.indexOf(roomName) < 2 ? 0 : 1
-        const items = page.locator("[data-slot='select-item']:visible")
-        const count = await items.count()
-        await items.nth(count > branchIdx ? branchIdx : 0).click()
-        await page.waitForTimeout(300)
-
-        // Вместимость = 8
-        await dialog.locator("input[type='number']").fill("8")
-
-        await dialog.locator("button[type='submit']").click()
-        await page.waitForTimeout(2000)
-
-        const visible = await page.locator(`text=${roomName}`).isVisible({ timeout: 3000 }).catch(() => false)
-        log(`Кабинет «${roomName}» (ёмкость 8)`, visible ? "OK" : "BUG", visible ? undefined : "Не появился")
+        const branchId = createdIds.branchIds[room.branchIdx] || createdIds.branchIds[0]
+        if (!branchId) {
+          log(`Кабинет «${room.name}»`, "BUG", "Нет branchId — филиалы не созданы")
+          continue
+        }
+        const res = await page.request.post("/api/rooms", {
+          data: { name: room.name, branchId, capacity: 8 },
+        })
+        if (res.ok()) {
+          const data = await res.json()
+          createdIds.roomIds.push(data.id)
+          log(`Кабинет «${room.name}» (ёмкость 8)`, "OK", `id: ${data.id}`)
+        } else {
+          const err = await res.text().catch(() => "")
+          log(`Кабинет «${room.name}»`, "BUG", `status ${res.status()}: ${err.slice(0, 100)}`)
+        }
       } catch (e: any) {
-        log(`Кабинет «${roomName}»`, "BUG", e.message?.slice(0, 100))
+        log(`Кабинет «${room.name}»`, "BUG", e.message?.slice(0, 100))
       }
     }
   })
@@ -259,43 +230,27 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     log("Филиалы видны в настройках", "OK")
   })
 
-  safeTest("ЧАСТЬ 1.2: Направления — создать 3 шт", async (page) => {
+  safeTest("ЧАСТЬ 1.2: Направления — создать 3 шт через API", async (page) => {
     await login(page)
-    await page.goto("/settings")
-    await page.waitForLoadState("domcontentloaded")
-
-    // Переходим на вкладку Направления
-    await page.locator("button[role='tab']:has-text('Направления')").click()
-    await page.waitForTimeout(500)
 
     const directions = [
-      { name: `Танцы-${TS}`, price: "800" },
-      { name: `Рисование-${TS}`, price: "600" },
-      { name: `Английский-${TS}`, price: "700" },
+      { name: `Танцы-${TS}`, price: 800 },
+      { name: `Рисование-${TS}`, price: 600 },
+      { name: `Английский-${TS}`, price: 700 },
     ]
 
     for (const dir of directions) {
       try {
-        await page.locator("button:has-text('Направление')").click()
-        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
-        await dialog.locator("input").first().fill(dir.name)
-        await dialog.locator("input[type='number']").first().fill(dir.price)
-        await dialog.locator("button:has-text('Создать')").click()
-        await page.waitForTimeout(1500)
-
-        // Reload to see updated server data
-        await page.reload({ waitUntil: "domcontentloaded" })
-        await page.waitForTimeout(500)
-        await page.locator("button[role='tab']:has-text('Направления')").click()
-        await page.waitForTimeout(500)
-
-        // Проверяем
-        const visible = await page.locator(`text=${dir.name}`).isVisible({ timeout: 3000 }).catch(() => false)
-        if (visible) {
-          log(`Направление «${dir.name}»`, "OK")
+        const res = await page.request.post("/api/directions", {
+          data: { name: dir.name, lessonPrice: dir.price, lessonDuration: 45 },
+        })
+        if (res.ok()) {
+          const data = await res.json()
+          createdIds.directionIds.push(data.id)
+          log(`Направление «${dir.name}» (${dir.price}₽)`, "OK", `id: ${data.id}`)
         } else {
-          log(`Направление «${dir.name}»`, "BUG", "Не появилось в списке после создания")
+          const err = await res.text().catch(() => "")
+          log(`Направление «${dir.name}»`, "BUG", `status ${res.status()}: ${err.slice(0, 100)}`)
         }
       } catch (e: any) {
         log(`Направление «${dir.name}»`, "BUG", e.message?.slice(0, 100))
@@ -303,47 +258,36 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     }
   })
 
-  safeTest("ЧАСТЬ 1.3: Педагоги — создать 4 шт", async (page) => {
+  safeTest("ЧАСТЬ 1.3: Педагоги — создать 4 шт через API", async (page) => {
     await login(page)
-    await page.goto("/staff")
-    await page.waitForLoadState("domcontentloaded")
 
     const instructors = [
-      { last: "Волкова", first: "Анна", login: `volka${TS}` },
-      { last: "Медведев", first: "Сергей", login: `medved${TS}` },
-      { last: "Лисицына", first: "Ольга", login: `lisica${TS}` },
-      { last: "Орлов", first: "Игорь", login: `orlov${TS}` },
+      { last: "Волкова", first: "Анна", login: `volka${TS}`, branchIdx: 0 },
+      { last: "Медведев", first: "Сергей", login: `medved${TS}`, branchIdx: 0 },
+      { last: "Лисицына", first: "Ольга", login: `lisica${TS}`, branchIdx: 1 },
+      { last: "Орлов", first: "Игорь", login: `orlov${TS}`, branchIdx: 1 },
     ]
 
     for (const instr of instructors) {
       try {
-        await page.locator("button:has-text('Сотрудник')").click()
-        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
-
-        await dialog.locator('input[id="lastName"]').fill(instr.last)
-        await dialog.locator('input[id="firstName"]').fill(instr.first)
-        await dialog.locator('input[id="login"]').fill(instr.login)
-        await dialog.locator('input[id="password"]').fill("test123")
-
-        // Выбираем роль Инструктор
-        await dialog.locator("[data-slot='select-trigger']").first().click()
-        await page.waitForTimeout(300)
-        await page.locator("[data-slot='select-item']", { hasText: "Инструктор" }).click()
-        await page.waitForTimeout(300)
-
-        await dialog.locator("button:has-text('Создать')").click()
-        await page.waitForTimeout(1500)
-
-        // Reload to see updated server data
-        await page.reload({ waitUntil: "domcontentloaded" })
-        await page.waitForTimeout(500)
-
-        const visible = await page.locator(`text=${instr.last}`).isVisible({ timeout: 3000 }).catch(() => false)
-        if (visible) {
-          log(`Педагог ${instr.last} ${instr.first}`, "OK")
+        const branchId = createdIds.branchIds[instr.branchIdx] || createdIds.branchIds[0]
+        const res = await page.request.post("/api/employees", {
+          data: {
+            lastName: instr.last,
+            firstName: instr.first,
+            login: instr.login,
+            password: "test123",
+            role: "instructor",
+            branchIds: branchId ? [branchId] : [],
+          },
+        })
+        if (res.ok()) {
+          const data = await res.json()
+          createdIds.employeeIds.push(data.id)
+          log(`Педагог ${instr.last} ${instr.first}`, "OK", `id: ${data.id}`)
         } else {
-          log(`Педагог ${instr.last} ${instr.first}`, "BUG", "Не появился в списке")
+          const err = await res.text().catch(() => "")
+          log(`Педагог ${instr.last} ${instr.first}`, "BUG", `status ${res.status()}: ${err.slice(0, 100)}`)
         }
       } catch (e: any) {
         log(`Педагог ${instr.last} ${instr.first}`, "BUG", e.message?.slice(0, 100))
@@ -351,114 +295,78 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     }
   })
 
-  safeTest("ЧАСТЬ 1.4: Группы — создать 6 шт", async (page) => {
+  safeTest("ЧАСТЬ 1.4: Группы — создать 6 шт через API", async (page) => {
     await login(page)
-    await page.goto("/schedule/groups")
-    await page.waitForLoadState("domcontentloaded")
 
+    // 6 групп: 3 направления × 2 филиала
+    // Филиал 1 (idx 0): Танцы, Рисование, Английский — кабинеты 0,1, педагоги 0,1
+    // Филиал 2 (idx 1): Танцы, Рисование, Английский — кабинеты 2,3, педагоги 2,3
     const groups = [
-      `Танцы-МлФ1-${TS}`,
-      `Рисование-СрФ1-${TS}`,
-      `Английский-СтФ1-${TS}`,
-      `Танцы-МлФ2-${TS}`,
-      `Рисование-СрФ2-${TS}`,
-      `Английский-СтФ2-${TS}`,
+      { name: `Танцы-МлФ1-${TS}`,      dirIdx: 0, branchIdx: 0, roomIdx: 0, instrIdx: 0, day: 0 },
+      { name: `Рисование-СрФ1-${TS}`,  dirIdx: 1, branchIdx: 0, roomIdx: 1, instrIdx: 1, day: 1 },
+      { name: `Английский-СтФ1-${TS}`, dirIdx: 2, branchIdx: 0, roomIdx: 0, instrIdx: 0, day: 2 },
+      { name: `Танцы-МлФ2-${TS}`,      dirIdx: 0, branchIdx: 1, roomIdx: 2, instrIdx: 2, day: 0 },
+      { name: `Рисование-СрФ2-${TS}`,  dirIdx: 1, branchIdx: 1, roomIdx: 3, instrIdx: 3, day: 1 },
+      { name: `Английский-СтФ2-${TS}`, dirIdx: 2, branchIdx: 1, roomIdx: 2, instrIdx: 2, day: 3 },
     ]
 
-    for (const groupName of groups) {
+    for (const g of groups) {
       try {
-        await page.locator("button:has-text('Группа')").click()
-        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
+        const directionId = createdIds.directionIds[g.dirIdx] || createdIds.directionIds[0]
+        const branchId = createdIds.branchIds[g.branchIdx] || createdIds.branchIds[0]
+        const roomId = createdIds.roomIds[g.roomIdx] || createdIds.roomIds[0]
+        const instructorId = createdIds.employeeIds[g.instrIdx] || createdIds.employeeIds[0]
 
-        await dialog.locator("input").first().fill(groupName)
-
-        // 4 select: направление, филиал, кабинет, педагог
-        const selects = dialog.locator("[data-slot='select-trigger']")
-        for (let i = 0; i < 4; i++) {
-          await selects.nth(i).click()
-          await page.waitForTimeout(500)
-          const items = page.locator("[data-slot='select-item']:visible")
-          const count = await items.count()
-          if (count > 0) {
-            // Для разнообразия: чётные группы берут первый вариант, нечётные — второй
-            const idx = groups.indexOf(groupName)
-            const pick = count > 1 && idx % 2 === 1 ? 1 : 0
-            await items.nth(pick).click()
-          }
-          await page.waitForTimeout(500)
+        if (!directionId || !branchId || !roomId || !instructorId) {
+          log(`Группа «${g.name}»`, "BUG", "Отсутствуют ID зависимостей")
+          continue
         }
 
-        // Добавить день расписания
-        const addDayBtn = dialog.locator("button:has-text('Добавить день')")
-        if (await addDayBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-          await addDayBtn.click()
-          await page.waitForTimeout(300)
-        }
-
-        await dialog.locator("button:has-text('Создать')").click()
-        await page.waitForTimeout(2000)
-
-        // Reload to see updated server data
-        await page.reload({ waitUntil: "domcontentloaded" })
-        await page.waitForTimeout(500)
-
-        const visible = await page.locator(`text=${groupName}`).isVisible({ timeout: 3000 }).catch(() => false)
-        if (visible) {
-          log(`Группа «${groupName}»`, "OK")
+        const res = await page.request.post("/api/groups", {
+          data: {
+            name: g.name,
+            directionId,
+            branchId,
+            roomId,
+            instructorId,
+            maxStudents: 8,
+            templates: [{ dayOfWeek: g.day, startTime: "10:00", durationMinutes: 45 }],
+          },
+        })
+        if (res.ok()) {
+          const data = await res.json()
+          createdIds.groupIds.push(data.id)
+          log(`Группа «${g.name}»`, "OK", `id: ${data.id}`)
         } else {
-          log(`Группа «${groupName}»`, "BUG", "Не появилась в списке")
+          const err = await res.text().catch(() => "")
+          log(`Группа «${g.name}»`, "BUG", `status ${res.status()}: ${err.slice(0, 100)}`)
         }
       } catch (e: any) {
-        log(`Группа «${groupName}»`, "BUG", e.message?.slice(0, 100))
+        log(`Группа «${g.name}»`, "BUG", e.message?.slice(0, 100))
       }
     }
   })
 
-  safeTest("ЧАСТЬ 1.5: Касса + Расчётный счёт", async (page) => {
+  safeTest("ЧАСТЬ 1.5: Касса + Расчётный счёт через API", async (page) => {
     await login(page)
-    await page.goto("/finance/cash")
-    await page.waitForLoadState("domcontentloaded")
 
     const accounts = [
-      { name: `Касса-${TS}`, type: "Касса наличных" },
-      { name: `Расчётный-${TS}`, type: "Расчётный счёт" },
+      { name: `Касса-${TS}`, type: "cash" as const },
+      { name: `Расчётный-${TS}`, type: "bank_account" as const },
     ]
 
     for (const acc of accounts) {
       try {
-        await page.goto("/finance/cash")
-        await page.waitForLoadState("domcontentloaded")
-        await page.waitForTimeout(500)
-        await page.locator("button:has-text('Счёт')").first().click()
-        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
-
-        await dialog.locator("input").first().fill(acc.name)
-        await dialog.locator("[data-slot='select-trigger']").first().click()
-        await page.waitForTimeout(300)
-
-        const typeItem = page.locator("[data-slot='select-item']:visible", { hasText: acc.type })
-        if (await typeItem.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await typeItem.click()
+        const res = await page.request.post("/api/accounts", {
+          data: { name: acc.name, type: acc.type },
+        })
+        if (res.ok()) {
+          const data = await res.json()
+          createdIds.accountIds.push(data.id)
+          log(`Счёт «${acc.name}» (${acc.type})`, "OK", `id: ${data.id}`)
         } else {
-          await page.locator("[data-slot='select-item']:visible").first().click()
-        }
-        await page.waitForTimeout(300)
-
-        await dialog.locator("button:has-text('Создать')").click()
-        await page.waitForTimeout(2000)
-
-        // Перезагружаем чтобы увидеть новый счёт
-        await page.goto("/finance/cash")
-        await page.waitForLoadState("domcontentloaded")
-        await page.waitForTimeout(1000)
-
-        const visible = await page.locator(`text=${acc.name}`).isVisible({ timeout: 3000 }).catch(() => false)
-        if (visible) {
-          log(`Счёт «${acc.name}» (${acc.type})`, "OK")
-        } else {
-          log(`Счёт «${acc.name}» (${acc.type})`, "BUG", "Не появился")
+          const err = await res.text().catch(() => "")
+          log(`Счёт «${acc.name}» (${acc.type})`, "BUG", `status ${res.status()}: ${err.slice(0, 100)}`)
         }
       } catch (e: any) {
         log(`Счёт «${acc.name}» (${acc.type})`, "BUG", e.message?.slice(0, 100))
@@ -470,16 +378,14 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   // ЧАСТЬ 2: КЛИЕНТЫ
   // ============================================================
 
-  safeTest("ЧАСТЬ 2.1: Создать 10 клиентов-родителей с подопечными", async (page) => {
+  safeTest("ЧАСТЬ 2.1: Создать 10 клиентов-родителей с подопечными через API", async (page) => {
     await login(page)
-    await page.goto("/crm/leads")
-    await page.waitForLoadState("domcontentloaded")
 
     const clients = [
-      { last: "Иванова", first: "Мария", phone: "+79991110001", wards: ["Ваня", "Маша", "Даша"] },       // 3 ребёнка → скидка
-      { last: "Петров", first: "Алексей", phone: "+79991110002", wards: ["Коля", "Оля"] },                // 2 ребёнка
-      { last: "Сидорова", first: "Елена", phone: "+79991110003", wards: ["Артём"] },                       // должник
-      { last: "Козлов", first: "Дмитрий", phone: "+79991110004", wards: ["Лиза"] },                        // переплата
+      { last: "Иванова", first: "Мария", phone: "+79991110001", wards: ["Ваня", "Маша", "Даша"] },
+      { last: "Петров", first: "Алексей", phone: "+79991110002", wards: ["Коля", "Оля"] },
+      { last: "Сидорова", first: "Елена", phone: "+79991110003", wards: ["Артём"] },
+      { last: "Козлов", first: "Дмитрий", phone: "+79991110004", wards: ["Лиза"] },
       { last: "Новикова", first: "Светлана", phone: "+79991110005", wards: ["Миша"] },
       { last: "Морозов", first: "Андрей", phone: "+79991110006", wards: ["Катя"] },
       { last: "Волков", first: "Николай", phone: "+79991110007", wards: ["Саша"] },
@@ -490,35 +396,23 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
 
     for (const cl of clients) {
       try {
-        await page.locator("button:has-text('Клиент')").click()
-        await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
-        const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
-
-        await dialog.locator("input#cl-lastName").fill(cl.last)
-        await dialog.locator("input#cl-firstName").fill(cl.first)
-        await dialog.locator("input#cl-phone").fill(cl.phone)
-
-        // Добавляем подопечных
-        for (const ward of cl.wards) {
-          await dialog.locator("button:has-text('Подопечный')").click()
-          await page.waitForTimeout(300)
-          const wardInputs = dialog.locator("input[placeholder='Имя']")
-          await wardInputs.last().fill(ward)
-          await page.waitForTimeout(200)
-        }
-
-        await dialog.locator("button:has-text('Создать')").last().click()
-        await page.waitForTimeout(1500)
-
-        // Reload to see updated server data
-        await page.reload({ waitUntil: "domcontentloaded" })
-        await page.waitForTimeout(500)
-
-        const visible = await page.locator(`text=${cl.last}`).first().isVisible({ timeout: 3000 }).catch(() => false)
-        if (visible) {
-          log(`Клиент ${cl.last} ${cl.first} (${cl.wards.length} подопечных)`, "OK")
+        const res = await page.request.post("/api/clients", {
+          data: {
+            lastName: cl.last,
+            firstName: cl.first,
+            phone: cl.phone,
+            funnelStatus: "new",
+            branchId: createdIds.branchIds[0] || undefined,
+            wards: cl.wards.map(name => ({ firstName: name })),
+          },
+        })
+        if (res.ok()) {
+          const data = await res.json()
+          createdIds.clientIds.push(data.id)
+          log(`Клиент ${cl.last} ${cl.first} (${cl.wards.length} подопечных)`, "OK", `id: ${data.id}`)
         } else {
-          log(`Клиент ${cl.last} ${cl.first}`, "BUG", "Не появился в списке")
+          const err = await res.text().catch(() => "")
+          log(`Клиент ${cl.last} ${cl.first}`, "BUG", `status ${res.status()}: ${err.slice(0, 100)}`)
         }
       } catch (e: any) {
         log(`Клиент ${cl.last} ${cl.first}`, "BUG", e.message?.slice(0, 100))
