@@ -144,9 +144,10 @@ test.describe.serial("Mega-тест верификации: Все отчёты 
       return
     }
 
-    // Берём последнюю организацию с паттерном "Полный Центр-XXXXX"
-    const fullOrg = [...partners].reverse().find((p: any) => /Полный Центр-\d+/.test(p.name))
-    const org = fullOrg || partners[partners.length - 1]
+    // Берём самую свежую организацию с паттерном "Полный Центр-XXXXX"
+    const fullOrgs = partners.filter((p: any) => /Полный Центр-\d+/.test(p.name))
+    fullOrgs.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    const org = fullOrgs[0] || partners[partners.length - 1]
     log(`Организация: ${org.name}`, "OK")
 
     // Извлекаем TS из имени организации (паттерн *-XXXXX)
@@ -161,12 +162,25 @@ test.describe.serial("Mega-тест верификации: Все отчёты 
     }
   })
 
-  safeTest("ЭТАП 0.1: Логин под owner", async (page) => {
+  safeTest("ЭТАП 0.1: Логин под owner + завершить онбординг", async (page) => {
     if (!OWNER_LOGIN) {
       log("Логин: нет данных owner", "SKIP")
       return
     }
     await login(page)
+
+    // Завершаем онбординг если не завершён
+    const onbRes = await page.request.patch("/api/organization", {
+      data: { onboardingCompleted: true },
+    })
+    if (onbRes.ok()) {
+      log("Онбординг завершён", "OK")
+    }
+
+    await page.reload()
+    await page.waitForLoadState("domcontentloaded")
+    await page.waitForTimeout(1000)
+
     const h1 = await page.locator("h1").first().textContent()
     if (h1?.includes("Главная") || h1?.includes("Dashboard") || h1?.includes("Дашборд")) {
       log("Логин под owner", "OK")
