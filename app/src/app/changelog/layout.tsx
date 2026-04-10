@@ -1,7 +1,7 @@
 import { Sparkles } from "lucide-react"
 import Link from "next/link"
 
-export default function RoadmapLayout({ children }: { children: React.ReactNode }) {
+export default function ChangelogLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
@@ -13,8 +13,8 @@ export default function RoadmapLayout({ children }: { children: React.ReactNode 
             <span className="text-sm font-semibold">Умная CRM</span>
           </Link>
           <div className="flex items-center gap-4">
-            <Link href="/changelog" className="text-sm text-muted-foreground hover:text-foreground">
-              Changelog
+            <Link href="/roadmap" className="text-sm text-muted-foreground hover:text-foreground">
+              Roadmap
             </Link>
             <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground">
               Войти
