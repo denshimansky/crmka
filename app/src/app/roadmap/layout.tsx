@@ -24,7 +24,7 @@ export default function RoadmapLayout({ children }: { children: React.ReactNode 
 
       <footer className="border-t py-6 text-center text-xs text-muted-foreground">
         <div className="mx-auto max-w-5xl px-4">
-          &copy; {new Date().getFullYear()} Умная CRM &mdash; ИП Шиманский Д.А.
+          &copy; {new Date().getFullYear()} Умная CRM &mdash; ИП Шиманский Д.В.
         </div>
       </footer>
     </div>

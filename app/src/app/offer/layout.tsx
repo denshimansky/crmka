@@ -27,7 +27,7 @@ export default function OfferLayout({ children }: { children: React.ReactNode })
       {/* Footer */}
       <footer className="border-t py-6 text-center text-xs text-muted-foreground print:hidden">
         <div className="mx-auto max-w-4xl px-4">
-          &copy; {new Date().getFullYear()} Умная CRM &mdash; ИП Шиманский Д.А.
+          &copy; {new Date().getFullYear()} Умная CRM &mdash; ИП Шиманский Д.В.
         </div>
       </footer>
     </div>
