@@ -75,16 +75,46 @@ const state: Record<string, any> = {
 }
 
 // === HELPERS ===
-async function apiPost(page: Page, url: string, data: any): Promise<any> {
-  const res = await page.request.post(url, { data })
-  if (!res.ok()) {
+
+/** Счётчик запросов для throttling (rate limit 100/мин на тенант) */
+let requestCount = 0
+let windowStart = Date.now()
+
+async function throttle(page: Page) {
+  requestCount++
+  // Каждые 80 запросов (с запасом от 100) — пауза на оставшееся время окна
+  if (requestCount >= 80) {
+    const elapsed = Date.now() - windowStart
+    const waitMs = Math.max(0, 61_000 - elapsed) // подождать до конца минутного окна
+    if (waitMs > 0) {
+      await page.waitForTimeout(waitMs)
+    }
+    requestCount = 0
+    windowStart = Date.now()
+  }
+}
+
+async function apiPost(page: Page, url: string, data: any, retries = 3): Promise<any> {
+  await throttle(page)
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await page.request.post(url, { data })
+    if (res.ok()) return res.json()
+    if (res.status() === 429) {
+      // Rate limited — ждём и ретраим
+      const wait = Math.min(5000, 2000 * (attempt + 1))
+      await page.waitForTimeout(wait)
+      requestCount = 0
+      windowStart = Date.now()
+      continue
+    }
     const err = await res.json().catch(() => ({ error: res.statusText() }))
     throw new Error(`POST ${url} -> ${res.status()}: ${JSON.stringify(err).slice(0, 200)}`)
   }
-  return res.json()
+  throw new Error(`POST ${url} -> 429 after ${retries} retries`)
 }
 
 async function apiGet(page: Page, url: string): Promise<any> {
+  await throttle(page)
   const res = await page.request.get(url)
   if (!res.ok()) {
     throw new Error(`GET ${url} -> ${res.status()}`)
@@ -255,7 +285,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     const org = await apiPost(page, "/api/admin/partners", {
       name: ORG_NAME,
       legalName: `ООО "Полный Центр ${TS}"`,
-      inn: "7700000099",
+      inn: `77${TS}00099`,
       phone: "+7 (999) 999-00-01",
       email: `full-${TS}@example.com`,
       contactPerson: "Директор",
@@ -1268,35 +1298,7 @@ async function createSubscriptionsBatch(
       })
       counters.subscriptions++
     } catch (e: any) {
-      // Rate limit or duplicate — acceptable
-      if (e.message?.includes("429")) {
-        // Wait and retry once
-        await page.waitForTimeout(1000)
-        try {
-          const sub = await apiPost(page, "/api/subscriptions", {
-            clientId: clientData.id,
-            directionId: dir.id,
-            groupId: group.id,
-            periodYear: year,
-            periodMonth: month,
-            lessonPrice,
-            totalLessons,
-            discountAmount,
-            startDate: `${year}-${String(month).padStart(2, "0")}-01`,
-            wardId,
-          })
-          state.subscriptionIds.push({
-            id: sub.id,
-            clientId: clientData.id,
-            groupId: group.id,
-            wardId,
-            month,
-            year,
-            finalAmount: Number(sub.finalAmount),
-          })
-          counters.subscriptions++
-        } catch {}
-      }
+      // Duplicate or validation error — acceptable, skip
     }
   }
 }
