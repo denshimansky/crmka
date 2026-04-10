@@ -188,7 +188,7 @@ export default function MovementsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Со склада (филиал) *</Label>
-              <Select name="fromBranchId" required onValueChange={(v) => { if (v) setSelectedBranch(v) }}>
+              <Select value={selectedBranch} onValueChange={(v) => { if (v) setSelectedBranch(v) }}>
                 <SelectTrigger className="w-full">Выберите филиал</SelectTrigger>
                 <SelectContent>
                   {branches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
