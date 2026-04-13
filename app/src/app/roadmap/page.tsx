@@ -44,7 +44,7 @@ const modules: RoadmapModule[] = [
   {
     name: "CRM",
     icon: Users,
-    done: 37,
+    done: 38,
     total: 38,
     items: [
       { id: "CRM-01", text: "Карточка лида/клиента", status: "done" },
@@ -68,7 +68,7 @@ const modules: RoadmapModule[] = [
     name: "Расписание",
     icon: Calendar,
     done: 14,
-    total: 16,
+    total: 14,
     items: [
       { id: "SCH-01", text: "Иерархия: филиал → кабинет → группа", status: "done" },
       { id: "SCH-02", text: "Группы с шаблонами", status: "done" },
@@ -100,13 +100,13 @@ const modules: RoadmapModule[] = [
   {
     name: "Абонементы",
     icon: CreditCard,
-    done: 12,
+    done: 14,
     total: 14,
     items: [
       { id: "SUB-01…06", text: "Календарный тип, баланс, скидки, отчисление", status: "done" },
       { id: "SUB-07", text: "Связанная скидка: пересчёт", status: "done" },
       { id: "SUB-11", text: "Возврат абонемента (полный flow)", status: "done" },
-      { id: "SUB-12", text: "Перенос баланса", status: "partial" },
+      { id: "SUB-12", text: "Перенос баланса", status: "done" },
       { id: "SUB-13", text: "Тип «Фиксированный»", status: "future" },
       { id: "SUB-14", text: "Тип «Пакетный»", status: "future" },
       { id: "SUB-15", text: "Разовая услуга", status: "future" },
@@ -153,31 +153,31 @@ const modules: RoadmapModule[] = [
   {
     name: "Обзвон",
     icon: Bell,
-    done: 4,
+    done: 5,
     total: 5,
     items: [
       { id: "CALL-01…03", text: "Фильтр → список → обзвон → результаты", status: "done" },
-      { id: "CALL-04", text: "Связь с историей коммуникации", status: "partial" },
+      { id: "CALL-04", text: "Связь с историей коммуникации", status: "done" },
     ],
   },
   {
     name: "Склад",
     icon: Package,
-    done: 0,
+    done: 5,
     total: 5,
     items: [
-      { id: "INV-01", text: "Закупка товаров", status: "future" },
-      { id: "INV-02", text: "Перемещение склад → кабинет", status: "future" },
-      { id: "INV-03", text: "Баланс кабинета", status: "future" },
-      { id: "INV-04", text: "Амортизация при закупке", status: "future" },
-      { id: "INV-06", text: "Отчёт «Остатки»", status: "future" },
+      { id: "INV-01", text: "Закупка товаров", status: "done" },
+      { id: "INV-02", text: "Перемещение склад → кабинет", status: "done" },
+      { id: "INV-03", text: "Баланс кабинета", status: "done" },
+      { id: "INV-04", text: "Амортизация при закупке", status: "done" },
+      { id: "INV-06", text: "Отчёт «Остатки»", status: "done" },
     ],
   },
   {
     name: "Администрирование",
     icon: Settings,
     done: 14,
-    total: 15,
+    total: 14,
     items: [
       { id: "ADM-01…02", text: "Мультитенант, RLS, 5 ролей", status: "done" },
       { id: "ADM-03", text: "Настройка прав ролей (матрица)", status: "done" },
@@ -192,10 +192,10 @@ const modules: RoadmapModule[] = [
   {
     name: "Кандидаты (HR)",
     icon: Users,
-    done: 0,
+    done: 4,
     total: 4,
     items: [
-      { id: "CAND-01…04", text: "Список, карточка, статусы, встречи", status: "future" },
+      { id: "CAND-01…04", text: "Список, карточка, статусы, встречи", status: "done" },
     ],
   },
   {
@@ -236,8 +236,10 @@ const phases: Phase[] = [
       { text: "P&L по направлениям, автораспределение расходов", status: "done" },
       { text: "Автосортировка лидов, допродажи, объединение дубликатов", status: "done" },
       { text: "Оплата пробных, корректировки прошлых периодов", status: "done" },
-      { text: "Автопредложение переноса баланса при новом абонементе", status: "not_done" },
-      { text: "Связь обзвонов с историей коммуникации", status: "not_done" },
+      { text: "Автопредложение переноса баланса при новом абонементе", status: "done" },
+      { text: "Связь обзвонов с историей коммуникации", status: "done" },
+      { text: "Модуль «Склад» (INV-01…06)", status: "done" },
+      { text: "Модуль «Кандидаты» (CAND-01…04)", status: "done" },
     ],
   },
   {
@@ -267,7 +269,7 @@ const phases: Phase[] = [
 ]
 
 const postMvp = [
-  { version: "v1.1", items: ["Модуль «Склад» (5 задач)", "Модуль «Кандидаты» (4 задачи)", "Массовое копирование расписания", "Абонемент тип «Фикс»", "Печать расписания", "Документы сотрудника (PDF)", "Индивидуальное расписание ученика", "Кастомные названия ролей"] },
+  { version: "v1.1", items: ["Массовое копирование расписания", "Абонемент тип «Фикс»", "Печать расписания", "Документы сотрудника (PDF)", "Индивидуальное расписание ученика", "Кастомные названия ролей"] },
   { version: "v2.0", items: ["Абонемент тип «Пакетный»", "Разовая услуга", "Настраиваемый дашборд (drag & drop)", "Телеграм-бот уведомлений", "Интеграция с Мой Класс / AmoCRM"] },
 ]
 
@@ -340,7 +342,7 @@ export default function RoadmapPage() {
       <div>
         <h1 className="text-2xl font-bold">Roadmap</h1>
         <p className="text-sm text-muted-foreground">
-          Умная CRM v1.5.3-alpha — план разработки до MVP (1 июня 2026)
+          Умная CRM v1.5.4-alpha — план разработки до MVP (1 июня 2026)
         </p>
       </div>
 
