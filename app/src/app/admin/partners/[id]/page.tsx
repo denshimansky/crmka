@@ -206,19 +206,19 @@ export default function PartnerDetailPage() {
   }
 
   const handleImpersonate = async () => {
-    if (!confirm("Войти в CRM как владелец этой организации? Действие будет записано в аудит.")) return
     setImpersonating(true)
+    setError("")
     try {
       const res = await fetch(`/api/admin/partners/${id}/impersonate`, { method: "POST" })
+      const d = await res.json()
       if (!res.ok) {
-        const d = await res.json()
-        alert(d.error || "Ошибка")
+        setError(d.error || `Ошибка impersonation: HTTP ${res.status}`)
         return
       }
       // Cookie установлена — открываем CRM в новой вкладке
       window.open("/", "_blank")
-    } catch {
-      alert("Ошибка сети")
+    } catch (e) {
+      setError(`Ошибка сети: ${e instanceof Error ? e.message : "неизвестная"}`)
     } finally {
       setImpersonating(false)
     }
@@ -258,6 +258,8 @@ export default function PartnerDetailPage() {
           {partner.billingStatus === "blocked" ? "Разблокировать" : "Заблокировать"}
         </Button>
       </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
       {/* Info cards */}
       <div className="grid grid-cols-4 gap-4">
