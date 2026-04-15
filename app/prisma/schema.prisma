@@ -123,6 +123,7 @@ model Organization {
   stockBalances             StockBalance[]
   stockMovements            StockMovement[]
   roomBalances              RoomBalance[]
+  pageViews                 PageView[]
 
   @@map("organizations")
 }
@@ -218,6 +219,7 @@ model Employee {
   unprolongedCommentsCreated UnprolongedComment[] @relation("UnprolongedCommentCreator")
   communications             Communication[]      @relation("CommunicationEmployee")
   stockMovements             StockMovement[]      @relation("StockMovementCreator")
+  pageViews                  PageView[]
 
   @@unique([tenantId, login])
   @@index([tenantId])
@@ -900,6 +902,24 @@ model AbsenceReason {
 
   @@index([tenantId])
   @@map("absence_reasons")
+}
+
+// === АНАЛИТИКА ИСПОЛЬЗОВАНИЯ ===
+
+model PageView {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  employeeId String?  @map("employee_id") @db.Uuid
+  path       String
+  duration   Int?     // секунды на странице
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  organization Organization? @relation(fields: [tenantId], references: [id])
+  employee     Employee?     @relation(fields: [employeeId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([path, createdAt])
+  @@map("page_views")
 }
 
 // === ENUMS ===

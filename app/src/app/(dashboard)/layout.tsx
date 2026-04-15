@@ -3,6 +3,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { BillingBanner } from "@/components/billing-banner"
 import { ImpersonationBanner } from "@/components/impersonation-banner"
 import { AiChat } from "@/components/ai-chat"
+import { PageTracking } from "@/components/page-tracking"
 import { AutoBreadcrumbs } from "@/components/auto-breadcrumbs"
 import { Separator } from "@/components/ui/separator"
 
@@ -22,6 +23,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {children}
         </main>
       </SidebarInset>
+      <PageTracking />
       <AiChat />
     </SidebarProvider>
   )

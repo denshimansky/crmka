@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
-  Building2, CreditCard, FileText, LayoutDashboard, LogOut, Receipt, Shield,
+  BarChart3, Building2, CreditCard, FileText, LayoutDashboard, LogOut, Receipt, Shield,
 } from "lucide-react"
 
 interface AdminUser {
@@ -19,6 +19,7 @@ const navItems = [
   { title: "Партнёры", href: "/admin/partners", icon: Building2 },
   { title: "Тарифы", href: "/admin/plans", icon: CreditCard },
   { title: "Счета", href: "/admin/invoices", icon: Receipt },
+  { title: "Аналитика", href: "/admin/analytics", icon: BarChart3 },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
