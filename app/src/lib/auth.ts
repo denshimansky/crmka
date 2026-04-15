@@ -3,6 +3,8 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import { PrismaAdapter } from "@next-auth/prisma-adapter"
 import bcrypt from "bcryptjs"
 import { db } from "@/lib/db"
+import { checkLoginRateLimit, logLoginAttempt } from "@/lib/login-guard"
+import { getClientIp } from "@/lib/rate-limit"
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(db),
@@ -17,8 +19,21 @@ export const authOptions: NextAuthOptions = {
         login: { label: "Логин", type: "text" },
         password: { label: "Пароль", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.login || !credentials?.password) return null
+
+        const ip = req?.headers?.["x-forwarded-for"]?.toString().split(",")[0]?.trim()
+          || req?.headers?.["x-real-ip"]?.toString()
+          || "unknown"
+        const userAgent = req?.headers?.["user-agent"]?.toString()
+        const loginCtx = { login: credentials.login, ip, userAgent }
+
+        // Rate limit по IP — блокируем брутфорс
+        const blocked = checkLoginRateLimit(ip)
+        if (blocked) {
+          logLoginAttempt({ ...loginCtx, success: false, reason: "blocked_brute_force" })
+          throw new Error("Слишком много попыток. Попробуйте через 15 минут")
+        }
 
         let employee
 
@@ -44,16 +59,36 @@ export const authOptions: NextAuthOptions = {
           })
 
           if (employees.length > 1) {
-            // Несколько сотрудников с одинаковым логином в разных организациях
+            logLoginAttempt({ ...loginCtx, success: false, reason: "ambiguous_login" })
             throw new Error("Используйте email для входа")
           }
           employee = employees[0] || null
         }
 
-        if (!employee) return null
+        if (!employee) {
+          logLoginAttempt({ ...loginCtx, success: false, reason: "user_not_found" })
+          return null
+        }
 
         const valid = await bcrypt.compare(credentials.password, employee.passwordHash)
-        if (!valid) return null
+        if (!valid) {
+          logLoginAttempt({
+            ...loginCtx,
+            success: false,
+            reason: "invalid_password",
+            tenantId: employee.tenantId,
+            employeeId: employee.id,
+          })
+          return null
+        }
+
+        // Успешный вход
+        logLoginAttempt({
+          ...loginCtx,
+          success: true,
+          tenantId: employee.tenantId,
+          employeeId: employee.id,
+        })
 
         return {
           id: employee.id,

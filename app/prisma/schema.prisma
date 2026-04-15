@@ -124,6 +124,7 @@ model Organization {
   stockMovements            StockMovement[]
   roomBalances              RoomBalance[]
   pageViews                 PageView[]
+  loginAttempts             LoginAttempt[]
 
   @@map("organizations")
 }
@@ -220,6 +221,7 @@ model Employee {
   communications             Communication[]      @relation("CommunicationEmployee")
   stockMovements             StockMovement[]      @relation("StockMovementCreator")
   pageViews                  PageView[]
+  loginAttempts              LoginAttempt[]
 
   @@unique([tenantId, login])
   @@index([tenantId])
@@ -920,6 +922,28 @@ model PageView {
   @@index([tenantId, createdAt])
   @@index([path, createdAt])
   @@map("page_views")
+}
+
+// === ЛОГ ВХОДОВ ===
+
+model LoginAttempt {
+  id         String   @id @default(uuid()) @db.Uuid
+  login      String   // логин или email
+  success    Boolean
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  employeeId String?  @map("employee_id") @db.Uuid
+  reason     String?  // "invalid_password", "user_not_found", "blocked_brute_force"
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  organization Organization? @relation(fields: [tenantId], references: [id])
+  employee     Employee?     @relation(fields: [employeeId], references: [id])
+
+  @@index([ipAddress, createdAt])
+  @@index([login, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("login_attempts")
 }
 
 // === ENUMS ===
