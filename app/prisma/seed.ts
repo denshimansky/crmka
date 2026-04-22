@@ -2629,7 +2629,6 @@ async function step10_reconciliation(ctx: Awaited<ReturnType<typeof step1_setup>
       data: {
         clientBalance,
         totalSubscriptionsCount: subsCount,
-        totalPaidAmount: paidAmount,
         moneyLtv: paidAmount,
         monthsLtv,
       },
