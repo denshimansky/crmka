@@ -1228,7 +1228,19 @@ async function step4_march(
 
   // --- March subscriptions ---
   // Continuing from Feb: ~all active clients. Let's aim for 150 total.
-  const marSubs: { id: string; clientId: string; wardId: string; groupIdx: number; dirId: string; price: number; totalLessons: number }[] = []
+  const marSubs: { id: string; clientId: string; wardId: string; groupIdx: number; dirId: string; price: number; totalLessons: number; finalAmount: number }[] = []
+
+  // Discount tracking for March: some continuing clients get discounts
+  const marDiscountClients10pct = new Set<string>() // client IDs for 10% multi-child
+  const marDiscountClients15pct = new Set<string>() // client IDs for 15% second child
+  // Apply 10% to jan clients 3,7,15 (continuing from Jan discount)
+  if (janData.clients[3]) marDiscountClients10pct.add(janData.clients[3].id)
+  if (janData.clients[7]) marDiscountClients10pct.add(janData.clients[7].id)
+  if (janData.clients[15]) marDiscountClients10pct.add(janData.clients[15].id)
+  // Apply 15% to feb clients 2,6,11
+  if (febData.febClients[2]) marDiscountClients15pct.add(febData.febClients[2].id)
+  if (febData.febClients[6]) marDiscountClients15pct.add(febData.febClients[6].id)
+  if (febData.febClients[11]) marDiscountClients15pct.add(febData.febClients[11].id)
 
   // Helper to create march sub
   async function createMarSub(clientId: string, wardId: string, gIdx: number, status: "active" | "closed" = "active") {
@@ -1240,17 +1252,47 @@ async function step4_march(
     const totalLessons = marDates.length
     const totalAmount = totalLessons * price
 
+    // Compute discount
+    let discountAmount = 0
+    let discountType: "permanent" | "linked" | null = null
+    let discountPct = 0
+    if (marDiscountClients10pct.has(clientId)) {
+      discountPct = 10
+      discountAmount = Math.round(totalAmount * 0.1)
+      discountType = "permanent"
+    } else if (marDiscountClients15pct.has(clientId)) {
+      discountPct = 15
+      discountAmount = Math.round(totalAmount * 0.15)
+      discountType = "linked"
+    }
+    const finalAmount = totalAmount - discountAmount
+
     const sub = await db.subscription.create({
       data: {
         tenantId: T, clientId, wardId, directionId: gd.dirId, groupId: groups[gIdx].id,
         type: "calendar", status, periodYear: 2026, periodMonth: 3,
-        lessonPrice: price, totalLessons, totalAmount, discountAmount: 0, finalAmount: totalAmount,
-        balance: status === "active" ? totalAmount : 0, chargedAmount: status === "active" ? 0 : totalAmount,
+        lessonPrice: price, totalLessons, totalAmount, discountAmount, finalAmount,
+        balance: status === "active" ? finalAmount : 0, chargedAmount: status === "active" ? 0 : finalAmount,
         startDate: new Date("2026-03-01"), endDate: new Date("2026-03-31"),
         activatedAt: new Date("2026-03-01"), createdBy: owner.id,
       },
     })
-    marSubs.push({ id: sub.id, clientId, wardId, groupIdx: gIdx, dirId: gd.dirId, price, totalLessons })
+    // Create discount record
+    if (discountAmount > 0 && discountType) {
+      await db.discount.create({
+        data: {
+          tenantId: T, subscriptionId: sub.id,
+          type: discountType,
+          valueType: "percent",
+          value: discountPct,
+          calculatedAmount: discountAmount,
+          comment: discountPct === 10 ? "Многодетная семья" : "Второй ребёнок",
+          startDate: new Date("2026-03-01"),
+          createdBy: owner.id,
+        },
+      })
+    }
+    marSubs.push({ id: sub.id, clientId, wardId, groupIdx: gIdx, dirId: gd.dirId, price, totalLessons, finalAmount })
     return sub
   }
 
@@ -1341,7 +1383,7 @@ async function step4_march(
     await db.payment.create({
       data: {
         tenantId: T, clientId: sub.clientId, subscriptionId: sub.id, accountId,
-        amount: sub.totalLessons * sub.price, type: "incoming", method: pm.method,
+        amount: sub.finalAmount, type: "incoming", method: pm.method,
         date: new Date(Date.UTC(2026, 2, 1 + (pi % 20))),
         isFirstPayment: false, createdBy: admin1.id,
       },
