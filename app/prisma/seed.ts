@@ -1591,12 +1591,25 @@ async function step7_closeMarchAndApril(
   })
   console.log("  Period Mar: closed")
 
-  // Close all March subscriptions
-  const marSubsClosed = await db.subscription.updateMany({
+  // Close all March subscriptions — compute chargedAmount from actual attendance
+  const activeMarchSubs = await db.subscription.findMany({
     where: { tenantId: T, periodYear: 2026, periodMonth: 3, status: "active" },
-    data: { status: "closed", balance: 0 },
   })
-  console.log("  March subs closed: " + marSubsClosed.count)
+  for (const sub of activeMarchSubs) {
+    const chargeAgg = await db.attendance.aggregate({
+      where: {
+        subscriptionId: sub.id,
+        attendanceType: { chargesSubscription: true },
+      },
+      _sum: { chargeAmount: true },
+    })
+    const chargedAmount = Number(chargeAgg._sum.chargeAmount || 0)
+    await db.subscription.update({
+      where: { id: sub.id },
+      data: { status: "closed", balance: 0, chargedAmount },
+    })
+  }
+  console.log("  March subs closed: " + activeMarchSubs.length + " (with correct chargedAmount)")
 
   // Salary payments for March
   const instructors = [
@@ -2429,6 +2442,187 @@ async function step9_stockAndCandidates(ctx: Awaited<ReturnType<typeof step1_set
 }
 
 // ============================================================
+// STEP 10: RECONCILIATION (fix all derived fields)
+// ============================================================
+async function step10_reconciliation(ctx: Awaited<ReturnType<typeof step1_setup>>) {
+  console.log("\n=== STEP 10: Reconciliation ===")
+  const { T } = ctx
+
+  // ─── 10A. Fix chargedAmount for ALL closed subscriptions ───
+  const closedSubs = await db.subscription.findMany({
+    where: { tenantId: T, status: "closed" },
+    select: { id: true },
+  })
+  let fixedSubs = 0
+  for (const sub of closedSubs) {
+    const chargeAgg = await db.attendance.aggregate({
+      where: {
+        subscriptionId: sub.id,
+        attendanceType: { chargesSubscription: true },
+      },
+      _sum: { chargeAmount: true },
+    })
+    const chargedAmount = Number(chargeAgg._sum.chargeAmount || 0)
+    await db.subscription.update({
+      where: { id: sub.id },
+      data: { chargedAmount, balance: 0 },
+    })
+    fixedSubs++
+  }
+  console.log(`  Closed subs chargedAmount fixed: ${fixedSubs}`)
+
+  // ─── 10B. Fix financial account balances ───
+  const accounts = await db.financialAccount.findMany({ where: { tenantId: T } })
+  for (const acc of accounts) {
+    // Payments incoming to this account
+    const paymentsIn = await db.payment.aggregate({
+      where: { tenantId: T, accountId: acc.id, type: "incoming" },
+      _sum: { amount: true },
+    })
+    // Refunds from this account
+    const refundsOut = await db.payment.aggregate({
+      where: { tenantId: T, accountId: acc.id, type: "refund" },
+      _sum: { amount: true },
+    })
+    // Expenses from this account
+    const expensesOut = await db.expense.aggregate({
+      where: { tenantId: T, accountId: acc.id },
+      _sum: { amount: true },
+    })
+    // Salary payments from this account
+    const salaryOut = await db.salaryPayment.aggregate({
+      where: { tenantId: T, accountId: acc.id },
+      _sum: { amount: true },
+    })
+    // Account operations: outgoing (fromAccountId)
+    const opsOut = await db.accountOperation.aggregate({
+      where: { tenantId: T, fromAccountId: acc.id },
+      _sum: { amount: true },
+    })
+    // Account operations: incoming (toAccountId)
+    const opsIn = await db.accountOperation.aggregate({
+      where: { tenantId: T, toAccountId: acc.id },
+      _sum: { amount: true },
+    })
+
+    const balance =
+      Number(paymentsIn._sum.amount || 0)
+      - Number(refundsOut._sum.amount || 0)
+      - Number(expensesOut._sum.amount || 0)
+      - Number(salaryOut._sum.amount || 0)
+      - Number(opsOut._sum.amount || 0)
+      + Number(opsIn._sum.amount || 0)
+
+    await db.financialAccount.update({
+      where: { id: acc.id },
+      data: { balance },
+    })
+  }
+  console.log(`  Financial accounts rebalanced: ${accounts.length}`)
+
+  // Verify total
+  const totalBalance = await db.financialAccount.aggregate({
+    where: { tenantId: T },
+    _sum: { balance: true },
+  })
+  console.log(`  Total account balance: ${Number(totalBalance._sum.balance || 0).toLocaleString("ru-RU")} ₽`)
+
+  // ─── 10C. Fix client_balance ───
+  // clientBalance = sum(payments) - sum(chargedAmount from chargesSubscription attendance)
+  const clients = await db.client.findMany({
+    where: { tenantId: T },
+    select: { id: true },
+  })
+  let fixedClients = 0
+  let debtorsCount = 0
+  let overpaidCount = 0
+  for (const cl of clients) {
+    const totalPaid = await db.payment.aggregate({
+      where: { tenantId: T, clientId: cl.id, type: "incoming" },
+      _sum: { amount: true },
+    })
+    const totalRefunded = await db.payment.aggregate({
+      where: { tenantId: T, clientId: cl.id, type: "refund" },
+      _sum: { amount: true },
+    })
+    const totalCharged = await db.attendance.aggregate({
+      where: {
+        tenantId: T, clientId: cl.id,
+        attendanceType: { chargesSubscription: true },
+      },
+      _sum: { chargeAmount: true },
+    })
+
+    const clientBalance =
+      Number(totalPaid._sum.amount || 0)
+      - Number(totalRefunded._sum.amount || 0)
+      - Number(totalCharged._sum.chargeAmount || 0)
+
+    // Also compute LTV metrics
+    const subsCount = await db.subscription.count({
+      where: { tenantId: T, clientId: cl.id },
+    })
+    const paidAmount = Number(totalPaid._sum.amount || 0)
+
+    // Compute months LTV (first payment to last payment)
+    const firstPayment = await db.payment.findFirst({
+      where: { tenantId: T, clientId: cl.id, type: "incoming" },
+      orderBy: { date: "asc" },
+      select: { date: true },
+    })
+    const lastPayment = await db.payment.findFirst({
+      where: { tenantId: T, clientId: cl.id, type: "incoming" },
+      orderBy: { date: "desc" },
+      select: { date: true },
+    })
+    let monthsLtv = 0
+    if (firstPayment && lastPayment) {
+      const firstDate = new Date(firstPayment.date)
+      const lastDate = new Date(lastPayment.date)
+      monthsLtv = Math.max(1, Math.ceil((lastDate.getTime() - firstDate.getTime()) / (30 * 24 * 60 * 60 * 1000)) + 1)
+    }
+
+    await db.client.update({
+      where: { id: cl.id },
+      data: {
+        clientBalance,
+        totalSubscriptionsCount: subsCount,
+        totalPaidAmount: paidAmount,
+        moneyLtv: paidAmount,
+        monthsLtv,
+      },
+    })
+
+    if (clientBalance < 0) debtorsCount++
+    if (clientBalance > 0) overpaidCount++
+    fixedClients++
+  }
+  console.log(`  Client balances fixed: ${fixedClients}`)
+  console.log(`  Debtors: ${debtorsCount}, Overpaid: ${overpaidCount}`)
+
+  // ─── 10D. Verify summary ───
+  const totalPayments = await db.payment.aggregate({ where: { tenantId: T }, _sum: { amount: true } })
+  const totalExpenses = await db.expense.aggregate({ where: { tenantId: T }, _sum: { amount: true } })
+  const totalSalary = await db.salaryPayment.aggregate({ where: { tenantId: T }, _sum: { amount: true } })
+  const totalRevenue = await db.attendance.aggregate({
+    where: { tenantId: T, attendanceType: { countsAsRevenue: true } },
+    _sum: { chargeAmount: true },
+  })
+  const opsWithdrawals = await db.accountOperation.aggregate({
+    where: { tenantId: T, toAccountId: null },
+    _sum: { amount: true },
+  })
+
+  console.log("  ── Financial Health Check ──")
+  console.log(`  Оплаты: ${Number(totalPayments._sum.amount || 0).toLocaleString("ru-RU")} ₽`)
+  console.log(`  Выручка (attendance): ${Number(totalRevenue._sum.chargeAmount || 0).toLocaleString("ru-RU")} ₽`)
+  console.log(`  Расходы: ${Number(totalExpenses._sum.amount || 0).toLocaleString("ru-RU")} ₽`)
+  console.log(`  ЗП выплачено: ${Number(totalSalary._sum.amount || 0).toLocaleString("ru-RU")} ₽`)
+  console.log(`  Выемки: ${Number(opsWithdrawals._sum.amount || 0).toLocaleString("ru-RU")} ₽`)
+  console.log(`  Остаток на счетах: ${Number(totalBalance._sum.balance || 0).toLocaleString("ru-RU")} ₽`)
+}
+
+// ============================================================
 // MAIN
 // ============================================================
 async function main() {
@@ -2445,6 +2639,7 @@ async function main() {
   await step7_closeMarchAndApril(setupCtx, janData, febData, marData)
   await step8_enrichment(setupCtx, janData, marData)
   await step9_stockAndCandidates(setupCtx)
+  await step10_reconciliation(setupCtx)
   await step6_summary(setupCtx)
 
   console.log("\n✅ Seed complete!")
