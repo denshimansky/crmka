@@ -5,7 +5,8 @@ const ADMIN_PASSWORD = "admin123"
 
 async function adminLogin(page: any) {
   await page.goto("/admin/login")
-  await page.waitForLoadState("networkidle")
+  await page.waitForLoadState("domcontentloaded")
+  await page.waitForTimeout(1500)
 
   // Ждём полной загрузки React-формы
   const emailInput = page.locator('input[id="email"]')
@@ -65,7 +66,7 @@ test.describe("Бэк-офис: Биллинг", () => {
     // Организация: название, юрлицо, ИНН, телефон, email, контактное лицо
     await inputs.nth(0).fill(name)
     await inputs.nth(1).fill(`ООО "Тест ${ts}"`)
-    await inputs.nth(2).fill("7799900011")
+    await inputs.nth(2).fill(`77${ts}99`)
     await inputs.nth(3).fill("+7 (999) 111-22-33")
     await inputs.nth(4).fill(`test${ts}@example.com`)
     await inputs.nth(5).fill("Тестов Тест")
@@ -87,7 +88,8 @@ test.describe("Бэк-офис: Биллинг", () => {
 
     // Открываем первого партнёра (кнопка-глазик)
     await page.locator("table tbody tr").first().locator("a").click()
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
+    await page.waitForTimeout(1500)
     await page.waitForSelector("text=Реквизиты", { timeout: 10000 })
 
     await expect(page.locator("text=Реквизиты").first()).toBeVisible()
