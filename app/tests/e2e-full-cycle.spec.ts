@@ -36,7 +36,7 @@ test.describe("E2E: Полный цикл CRM", () => {
   test("1. Логин и дашборд", async ({ page }) => {
     await login(page)
     await expect(page.locator("h1")).toContainText("Главная")
-    await expect(page.locator("text=Малафеева А.")).toBeVisible()
+    await expect(page.locator("text=Соколова Т.")).toBeVisible()
   })
 
   test("2. Создать направление", async ({ page }) => {

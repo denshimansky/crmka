@@ -295,16 +295,30 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
         return
       }
 
+      // Сначала сбрасываем на дефолт, чтобы гарантировать изменение
+      const currentValue = await input.inputValue()
+      if (currentValue === "Тренер") {
+        // Уже "Тренер" от прошлого прогона — сначала вернём "Педагог"
+        await input.clear()
+        await input.fill("Педагог")
+        await page.waitForTimeout(300)
+        const resetBtn = page.locator("button:has-text('Сохранить')").first()
+        if (await resetBtn.isEnabled({ timeout: 2000 }).catch(() => false)) {
+          await resetBtn.click()
+          await page.waitForTimeout(1500)
+        }
+      }
+
       await input.clear()
       await input.fill("Тренер")
       await page.waitForTimeout(300)
 
       // Кнопка «Сохранить» — ищем ближайшую после секции ролей
       const saveBtn = page.locator("button:has-text('Сохранить')").first()
-      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await saveBtn.isEnabled({ timeout: 3000 }).catch(() => false)) {
         await saveBtn.click()
       } else {
-        log("8.5 Кнопка «Сохранить» для ролей", "BUG", "Не найдена")
+        log("8.5 Кнопка «Сохранить» для ролей", "BUG", "Кнопка disabled — изменение не обнаружено формой")
         return
       }
       await page.waitForTimeout(2000)
@@ -317,7 +331,7 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
       await input.fill("Педагог")
       await page.waitForTimeout(300)
       const saveBtnAgain = page.locator("button:has-text('Сохранить')").first()
-      if (await saveBtnAgain.isVisible({ timeout: 1000 }).catch(() => false)) {
+      if (await saveBtnAgain.isEnabled({ timeout: 1000 }).catch(() => false)) {
         await saveBtnAgain.click()
         await page.waitForTimeout(1000)
       }
