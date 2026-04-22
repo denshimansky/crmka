@@ -21,7 +21,7 @@ test.describe("Модуль 9: Дашборд", () => {
     await expect(page.locator("text=Выручка за месяц")).toBeVisible()
     await expect(page.locator("text=Расходы за месяц")).toBeVisible()
     // Дата
-    await expect(page.locator("text=2026")).toBeVisible()
+    await expect(page.locator("text=2026").first()).toBeVisible()
   })
 
   test("2. Виджеты задач и неотмеченных", async ({ page }) => {

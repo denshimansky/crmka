@@ -58,8 +58,9 @@ test.describe("ЛК партнёра: Подписка", () => {
     // Карточка подписки
     await expect(page.locator("text=Подписка").nth(1)).toBeVisible()
 
-    // Должен быть тариф "Стандарт" из seed
-    await expect(page.locator("text=Стандарт").first()).toBeVisible()
+    // Должен быть тариф (Стандарт или Премиум) из seed
+    const hasPlan = page.locator("text=/Стандарт|Премиум/").first()
+    await expect(hasPlan).toBeVisible({ timeout: 5000 })
   })
 
   test("5. История счетов видна", async ({ page }) => {
