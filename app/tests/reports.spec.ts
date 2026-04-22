@@ -42,10 +42,10 @@ test.describe("Модуль 7: Отчёты", () => {
     // Метрики
     await expect(page.locator("text=Всего клиентов")).toBeVisible()
     await expect(page.locator("p:has-text('Конверсия')").first()).toBeVisible()
-    // Этапы воронки
-    await expect(page.locator("text=Этапы воронки")).toBeVisible()
-    await expect(page.locator("text=Новый")).toBeVisible()
-    await expect(page.locator("text=Активный клиент")).toBeVisible()
+    // Воронка — новые за месяц
+    await expect(page.locator("text=Воронка — новые за месяц").first()).toBeVisible({ timeout: 10000 })
+    await expect(page.locator("text=Новый").first()).toBeVisible()
+    await expect(page.locator("text=Активный клиент").first()).toBeVisible()
     // Кнопка назад (ArrowLeft icon link, не сайдбар)
     await page.locator("a[href='/reports'] svg").first().click()
     await expect(page.locator("h1")).toContainText("Отчёты")

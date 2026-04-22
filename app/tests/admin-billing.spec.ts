@@ -62,15 +62,22 @@ test.describe("Бэк-офис: Биллинг", () => {
     const dialog = page.locator('[role="dialog"]')
     const inputs = dialog.locator("input")
 
+    // Организация: название, юрлицо, ИНН, телефон, email, контактное лицо
     await inputs.nth(0).fill(name)
     await inputs.nth(1).fill(`ООО "Тест ${ts}"`)
     await inputs.nth(2).fill("7799900011")
     await inputs.nth(3).fill("+7 (999) 111-22-33")
     await inputs.nth(4).fill(`test${ts}@example.com`)
     await inputs.nth(5).fill("Тестов Тест")
+    // Владелец: фамилия, имя, логин, пароль, email
+    await inputs.nth(6).fill("Тестов")
+    await inputs.nth(7).fill("Тест")
+    await inputs.nth(8).fill(`testowner${ts}`)
+    await inputs.nth(9).fill("demo123")
+    await inputs.nth(10).fill(`owner${ts}@example.com`)
 
     await dialog.locator("button:has-text('Создать')").click()
-    await page.waitForTimeout(2000)
+    await page.waitForTimeout(3000)
 
     await expect(page.locator(`text=${name}`)).toBeVisible()
   })

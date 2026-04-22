@@ -84,6 +84,7 @@ async function step0_backoffice() {
       salaryDay2: 30,
       payForAbsence: false,
       attendanceDeadline: 14,
+      onboardingCompleted: true,
     },
   })
   console.log("  Organization created:", org.name)

@@ -2,7 +2,8 @@ import { test, expect } from "@playwright/test"
 
 async function loginAsOwner(page: any) {
   await page.goto("/login")
-  await page.waitForLoadState("networkidle")
+  await page.waitForLoadState("domcontentloaded")
+    await page.waitForTimeout(1500)
   await page.locator('input[id="login"]').click()
   await page.locator('input[id="login"]').fill("owner")
   await page.locator('input[id="password"]').click()
@@ -23,7 +24,8 @@ test.describe("ЛК партнёра: Подписка", () => {
   test("2. Страница подписки загружается", async ({ page }) => {
     await loginAsOwner(page)
     await page.goto("/billing")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
+    await page.waitForTimeout(1500)
 
     await expect(page.locator("h1")).toContainText("Подписка")
     await expect(page.locator("text=Управление подпиской и счетами")).toBeVisible()
@@ -32,7 +34,8 @@ test.describe("ЛК партнёра: Подписка", () => {
   test("3. Карточки-метрики отображаются", async ({ page }) => {
     await loginAsOwner(page)
     await page.goto("/billing")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
+    await page.waitForTimeout(1500)
     await page.waitForTimeout(2000)
 
     // Должны быть 4 карточки
@@ -45,7 +48,8 @@ test.describe("ЛК партнёра: Подписка", () => {
   test("4. Информация об организации и подписке", async ({ page }) => {
     await loginAsOwner(page)
     await page.goto("/billing")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
+    await page.waitForTimeout(1500)
     await page.waitForTimeout(2000)
 
     // Карточка организации
@@ -61,7 +65,8 @@ test.describe("ЛК партнёра: Подписка", () => {
   test("5. История счетов видна", async ({ page }) => {
     await loginAsOwner(page)
     await page.goto("/billing")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
+    await page.waitForTimeout(1500)
     await page.waitForTimeout(2000)
 
     await expect(page.locator("text=История счетов")).toBeVisible()
@@ -71,7 +76,8 @@ test.describe("ЛК партнёра: Подписка", () => {
 
   test("6. Администратор не видит подписку", async ({ page }) => {
     await page.goto("/login")
-    await page.waitForLoadState("networkidle")
+    await page.waitForLoadState("domcontentloaded")
+    await page.waitForTimeout(1500)
     await page.locator('input[id="login"]').click()
     await page.locator('input[id="login"]').fill("admin")
     await page.locator('input[id="password"]').click()

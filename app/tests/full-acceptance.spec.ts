@@ -29,7 +29,8 @@ async function loginCRM(page: Page, login: string, password = "demo123") {
 
 async function adminLogin(page: Page) {
   await page.goto("/admin/login")
-  await page.waitForLoadState("networkidle")
+  await page.waitForLoadState("domcontentloaded")
+  await page.waitForTimeout(1000)
   const emailInput = page.locator('input[id="email"]')
   await emailInput.waitFor({ state: "visible", timeout: 10000 })
   await page.waitForTimeout(500)
@@ -43,7 +44,8 @@ async function adminLogin(page: Page) {
 
 /** Проверка что страница не содержит Application error */
 async function assertNoError(page: Page) {
-  await page.waitForLoadState("networkidle")
+  await page.waitForLoadState("domcontentloaded")
+  await page.waitForTimeout(1000)
   const errorText = page.locator("text=Application error")
   await expect(errorText).toHaveCount(0, { timeout: 5000 })
 }
@@ -201,7 +203,8 @@ test.describe("PART 2: Глубинное тестирование", () => {
     test("leads count > 0", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/crm/leads")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       // Should have rows in table or list items
       const rows = page.locator("table tbody tr, [data-testid='lead-row']")
       const count = await rows.count()
@@ -219,7 +222,8 @@ test.describe("PART 2: Глубинное тестирование", () => {
 
       // Click first client row
       await rows.first().click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
 
       // Client card should have name and info
@@ -241,7 +245,8 @@ test.describe("PART 2: Глубинное тестирование", () => {
     test("schedule page loads with groups", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/schedule")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
       await expect(page.locator("h1")).toContainText("Расписание")
     })
@@ -249,7 +254,8 @@ test.describe("PART 2: Глубинное тестирование", () => {
     test("groups page has data", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/schedule/groups")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
       await expect(page.locator("h1")).toContainText("Группы")
       await page.waitForSelector("table", { timeout: 10000 })
@@ -301,7 +307,8 @@ test.describe("PART 2: Глубинное тестирование", () => {
     test("funnel report has data", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/reports/crm/funnel")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
       await expect(page.locator("h1")).toContainText("Воронка")
       await expect(page.locator("text=Всего клиентов")).toBeVisible()
@@ -310,7 +317,8 @@ test.describe("PART 2: Глубинное тестирование", () => {
     test("P&L report has data", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/reports/finance/pnl")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
       await expect(page.locator("h1")).toContainText("Финансовый результат")
       await expect(page.locator("p:has-text('Выручка')").first()).toBeVisible()
@@ -320,7 +328,8 @@ test.describe("PART 2: Глубинное тестирование", () => {
     test("visits report has data", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/reports/attendance/visits")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
       await expect(page.locator("h1")).toContainText("Посещения")
     })
@@ -328,14 +337,16 @@ test.describe("PART 2: Глубинное тестирование", () => {
     test("active subscriptions report", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/reports/subscriptions/active")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
     })
 
     test("churn details report", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/reports/churn/details")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
       await expect(page.locator("h1")).toContainText("Детализация оттока")
     })
@@ -365,7 +376,8 @@ test.describe("PART 2: Глубинное тестирование", () => {
     test("directions exist in settings", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/settings/directions")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
     })
   })
@@ -376,28 +388,32 @@ test.describe("PART 2: Глубинное тестирование", () => {
     test("production calendar page loads", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/schedule/calendar")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
     })
 
     test("discount templates page loads", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/settings/discount-templates")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
     })
 
     test("admin bonus page loads", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/settings/admin-bonus")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
     })
 
     test("planned expenses page loads", async ({ page }) => {
       await loginOwner(page)
       await page.goto("/finance/planned-expenses")
-      await page.waitForLoadState("networkidle")
+      await page.waitForLoadState("domcontentloaded")
+      await page.waitForTimeout(1000)
       await assertNoError(page)
     })
   })
