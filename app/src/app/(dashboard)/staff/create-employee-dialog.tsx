@@ -8,6 +8,7 @@ import {
   DialogDescription, DialogFooter, DialogClose,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -196,9 +197,8 @@ export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
               </div>
               <div>
                 <Label htmlFor="password">Пароль *</Label>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Мин. 6 символов"

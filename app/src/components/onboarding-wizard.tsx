@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import {
   Building2, MapPin, BookOpen, UserCog, Users, PartyPopper,
@@ -444,9 +445,8 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
                 </div>
                 <div>
                   <Label htmlFor="emp-pass">Пароль *</Label>
-                  <Input
+                  <PasswordInput
                     id="emp-pass"
-                    type="password"
                     value={empPassword}
                     onChange={(e) => setEmpPassword(e.target.value)}
                     placeholder="••••••"

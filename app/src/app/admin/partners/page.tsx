@@ -11,6 +11,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Plus, Building2, Eye } from "lucide-react"
 
@@ -211,7 +212,7 @@ export default function PartnersPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Пароль *</Label>
-                  <Input type="password" value={form.ownerPassword} onChange={(e) => setForm({ ...form, ownerPassword: e.target.value })} placeholder="Минимум 6 символов" />
+                  <PasswordInput value={form.ownerPassword} onChange={(e) => setForm({ ...form, ownerPassword: e.target.value })} placeholder="Минимум 6 символов" />
                 </div>
               </div>
               <div className="mt-3 space-y-2">
