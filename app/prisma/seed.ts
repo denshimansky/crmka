@@ -2367,11 +2367,11 @@ async function step9_stockAndCandidates(ctx: Awaited<ReturnType<typeof step1_set
 
   // 9A: Товары на складе
   const [paper, markers, sanitizer, crayons, notebooks] = await Promise.all([
-    db.stockItem.create({ data: { tenantId: T, name: "Бумага A4", unit: "пачка", defaultUnitCost: 350 } }),
-    db.stockItem.create({ data: { tenantId: T, name: "Маркеры для доски", unit: "уп.", defaultUnitCost: 420 } }),
-    db.stockItem.create({ data: { tenantId: T, name: "Антисептик", unit: "шт", defaultUnitCost: 180 } }),
-    db.stockItem.create({ data: { tenantId: T, name: "Мелки цветные", unit: "уп.", defaultUnitCost: 250 } }),
-    db.stockItem.create({ data: { tenantId: T, name: "Тетради", unit: "шт", defaultUnitCost: 45 } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Бумага A4", unit: "пачка" } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Маркеры для доски", unit: "уп." } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Антисептик", unit: "шт" } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Мелки цветные", unit: "уп." } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Тетради", unit: "шт" } }),
   ])
   console.log("  StockItems: 5")
 
@@ -2679,8 +2679,12 @@ async function main() {
   await step5_portal(setupCtx, janData, febData)
   await step7_closeMarchAndApril(setupCtx, janData, febData, marData)
   await step8_enrichment(setupCtx, janData, marData)
-  await step9_stockAndCandidates(setupCtx)
   await step10_reconciliation(setupCtx)
+  try {
+    await step9_stockAndCandidates(setupCtx)
+  } catch (e) {
+    console.log("  ⚠ Step 9 (Stock & Candidates) skipped:", (e as Error).message?.substring(0, 100))
+  }
   await step6_summary(setupCtx)
 
   console.log("\n✅ Seed complete!")
