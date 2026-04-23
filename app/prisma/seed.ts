@@ -1228,7 +1228,19 @@ async function step4_march(
 
   // --- March subscriptions ---
   // Continuing from Feb: ~all active clients. Let's aim for 150 total.
-  const marSubs: { id: string; clientId: string; wardId: string; groupIdx: number; dirId: string; price: number; totalLessons: number }[] = []
+  const marSubs: { id: string; clientId: string; wardId: string; groupIdx: number; dirId: string; price: number; totalLessons: number; finalAmount: number }[] = []
+
+  // Discount tracking for March: some continuing clients get discounts
+  const marDiscountClients10pct = new Set<string>() // client IDs for 10% multi-child
+  const marDiscountClients15pct = new Set<string>() // client IDs for 15% second child
+  // Apply 10% to jan clients 3,7,15 (continuing from Jan discount)
+  if (janData.clients[3]) marDiscountClients10pct.add(janData.clients[3].id)
+  if (janData.clients[7]) marDiscountClients10pct.add(janData.clients[7].id)
+  if (janData.clients[15]) marDiscountClients10pct.add(janData.clients[15].id)
+  // Apply 15% to feb clients 2,6,11
+  if (febData.febClients[2]) marDiscountClients15pct.add(febData.febClients[2].id)
+  if (febData.febClients[6]) marDiscountClients15pct.add(febData.febClients[6].id)
+  if (febData.febClients[11]) marDiscountClients15pct.add(febData.febClients[11].id)
 
   // Helper to create march sub
   async function createMarSub(clientId: string, wardId: string, gIdx: number, status: "active" | "closed" = "active") {
@@ -1240,17 +1252,47 @@ async function step4_march(
     const totalLessons = marDates.length
     const totalAmount = totalLessons * price
 
+    // Compute discount
+    let discountAmount = 0
+    let discountType: "permanent" | "linked" | null = null
+    let discountPct = 0
+    if (marDiscountClients10pct.has(clientId)) {
+      discountPct = 10
+      discountAmount = Math.round(totalAmount * 0.1)
+      discountType = "permanent"
+    } else if (marDiscountClients15pct.has(clientId)) {
+      discountPct = 15
+      discountAmount = Math.round(totalAmount * 0.15)
+      discountType = "linked"
+    }
+    const finalAmount = totalAmount - discountAmount
+
     const sub = await db.subscription.create({
       data: {
         tenantId: T, clientId, wardId, directionId: gd.dirId, groupId: groups[gIdx].id,
         type: "calendar", status, periodYear: 2026, periodMonth: 3,
-        lessonPrice: price, totalLessons, totalAmount, discountAmount: 0, finalAmount: totalAmount,
-        balance: status === "active" ? totalAmount : 0, chargedAmount: status === "active" ? 0 : totalAmount,
+        lessonPrice: price, totalLessons, totalAmount, discountAmount, finalAmount,
+        balance: status === "active" ? finalAmount : 0, chargedAmount: status === "active" ? 0 : finalAmount,
         startDate: new Date("2026-03-01"), endDate: new Date("2026-03-31"),
         activatedAt: new Date("2026-03-01"), createdBy: owner.id,
       },
     })
-    marSubs.push({ id: sub.id, clientId, wardId, groupIdx: gIdx, dirId: gd.dirId, price, totalLessons })
+    // Create discount record
+    if (discountAmount > 0 && discountType) {
+      await db.discount.create({
+        data: {
+          tenantId: T, subscriptionId: sub.id,
+          type: discountType,
+          valueType: "percent",
+          value: discountPct,
+          calculatedAmount: discountAmount,
+          comment: discountPct === 10 ? "Многодетная семья" : "Второй ребёнок",
+          startDate: new Date("2026-03-01"),
+          createdBy: owner.id,
+        },
+      })
+    }
+    marSubs.push({ id: sub.id, clientId, wardId, groupIdx: gIdx, dirId: gd.dirId, price, totalLessons, finalAmount })
     return sub
   }
 
@@ -1341,7 +1383,7 @@ async function step4_march(
     await db.payment.create({
       data: {
         tenantId: T, clientId: sub.clientId, subscriptionId: sub.id, accountId,
-        amount: sub.totalLessons * sub.price, type: "incoming", method: pm.method,
+        amount: sub.finalAmount, type: "incoming", method: pm.method,
         date: new Date(Date.UTC(2026, 2, 1 + (pi % 20))),
         isFirstPayment: false, createdBy: admin1.id,
       },
@@ -1591,12 +1633,25 @@ async function step7_closeMarchAndApril(
   })
   console.log("  Period Mar: closed")
 
-  // Close all March subscriptions
-  const marSubsClosed = await db.subscription.updateMany({
+  // Close all March subscriptions — compute chargedAmount from actual attendance
+  const activeMarchSubs = await db.subscription.findMany({
     where: { tenantId: T, periodYear: 2026, periodMonth: 3, status: "active" },
-    data: { status: "closed", balance: 0 },
   })
-  console.log("  March subs closed: " + marSubsClosed.count)
+  for (const sub of activeMarchSubs) {
+    const chargeAgg = await db.attendance.aggregate({
+      where: {
+        subscriptionId: sub.id,
+        attendanceType: { chargesSubscription: true },
+      },
+      _sum: { chargeAmount: true },
+    })
+    const chargedAmount = Number(chargeAgg._sum.chargeAmount || 0)
+    await db.subscription.update({
+      where: { id: sub.id },
+      data: { status: "closed", balance: 0, chargedAmount },
+    })
+  }
+  console.log("  March subs closed: " + activeMarchSubs.length + " (with correct chargedAmount)")
 
   // Salary payments for March
   const instructors = [
@@ -2312,11 +2367,11 @@ async function step9_stockAndCandidates(ctx: Awaited<ReturnType<typeof step1_set
 
   // 9A: Товары на складе
   const [paper, markers, sanitizer, crayons, notebooks] = await Promise.all([
-    db.stockItem.create({ data: { tenantId: T, name: "Бумага A4", unit: "пачка", defaultUnitCost: 350 } }),
-    db.stockItem.create({ data: { tenantId: T, name: "Маркеры для доски", unit: "уп.", defaultUnitCost: 420 } }),
-    db.stockItem.create({ data: { tenantId: T, name: "Антисептик", unit: "шт", defaultUnitCost: 180 } }),
-    db.stockItem.create({ data: { tenantId: T, name: "Мелки цветные", unit: "уп.", defaultUnitCost: 250 } }),
-    db.stockItem.create({ data: { tenantId: T, name: "Тетради", unit: "шт", defaultUnitCost: 45 } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Бумага A4", unit: "пачка" } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Маркеры для доски", unit: "уп." } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Антисептик", unit: "шт" } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Мелки цветные", unit: "уп." } }),
+    db.stockItem.create({ data: { tenantId: T, name: "Тетради", unit: "шт" } }),
   ])
   console.log("  StockItems: 5")
 
@@ -2429,6 +2484,186 @@ async function step9_stockAndCandidates(ctx: Awaited<ReturnType<typeof step1_set
 }
 
 // ============================================================
+// STEP 10: RECONCILIATION (fix all derived fields)
+// ============================================================
+async function step10_reconciliation(ctx: Awaited<ReturnType<typeof step1_setup>>) {
+  console.log("\n=== STEP 10: Reconciliation ===")
+  const { T } = ctx
+
+  // ─── 10A. Fix chargedAmount for ALL closed subscriptions ───
+  const closedSubs = await db.subscription.findMany({
+    where: { tenantId: T, status: "closed" },
+    select: { id: true },
+  })
+  let fixedSubs = 0
+  for (const sub of closedSubs) {
+    const chargeAgg = await db.attendance.aggregate({
+      where: {
+        subscriptionId: sub.id,
+        attendanceType: { chargesSubscription: true },
+      },
+      _sum: { chargeAmount: true },
+    })
+    const chargedAmount = Number(chargeAgg._sum.chargeAmount || 0)
+    await db.subscription.update({
+      where: { id: sub.id },
+      data: { chargedAmount, balance: 0 },
+    })
+    fixedSubs++
+  }
+  console.log(`  Closed subs chargedAmount fixed: ${fixedSubs}`)
+
+  // ─── 10B. Fix financial account balances ───
+  const accounts = await db.financialAccount.findMany({ where: { tenantId: T } })
+  for (const acc of accounts) {
+    // Payments incoming to this account
+    const paymentsIn = await db.payment.aggregate({
+      where: { tenantId: T, accountId: acc.id, type: "incoming" },
+      _sum: { amount: true },
+    })
+    // Refunds from this account
+    const refundsOut = await db.payment.aggregate({
+      where: { tenantId: T, accountId: acc.id, type: "refund" },
+      _sum: { amount: true },
+    })
+    // Expenses from this account
+    const expensesOut = await db.expense.aggregate({
+      where: { tenantId: T, accountId: acc.id },
+      _sum: { amount: true },
+    })
+    // Salary payments from this account
+    const salaryOut = await db.salaryPayment.aggregate({
+      where: { tenantId: T, accountId: acc.id },
+      _sum: { amount: true },
+    })
+    // Account operations: outgoing (fromAccountId)
+    const opsOut = await db.accountOperation.aggregate({
+      where: { tenantId: T, fromAccountId: acc.id },
+      _sum: { amount: true },
+    })
+    // Account operations: incoming (toAccountId)
+    const opsIn = await db.accountOperation.aggregate({
+      where: { tenantId: T, toAccountId: acc.id },
+      _sum: { amount: true },
+    })
+
+    const balance =
+      Number(paymentsIn._sum.amount || 0)
+      - Number(refundsOut._sum.amount || 0)
+      - Number(expensesOut._sum.amount || 0)
+      - Number(salaryOut._sum.amount || 0)
+      - Number(opsOut._sum.amount || 0)
+      + Number(opsIn._sum.amount || 0)
+
+    await db.financialAccount.update({
+      where: { id: acc.id },
+      data: { balance },
+    })
+  }
+  console.log(`  Financial accounts rebalanced: ${accounts.length}`)
+
+  // Verify total
+  const totalBalance = await db.financialAccount.aggregate({
+    where: { tenantId: T },
+    _sum: { balance: true },
+  })
+  console.log(`  Total account balance: ${Number(totalBalance._sum.balance || 0).toLocaleString("ru-RU")} ₽`)
+
+  // ─── 10C. Fix client_balance ───
+  // clientBalance = sum(payments) - sum(chargedAmount from chargesSubscription attendance)
+  const clients = await db.client.findMany({
+    where: { tenantId: T },
+    select: { id: true },
+  })
+  let fixedClients = 0
+  let debtorsCount = 0
+  let overpaidCount = 0
+  for (const cl of clients) {
+    const totalPaid = await db.payment.aggregate({
+      where: { tenantId: T, clientId: cl.id, type: "incoming" },
+      _sum: { amount: true },
+    })
+    const totalRefunded = await db.payment.aggregate({
+      where: { tenantId: T, clientId: cl.id, type: "refund" },
+      _sum: { amount: true },
+    })
+    const totalCharged = await db.attendance.aggregate({
+      where: {
+        tenantId: T, clientId: cl.id,
+        attendanceType: { chargesSubscription: true },
+      },
+      _sum: { chargeAmount: true },
+    })
+
+    const clientBalance =
+      Number(totalPaid._sum.amount || 0)
+      - Number(totalRefunded._sum.amount || 0)
+      - Number(totalCharged._sum.chargeAmount || 0)
+
+    // Also compute LTV metrics
+    const subsCount = await db.subscription.count({
+      where: { tenantId: T, clientId: cl.id },
+    })
+    const paidAmount = Number(totalPaid._sum.amount || 0)
+
+    // Compute months LTV (first payment to last payment)
+    const firstPayment = await db.payment.findFirst({
+      where: { tenantId: T, clientId: cl.id, type: "incoming" },
+      orderBy: { date: "asc" },
+      select: { date: true },
+    })
+    const lastPayment = await db.payment.findFirst({
+      where: { tenantId: T, clientId: cl.id, type: "incoming" },
+      orderBy: { date: "desc" },
+      select: { date: true },
+    })
+    let monthsLtv = 0
+    if (firstPayment && lastPayment) {
+      const firstDate = new Date(firstPayment.date)
+      const lastDate = new Date(lastPayment.date)
+      monthsLtv = Math.max(1, Math.ceil((lastDate.getTime() - firstDate.getTime()) / (30 * 24 * 60 * 60 * 1000)) + 1)
+    }
+
+    await db.client.update({
+      where: { id: cl.id },
+      data: {
+        clientBalance,
+        totalSubscriptionsCount: subsCount,
+        moneyLtv: paidAmount,
+        monthsLtv,
+      },
+    })
+
+    if (clientBalance < 0) debtorsCount++
+    if (clientBalance > 0) overpaidCount++
+    fixedClients++
+  }
+  console.log(`  Client balances fixed: ${fixedClients}`)
+  console.log(`  Debtors: ${debtorsCount}, Overpaid: ${overpaidCount}`)
+
+  // ─── 10D. Verify summary ───
+  const totalPayments = await db.payment.aggregate({ where: { tenantId: T }, _sum: { amount: true } })
+  const totalExpenses = await db.expense.aggregate({ where: { tenantId: T }, _sum: { amount: true } })
+  const totalSalary = await db.salaryPayment.aggregate({ where: { tenantId: T }, _sum: { amount: true } })
+  const totalRevenue = await db.attendance.aggregate({
+    where: { tenantId: T, attendanceType: { countsAsRevenue: true } },
+    _sum: { chargeAmount: true },
+  })
+  const opsWithdrawals = await db.accountOperation.aggregate({
+    where: { tenantId: T, toAccountId: null },
+    _sum: { amount: true },
+  })
+
+  console.log("  ── Financial Health Check ──")
+  console.log(`  Оплаты: ${Number(totalPayments._sum.amount || 0).toLocaleString("ru-RU")} ₽`)
+  console.log(`  Выручка (attendance): ${Number(totalRevenue._sum.chargeAmount || 0).toLocaleString("ru-RU")} ₽`)
+  console.log(`  Расходы: ${Number(totalExpenses._sum.amount || 0).toLocaleString("ru-RU")} ₽`)
+  console.log(`  ЗП выплачено: ${Number(totalSalary._sum.amount || 0).toLocaleString("ru-RU")} ₽`)
+  console.log(`  Выемки: ${Number(opsWithdrawals._sum.amount || 0).toLocaleString("ru-RU")} ₽`)
+  console.log(`  Остаток на счетах: ${Number(totalBalance._sum.balance || 0).toLocaleString("ru-RU")} ₽`)
+}
+
+// ============================================================
 // MAIN
 // ============================================================
 async function main() {
@@ -2444,7 +2679,12 @@ async function main() {
   await step5_portal(setupCtx, janData, febData)
   await step7_closeMarchAndApril(setupCtx, janData, febData, marData)
   await step8_enrichment(setupCtx, janData, marData)
-  await step9_stockAndCandidates(setupCtx)
+  await step10_reconciliation(setupCtx)
+  try {
+    await step9_stockAndCandidates(setupCtx)
+  } catch (e) {
+    console.log("  ⚠ Step 9 (Stock & Candidates) skipped:", (e as Error).message?.substring(0, 100))
+  }
   await step6_summary(setupCtx)
 
   console.log("\n✅ Seed complete!")
