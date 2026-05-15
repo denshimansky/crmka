@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
 
   // Подопечный существует и принадлежит этому лиду
   const ward = await db.ward.findFirst({
-    where: { id: data.wardId, clientId: data.clientId, tenantId, deletedAt: null },
+    where: { id: data.wardId, clientId: data.clientId, tenantId },
     select: { id: true },
   })
   if (!ward) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
