@@ -109,7 +109,7 @@ export function QuickLeadButton() {
       <DialogTrigger render={
         <Button
           size="lg"
-          className="fixed bottom-6 right-6 z-50 rounded-full shadow-lg h-14 px-6 gap-2"
+          className="fixed bottom-24 right-6 z-50 rounded-full shadow-lg h-14 px-6 gap-2"
         />
       }>
         <Plus className="size-5" />
