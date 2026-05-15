@@ -8,13 +8,13 @@ import { randomBytes } from "crypto"
 let _secret: Uint8Array | null = null
 function getSecret(): Uint8Array {
   if (_secret) return _secret
-  const raw = process.env.PORTAL_JWT_getSecret() || process.env.NEXTAUTH_getSecret()
+  const raw = process.env.PORTAL_JWT_SECRET || process.env.NEXTAUTH_SECRET
   const isWeak = !raw || raw.length < 32 || raw === "change-me-to-random-string"
   if (isWeak && process.env.NODE_ENV === "production") {
-    throw new Error("PORTAL_JWT_getSecret() or NEXTAUTH_getSecret() must be set to a strong value (≥32 chars) in production")
+    throw new Error("PORTAL_JWT_SECRET or NEXTAUTH_SECRET must be set to a strong value (≥32 chars) in production")
   }
   if (isWeak) {
-    console.warn("[portal-auth] WARNING: using weak/missing JWT secret — set PORTAL_JWT_getSecret() (≥32 chars) in .env")
+    console.warn("[portal-auth] WARNING: using weak/missing JWT secret — set PORTAL_JWT_SECRET (≥32 chars) in .env")
   }
   _secret = new TextEncoder().encode(raw || "dev-only-insecure-secret-do-not-use-in-prod")
   return _secret
