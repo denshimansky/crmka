@@ -57,13 +57,22 @@ jobs:
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MSG: |
-            ✅ <b>Deploy OK</b> — dev.umnayacrm.ru
-            <b>Commit:</b> <code>${{ github.sha }}</code>
-            <b>Author:</b> ${{ github.actor }}
-            <b>Message:</b> ${{ github.event.head_commit.message }}
-            <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">CI run</a>
+          COMMIT_SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          COMMIT_MSG_FULL: ${{ github.event.head_commit.message }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # Экранируем HTML-спецсимволы (&, <, >) в динамических полях
+          esc() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+          TITLE=$(printf '%s' "$COMMIT_MSG_FULL" | head -n1)
+          SHA_SHORT="${COMMIT_SHA:0:7}"
+          TITLE_ESC=$(esc "$TITLE")
+          ACTOR_ESC=$(esc "$ACTOR")
+          MSG=$(printf '%s\n%s\n%s\n%s' \
+            "✅ <b>Deploy OK</b> — dev.umnayacrm.ru" \
+            "<b>Commit:</b> <code>${SHA_SHORT}</code> ${TITLE_ESC}" \
+            "<b>Author:</b> ${ACTOR_ESC}" \
+            "<a href=\"${RUN_URL}\">CI run</a>")
           curl -fsS --max-time 10 \
             -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -d "chat_id=${TG_CHAT}" \
@@ -76,13 +85,21 @@ jobs:
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MSG: |
-            ❌ <b>Deploy FAILED</b> — dev.umnayacrm.ru
-            <b>Commit:</b> <code>${{ github.sha }}</code>
-            <b>Author:</b> ${{ github.actor }}
-            <b>Message:</b> ${{ github.event.head_commit.message }}
-            <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Открыть логи</a>
+          COMMIT_SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          COMMIT_MSG_FULL: ${{ github.event.head_commit.message }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          esc() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+          TITLE=$(printf '%s' "$COMMIT_MSG_FULL" | head -n1)
+          SHA_SHORT="${COMMIT_SHA:0:7}"
+          TITLE_ESC=$(esc "$TITLE")
+          ACTOR_ESC=$(esc "$ACTOR")
+          MSG=$(printf '%s\n%s\n%s\n%s' \
+            "❌ <b>Deploy FAILED</b> — dev.umnayacrm.ru" \
+            "<b>Commit:</b> <code>${SHA_SHORT}</code> ${TITLE_ESC}" \
+            "<b>Author:</b> ${ACTOR_ESC}" \
+            "<a href=\"${RUN_URL}\">Открыть логи</a>")
           curl -fsS --max-time 10 \
             -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -d "chat_id=${TG_CHAT}" \
