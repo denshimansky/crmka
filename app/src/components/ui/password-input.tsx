@@ -8,7 +8,7 @@ function PasswordInput({ className, ...props }: Omit<React.ComponentProps<"input
   const [visible, setVisible] = React.useState(false)
 
   return (
-    <div className="relative">
+    <div className="relative" data-slot="password-input">
       <input
         type={visible ? "text" : "password"}
         data-slot="input"
