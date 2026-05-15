@@ -87,6 +87,8 @@ interface TrialStudentData {
   wardId: string | null
   wardName: string | null
   status: "scheduled" | "attended" | "no_show"
+  instructorPayEnabled: boolean
+  instructorPayAmount: number
 }
 
 const TRIAL_STATUS_LABELS: Record<string, string> = {
@@ -449,10 +451,18 @@ export function AttendanceTable({
     (sum, s) => sum + (s.attendance?.chargeAmount || 0),
     0
   )
-  const totalInstructorPay = markedStudents.reduce(
-    (sum, s) => sum + (s.attendance?.instructorPayEnabled ? (s.attendance?.instructorPayAmount || 0) : 0),
-    0
-  )
+  const totalInstructorPay =
+    markedStudents.reduce(
+      (sum, s) =>
+        sum + (s.attendance?.instructorPayEnabled ? (s.attendance?.instructorPayAmount || 0) : 0),
+      0
+    ) +
+    trialStudents.reduce(
+      (sum, t) =>
+        sum +
+        (t.status === "attended" && t.instructorPayEnabled ? t.instructorPayAmount : 0),
+      0
+    )
 
   // Изменить статус пробного занятия (явка / не пришёл / отменено)
   async function updateTrialStatus(trial: TrialStudentData, newStatus: string) {
@@ -477,6 +487,54 @@ export function AttendanceTable({
             )
           )
         }
+        router.refresh()
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingTrialId(null)
+    }
+  }
+
+  // Прикинуть сумму ЗП за пробного на клиенте — для отображения до сохранения с сервера
+  function estimateTrialPay(enabled: boolean): number {
+    if (!enabled || !salaryRate) return 0
+    if (salaryRate.scheme === "per_student" && salaryRate.ratePerStudent) {
+      return salaryRate.ratePerStudent
+    }
+    if (salaryRate.scheme === "fixed_plus_per_student" && salaryRate.ratePerStudent) {
+      return salaryRate.ratePerStudent
+    }
+    if (salaryRate.scheme === "per_lesson" && salaryRate.ratePerLesson) {
+      return salaryRate.ratePerLesson
+    }
+    return 0
+  }
+
+  // Переключить чекбокс «Оплата инструктору» для пробного
+  async function toggleTrialPay(trial: TrialStudentData) {
+    const newEnabled = !trial.instructorPayEnabled
+    setLoadingTrialId(trial.trialId)
+    try {
+      const res = await fetch(`/api/trial-lessons/${trial.trialId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instructorPayEnabled: newEnabled }),
+      })
+      if (res.ok) {
+        setTrialStudents((prev) =>
+          prev.map((t) =>
+            t.trialId === trial.trialId
+              ? {
+                  ...t,
+                  instructorPayEnabled: newEnabled,
+                  // оптимистично прикидываем сумму; точная придёт после router.refresh()
+                  instructorPayAmount:
+                    t.status === "attended" ? estimateTrialPay(newEnabled) : t.instructorPayAmount,
+                }
+              : t
+          )
+        )
         router.refresh()
       }
     } catch {
@@ -540,10 +598,20 @@ export function AttendanceTable({
           <span className="text-muted-foreground">{"—"}</span>
         </TableCell>
         <TableCell className="text-right">
-          <span className="text-muted-foreground">{"—"}</span>
+          {trial.status === "attended"
+            ? formatMoney(
+                trial.instructorPayEnabled ? trial.instructorPayAmount : 0
+              )
+            : <span className="text-muted-foreground">{"—"}</span>}
         </TableCell>
         <TableCell className="text-center">
-          <span className="text-muted-foreground">{"—"}</span>
+          <div className="flex justify-center">
+            <Checkbox
+              checked={trial.instructorPayEnabled}
+              onCheckedChange={() => toggleTrialPay(trial)}
+              disabled={isLoading}
+            />
+          </div>
         </TableCell>
       </TableRow>
     )

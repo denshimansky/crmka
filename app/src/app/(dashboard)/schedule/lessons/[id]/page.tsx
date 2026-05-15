@@ -169,23 +169,57 @@ export default async function LessonCardPage({
       status: true,
       clientId: true,
       wardId: true,
+      instructorPayEnabled: true,
       client: { select: { id: true, firstName: true, lastName: true, phone: true } },
       ward: { select: { id: true, firstName: true, lastName: true } },
     },
     orderBy: { createdAt: "asc" },
   })
 
-  const trialStudents = trialLessons.map((t) => ({
-    trialId: t.id,
+  // Соответствующие записи Attendance (для уже отмеченных пробных) —
+  // оттуда берём фактическую сумму ЗП инструктора.
+  const trialClientKeys = trialLessons.map((t) => ({
     clientId: t.clientId,
-    clientName: [t.client.lastName, t.client.firstName].filter(Boolean).join(" ") || "Без имени",
-    clientPhone: t.client.phone || null,
     wardId: t.wardId,
-    wardName: t.ward
-      ? [t.ward.lastName, t.ward.firstName].filter(Boolean).join(" ")
-      : null,
-    status: t.status as "scheduled" | "attended" | "no_show",
   }))
+  const trialAttendances = trialClientKeys.length
+    ? await db.attendance.findMany({
+        where: {
+          tenantId,
+          lessonId: id,
+          isTrial: true,
+          OR: trialClientKeys.map((k) => ({
+            clientId: k.clientId,
+            wardId: k.wardId,
+          })),
+        },
+        select: {
+          clientId: true,
+          wardId: true,
+          instructorPayAmount: true,
+          instructorPayEnabled: true,
+        },
+      })
+    : []
+
+  const trialStudents = trialLessons.map((t) => {
+    const att = trialAttendances.find(
+      (a) => a.clientId === t.clientId && a.wardId === t.wardId
+    )
+    return {
+      trialId: t.id,
+      clientId: t.clientId,
+      clientName: [t.client.lastName, t.client.firstName].filter(Boolean).join(" ") || "Без имени",
+      clientPhone: t.client.phone || null,
+      wardId: t.wardId,
+      wardName: t.ward
+        ? [t.ward.lastName, t.ward.firstName].filter(Boolean).join(" ")
+        : null,
+      status: t.status as "scheduled" | "attended" | "no_show",
+      instructorPayEnabled: t.instructorPayEnabled,
+      instructorPayAmount: att ? Number(att.instructorPayAmount) : 0,
+    }
+  })
 
   const makeupStudents = makeupAttendances.map(a => {
     const client = makeupClients.find(c => c.id === a.clientId)

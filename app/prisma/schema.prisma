@@ -1266,19 +1266,20 @@ enum PeriodStatus {
 // === ПРОБНЫЕ ЗАНЯТИЯ ===
 
 model TrialLesson {
-  id            String      @id @default(uuid()) @db.Uuid
-  tenantId      String      @map("tenant_id") @db.Uuid
-  clientId      String      @map("client_id") @db.Uuid
-  wardId        String?     @map("ward_id") @db.Uuid
-  groupId       String      @map("group_id") @db.Uuid
-  lessonId      String?     @map("lesson_id") @db.Uuid
-  status        TrialStatus @default(scheduled)
-  scheduledDate DateTime    @map("scheduled_date") @db.Date
-  attendedAt    DateTime?   @map("attended_at")
-  comment       String?
-  createdBy     String?     @map("created_by") @db.Uuid
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
+  id                   String      @id @default(uuid()) @db.Uuid
+  tenantId             String      @map("tenant_id") @db.Uuid
+  clientId             String      @map("client_id") @db.Uuid
+  wardId               String?     @map("ward_id") @db.Uuid
+  groupId              String      @map("group_id") @db.Uuid
+  lessonId             String?     @map("lesson_id") @db.Uuid
+  status               TrialStatus @default(scheduled)
+  scheduledDate        DateTime    @map("scheduled_date") @db.Date
+  attendedAt           DateTime?   @map("attended_at")
+  instructorPayEnabled Boolean     @default(false) @map("instructor_pay_enabled")
+  comment              String?
+  createdBy            String?     @map("created_by") @db.Uuid
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [tenantId], references: [id])
   client       Client       @relation(fields: [clientId], references: [id])

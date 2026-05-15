@@ -58,6 +58,13 @@ export async function POST(req: NextRequest) {
   })
   if (!group) return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
 
+  // Настройка организации — оплачиваются ли пробные инструктору
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { payForTrialLessons: true },
+  })
+  const defaultInstructorPay = !!org?.payForTrialLessons
+
   const date = new Date(data.scheduledDate)
 
   // Уже есть пробное на эту дату в этой группе у этого подопечного?
@@ -135,6 +142,7 @@ export async function POST(req: NextRequest) {
         groupId: data.groupId,
         lessonId: lesson!.id,
         scheduledDate: date,
+        instructorPayEnabled: defaultInstructorPay,
         comment: data.comment,
         createdBy: session.user.employeeId,
       },
