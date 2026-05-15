@@ -157,6 +157,36 @@ export default async function LessonCardPage({
       })
     : []
 
+  // Пробные ученики на этом занятии
+  const trialLessons = await db.trialLesson.findMany({
+    where: {
+      tenantId,
+      lessonId: id,
+      status: { in: ["scheduled", "attended", "no_show"] },
+    },
+    select: {
+      id: true,
+      status: true,
+      clientId: true,
+      wardId: true,
+      client: { select: { id: true, firstName: true, lastName: true, phone: true } },
+      ward: { select: { id: true, firstName: true, lastName: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  })
+
+  const trialStudents = trialLessons.map((t) => ({
+    trialId: t.id,
+    clientId: t.clientId,
+    clientName: [t.client.lastName, t.client.firstName].filter(Boolean).join(" ") || "Без имени",
+    clientPhone: t.client.phone || null,
+    wardId: t.wardId,
+    wardName: t.ward
+      ? [t.ward.lastName, t.ward.firstName].filter(Boolean).join(" ")
+      : null,
+    status: t.status as "scheduled" | "attended" | "no_show",
+  }))
+
   const makeupStudents = makeupAttendances.map(a => {
     const client = makeupClients.find(c => c.id === a.clientId)
     const ward = a.wardId ? makeupWards.find(w => w.id === a.wardId) : null
@@ -339,6 +369,7 @@ export default async function LessonCardPage({
         homework={lesson.homework}
         students={students}
         makeupStudents={makeupStudents}
+        trialStudents={trialStudents}
         attendanceTypes={attendanceTypesData}
         salaryRate={salaryRateData}
         absenceReasons={absenceReasons}

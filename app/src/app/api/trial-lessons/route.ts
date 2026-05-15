@@ -30,7 +30,14 @@ export async function POST(req: NextRequest) {
   // Лид существует и принадлежит организации
   const client = await db.client.findFirst({
     where: { id: data.clientId, tenantId, deletedAt: null },
-    select: { id: true, clientStatus: true, funnelStatus: true },
+    select: {
+      id: true,
+      clientStatus: true,
+      funnelStatus: true,
+      assignedTo: true,
+      firstName: true,
+      lastName: true,
+    },
   })
   if (!client) return NextResponse.json({ error: "Лид не найден" }, { status: 404 })
   if (client.clientStatus === "active") {
@@ -99,7 +106,26 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Создаём пробное + меняем статус лида атомарно
+  // Исполнитель автозадачи-напоминания: ответственный за лида, иначе создатель,
+  // иначе первый owner/manager/admin.
+  let reminderAssigneeId: string | null = client.assignedTo ?? session.user.employeeId ?? null
+  if (!reminderAssigneeId) {
+    const fallback = await db.employee.findFirst({
+      where: { tenantId, deletedAt: null, isActive: true, role: { in: ["owner", "manager", "admin"] } },
+      select: { id: true },
+      orderBy: { role: "asc" },
+    })
+    reminderAssigneeId = fallback?.id ?? null
+  }
+
+  // Дата задачи-напоминания — за день до пробного (но не раньше сегодняшнего дня)
+  const reminderDate = new Date(date)
+  reminderDate.setDate(reminderDate.getDate() - 1)
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const taskDueDate = reminderDate < todayStart ? todayStart : reminderDate
+
+  // Создаём пробное + меняем статус лида + автозадачу атомарно
   const trial = await db.$transaction(async (tx) => {
     const created = await tx.trialLesson.create({
       data: {
@@ -118,6 +144,23 @@ export async function POST(req: NextRequest) {
       where: { id: data.clientId },
       data: { funnelStatus: "trial_scheduled" },
     })
+
+    if (reminderAssigneeId) {
+      const leadName = [client.lastName, client.firstName].filter(Boolean).join(" ") || "лид"
+      await tx.task.create({
+        data: {
+          tenantId,
+          title: `Напомнить про пробное: ${leadName} (${data.scheduledDate})`,
+          type: "auto",
+          autoTrigger: "trial_reminder",
+          status: "pending",
+          dueDate: taskDueDate,
+          assignedTo: reminderAssigneeId,
+          assignedBy: session.user.employeeId ?? undefined,
+          clientId: data.clientId,
+        },
+      })
+    }
 
     return created
   })

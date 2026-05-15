@@ -79,6 +79,30 @@ interface InstructorOption {
   name: string
 }
 
+interface TrialStudentData {
+  trialId: string
+  clientId: string
+  clientName: string
+  clientPhone: string | null
+  wardId: string | null
+  wardName: string | null
+  status: "scheduled" | "attended" | "no_show"
+}
+
+const TRIAL_STATUS_LABELS: Record<string, string> = {
+  scheduled: "Не отмечен",
+  attended: "Пришёл",
+  no_show: "Не пришёл",
+  cancelled: "Отменено",
+}
+
+const TRIAL_STATUS_OPTIONS = [
+  { value: "scheduled", label: "Не отмечен" },
+  { value: "attended", label: "Пришёл" },
+  { value: "no_show", label: "Не пришёл" },
+  { value: "cancelled", label: "Отменить запись" },
+]
+
 interface MakeupSearchResult {
   clientId: string
   clientName: string
@@ -97,6 +121,7 @@ interface AttendanceTableProps {
   homework: string | null
   students: StudentData[]
   makeupStudents?: StudentData[]
+  trialStudents?: TrialStudentData[]
   attendanceTypes: AttendanceTypeData[]
   salaryRate: SalaryRateData | null
   absenceReasons?: AbsenceReasonData[]
@@ -118,6 +143,7 @@ export function AttendanceTable({
   homework: initialHomework,
   students: initialStudents,
   makeupStudents: initialMakeupStudents = [],
+  trialStudents: initialTrialStudents = [],
   attendanceTypes,
   salaryRate,
   absenceReasons = [],
@@ -129,6 +155,8 @@ export function AttendanceTable({
   const router = useRouter()
   const [students, setStudents] = useState(initialStudents)
   const [makeupStudents, setMakeupStudents] = useState(initialMakeupStudents)
+  const [trialStudents, setTrialStudents] = useState(initialTrialStudents)
+  const [loadingTrialId, setLoadingTrialId] = useState<string | null>(null)
   const [topic, setTopic] = useState(initialTopic || "")
   const [homework, setHomework] = useState(initialHomework || "")
   const [savingTopic, setSavingTopic] = useState(false)
@@ -425,6 +453,101 @@ export function AttendanceTable({
     (sum, s) => sum + (s.attendance?.instructorPayEnabled ? (s.attendance?.instructorPayAmount || 0) : 0),
     0
   )
+
+  // Изменить статус пробного занятия (явка / не пришёл / отменено)
+  async function updateTrialStatus(trial: TrialStudentData, newStatus: string) {
+    if (!newStatus || newStatus === trial.status) return
+    setLoadingTrialId(trial.trialId)
+    try {
+      const res = await fetch(`/api/trial-lessons/${trial.trialId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (res.ok) {
+        if (newStatus === "cancelled") {
+          // Запись на пробное снята — убираем строку из таблицы
+          setTrialStudents((prev) => prev.filter((t) => t.trialId !== trial.trialId))
+        } else {
+          setTrialStudents((prev) =>
+            prev.map((t) =>
+              t.trialId === trial.trialId
+                ? { ...t, status: newStatus as TrialStudentData["status"] }
+                : t
+            )
+          )
+        }
+        router.refresh()
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingTrialId(null)
+    }
+  }
+
+  function renderTrialRow(trial: TrialStudentData) {
+    const isLoading = loadingTrialId === trial.trialId
+    const displayName = trial.wardName || trial.clientName
+
+    return (
+      <TableRow key={`trial-${trial.trialId}`}>
+        <TableCell>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{displayName}</span>
+              <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
+                пробное
+              </Badge>
+            </div>
+            {trial.wardName && (
+              <div className="text-xs text-muted-foreground">
+                {trial.clientName}
+              </div>
+            )}
+          </div>
+        </TableCell>
+        <TableCell>
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Сохранение...
+            </div>
+          ) : (
+            <Select
+              value={trial.status}
+              onValueChange={(val) => {
+                if (val) updateTrialStatus(trial, val)
+              }}
+            >
+              <SelectTrigger className="w-full">
+                {TRIAL_STATUS_LABELS[trial.status] || trial.status}
+              </SelectTrigger>
+              <SelectContent>
+                {TRIAL_STATUS_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </TableCell>
+        <TableCell>
+          <span className="text-muted-foreground">{"—"}</span>
+        </TableCell>
+        <TableCell className="text-right">
+          <span className="text-muted-foreground">{"—"}</span>
+        </TableCell>
+        <TableCell className="text-right">
+          <span className="text-muted-foreground">{"—"}</span>
+        </TableCell>
+        <TableCell className="text-center">
+          <span className="text-muted-foreground">{"—"}</span>
+        </TableCell>
+      </TableRow>
+    )
+  }
 
   function renderStudentRow(student: StudentData) {
     const isLoading = loadingStudentId === student.enrollmentId
@@ -747,6 +870,7 @@ export function AttendanceTable({
               <TableBody>
                 {students.map(renderStudentRow)}
                 {makeupStudents.length > 0 && makeupStudents.map(renderStudentRow)}
+                {trialStudents.length > 0 && trialStudents.map(renderTrialRow)}
               </TableBody>
             </Table>
           )}
@@ -754,7 +878,7 @@ export function AttendanceTable({
       </Card>
 
       {/* Summary */}
-      {markedStudents.length > 0 && (
+      {(markedStudents.length > 0 || trialStudents.length > 0) && (
         <Card>
           <CardContent className="p-4">
             <div className="flex flex-wrap gap-6">
@@ -775,6 +899,11 @@ export function AttendanceTable({
                   {makeupStudents.length > 0 && (
                     <div className="text-sm text-orange-600">
                       <span className="font-medium">Отработки:</span> {makeupStudents.length}
+                    </div>
+                  )}
+                  {trialStudents.length > 0 && (
+                    <div className="text-sm text-blue-600">
+                      <span className="font-medium">Пробные:</span> {trialStudents.length}
                     </div>
                   )}
                 </div>
