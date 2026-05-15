@@ -19,7 +19,7 @@ interface RoadmapModule {
 interface Phase {
   name: string
   period: string
-  status: "active" | "upcoming" | "future"
+  status: "done" | "active" | "upcoming" | "future"
   tasks: { text: string; status: ItemStatus }[]
 }
 
@@ -38,7 +38,7 @@ const nextTasks: NextTask[] = [
 ]
 
 // ═══════════════════════════════════════════
-// МОДУЛИ — актуальный статус на 10.04.2026
+// МОДУЛИ — актуальный статус на 15.05.2026
 // ═══════════════════════════════════════════
 const modules: RoadmapModule[] = [
   {
@@ -147,7 +147,7 @@ const modules: RoadmapModule[] = [
     total: 7,
     items: [
       { id: "DSH", text: "8 виджетов, задачи (CRUD + автотриггеры)", status: "done" },
-      { id: "DSH-01", text: "Настраиваемый дашборд (drag/toggle)", status: "future" },
+      { id: "DSH-01", text: "Настраиваемый дашборд (видимость + порядок виджетов)", status: "done" },
     ],
   },
   {
@@ -225,7 +225,7 @@ const phases: Phase[] = [
   {
     name: "Фаза 1: Финализация",
     period: "Апрель 2026",
-    status: "active",
+    status: "done",
     tasks: [
       { text: "Фильтры расписания по кабинетам/инструкторам", status: "done" },
       { text: "Цветовая индикация заполняемости групп", status: "done" },
@@ -245,20 +245,27 @@ const phases: Phase[] = [
   {
     name: "Фаза 2: Стабилизация и пилот",
     period: "Май 2026",
-    status: "upcoming",
+    status: "active",
     tasks: [
-      { text: "Глобальный переключатель филиала", status: "not_done" },
       { text: "Хлебные крошки", status: "done" },
       { text: "PWA (service worker + manifest)", status: "done" },
+      { text: "Security hardening (rate-limit, JWT, helmet)", status: "done" },
+      { text: "Бэкапы БД + Telegram-алерты health-check", status: "done" },
+      { text: "AI-чат для партнёров", status: "done" },
+      { text: "/testing — 220+ тест-кейсов (22 модуля)", status: "done" },
+      { text: "/bugs — форма репортинга багов", status: "done" },
+      { text: "/dev — служебная страница для разработки", status: "done" },
+      { text: "Почтовый сервер + восстановление пароля по email", status: "done" },
+      { text: "Лендинг /lp (черновик)", status: "partial" },
+      { text: "Глобальный переключатель филиала", status: "not_done" },
       { text: "Баги от пилотных партнёров", status: "not_done" },
       { text: "Оптимизация производительности", status: "not_done" },
-      { text: "Обновление тестов под новые фичи", status: "not_done" },
     ],
   },
   {
     name: "Фаза 3: Запуск MVP",
     period: "Июнь 2026",
-    status: "future",
+    status: "upcoming",
     tasks: [
       { text: "Миграция 20 текущих клиентов из 1С", status: "not_done" },
       { text: "Домен app.umnayacrm.ru → prod", status: "not_done" },
@@ -342,7 +349,7 @@ export default function RoadmapPage() {
       <div>
         <h1 className="text-2xl font-bold">Roadmap</h1>
         <p className="text-sm text-muted-foreground">
-          Умная CRM v1.5.4-alpha — план разработки до MVP (1 июня 2026)
+          Умная CRM v1.5.6-alpha — план разработки до MVP (1 июня 2026)
         </p>
       </div>
 
@@ -376,10 +383,10 @@ export default function RoadmapPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { label: "Страниц", value: "60" },
-          { label: "API endpoints", value: "159" },
-          { label: "Моделей БД", value: "51" },
-          { label: "Тестовых файлов", value: "26" },
+          { label: "Страниц", value: "70" },
+          { label: "API endpoints", value: "169" },
+          { label: "Моделей БД", value: "57" },
+          { label: "Тестовых файлов", value: "27" },
         ].map((s) => (
           <Card key={s.label}>
             <CardContent className="pt-4 pb-4">
@@ -421,12 +428,13 @@ export default function RoadmapPage() {
       <CollapsibleSection title="Фазы до MVP" icon={Rocket} defaultOpen={true}>
         <div className="space-y-4">
           {phases.map((phase) => (
-            <Card key={phase.name} className={phase.status === "active" ? "border-blue-200 dark:border-blue-800" : ""}>
+            <Card key={phase.name} className={phase.status === "active" ? "border-blue-200 dark:border-blue-800" : phase.status === "done" ? "opacity-75" : ""}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">{phase.name}</CardTitle>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">{phase.period}</span>
+                    {phase.status === "done" && <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Завершена</Badge>}
                     {phase.status === "active" && <Badge variant="default">Текущая</Badge>}
                     {phase.status === "upcoming" && <Badge variant="secondary">Скоро</Badge>}
                     {phase.status === "future" && <Badge variant="outline">Впереди</Badge>}
@@ -525,7 +533,7 @@ export default function RoadmapPage() {
       </CollapsibleSection>
 
       {/* Tests */}
-      <CollapsibleSection title="Тесты" icon={FileText} badge="26 файлов / 9 500 строк" defaultOpen={false}>
+      <CollapsibleSection title="Тесты" icon={FileText} badge="27 файлов / 9 500+ строк" defaultOpen={false}>
         <Card>
           <CardContent className="pt-4">
             <div className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
