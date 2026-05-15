@@ -3,7 +3,9 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
@@ -21,16 +23,31 @@ export default async function TrialConversionReportPage({
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  const { year, month } = getMonthFromParams(await searchParams)
+  const sp = await searchParams
+  const { year, month } = getMonthFromParams(sp)
+  const branchId = typeof sp.branchId === "string" ? sp.branchId : undefined
+
   const dateFrom = new Date(Date.UTC(year, month - 1, 1))
   const dateTo = new Date(Date.UTC(year, month, 0, 23, 59, 59))
 
+  // Список филиалов для фильтра
+  const branches = await db.branch.findMany({
+    where: { tenantId, deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  })
+
+  const trialWhere: Prisma.TrialLessonWhereInput = {
+    tenantId,
+    scheduledDate: { gte: dateFrom, lte: dateTo },
+  }
+  if (branchId) {
+    trialWhere.group = { branchId }
+  }
+
   // Все пробные за период
   const trialsAll = await db.trialLesson.findMany({
-    where: {
-      tenantId,
-      scheduledDate: { gte: dateFrom, lte: dateTo },
-    },
+    where: trialWhere,
     select: {
       id: true,
       status: true,
@@ -112,6 +129,19 @@ export default async function TrialConversionReportPage({
     sales: purchasedSet.size,
   }
 
+  const monthName = new Date(Date.UTC(year, month - 1, 1))
+    .toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+
+  const buildFilterUrl = (params: Record<string, string | undefined>) => {
+    const query = new URLSearchParams()
+    query.set("year", String(year))
+    query.set("month", String(month))
+    for (const [k, v] of Object.entries(params)) {
+      if (v) query.set(k, v)
+    }
+    return `/reports/crm/trial-conversion?${query.toString()}`
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -128,6 +158,26 @@ export default async function TrialConversionReportPage({
           </p>
         </div>
         <MonthPicker />
+      </div>
+
+      {/* Фильтры */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted-foreground">Период:</span>
+        <Badge variant="outline">{monthName}</Badge>
+
+        {branches.length > 1 && (
+          <>
+            <span className="ml-2 text-muted-foreground">Филиал:</span>
+            <Link href={buildFilterUrl({})}>
+              <Badge variant={!branchId ? "default" : "outline"}>Все</Badge>
+            </Link>
+            {branches.map((b) => (
+              <Link key={b.id} href={buildFilterUrl({ branchId: b.id })}>
+                <Badge variant={branchId === b.id ? "default" : "outline"}>{b.name}</Badge>
+              </Link>
+            ))}
+          </>
+        )}
       </div>
 
       {/* Сводка */}
