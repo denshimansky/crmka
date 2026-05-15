@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -600,10 +601,20 @@ export function AttendanceTable({
         <TableCell>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-medium">{displayName}</span>
-              <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
-                пробное
-              </Badge>
+              <Link
+                href={`/crm/funnel/${trial.clientId}`}
+                className="font-medium text-primary hover:underline"
+              >
+                {displayName}
+              </Link>
+              <Link href={`/crm/funnel/${trial.clientId}`} title="Открыть карточку лида">
+                <Badge
+                  variant="outline"
+                  className="text-xs text-blue-600 border-blue-300 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                >
+                  пробное
+                </Badge>
+              </Link>
             </div>
             {trial.wardName && (
               <div className="text-xs text-muted-foreground">
@@ -1025,8 +1036,22 @@ export function AttendanceTable({
                     </div>
                   )}
                   {trialStudents.length > 0 && (
-                    <div className="text-sm text-blue-600">
-                      <span className="font-medium">Пробные:</span> {trialStudents.length}
+                    <div className="text-sm text-blue-600 flex flex-wrap items-center gap-1">
+                      <span className="font-medium">Пробные:</span>
+                      {trialStudents.map((t, i) => (
+                        <span key={t.trialId} className="inline-flex items-center">
+                          <Link
+                            href={`/crm/funnel/${t.clientId}`}
+                            className="hover:underline"
+                            title="Открыть карточку лида"
+                          >
+                            {t.wardName || t.clientName}
+                          </Link>
+                          {i < trialStudents.length - 1 && (
+                            <span className="ml-1 text-blue-600/70">,</span>
+                          )}
+                        </span>
+                      ))}
                     </div>
                   )}
                 </div>

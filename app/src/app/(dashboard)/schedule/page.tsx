@@ -95,6 +95,30 @@ export default async function SchedulePage({
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
   })
 
+  // Индивидуальные пробные (без группы) — отображаются в общем расписании
+  const individualTrials = await db.trialLesson.findMany({
+    where: {
+      tenantId,
+      scheduledDate: { gte: monday, lte: sunday },
+      status: "scheduled",
+      groupId: null,
+      lessonId: null,
+    },
+    select: {
+      id: true,
+      scheduledDate: true,
+      startTime: true,
+      durationMinutes: true,
+      clientId: true,
+      client: { select: { firstName: true, lastName: true } },
+      ward: { select: { firstName: true, lastName: true } },
+      direction: { select: { id: true, name: true } },
+      instructor: { select: { id: true, firstName: true, lastName: true } },
+      room: { select: { id: true, name: true } },
+    },
+    orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
+  })
+
   // Collect unique rooms
   const roomMap = new Map<string, { id: string; name: string }>()
   for (const lesson of lessons) {
@@ -104,7 +128,7 @@ export default async function SchedulePage({
   }
   const rooms = Array.from(roomMap.values())
 
-  // Collect unique directions
+  // Collect unique directions (groups + individual trials)
   const directionMap = new Map<string, { id: string; name: string }>()
   for (const lesson of lessons) {
     if (!directionMap.has(lesson.group.direction.id)) {
@@ -112,6 +136,11 @@ export default async function SchedulePage({
         id: lesson.group.direction.id,
         name: lesson.group.direction.name,
       })
+    }
+  }
+  for (const t of individualTrials) {
+    if (t.direction && !directionMap.has(t.direction.id)) {
+      directionMap.set(t.direction.id, { id: t.direction.id, name: t.direction.name })
     }
   }
   const directions = Array.from(directionMap.values()).sort((a, b) =>
@@ -125,14 +154,21 @@ export default async function SchedulePage({
       instructorMap.set(lesson.instructor.id, lesson.instructor)
     }
   }
+  for (const t of individualTrials) {
+    if (t.instructor && !instructorMap.has(t.instructor.id)) {
+      instructorMap.set(t.instructor.id, t.instructor)
+    }
+  }
   const instructors = Array.from(instructorMap.values()).sort((a, b) =>
     a.lastName.localeCompare(b.lastName, "ru")
   )
 
-  // Direction color map
-  const directionIds = [...new Set(lessons.map((l) => l.group.directionId))]
+  // Direction color map (включая направления индивидуальных пробных)
+  const allDirectionIds = new Set<string>()
+  for (const l of lessons) allDirectionIds.add(l.group.directionId)
+  for (const t of individualTrials) if (t.direction) allDirectionIds.add(t.direction.id)
   const directionColorMap: Record<string, string> = {}
-  directionIds.forEach((id, i) => {
+  Array.from(allDirectionIds).forEach((id, i) => {
     directionColorMap[id] = getColorForIndex(i)
   })
 
@@ -144,7 +180,7 @@ export default async function SchedulePage({
   })
 
   const weekLabel = formatWeekLabel(monday, sunday)
-  const hasLessons = lessons.length > 0
+  const hasLessons = lessons.length > 0 || individualTrials.length > 0
   const defaultDate = monday.toISOString().slice(0, 10)
 
   // Serialize lessons for client component (Date -> string)
@@ -166,6 +202,65 @@ export default async function SchedulePage({
       lastName: l.instructor.lastName,
     },
   }))
+
+  // Индивидуальные пробные — отдаём в той же форме, что и обычные занятия.
+  // Группа синтетическая: имя из подопечного, 1 место занято.
+  // Клик ведёт в карточку лида.
+  const trialDirectionFallback =
+    directions[0] ?? { id: "trial-fallback", name: "—" }
+  const synthRoomId = "trial-no-room"
+  const synthRoom = { id: synthRoomId, name: "—" }
+  const trialAsLessons = individualTrials.map((t) => {
+    const wardName = t.ward
+      ? [t.ward.lastName, t.ward.firstName].filter(Boolean).join(" ")
+      : null
+    const clientName =
+      [t.client.lastName, t.client.firstName].filter(Boolean).join(" ") || "Лид"
+    const direction = t.direction ?? trialDirectionFallback
+    const instructor = t.instructor ?? { id: "trial-unknown", firstName: null, lastName: "—" }
+    const room = t.room ?? synthRoom
+    return {
+      id: `trial-${t.id}`,
+      date: t.scheduledDate.toISOString().slice(0, 10),
+      startTime: t.startTime || "—",
+      instructorId: instructor.id,
+      href: `/crm/funnel/${t.clientId}`,
+      isTrial: true as const,
+      group: {
+        name: `Пробное: ${wardName || clientName}`,
+        directionId: direction.id,
+        maxStudents: 1,
+        room: { id: room.id, name: room.name },
+        direction: { id: direction.id, name: direction.name },
+        _count: { enrollments: 1 },
+      },
+      instructor: { firstName: instructor.firstName, lastName: instructor.lastName },
+    }
+  })
+
+  const allScheduleItems = [...serializedLessons, ...trialAsLessons].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date)
+    return a.startTime.localeCompare(b.startTime)
+  })
+
+  // Если у каких-то пробных нет реального кабинета — добавим синтетический «—».
+  const roomsUsed = new Set<string>()
+  for (const item of trialAsLessons) roomsUsed.add(item.group.room.id)
+  const hasSynthetic = roomsUsed.has(synthRoomId)
+  // Добавим реальные кабинеты пробных, которых нет в `rooms` (могут быть из других филиалов)
+  const extraRooms: { id: string; name: string }[] = []
+  for (const t of individualTrials) {
+    if (t.room && !rooms.some((r) => r.id === t.room!.id)) {
+      if (!extraRooms.some((r) => r.id === t.room!.id)) {
+        extraRooms.push({ id: t.room.id, name: t.room.name })
+      }
+    }
+  }
+  const roomsWithTrials = [
+    ...rooms,
+    ...extraRooms,
+    ...(hasSynthetic ? [synthRoom] : []),
+  ]
 
   return (
     <div className="space-y-6">
@@ -228,8 +323,8 @@ export default async function SchedulePage({
         </div>
       ) : (
         <ScheduleFilterableGrid
-          lessons={serializedLessons}
-          rooms={rooms}
+          lessons={allScheduleItems}
+          rooms={roomsWithTrials}
           directions={directions}
           instructors={instructors}
           weekDays={weekDays}

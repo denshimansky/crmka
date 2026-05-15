@@ -168,6 +168,7 @@ model Room {
   branch       Branch        @relation(fields: [branchId], references: [id])
   groups       Group[]
   roomBalances RoomBalance[]
+  trialLessons TrialLesson[]
 
   @@index([tenantId])
   @@map("rooms")
@@ -211,6 +212,7 @@ model Employee {
   instructorGroups           Group[]              @relation("GroupInstructor")
   instructorLessons          Lesson[]             @relation("LessonInstructor")
   substituteIn               Lesson[]             @relation("SubstituteInstructor")
+  instructorTrialLessons     TrialLesson[]        @relation("TrialInstructor")
   periodsClosed              Period[]             @relation("periodClosedBy")
   periodsReopened            Period[]             @relation("periodReopenedBy")
   auditLogs                  AuditLog[]
@@ -1274,6 +1276,8 @@ model TrialLesson {
   groupId              String?     @map("group_id") @db.Uuid
   lessonId             String?     @map("lesson_id") @db.Uuid
   directionId          String?     @map("direction_id") @db.Uuid
+  instructorId         String?     @map("instructor_id") @db.Uuid
+  roomId               String?     @map("room_id") @db.Uuid
   startTime            String?     @map("start_time")
   durationMinutes      Int?        @map("duration_minutes")
   status               TrialStatus @default(scheduled)
@@ -1291,9 +1295,12 @@ model TrialLesson {
   group        Group?       @relation(fields: [groupId], references: [id])
   lesson       Lesson?      @relation(fields: [lessonId], references: [id])
   direction    Direction?   @relation(fields: [directionId], references: [id])
+  instructor   Employee?    @relation("TrialInstructor", fields: [instructorId], references: [id])
+  room         Room?        @relation(fields: [roomId], references: [id])
 
   @@index([tenantId, clientId])
   @@index([tenantId, groupId, scheduledDate])
+  @@index([tenantId, instructorId, scheduledDate])
   @@map("trial_lessons")
 }
 

@@ -14,6 +14,8 @@ const createSchema = z.object({
   wardId: z.string().uuid(),
   groupId: z.string().uuid().optional(),
   directionId: z.string().uuid().optional(),
+  instructorId: z.string().uuid().optional(),
+  roomId: z.string().uuid().optional(),
   scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата формата YYYY-MM-DD"),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, "Время формата HH:MM").optional(),
   durationMinutes: z.number().int().min(15).max(480).optional(),
@@ -67,6 +69,8 @@ export async function POST(req: NextRequest) {
 
   let lessonId: string | null = null
   let storedDirectionId: string | null = null
+  let storedInstructorId: string | null = null
+  let storedRoomId: string | null = null
   let storedStartTime: string | null = null
   let storedDuration: number | null = null
 
@@ -112,6 +116,9 @@ export async function POST(req: NextRequest) {
     if (!data.directionId) {
       return NextResponse.json({ error: "Для индивидуального пробного нужно направление" }, { status: 400 })
     }
+    if (!data.instructorId) {
+      return NextResponse.json({ error: "Для индивидуального пробного нужно выбрать педагога" }, { status: 400 })
+    }
     if (!data.startTime) {
       return NextResponse.json({ error: "Для индивидуального пробного нужно время" }, { status: 400 })
     }
@@ -122,6 +129,23 @@ export async function POST(req: NextRequest) {
       select: { id: true, lessonDuration: true },
     })
     if (!direction) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
+
+    // Инструктор существует
+    const instructor = await db.employee.findFirst({
+      where: { id: data.instructorId, tenantId, deletedAt: null, isActive: true },
+      select: { id: true },
+    })
+    if (!instructor) return NextResponse.json({ error: "Педагог не найден" }, { status: 404 })
+
+    // Кабинет (опционально, если указан — должен принадлежать организации)
+    if (data.roomId) {
+      const room = await db.room.findFirst({
+        where: { id: data.roomId, tenantId, deletedAt: null },
+        select: { id: true },
+      })
+      if (!room) return NextResponse.json({ error: "Кабинет не найден" }, { status: 404 })
+      storedRoomId = data.roomId
+    }
 
     // Защита от дубля по дате+времени
     const existingTrial = await db.trialLesson.findFirst({
@@ -142,6 +166,7 @@ export async function POST(req: NextRequest) {
     }
 
     storedDirectionId = data.directionId
+    storedInstructorId = data.instructorId
     storedStartTime = data.startTime
     storedDuration = data.durationMinutes ?? direction.lessonDuration ?? 60
   }
@@ -172,6 +197,8 @@ export async function POST(req: NextRequest) {
         groupId: data.groupId ?? null,
         lessonId,
         directionId: storedDirectionId,
+        instructorId: storedInstructorId,
+        roomId: storedRoomId,
         startTime: storedStartTime,
         durationMinutes: storedDuration,
         scheduledDate: date,

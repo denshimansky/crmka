@@ -51,6 +51,23 @@ interface GroupOption {
   directionId: string
 }
 
+interface InstructorOption {
+  id: string
+  firstName: string | null
+  lastName: string | null
+}
+
+interface BranchOption {
+  id: string
+  name: string
+}
+
+interface RoomOption {
+  id: string
+  name: string
+  branchId: string
+}
+
 function wardName(w: WardLite): string {
   return [w.firstName, w.lastName].filter(Boolean).join(" ") || "Без имени"
 }
@@ -79,6 +96,12 @@ export function LeadStatusActions({
   const [trialError, setTrialError] = useState<string | null>(null)
   const [directions, setDirections] = useState<DirectionOption[]>([])
   const [groups, setGroups] = useState<GroupOption[]>([])
+  const [instructorsList, setInstructorsList] = useState<InstructorOption[]>([])
+  const [instructorId, setInstructorId] = useState("")
+  const [branchesList, setBranchesList] = useState<BranchOption[]>([])
+  const [roomsList, setRoomsList] = useState<RoomOption[]>([])
+  const [branchId, setBranchId] = useState("")
+  const [roomId, setRoomId] = useState("")
 
   const [wardId, setWardId] = useState("")
   const [directionId, setDirectionId] = useState("")
@@ -118,16 +141,33 @@ export function LeadStatusActions({
     setWardId(wards.length === 1 ? wards[0].id : "")
     setDirectionId("")
     setGroupId("")
+    setInstructorId("")
+    setBranchId("")
+    setRoomId("")
     setScheduledDate(new Date().toISOString().slice(0, 10))
     setStartTime("10:00")
     setComment("")
     try {
-      const [dirRes, grpRes] = await Promise.all([
+      const [dirRes, grpRes, empRes, branchRes, roomRes] = await Promise.all([
         fetch("/api/directions"),
         fetch("/api/groups"),
+        fetch("/api/employees"),
+        fetch("/api/branches"),
+        fetch("/api/rooms"),
       ])
       if (dirRes.ok) setDirections(await dirRes.json())
       if (grpRes.ok) setGroups(await grpRes.json())
+      if (empRes.ok) {
+        const all = await empRes.json()
+        // Только те, кто может вести занятие — инструкторы / владелец / управляющий
+        setInstructorsList(
+          all.filter((e: { role: string }) =>
+            ["instructor", "owner", "manager"].includes(e.role)
+          )
+        )
+      }
+      if (branchRes.ok) setBranchesList(await branchRes.json())
+      if (roomRes.ok) setRoomsList(await roomRes.json())
     } catch {
       /* ignore */
     }
@@ -146,6 +186,10 @@ export function LeadStatusActions({
     }
     if (kind === "group" && !groupId) {
       setTrialError("Выберите группу или переключитесь на «Индивидуальный»")
+      return
+    }
+    if (kind === "individual" && !instructorId) {
+      setTrialError("Выберите педагога")
       return
     }
     if (kind === "individual" && !startTime) {
@@ -169,7 +213,9 @@ export function LeadStatusActions({
         payload.groupId = groupId
       } else {
         payload.directionId = directionId
+        payload.instructorId = instructorId
         payload.startTime = startTime
+        if (roomId) payload.roomId = roomId
       }
 
       const res = await fetch("/api/trial-lessons", {
@@ -356,6 +402,100 @@ export function LeadStatusActions({
                   </SelectContent>
                 </Select>
               </div>
+            )}
+
+            {kind === "individual" && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Педагог *</Label>
+                  <Select
+                    value={instructorId}
+                    onValueChange={(v) => {
+                      if (v) setInstructorId(v)
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      {(() => {
+                        const sel = instructorsList.find((e) => e.id === instructorId)
+                        if (!sel) {
+                          return <span className="text-muted-foreground">Выберите педагога</span>
+                        }
+                        return (
+                          [sel.lastName, sel.firstName].filter(Boolean).join(" ") || "Без имени"
+                        )
+                      })()}
+                    </SelectTrigger>
+                    <SelectContent>
+                      {instructorsList.map((e) => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {[e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Филиал</Label>
+                    <Select
+                      value={branchId}
+                      onValueChange={(v) => {
+                        if (v !== null) {
+                          setBranchId(v)
+                          setRoomId("")
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        {branchId ? (
+                          branchesList.find((b) => b.id === branchId)?.name
+                        ) : (
+                          <span className="text-muted-foreground">Не выбран</span>
+                        )}
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Не выбран</SelectItem>
+                        {branchesList.map((b) => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Кабинет</Label>
+                    <Select
+                      value={roomId}
+                      onValueChange={(v) => {
+                        if (v !== null) setRoomId(v)
+                      }}
+                      disabled={!branchId}
+                    >
+                      <SelectTrigger className="w-full">
+                        {roomId ? (
+                          roomsList.find((r) => r.id === roomId)?.name
+                        ) : (
+                          <span className="text-muted-foreground">
+                            {branchId ? "Не выбран" : "Сначала филиал"}
+                          </span>
+                        )}
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Не выбран</SelectItem>
+                        {roomsList
+                          .filter((r) => r.branchId === branchId)
+                          .map((r) => (
+                            <SelectItem key={r.id} value={r.id}>
+                              {r.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </>
             )}
 
             <div className="grid grid-cols-2 gap-3">

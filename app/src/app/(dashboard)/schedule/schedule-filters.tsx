@@ -36,6 +36,8 @@ interface LessonData {
   date: string // ISO date string YYYY-MM-DD
   startTime: string
   instructorId: string
+  href?: string // если задан — переопределяет ссылку (например, для индивидуальных пробных)
+  isTrial?: boolean
   group: {
     name: string
     directionId: string
@@ -279,14 +281,21 @@ export function ScheduleFilterableGrid({
             const dayIdx = weekDays.indexOf(lesson.date)
             const dayLabel = dayIdx >= 0 ? `${dayNames[dayIdx]} ${formatDateShort(lesson.date)}` : lesson.date
             return (
-              <Link key={lesson.id} href={`/schedule/lessons/${lesson.id}`}>
+              <Link key={lesson.id} href={lesson.href || `/schedule/lessons/${lesson.id}`}>
                 <Card
                   className={`flex flex-wrap items-center gap-3 cursor-pointer border p-3 text-sm ${colorClass} ${occupancy.className} hover:opacity-80`}
                   title={occupancy.label}
                 >
                   <div className="font-bold w-20 shrink-0">{dayLabel}</div>
                   <div className="font-bold w-14 shrink-0">{lesson.startTime}</div>
-                  <div className="font-medium flex-1 min-w-[150px]">{lesson.group.name}</div>
+                  <div className="font-medium flex-1 min-w-[150px] flex items-center gap-1.5">
+                    {lesson.group.name}
+                    {lesson.isTrial && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-300 text-blue-700 dark:text-blue-400">
+                        пробное
+                      </Badge>
+                    )}
+                  </div>
                   <div className="opacity-70 w-32 shrink-0">{instructorName}</div>
                   <div className="opacity-70 w-28 shrink-0">{lesson.group.room.name}</div>
                   <div className="flex items-center gap-1.5">
@@ -345,12 +354,19 @@ export function ScheduleFilterableGrid({
                             .filter(Boolean)
                             .join(" ")
                           return (
-                            <Link key={lesson.id} href={`/schedule/lessons/${lesson.id}`}>
+                            <Link key={lesson.id} href={lesson.href || `/schedule/lessons/${lesson.id}`}>
                               <Card
                                 className={`cursor-pointer border p-2 text-xs ${colorClass} ${occupancy.className} hover:opacity-80`}
                                 title={occupancy.label}
                               >
-                                <div className="font-bold">{lesson.startTime}</div>
+                                <div className="font-bold flex items-center justify-between gap-1">
+                                  <span>{lesson.startTime}</span>
+                                  {lesson.isTrial && (
+                                    <Badge variant="outline" className="h-4 px-1 text-[9px] border-blue-300 text-blue-700 dark:text-blue-400">
+                                      проб
+                                    </Badge>
+                                  )}
+                                </div>
                                 <div className="font-medium">{lesson.group.name}</div>
                                 <div className="opacity-70">
                                   {view === "instructors" ? lesson.group.room.name : instructorName}

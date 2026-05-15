@@ -1568,6 +1568,7 @@ function AddSubscriptionDialog({
 
 interface ScheduleLesson {
   id: string
+  trialId?: string | null
   date: string
   startTime: string
   durationMinutes: number
@@ -1589,17 +1590,40 @@ function formatScheduleDate(iso: string): string {
 function ScheduleTab({ clientId }: { clientId: string }) {
   const [lessons, setLessons] = useState<ScheduleLesson[]>([])
   const [loading, setLoading] = useState(true)
+  const [cancellingTrialId, setCancellingTrialId] = useState<string | null>(null)
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch(`/api/clients/${clientId}/schedule`)
-        if (res.ok) setLessons(await res.json())
-      } catch { /* ignore */ }
-      finally { setLoading(false) }
-    }
-    load()
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/clients/${clientId}/schedule`)
+      if (res.ok) setLessons(await res.json())
+    } catch { /* ignore */ }
+    finally { setLoading(false) }
   }, [clientId])
+
+  useEffect(() => { load() }, [load])
+
+  async function cancelTrial(trialId: string) {
+    if (!confirm("Отменить пробное занятие?\n\nЛид останется со статусом «Пробное записано» — при необходимости измените его вручную.")) return
+    setCancellingTrialId(trialId)
+    try {
+      const res = await fetch(`/api/trial-lessons/${trialId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled" }),
+      })
+      if (res.ok) {
+        await load()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || "Ошибка")
+      }
+    } catch {
+      alert("Ошибка сети")
+    } finally {
+      setCancellingTrialId(null)
+    }
+  }
 
   return (
     <Card>
@@ -1626,6 +1650,7 @@ function ScheduleTab({ clientId }: { clientId: string }) {
                 <TableHead>Группа</TableHead>
                 <TableHead>Педагог</TableHead>
                 <TableHead>Кабинет</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1644,6 +1669,20 @@ function ScheduleTab({ clientId }: { clientId: string }) {
                   <TableCell>{l.groupName}</TableCell>
                   <TableCell className="text-muted-foreground">{l.instructorName}</TableCell>
                   <TableCell className="text-muted-foreground">{l.roomName}</TableCell>
+                  <TableCell>
+                    {l.isTrial && l.trialId && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-destructive hover:bg-destructive/10"
+                        onClick={() => cancelTrial(l.trialId!)}
+                        disabled={cancellingTrialId === l.trialId}
+                        title="Отменить пробное"
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
