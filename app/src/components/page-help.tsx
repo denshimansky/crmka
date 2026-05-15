@@ -32,7 +32,7 @@ export function PageHelp({ pageKey }: PageHelpProps) {
           <SheetTitle>{content.title}</SheetTitle>
           <SheetDescription>{content.subtitle}</SheetDescription>
         </SheetHeader>
-        <div className="mt-4 space-y-4 text-sm">
+        <div className="px-4 pb-4 space-y-4 text-sm">
           {content.sections.map((section, i) => (
             <div key={i}>
               {section.heading && (
