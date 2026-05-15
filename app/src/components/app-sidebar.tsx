@@ -7,8 +7,8 @@ import { signOut } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   Landmark, ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
-  UserCog, UserPlus, Settings, Sparkles, ChevronDown, LogOut, Crown,
-  CalendarDays, Tag, Target, Award, Plug, Copy, Upload,
+  UserCog, Settings, Sparkles, ChevronDown, LogOut, Crown,
+  CalendarDays, Tag, Target, Plug, Copy, Upload,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import {
@@ -58,10 +58,8 @@ const otherItems = [
   { title: "Задачи", href: "/tasks", icon: ClipboardList },
   { title: "Отчёты", href: "/reports", icon: BarChart3 },
   { title: "Сотрудники", href: "/staff", icon: UserCog },
-  { title: "Кандидаты", href: "/staff/candidates", icon: UserPlus },
   { title: "Настройки", href: "/settings", icon: Settings },
   { title: "Шаблоны скидок", href: "/settings/discount-templates", icon: Tag },
-  { title: "Бонусы админов", href: "/settings/admin-bonus", icon: Award },
   { title: "Интеграции", href: "/settings/integrations", icon: Plug },
 ]
 

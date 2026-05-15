@@ -3,15 +3,15 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Building2, MapPin, Megaphone, Palette, Plus, Shield, UserX } from "lucide-react"
+import { Building2, MapPin, Megaphone, Palette, Shield, UserX } from "lucide-react"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
 import { CreateDirectionDialog } from "./create-direction-dialog"
 import { EditDirectionDialog } from "./edit-direction-dialog"
 import { CreateBranchDialog } from "./create-branch-dialog"
 import { PageHelp } from "@/components/page-help"
 import { CreateRoomDialog } from "./create-room-dialog"
 import { RoleDisplayNamesForm } from "./role-display-names-form"
+import { AdminBonusContent } from "./admin-bonus/admin-bonus-content"
 
 export default async function SettingsPage() {
   const session = await getSession()
@@ -62,6 +62,7 @@ export default async function SettingsPage() {
           <TabsTrigger value="org">Организация</TabsTrigger>
           <TabsTrigger value="branches">Филиалы</TabsTrigger>
           <TabsTrigger value="directions">Направления</TabsTrigger>
+          <TabsTrigger value="admin-bonus">Бонусы админов</TabsTrigger>
           <TabsTrigger value="refs">Справочники</TabsTrigger>
         </TabsList>
 
@@ -276,6 +277,11 @@ export default async function SettingsPage() {
           </div>
         </TabsContent>
 
+        {/* Бонусы админов */}
+        <TabsContent value="admin-bonus">
+          <AdminBonusContent />
+        </TabsContent>
+
         {/* Справочники */}
         <TabsContent value="refs">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -319,21 +325,6 @@ export default async function SettingsPage() {
                     <h3 className="font-medium">Шаблоны скидок</h3>
                     <p className="text-xs text-muted-foreground mt-1">
                       Готовые шаблоны для быстрого применения скидок
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-            <Link href="/settings/admin-bonus" className="block">
-              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
-                <CardContent className="flex items-start gap-3 p-5">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Plus className="size-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium">Мотивация администратора</h3>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Бонусная система для администраторов
                     </p>
                   </div>
                 </CardContent>
