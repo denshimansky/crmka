@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import crypto from "crypto"
 import { db } from "@/lib/db"
+import { sendMail } from "@/lib/mailer"
+import { passwordResetEmail } from "@/lib/email-templates"
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,8 +40,14 @@ export async function POST(req: NextRequest) {
       const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000"
       const resetUrl = `${baseUrl}/reset-password?token=${token}`
 
-      // TODO: send email. For now, log to console
-      console.log(`[Password Reset] URL for ${employee.email}: ${resetUrl}`)
+      const displayName = [employee.firstName, employee.lastName].filter(Boolean).join(" ") || undefined
+      const { subject, html, text } = passwordResetEmail(resetUrl, displayName)
+
+      const sent = await sendMail({ to: employee.email!, subject, html, text })
+      if (!sent) {
+        // Фолбэк для dev-среды без SMTP — линк попадает в логи, чтобы можно было войти вручную
+        console.log(`[Password Reset] URL for ${employee.email}: ${resetUrl}`)
+      }
     }
 
     return NextResponse.json({ ok: true })
