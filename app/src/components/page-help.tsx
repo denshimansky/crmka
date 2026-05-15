@@ -1,6 +1,5 @@
 "use client"
 
-import { HelpCircle } from "lucide-react"
 import {
   Sheet,
   SheetContent,
@@ -22,10 +21,11 @@ export function PageHelp({ pageKey }: PageHelpProps) {
   return (
     <Sheet>
       <SheetTrigger
-        className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full border-2 border-primary/60 text-primary text-sm font-bold leading-none hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
         title="Справка по странице"
+        aria-label="Справка по странице"
       >
-        <HelpCircle className="size-4" />
+        ?
       </SheetTrigger>
       <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
         <SheetHeader>
