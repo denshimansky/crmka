@@ -48,6 +48,8 @@ jobs:
               WHERE NOT EXISTS (SELECT 1 FROM \"_prisma_migrations\" WHERE migration_name = '20260331093420_initial');
             "
             docker compose exec -T app npx prisma migrate deploy
+            # Перезагружаем nginx если конфиг менялся (bind-mount; контейнер сам не перечитывает)
+            docker compose exec -T nginx nginx -t && docker compose exec -T nginx nginx -s reload || true
             # Чистим build cache старше 7 дней (иначе диск забивается за неделю)
             docker builder prune -af --filter "until=168h" || true
             echo "Deploy complete: $(date)"
