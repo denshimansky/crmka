@@ -4,9 +4,14 @@ import { db } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import type { AdminRole } from "@prisma/client"
 
-const SECRET = new TextEncoder().encode(
-  process.env.ADMIN_JWT_SECRET || process.env.NEXTAUTH_SECRET || "admin-secret-change-me"
-)
+const rawSecret = process.env.ADMIN_JWT_SECRET || process.env.NEXTAUTH_SECRET
+if (!rawSecret || rawSecret.length < 32 || rawSecret === "change-me-to-random-string") {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("ADMIN_JWT_SECRET or NEXTAUTH_SECRET must be set to a strong value (≥32 chars) in production")
+  }
+  console.warn("[admin-auth] WARNING: using weak/missing JWT secret — set ADMIN_JWT_SECRET (≥32 chars) in .env")
+}
+const SECRET = new TextEncoder().encode(rawSecret || "dev-only-insecure-secret-do-not-use-in-prod")
 
 const COOKIE_NAME = "admin-token"
 

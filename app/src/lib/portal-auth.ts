@@ -3,9 +3,14 @@ import { cookies } from "next/headers"
 import { db } from "@/lib/db"
 import { randomBytes } from "crypto"
 
-const SECRET = new TextEncoder().encode(
-  process.env.PORTAL_JWT_SECRET || process.env.NEXTAUTH_SECRET || "portal-secret-change-me"
-)
+const rawSecret = process.env.PORTAL_JWT_SECRET || process.env.NEXTAUTH_SECRET
+if (!rawSecret || rawSecret.length < 32 || rawSecret === "change-me-to-random-string") {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("PORTAL_JWT_SECRET or NEXTAUTH_SECRET must be set to a strong value (≥32 chars) in production")
+  }
+  console.warn("[portal-auth] WARNING: using weak/missing JWT secret — set PORTAL_JWT_SECRET (≥32 chars) in .env")
+}
+const SECRET = new TextEncoder().encode(rawSecret || "dev-only-insecure-secret-do-not-use-in-prod")
 
 const COOKIE_NAME = "portal-token"
 

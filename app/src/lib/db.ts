@@ -29,10 +29,11 @@ export async function withTenant<T>(
   tenantId: string,
   fn: (tx: PrismaClient) => Promise<T>
 ): Promise<T> {
+  if (!/^[0-9a-f-]{36}$/i.test(tenantId)) {
+    throw new Error("withTenant: tenantId must be a valid UUID");
+  }
   return db.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(
-      `SET LOCAL app.current_tenant_id = '${tenantId}'`
-    );
+    await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
     return fn(tx as unknown as PrismaClient);
   });
 }

@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
+        id: deploy
         uses: appleboy/ssh-action@v1
         with:
           host: 65.108.45.153
@@ -50,3 +51,41 @@ jobs:
             # Чистим build cache старше 7 дней (иначе диск забивается за неделю)
             docker builder prune -af --filter "until=168h" || true
             echo "Deploy complete: $(date)"
+
+      - name: Notify Telegram on success
+        if: success() && env.TG_TOKEN != ''
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MSG: |
+            ✅ <b>Deploy OK</b> — dev.umnayacrm.ru
+            <b>Commit:</b> <code>${{ github.sha }}</code>
+            <b>Author:</b> ${{ github.actor }}
+            <b>Message:</b> ${{ github.event.head_commit.message }}
+            <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">CI run</a>
+        run: |
+          curl -fsS --max-time 10 \
+            -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d "chat_id=${TG_CHAT}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${MSG}"
+
+      - name: Notify Telegram on failure
+        if: failure() && env.TG_TOKEN != ''
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MSG: |
+            ❌ <b>Deploy FAILED</b> — dev.umnayacrm.ru
+            <b>Commit:</b> <code>${{ github.sha }}</code>
+            <b>Author:</b> ${{ github.actor }}
+            <b>Message:</b> ${{ github.event.head_commit.message }}
+            <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">Открыть логи</a>
+        run: |
+          curl -fsS --max-time 10 \
+            -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d "chat_id=${TG_CHAT}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${MSG}"
