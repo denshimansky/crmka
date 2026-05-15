@@ -54,6 +54,29 @@ jobs:
             docker builder prune -af --filter "until=168h" || true
             echo "Deploy complete: $(date)"
 
+      - name: Health check
+        id: healthcheck
+        run: |
+          # Реальная проверка что сайт отдаёт ответы (а не только SSH-шаги прошли).
+          # Ждём до 90 секунд (контейнер может подниматься после миграций).
+          start=$(date +%s)
+          for i in $(seq 1 18); do
+            code=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 https://dev.umnayacrm.ru/login || echo "000")
+            elapsed=$(( $(date +%s) - start ))
+            if [ "$code" = "200" ] || [ "$code" = "307" ] || [ "$code" = "308" ]; then
+              echo "Health OK: HTTP $code after ${elapsed}s (попытка $i/18)"
+              echo "elapsed=${elapsed}s" >> "$GITHUB_OUTPUT"
+              echo "code=$code" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Попытка $i/18: HTTP $code (прошло ${elapsed}s), retry через 5s..."
+            sleep 5
+          done
+          echo "Health check failed после 90s"
+          echo "elapsed=90s+" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit 1
+
       - name: Notify Telegram on success
         if: success() && env.TG_TOKEN != ''
         env:
@@ -63,6 +86,8 @@ jobs:
           ACTOR: ${{ github.actor }}
           COMMIT_MSG_FULL: ${{ github.event.head_commit.message }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEALTH_CODE: ${{ steps.healthcheck.outputs.code }}
+          HEALTH_ELAPSED: ${{ steps.healthcheck.outputs.elapsed }}
         run: |
           # Экранируем HTML-спецсимволы (&, <, >) в динамических полях
           esc() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
@@ -71,9 +96,9 @@ jobs:
           TITLE_ESC=$(esc "$TITLE")
           ACTOR_ESC=$(esc "$ACTOR")
           MSG=$(printf '%s\n%s\n%s\n%s' \
-            "✅ <b>Deploy OK</b> — dev.umnayacrm.ru" \
+            "✅ <b>Deployed &amp; live</b> — dev.umnayacrm.ru" \
             "<b>Commit:</b> <code>${SHA_SHORT}</code> ${TITLE_ESC}" \
-            "<b>Author:</b> ${ACTOR_ESC}" \
+            "<b>Author:</b> ${ACTOR_ESC} · <b>HTTP:</b> ${HEALTH_CODE} за ${HEALTH_ELAPSED}" \
             "<a href=\"${RUN_URL}\">CI run</a>")
           curl -fsS --max-time 10 \
             -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
@@ -91,14 +116,22 @@ jobs:
           ACTOR: ${{ github.actor }}
           COMMIT_MSG_FULL: ${{ github.event.head_commit.message }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEALTH_CODE: ${{ steps.healthcheck.outputs.code }}
         run: |
           esc() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
           TITLE=$(printf '%s' "$COMMIT_MSG_FULL" | head -n1)
           SHA_SHORT="${COMMIT_SHA:0:7}"
           TITLE_ESC=$(esc "$TITLE")
           ACTOR_ESC=$(esc "$ACTOR")
+          # Если есть HEALTH_CODE — значит дошли до health-check, но он провалился (сайт не отвечает)
+          # Если HEALTH_CODE пуст — упал сам деплой (SSH/build/migrate)
+          if [ -n "$HEALTH_CODE" ]; then
+            HEADER="⚠️ <b>Deployed but site is DOWN</b> — dev.umnayacrm.ru (HTTP ${HEALTH_CODE})"
+          else
+            HEADER="❌ <b>Deploy FAILED</b> — dev.umnayacrm.ru"
+          fi
           MSG=$(printf '%s\n%s\n%s\n%s' \
-            "❌ <b>Deploy FAILED</b> — dev.umnayacrm.ru" \
+            "$HEADER" \
             "<b>Commit:</b> <code>${SHA_SHORT}</code> ${TITLE_ESC}" \
             "<b>Author:</b> ${ACTOR_ESC}" \
             "<a href=\"${RUN_URL}\">Открыть логи</a>")
