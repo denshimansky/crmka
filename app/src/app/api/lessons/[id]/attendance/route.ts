@@ -508,6 +508,98 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   return NextResponse.json({ count: results.length, attendances: results })
 }
 
+// DELETE: Сбросить отметку — вернуть строку в состояние «Не отмечен».
+// Удаляет Attendance, откатывает списание с абонемента (если было).
+// Принимает либо attendanceId, либо (clientId + wardId) — для поиска по ученику.
+const deleteSchema = z.object({
+  attendanceId: z.string().uuid().optional(),
+  clientId: z.string().uuid().optional(),
+  wardId: z.string().uuid().nullable().optional(),
+}).refine((d) => d.attendanceId || d.clientId, {
+  message: "Нужен attendanceId или clientId",
+})
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { id: lessonId } = await params
+  const tenantId = (session.user as any).tenantId
+  const employeeId = (session.user as any).employeeId
+  const role = (session.user as any).role
+
+  const body = await req.json()
+  const parsed = deleteSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
+  }
+  const data = parsed.data
+
+  const lesson = await db.lesson.findFirst({
+    where: { id: lessonId, tenantId },
+    select: { id: true, date: true },
+  })
+  if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
+
+  if (await isPeriodLocked(tenantId, new Date(lesson.date), role)) {
+    return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
+  }
+
+  const existing = data.attendanceId
+    ? await db.attendance.findFirst({
+        where: { id: data.attendanceId, lessonId, tenantId },
+      })
+    : await db.attendance.findFirst({
+        where: {
+          lessonId,
+          tenantId,
+          clientId: data.clientId,
+          wardId: data.wardId ?? null,
+        },
+      })
+
+  if (!existing) return NextResponse.json({ error: "Отметка не найдена" }, { status: 404 })
+
+  // Пробное (isTrial=true) сбрасывается через /api/trial-lessons/[id] — там своя логика
+  if (existing.isTrial) {
+    return NextResponse.json(
+      { error: "Снимите отметку пробного через выпадашку статуса пробного" },
+      { status: 400 }
+    )
+  }
+
+  await db.$transaction(async (tx) => {
+    // Откат списания с абонемента
+    if (existing.subscriptionId && Number(existing.chargeAmount) > 0) {
+      await tx.subscription.update({
+        where: { id: existing.subscriptionId },
+        data: {
+          balance: { increment: existing.chargeAmount },
+          chargedAmount: { decrement: existing.chargeAmount },
+        },
+      })
+    }
+
+    await tx.attendance.delete({ where: { id: existing.id } })
+  })
+
+  logAudit({
+    tenantId,
+    employeeId,
+    action: "delete",
+    entityType: "Attendance",
+    entityId: existing.id,
+    changes: {
+      lessonId: { old: lessonId },
+      clientId: { old: existing.clientId },
+      attendanceTypeId: { old: existing.attendanceTypeId },
+    },
+    req,
+  })
+
+  return NextResponse.json({ ok: true })
+}
+
 // PATCH: Update absence reason on an attendance record
 const patchSchema = z.object({
   attendanceId: z.string().uuid(),

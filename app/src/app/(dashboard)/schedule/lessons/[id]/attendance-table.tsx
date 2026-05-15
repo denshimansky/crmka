@@ -227,6 +227,38 @@ export function AttendanceTable({
     }
   }
 
+  // Сброс отметки — возврат в «Не отмечен»
+  async function clearAttendance(student: StudentData) {
+    if (!student.attendance) return
+    setLoadingStudentId(student.enrollmentId)
+    try {
+      const res = await fetch(`/api/lessons/${lessonId}/attendance`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          attendanceId: student.attendance.id,
+        }),
+      })
+      if (res.ok) {
+        const updateFn = (prev: StudentData[]) =>
+          prev.map((s) =>
+            s.enrollmentId === student.enrollmentId ? { ...s, attendance: null } : s
+          )
+        if (student.isMakeup) {
+          // Отработки удаляются из таблицы — они исчезают вместе с Attendance
+          setMakeupStudents((prev) => prev.filter((s) => s.enrollmentId !== student.enrollmentId))
+        } else {
+          setStudents(updateFn)
+        }
+        router.refresh()
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingStudentId(null)
+    }
+  }
+
   // Mark single student
   async function markAttendance(
     student: StudentData,
@@ -648,9 +680,14 @@ export function AttendanceTable({
             </div>
           ) : (
             <Select
-              value={student.attendance?.attendanceTypeId || ""}
+              value={student.attendance?.attendanceTypeId || "__unmarked__"}
               onValueChange={(val) => {
-                if (val) markAttendance(student, val)
+                if (!val) return
+                if (val === "__unmarked__") {
+                  if (student.attendance) clearAttendance(student)
+                  return
+                }
+                markAttendance(student, val)
               }}
             >
               <SelectTrigger className="w-full">
@@ -659,6 +696,9 @@ export function AttendanceTable({
                 )}
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="__unmarked__">
+                  <span className="text-muted-foreground">Не отмечен</span>
+                </SelectItem>
                 {attendanceTypes.map((type) => (
                   <SelectItem key={type.id} value={type.id}>
                     {type.name}
