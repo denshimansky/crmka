@@ -3,12 +3,14 @@ import { db } from "@/lib/db"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Plus, CalendarDays } from "lucide-react"
-import { ScheduleWeekNav } from "./schedule-week-nav"
+import { ScheduleWeekNav, type ScheduleView } from "./schedule-week-nav"
 import { CancelDayDialog } from "./cancel-day-dialog"
 import { SchedulePrintButton } from "@/components/schedule-print"
 import { CopyMonthDialog } from "./copy-month-dialog"
 import { PageHelp } from "@/components/page-help"
 import { ScheduleFilterableGrid } from "./schedule-filters"
+
+const ALLOWED_VIEWS = new Set<ScheduleView>(["rooms", "instructors", "directions", "list"])
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -53,10 +55,13 @@ function formatWeekLabel(monday: Date, sunday: Date): string {
 export default async function SchedulePage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>
+  searchParams: Promise<{ week?: string; view?: string }>
 }) {
   const sp = await searchParams
   const weekOffset = parseInt(sp.week || "0", 10) || 0
+  const view: ScheduleView = ALLOWED_VIEWS.has(sp.view as ScheduleView)
+    ? (sp.view as ScheduleView)
+    : "rooms"
 
   const session = await getSession()
   const tenantId = session.user.tenantId
@@ -184,7 +189,7 @@ export default async function SchedulePage({
 
       <div className="flex items-center gap-2">
         <div className="flex-1">
-          <ScheduleWeekNav weekOffset={weekOffset} weekLabel={weekLabel} />
+          <ScheduleWeekNav weekOffset={weekOffset} weekLabel={weekLabel} view={view} />
         </div>
         <CopyMonthDialog />
         <CancelDayDialog defaultDate={defaultDate} branches={branches} />
@@ -230,6 +235,7 @@ export default async function SchedulePage({
           weekDays={weekDays}
           dayNames={DAY_NAMES}
           directionColorMap={directionColorMap}
+          view={view}
         />
       )}
     </div>

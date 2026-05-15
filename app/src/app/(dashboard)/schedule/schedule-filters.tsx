@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { CalendarDays, X, Filter } from "lucide-react"
+import type { ScheduleView } from "./schedule-week-nav"
 
 interface Room {
   id: string
@@ -57,6 +58,7 @@ interface ScheduleFiltersProps {
   weekDays: string[] // ISO date strings
   dayNames: string[]
   directionColorMap: Record<string, string>
+  view: ScheduleView
 }
 
 function getOccupancyStyle(enrolled: number, max: number): { className: string; label: string } {
@@ -79,6 +81,7 @@ export function ScheduleFilterableGrid({
   weekDays,
   dayNames,
   directionColorMap,
+  view,
 }: ScheduleFiltersProps) {
   const [roomFilter, setRoomFilter] = useState<string>("")
   const [directionFilter, setDirectionFilter] = useState<string>("")
@@ -95,11 +98,43 @@ export function ScheduleFilterableGrid({
     })
   }, [lessons, roomFilter, directionFilter, instructorFilter])
 
-  // Rooms that have lessons after filtering (for grid rows)
-  const visibleRooms = useMemo(() => {
-    const ids = new Set(filteredLessons.map((l) => l.group.room.id))
-    return rooms.filter((r) => ids.has(r.id))
-  }, [filteredLessons, rooms])
+  // Group key picker per view
+  function getRowKey(lesson: LessonData): string {
+    if (view === "instructors") return lesson.instructorId
+    if (view === "directions") return lesson.group.directionId
+    return lesson.group.room.id // rooms (default)
+  }
+
+  type Row = { id: string; label: string }
+
+  const visibleRows: Row[] = useMemo(() => {
+    if (view === "list") return []
+    const ids = new Set(filteredLessons.map(getRowKey))
+    if (view === "instructors") {
+      return instructors
+        .filter((i) => ids.has(i.id))
+        .map((i) => ({
+          id: i.id,
+          label: `${i.lastName} ${i.firstName?.[0] || ""}.`.trim(),
+        }))
+    }
+    if (view === "directions") {
+      return directions
+        .filter((d) => ids.has(d.id))
+        .map((d) => ({ id: d.id, label: d.name }))
+    }
+    return rooms.filter((r) => ids.has(r.id)).map((r) => ({ id: r.id, label: r.name }))
+  }, [filteredLessons, view, rooms, instructors, directions])
+
+  const sortedListLessons = useMemo(() => {
+    if (view !== "list") return []
+    return [...filteredLessons].sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date)
+      return a.startTime.localeCompare(b.startTime)
+    })
+  }, [filteredLessons, view])
+
+  const rowHeaderLabel = view === "instructors" ? "Педагог" : view === "directions" ? "Направление" : "Кабинет"
 
   function clearFilters() {
     setRoomFilter("")
@@ -228,37 +263,73 @@ export function ScheduleFilterableGrid({
             </Link>
           )}
         </div>
+      ) : view === "list" ? (
+        <div className="space-y-2">
+          {sortedListLessons.map((lesson) => {
+            const colorClass = directionColorMap[lesson.group.directionId] || ""
+            const enrolled = lesson.group._count.enrollments
+            const max = lesson.group.maxStudents
+            const occupancy = getOccupancyStyle(enrolled, max)
+            const instructorName = [
+              lesson.instructor.lastName,
+              lesson.instructor.firstName?.[0] ? lesson.instructor.firstName[0] + "." : "",
+            ]
+              .filter(Boolean)
+              .join(" ")
+            const dayIdx = weekDays.indexOf(lesson.date)
+            const dayLabel = dayIdx >= 0 ? `${dayNames[dayIdx]} ${formatDateShort(lesson.date)}` : lesson.date
+            return (
+              <Link key={lesson.id} href={`/schedule/lessons/${lesson.id}`}>
+                <Card
+                  className={`flex flex-wrap items-center gap-3 cursor-pointer border p-3 text-sm ${colorClass} ${occupancy.className} hover:opacity-80`}
+                  title={occupancy.label}
+                >
+                  <div className="font-bold w-20 shrink-0">{dayLabel}</div>
+                  <div className="font-bold w-14 shrink-0">{lesson.startTime}</div>
+                  <div className="font-medium flex-1 min-w-[150px]">{lesson.group.name}</div>
+                  <div className="opacity-70 w-32 shrink-0">{instructorName}</div>
+                  <div className="opacity-70 w-28 shrink-0">{lesson.group.room.name}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold">{enrolled}/{max}</span>
+                    {max > 0 && enrolled / max > 0.9 && (
+                      <Badge variant="destructive" className="h-4 px-1 text-[10px]">!</Badge>
+                    )}
+                  </div>
+                </Card>
+              </Link>
+            )
+          })}
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <div className="min-w-[900px]">
             <div
               className="grid gap-px bg-border"
-              style={{ gridTemplateColumns: `120px repeat(7, 1fr)` }}
+              style={{ gridTemplateColumns: `160px repeat(7, 1fr)` }}
             >
               {/* Header */}
-              <div className="bg-background p-2" />
+              <div className="bg-background p-2 text-xs font-medium text-muted-foreground">
+                {rowHeaderLabel}
+              </div>
               {weekDays.map((day, i) => (
                 <div key={i} className="bg-background p-2 text-center text-sm font-medium">
                   {dayNames[i]} {formatDateShort(day)}
                 </div>
               ))}
 
-              {/* Rows by room */}
-              {visibleRooms.map((room) => (
-                <>
-                  <div
-                    key={room.id}
-                    className="bg-background p-2 text-sm font-medium text-muted-foreground"
-                  >
-                    {room.name}
+              {/* Rows by selected dimension */}
+              {visibleRows.map((row) => (
+                <div key={row.id} className="contents">
+                  <div className="bg-background p-2 text-sm font-medium text-muted-foreground">
+                    {row.label}
                   </div>
                   {weekDays.map((dayStr, di) => {
                     const dayLessons = filteredLessons.filter(
-                      (l) => l.group.room.id === room.id && l.date === dayStr
+                      (l) => getRowKey(l) === row.id && l.date === dayStr
                     )
                     return (
                       <div
-                        key={`${room.id}-${di}`}
+                        key={`${row.id}-${di}`}
                         className="min-h-[100px] bg-background p-1 space-y-1"
                       >
                         {dayLessons.map((lesson) => {
@@ -269,7 +340,7 @@ export function ScheduleFilterableGrid({
                           const occupancy = getOccupancyStyle(enrolled, max)
                           const instructorName = [
                             lesson.instructor.lastName,
-                            lesson.instructor.firstName?.[0] + ".",
+                            lesson.instructor.firstName?.[0] ? lesson.instructor.firstName[0] + "." : "",
                           ]
                             .filter(Boolean)
                             .join(" ")
@@ -281,7 +352,9 @@ export function ScheduleFilterableGrid({
                               >
                                 <div className="font-bold">{lesson.startTime}</div>
                                 <div className="font-medium">{lesson.group.name}</div>
-                                <div className="opacity-70">{instructorName}</div>
+                                <div className="opacity-70">
+                                  {view === "instructors" ? lesson.group.room.name : instructorName}
+                                </div>
                                 <div className="mt-1 flex items-center justify-between">
                                   <span className="font-semibold">
                                     {enrolled}/{max}
@@ -302,7 +375,7 @@ export function ScheduleFilterableGrid({
                       </div>
                     )
                   })}
-                </>
+                </div>
               ))}
             </div>
           </div>
