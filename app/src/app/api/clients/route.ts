@@ -107,6 +107,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Укажите телефон или ссылку на соцсеть" }, { status: 400 })
   }
 
+  // Автоназначение ответственного: если не указан — создатель (если он сотрудник)
+  const assignedTo = data.assignedTo ?? session.user.employeeId ?? undefined
+
   const client = await db.client.create({
     data: {
       tenantId: session.user.tenantId,
@@ -121,7 +124,7 @@ export async function POST(req: NextRequest) {
       clientStatus: data.clientStatus,
       branchId: data.branchId,
       channelId: data.channelId,
-      assignedTo: data.assignedTo,
+      assignedTo,
       comment: data.comment,
       nextContactDate: data.nextContactDate ? new Date(data.nextContactDate) : undefined,
       createdBy: session.user.employeeId,

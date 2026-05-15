@@ -8,7 +8,7 @@ const SORT_OPTIONS = [
   { value: "name", label: "По имени" },
 ] as const
 
-export function LeadsSortSelect() {
+export function FunnelSortSelect() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const current = searchParams.get("sort") || "nextContactDate"

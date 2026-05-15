@@ -27,6 +27,12 @@ interface BranchOption {
   name: string
 }
 
+interface EmployeeOption {
+  id: string
+  firstName: string | null
+  lastName: string | null
+}
+
 interface ClientData {
   id: string
   firstName: string | null
@@ -37,6 +43,7 @@ interface ClientData {
   email: string | null
   socialLink: string | null
   branchId: string | null
+  assignedTo: string | null
   comment: string | null
 }
 
@@ -46,6 +53,7 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [branches, setBranches] = useState<BranchOption[]>([])
+  const [employees, setEmployees] = useState<EmployeeOption[]>([])
 
   const [firstName, setFirstName] = useState(client.firstName || "")
   const [lastName, setLastName] = useState(client.lastName || "")
@@ -55,19 +63,24 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   const [email, setEmail] = useState(client.email || "")
   const [socialLink, setSocialLink] = useState(client.socialLink || "")
   const [branchId, setBranchId] = useState(client.branchId || "")
+  const [assignedTo, setAssignedTo] = useState(client.assignedTo || "")
   const [comment, setComment] = useState(client.comment || "")
 
   useEffect(() => {
     if (!open) return
-    async function loadBranches() {
+    async function load() {
       try {
-        const res = await fetch("/api/branches")
-        if (res.ok) setBranches(await res.json())
+        const [bRes, eRes] = await Promise.all([
+          fetch("/api/branches"),
+          fetch("/api/employees"),
+        ])
+        if (bRes.ok) setBranches(await bRes.json())
+        if (eRes.ok) setEmployees(await eRes.json())
       } catch {
         /* ignore */
       }
     }
-    loadBranches()
+    load()
   }, [open])
 
   function reset() {
@@ -79,6 +92,7 @@ export function EditClientDialog({ client }: { client: ClientData }) {
     setEmail(client.email || "")
     setSocialLink(client.socialLink || "")
     setBranchId(client.branchId || "")
+    setAssignedTo(client.assignedTo || "")
     setComment(client.comment || "")
     setError(null)
   }
@@ -106,6 +120,7 @@ export function EditClientDialog({ client }: { client: ClientData }) {
           email: email.trim() || null,
           socialLink: socialLink.trim() || null,
           branchId: branchId || null,
+          assignedTo: assignedTo || null,
           comment: comment.trim() || null,
         }),
       })
@@ -126,6 +141,10 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   }
 
   const selectedBranch = branches.find((b) => b.id === branchId)
+  const selectedAssignee = employees.find((e) => e.id === assignedTo)
+  const assigneeLabel = selectedAssignee
+    ? [selectedAssignee.lastName, selectedAssignee.firstName].filter(Boolean).join(" ") || "Без имени"
+    : "Не назначен"
 
   return (
     <Dialog
@@ -242,6 +261,31 @@ export function EditClientDialog({ client }: { client: ClientData }) {
               </Select>
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <Label>Ответственный</Label>
+            <Select
+              value={assignedTo}
+              onValueChange={(v) => {
+                if (v !== null) setAssignedTo(v)
+              }}
+            >
+              <SelectTrigger className="w-full">
+                {assigneeLabel}
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Не назначен</SelectItem>
+                {employees.map((e) => {
+                  const name = [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"
+                  return (
+                    <SelectItem key={e.id} value={e.id}>
+                      {name}
+                    </SelectItem>
+                  )
+                })}
+              </SelectContent>
+            </Select>
+          </div>
 
           <div className="space-y-1.5">
             <Label>Комментарий</Label>

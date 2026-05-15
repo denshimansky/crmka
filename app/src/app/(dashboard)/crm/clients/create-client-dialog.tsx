@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle,
@@ -26,6 +27,12 @@ interface ChannelOption {
   name: string
 }
 
+interface EmployeeOption {
+  id: string
+  firstName: string | null
+  lastName: string | null
+}
+
 interface WardInput {
   firstName: string
   lastName: string
@@ -34,6 +41,8 @@ interface WardInput {
 
 export function CreateClientDialog({ branches }: { branches: Branch[] }) {
   const router = useRouter()
+  const { data: session } = useSession()
+  const myEmployeeId = (session?.user as { employeeId?: string } | undefined)?.employeeId
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,18 +57,33 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
   const [branchId, setBranchId] = useState<string>("")
   const [channelId, setChannelId] = useState<string>("")
   const [channels, setChannels] = useState<ChannelOption[]>([])
+  const [assignedTo, setAssignedTo] = useState<string>(myEmployeeId || "")
+  const [employees, setEmployees] = useState<EmployeeOption[]>([])
   const [comment, setComment] = useState("")
   const [wards, setWards] = useState<WardInput[]>([])
 
   const { duplicates } = useDuplicateCheck(phone)
 
-  // Load channels on open
-  const loadChannels = async () => {
+  // Когда сессия догрузилась — подставить текущего пользователя по умолчанию
+  useEffect(() => {
+    if (myEmployeeId && !assignedTo) {
+      setAssignedTo(myEmployeeId)
+    }
+  }, [myEmployeeId, assignedTo])
+
+  // Load channels + employees on open
+  const loadOptions = async () => {
     try {
-      const res = await fetch("/api/lead-channels")
-      if (res.ok) {
-        const data = await res.json()
+      const [channelsRes, employeesRes] = await Promise.all([
+        fetch("/api/lead-channels"),
+        fetch("/api/employees"),
+      ])
+      if (channelsRes.ok) {
+        const data = await channelsRes.json()
         setChannels(data.filter((c: any) => c.isActive))
+      }
+      if (employeesRes.ok) {
+        setEmployees(await employeesRes.json())
       }
     } catch { /* ignore */ }
   }
@@ -74,6 +98,7 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
     setSocialLink("")
     setBranchId("")
     setChannelId("")
+    setAssignedTo(myEmployeeId || "")
     setComment("")
     setWards([])
     setError(null)
@@ -124,6 +149,7 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
           socialLink: socialLink.trim() || undefined,
           branchId: branchId || undefined,
           channelId: channelId || undefined,
+          assignedTo: assignedTo || undefined,
           comment: comment.trim() || undefined,
           wards: wards
             .filter((w) => w.firstName.trim())
@@ -156,7 +182,7 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen)
-        if (nextOpen) loadChannels()
+        if (nextOpen) loadOptions()
         if (!nextOpen) resetForm()
       }}
     >
@@ -319,6 +345,29 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
                 </Select>
               </div>
             )}
+
+            {/* Ответственный */}
+            <div>
+              <Label>Ответственный</Label>
+              <Select value={assignedTo} onValueChange={(v) => { if (v !== null) setAssignedTo(v) }}>
+                <SelectTrigger className="w-full">
+                  {(() => {
+                    const e = employees.find((x) => x.id === assignedTo)
+                    if (!e) return <span className="text-muted-foreground">Не назначен</span>
+                    return [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"
+                  })()}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Не назначен</SelectItem>
+                  {employees.map((e) => {
+                    const name = [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"
+                    return (
+                      <SelectItem key={e.id} value={e.id}>{name}</SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
 
             {/* Комментарий */}
             <div>
