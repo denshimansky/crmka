@@ -227,13 +227,13 @@ export default function StockPage() {
               <Label>Наименование *</Label>
               <Input name="name" required placeholder="Канцтовары, бумага A4..." />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 items-end">
               <div className="space-y-1.5">
                 <Label>Единица измерения</Label>
                 <Input name="unit" defaultValue="шт" />
               </div>
               <div className="space-y-1.5">
-                <Label>Стоимость за ед. (по умолчанию)</Label>
+                <Label>Цена за ед., ₽</Label>
                 <Input name="defaultUnitCost" type="number" step="0.01" min="0" />
               </div>
             </div>
