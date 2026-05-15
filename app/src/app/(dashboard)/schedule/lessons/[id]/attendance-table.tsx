@@ -232,12 +232,16 @@ export function AttendanceTable({
     if (!student.attendance) return
     setLoadingStudentId(student.enrollmentId)
     try {
+      // attendanceId должен быть UUID; если по какой-то причине его нет (старая
+      // оптимистичная запись без свежего ответа сервера) — fallback на ученика.
+      const isUuid = /^[0-9a-f-]{36}$/i.test(student.attendance.id || "")
+      const payload = isUuid
+        ? { attendanceId: student.attendance.id }
+        : { clientId: student.clientId, wardId: student.wardId }
       const res = await fetch(`/api/lessons/${lessonId}/attendance`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          attendanceId: student.attendance.id,
-        }),
+        body: JSON.stringify(payload),
       })
       if (res.ok) {
         const updateFn = (prev: StudentData[]) =>
@@ -282,9 +286,11 @@ export function AttendanceTable({
       })
 
       if (res.ok) {
-        // Refresh to get updated data
+        // Берём настоящий id из ответа сервера, чтобы потом можно было
+        // корректно сделать DELETE (сброс отметки) до router.refresh().
+        const created: { id?: string } = await res.json().catch(() => ({}))
         router.refresh()
-        // Also update local state optimistically
+
         const attType = attendanceTypes.find((t) => t.id === attendanceTypeId)
         if (attType) {
           const chargeAmount = attType.chargesSubscription ? student.lessonPrice : 0
@@ -306,7 +312,7 @@ export function AttendanceTable({
                 ? {
                     ...s,
                     attendance: {
-                      id: s.attendance?.id || "temp",
+                      id: created.id || s.attendance?.id || "",
                       attendanceTypeId,
                       attendanceTypeName: attType.name,
                       attendanceTypeCode: attType.code,
@@ -343,6 +349,13 @@ export function AttendanceTable({
         body: JSON.stringify({ attendanceTypeId: presentType.id }),
       })
       if (res.ok) {
+        // Достаём реальные id отметок из ответа, чтобы их можно было сбросить
+        // через DELETE до того, как router.refresh() подтянет свежие данные.
+        const payload: { attendances?: { id: string; clientId: string; wardId: string | null }[] } =
+          await res.json().catch(() => ({}))
+        const byKey = new Map(
+          (payload.attendances || []).map((a) => [`${a.clientId}|${a.wardId || ""}`, a.id])
+        )
         router.refresh()
         // Optimistic update
         setStudents((prev) =>
@@ -354,10 +367,12 @@ export function AttendanceTable({
                 instructorPayAmount = salaryRate.ratePerStudent
               }
             }
+            const realId =
+              byKey.get(`${s.clientId}|${s.wardId || ""}`) || s.attendance?.id || ""
             return {
               ...s,
               attendance: {
-                id: s.attendance?.id || "temp",
+                id: realId,
                 attendanceTypeId: presentType.id,
                 attendanceTypeName: presentType.name,
                 attendanceTypeCode: presentType.code,
