@@ -23,6 +23,7 @@ jobs:
           username: deploy
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -e  # любой провал шага = провал деплоя (раньше билд мог упасть, а up -d продолжал на старом образе)
             cd /opt/crmka
             git pull origin main
             # Гарантируем что dev-сервер имеет ALLOW_DESTRUCTIVE_API=true (для seed/reset)

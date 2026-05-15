@@ -4,14 +4,22 @@ import { db } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import type { AdminRole } from "@prisma/client"
 
-const rawSecret = process.env.ADMIN_JWT_SECRET || process.env.NEXTAUTH_SECRET
-if (!rawSecret || rawSecret.length < 32 || rawSecret === "change-me-to-random-string") {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("ADMIN_JWT_SECRET or NEXTAUTH_SECRET must be set to a strong value (≥32 chars) in production")
+// Lazy чтобы Next.js build (где ENV не подгружены) не падал.
+// Throw срабатывает на первом реальном использовании в рантайме.
+let _secret: Uint8Array | null = null
+function getSecret(): Uint8Array {
+  if (_secret) return _secret
+  const raw = process.env.ADMIN_JWT_getSecret() || process.env.NEXTAUTH_getSecret()
+  const isWeak = !raw || raw.length < 32 || raw === "change-me-to-random-string"
+  if (isWeak && process.env.NODE_ENV === "production") {
+    throw new Error("ADMIN_JWT_getSecret() or NEXTAUTH_getSecret() must be set to a strong value (≥32 chars) in production")
   }
-  console.warn("[admin-auth] WARNING: using weak/missing JWT secret — set ADMIN_JWT_SECRET (≥32 chars) in .env")
+  if (isWeak) {
+    console.warn("[admin-auth] WARNING: using weak/missing JWT secret — set ADMIN_JWT_getSecret() (≥32 chars) in .env")
+  }
+  _secret = new TextEncoder().encode(raw || "dev-only-insecure-secret-do-not-use-in-prod")
+  return _secret
 }
-const SECRET = new TextEncoder().encode(rawSecret || "dev-only-insecure-secret-do-not-use-in-prod")
 
 const COOKIE_NAME = "admin-token"
 
@@ -26,12 +34,12 @@ export async function signAdminToken(payload: AdminPayload): Promise<string> {
   return new SignJWT(payload as unknown as Record<string, unknown>)
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime("24h")
-    .sign(SECRET)
+    .sign(getSecret())
 }
 
 export async function verifyAdminToken(token: string): Promise<AdminPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, SECRET)
+    const { payload } = await jwtVerify(token, getSecret())
     return payload as unknown as AdminPayload
   } catch {
     return null
