@@ -1575,6 +1575,7 @@ interface ScheduleLesson {
   directionName: string
   roomName: string
   instructorName: string
+  isTrial?: boolean
 }
 
 const DAY_NAMES = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"]
@@ -1634,6 +1635,11 @@ function ScheduleTab({ clientId }: { clientId: string }) {
                   <TableCell className="whitespace-nowrap">{l.startTime}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{l.directionName}</Badge>
+                    {l.isTrial && (
+                      <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
+                        Пробное
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>{l.groupName}</TableCell>
                   <TableCell className="text-muted-foreground">{l.instructorName}</TableCell>

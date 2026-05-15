@@ -35,50 +35,75 @@ export async function GET(
     select: { groupId: true },
   })
 
-  if (enrollments.length === 0) {
-    return NextResponse.json([])
-  }
-
-  const groupIds = enrollments.map((e) => e.groupId)
-
   // Get today's date at midnight for filtering
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
+  const groupIds = enrollments.map((e) => e.groupId)
+
   // Fetch upcoming lessons for enrolled groups
-  const lessons = await db.lesson.findMany({
+  const lessons = groupIds.length
+    ? await db.lesson.findMany({
+        where: {
+          tenantId,
+          groupId: { in: groupIds },
+          date: { gte: today },
+          status: "scheduled",
+        },
+        select: {
+          id: true,
+          date: true,
+          startTime: true,
+          durationMinutes: true,
+          status: true,
+          group: {
+            select: {
+              id: true,
+              name: true,
+              direction: { select: { name: true } },
+              room: { select: { name: true } },
+            },
+          },
+          instructor: {
+            select: { firstName: true, lastName: true },
+          },
+          substituteInstructor: {
+            select: { firstName: true, lastName: true },
+          },
+        },
+        orderBy: [{ date: "asc" }, { startTime: "asc" }],
+        take: 50,
+      })
+    : []
+
+  // Запланированные пробные у этого лида/клиента
+  const trials = await db.trialLesson.findMany({
     where: {
       tenantId,
-      groupId: { in: groupIds },
-      date: { gte: today },
+      clientId: id,
       status: "scheduled",
+      scheduledDate: { gte: today },
     },
     select: {
       id: true,
-      date: true,
-      startTime: true,
-      durationMinutes: true,
-      status: true,
+      scheduledDate: true,
+      lesson: {
+        select: { id: true, startTime: true, durationMinutes: true },
+      },
       group: {
         select: {
-          id: true,
           name: true,
           direction: { select: { name: true } },
           room: { select: { name: true } },
+          instructor: { select: { firstName: true, lastName: true } },
         },
       },
-      instructor: {
-        select: { firstName: true, lastName: true },
-      },
-      substituteInstructor: {
-        select: { firstName: true, lastName: true },
-      },
     },
-    orderBy: [{ date: "asc" }, { startTime: "asc" }],
+    orderBy: { scheduledDate: "asc" },
     take: 50,
   })
 
-  const result = lessons.map((l) => {
+  const regularResult = lessons.map((l) => {
     const instructor = l.substituteInstructor || l.instructor
     return {
       id: l.id,
@@ -91,8 +116,29 @@ export async function GET(
       instructorName: [instructor.lastName, instructor.firstName]
         .filter(Boolean)
         .join(" "),
+      isTrial: false,
     }
   })
 
-  return NextResponse.json(result)
+  const trialResult = trials.map((t) => ({
+    id: t.lesson?.id || t.id,
+    date: t.scheduledDate.toISOString(),
+    startTime: t.lesson?.startTime || "—",
+    durationMinutes: t.lesson?.durationMinutes || 0,
+    groupName: t.group.name,
+    directionName: t.group.direction.name,
+    roomName: t.group.room.name,
+    instructorName: [t.group.instructor.lastName, t.group.instructor.firstName]
+      .filter(Boolean)
+      .join(" "),
+    isTrial: true,
+  }))
+
+  // Объединяем и сортируем по дате + времени
+  const combined = [...regularResult, ...trialResult].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date)
+    return a.startTime.localeCompare(b.startTime)
+  })
+
+  return NextResponse.json(combined)
 }

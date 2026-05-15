@@ -9,6 +9,7 @@ import { ArrowLeft, CreditCard, FileText } from "lucide-react"
 import { ClientTabs } from "../clients/[id]/client-tabs"
 import { EditClientDialog } from "../clients/[id]/edit-client-dialog"
 import { UnprolongedCommentsSection } from "../clients/[id]/unprolonged-comments"
+import { LeadStatusActions } from "./lead-status-actions"
 
 const SEGMENT_LABELS: Record<string, string> = {
   new_client: "Новый",
@@ -22,18 +23,6 @@ const SEGMENT_COLORS: Record<string, string> = {
   standard: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
   regular: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   vip: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-}
-
-const FUNNEL_LABELS: Record<string, string> = {
-  new: "Новый лид",
-  trial_scheduled: "Пробное записано",
-  trial_attended: "Был на пробном",
-  awaiting_payment: "Ждём оплату",
-  active_client: "Активный",
-  potential: "Потенциальный",
-  non_target: "Нецелевой",
-  blacklisted: "Чёрный список",
-  archived: "Архив",
 }
 
 const CLIENT_STATUS_LABELS: Record<string, string> = {
@@ -112,7 +101,7 @@ export async function ClientCardContent({
             >
               {SEGMENT_LABELS[client.segment] || client.segment}
             </span>
-            {client.clientStatus ? (
+            {client.clientStatus && (
               <Badge
                 variant={
                   client.clientStatus === "churned"
@@ -124,10 +113,6 @@ export async function ClientCardContent({
               >
                 {CLIENT_STATUS_LABELS[client.clientStatus] || client.clientStatus}
               </Badge>
-            ) : (
-              <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
-                {FUNNEL_LABELS[client.funnelStatus] || client.funnelStatus}
-              </span>
             )}
           </div>
           <p className="text-sm text-muted-foreground">
@@ -150,17 +135,29 @@ export async function ClientCardContent({
         </div>
       </div>
 
-      {/* Action buttons */}
-      <div className="flex gap-2">
-        <Button disabled>
-          <CreditCard className="mr-2 size-4" />
-          Оплата
-        </Button>
-        <Button variant="outline" disabled>
-          <FileText className="mr-2 size-4" />
-          Абонемент
-        </Button>
-      </div>
+      {/* Action buttons / Lead actions */}
+      {client.clientStatus ? (
+        <div className="flex gap-2">
+          <Button disabled>
+            <CreditCard className="mr-2 size-4" />
+            Оплата
+          </Button>
+          <Button variant="outline" disabled>
+            <FileText className="mr-2 size-4" />
+            Абонемент
+          </Button>
+        </div>
+      ) : (
+        <LeadStatusActions
+          clientId={client.id}
+          currentStatus={client.funnelStatus}
+          wards={client.wards.map((w) => ({
+            id: w.id,
+            firstName: w.firstName,
+            lastName: w.lastName,
+          }))}
+        />
+      )}
 
       {/* Two-column layout */}
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
