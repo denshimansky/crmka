@@ -13,6 +13,7 @@ import { PageHelp } from "@/components/page-help"
 import { QuickLeadButton } from "@/components/quick-lead-button"
 import { OnboardingWizard } from "@/components/onboarding-wizard"
 import { DashboardGrid } from "@/components/dashboard-grid"
+import { DashboardSettingsButton } from "@/components/dashboard-settings"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -22,19 +23,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  // Проверяем онбординг
-  const org = await db.organization.findUnique({
-    where: { id: tenantId },
-    select: { onboardingCompleted: true, name: true, inn: true },
-  })
+  // Проверяем онбординг (только для владельца — мастер настройки создаёт филиал/сотрудников и т.п.)
+  if (session.user.role === "owner") {
+    const org = await db.organization.findUnique({
+      where: { id: tenantId },
+      select: { onboardingCompleted: true, name: true, inn: true },
+    })
 
-  if (org && !org.onboardingCompleted) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold">Настройка организации</h1>
-        <OnboardingWizard orgName={org.name} orgInn={org.inn} />
-      </div>
-    )
+    if (org && !org.onboardingCompleted) {
+      return (
+        <div className="space-y-6">
+          <h1 className="text-2xl font-bold">Настройка организации</h1>
+          <OnboardingWizard orgName={org.name} orgInn={org.inn} />
+        </div>
+      )
+    }
   }
 
   const { year, month } = getMonthFromParams(await searchParams)
@@ -286,13 +289,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Главная</h1>
           <PageHelp pageKey="dashboard" />
           <MonthPicker />
         </div>
-        <span className="text-sm text-muted-foreground">{dateStr}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">{dateStr}</span>
+          <DashboardSettingsButton />
+        </div>
       </div>
 
       <DashboardGrid

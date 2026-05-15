@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ export interface WidgetConfig {
 }
 
 const STORAGE_KEY = "dashboard-widget-config"
+const CHANGE_EVENT = "dashboard-widget-config-change"
 
 export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "stats", label: "Ключевые показатели", visible: true },
@@ -54,6 +55,38 @@ export function loadWidgetConfig(): WidgetConfig[] {
 export function saveWidgetConfig(config: WidgetConfig[]) {
   if (typeof window === "undefined") return
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+  window.dispatchEvent(new Event(CHANGE_EVENT))
+}
+
+export function useDashboardWidgetConfig() {
+  const [config, setConfig] = useState<WidgetConfig[]>(DEFAULT_WIDGETS)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setConfig(loadWidgetConfig())
+    setMounted(true)
+
+    const refresh = () => setConfig(loadWidgetConfig())
+    window.addEventListener(CHANGE_EVENT, refresh)
+    window.addEventListener("storage", refresh)
+    return () => {
+      window.removeEventListener(CHANGE_EVENT, refresh)
+      window.removeEventListener("storage", refresh)
+    }
+  }, [])
+
+  function update(next: WidgetConfig[]) {
+    setConfig(next)
+    saveWidgetConfig(next)
+  }
+
+  return { config, mounted, update }
+}
+
+export function DashboardSettingsButton() {
+  const { config, mounted, update } = useDashboardWidgetConfig()
+  if (!mounted) return null
+  return <DashboardSettings config={config} onChange={update} />
 }
 
 export function DashboardSettings({
@@ -101,7 +134,6 @@ export function DashboardSettings({
 
   function save() {
     onChange(local)
-    saveWidgetConfig(local)
     setOpen(false)
   }
 
