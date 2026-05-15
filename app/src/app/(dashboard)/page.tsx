@@ -5,8 +5,8 @@ import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
-  Users, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2,
-  Circle, Clock, BarChart3,
+  Users, TrendingUp, TrendingDown, AlertTriangle,
+  Clock, BarChart3,
 } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
@@ -14,6 +14,7 @@ import { QuickLeadButton } from "@/components/quick-lead-button"
 import { OnboardingWizard } from "@/components/onboarding-wizard"
 import { DashboardGrid } from "@/components/dashboard-grid"
 import { DashboardSettingsButton } from "@/components/dashboard-settings"
+import { DashboardTaskItem } from "@/components/dashboard-task-item"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -187,15 +188,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <p className="text-sm text-muted-foreground">Нет задач</p>
         ) : (
           todayTasks.map((task) => (
-            <div key={task.id} className="flex items-center gap-2 text-sm">
-              <Circle className="size-4 shrink-0 text-muted-foreground" />
-              <span>{task.title}</span>
-              {task.client && (
-                <span className="text-muted-foreground">
-                  — {[task.client.lastName, task.client.firstName].filter(Boolean).join(" ")}
-                </span>
-              )}
-            </div>
+            <DashboardTaskItem
+              key={task.id}
+              id={task.id}
+              title={task.title}
+              clientName={
+                task.client
+                  ? [task.client.lastName, task.client.firstName].filter(Boolean).join(" ") || null
+                  : null
+              }
+            />
           ))
         )}
       </CardContent>
