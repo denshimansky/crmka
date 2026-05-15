@@ -92,10 +92,6 @@ export async function PATCH(
   })
   if (!trial) return NextResponse.json({ error: "Пробное не найдено" }, { status: 404 })
 
-  if (status === "scheduled" && trial.status !== "scheduled") {
-    return NextResponse.json({ error: "Нельзя вернуть пробное в статус 'scheduled' после отметки" }, { status: 400 })
-  }
-
   const now = new Date()
   const effectiveStatus = status ?? trial.status
   const effectivePay = instructorPayEnabled ?? trial.instructorPayEnabled
@@ -206,7 +202,13 @@ export async function PATCH(
           })
         }
       }
-    } else if (effectiveStatus === "no_show" || effectiveStatus === "cancelled") {
+    } else if (
+      effectiveStatus === "no_show" ||
+      effectiveStatus === "cancelled" ||
+      effectiveStatus === "scheduled"
+    ) {
+      // scheduled здесь означает «сброс отметки» — удаляем созданную ранее Attendance,
+      // если она есть. Лид-статус специально не откатываем (его уже могли двинуть дальше).
       await tx.attendance.deleteMany({
         where: {
           tenantId,

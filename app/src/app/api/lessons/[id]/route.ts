@@ -251,7 +251,12 @@ export async function DELETE(
     select: {
       id: true,
       date: true,
-      _count: { select: { attendances: true, trialLessons: true } },
+      _count: {
+        select: {
+          attendances: true,
+          trialLessons: { where: { status: { not: "cancelled" } } },
+        },
+      },
     },
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
@@ -270,10 +275,16 @@ export async function DELETE(
   }
   if (lesson._count.trialLessons > 0) {
     return NextResponse.json(
-      { error: "К занятию привязаны пробные. Сначала отмените или перенесите их." },
+      { error: "К занятию привязаны активные пробные. Сначала отмените их (✕ в карточке лида) или переведите в «Отменено»." },
       { status: 400 }
     )
   }
+
+  // Отвяжем отменённые пробные от занятия, чтобы FK не блокировал удаление
+  await db.trialLesson.updateMany({
+    where: { lessonId: id, status: "cancelled" },
+    data: { lessonId: null },
+  })
 
   await db.lesson.delete({ where: { id } })
 
