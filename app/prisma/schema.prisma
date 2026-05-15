@@ -329,6 +329,7 @@ model Direction {
   groups          Group[]
   subscriptions   Subscription[]
   expenseBranches ExpenseBranch[]
+  trialLessons    TrialLesson[]
 
   @@index([tenantId])
   @@map("directions")
@@ -1270,8 +1271,11 @@ model TrialLesson {
   tenantId             String      @map("tenant_id") @db.Uuid
   clientId             String      @map("client_id") @db.Uuid
   wardId               String?     @map("ward_id") @db.Uuid
-  groupId              String      @map("group_id") @db.Uuid
+  groupId              String?     @map("group_id") @db.Uuid
   lessonId             String?     @map("lesson_id") @db.Uuid
+  directionId          String?     @map("direction_id") @db.Uuid
+  startTime            String?     @map("start_time")
+  durationMinutes      Int?        @map("duration_minutes")
   status               TrialStatus @default(scheduled)
   scheduledDate        DateTime    @map("scheduled_date") @db.Date
   attendedAt           DateTime?   @map("attended_at")
@@ -1284,8 +1288,9 @@ model TrialLesson {
   organization Organization @relation(fields: [tenantId], references: [id])
   client       Client       @relation(fields: [clientId], references: [id])
   ward         Ward?        @relation(fields: [wardId], references: [id])
-  group        Group        @relation(fields: [groupId], references: [id])
+  group        Group?       @relation(fields: [groupId], references: [id])
   lesson       Lesson?      @relation(fields: [lessonId], references: [id])
+  direction    Direction?   @relation(fields: [directionId], references: [id])
 
   @@index([tenantId, clientId])
   @@index([tenantId, groupId, scheduledDate])

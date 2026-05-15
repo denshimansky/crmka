@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
     tenantId,
     scheduledDate: { gte: dateFrom, lte: dateTo },
     status: "attended",
+    groupId: { not: null }, // отчёт по педагогам — только групповые пробные
   }
   if (branchId) trialWhere.group = { branchId }
 
@@ -53,6 +54,7 @@ export async function GET(req: NextRequest) {
   // Group by instructor
   const instrData = new Map<string, { name: string; trials: number; sales: number }>()
   for (const t of trials) {
+    if (!t.group) continue // защита: индивидуальные пробные сюда не должны попасть
     const iId = t.group.instructorId
     const prev = instrData.get(iId) || {
       name: [t.group.instructor.lastName, t.group.instructor.firstName].filter(Boolean).join(" "),

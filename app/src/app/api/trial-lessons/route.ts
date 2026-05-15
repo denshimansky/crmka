@@ -4,17 +4,22 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 
+// Два режима записи пробного:
+//   1. С группой (groupId задан) — дата должна совпадать с расписанием группы;
+//      пробное цепляется к существующему занятию группы.
+//   2. Без группы (индивидуальный) — нужны direction, startTime, durationMinutes.
+//      Lesson не создаётся; время хранится на самом TrialLesson.
 const createSchema = z.object({
   clientId: z.string().uuid(),
   wardId: z.string().uuid(),
-  groupId: z.string().uuid(),
+  groupId: z.string().uuid().optional(),
+  directionId: z.string().uuid().optional(),
   scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата формата YYYY-MM-DD"),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Время формата HH:MM").optional(),
+  durationMinutes: z.number().int().min(15).max(480).optional(),
   comment: z.string().optional(),
 })
 
-// POST /api/trial-lessons — записать лида на пробное занятие
-// Создаёт/находит занятие в расписании группы, привязывает к нему TrialLesson,
-// переводит лида в статус trial_scheduled.
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -51,12 +56,7 @@ export async function POST(req: NextRequest) {
   })
   if (!ward) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
 
-  // Группа существует
-  const group = await db.group.findFirst({
-    where: { id: data.groupId, tenantId, deletedAt: null },
-    include: { templates: { where: { effectiveTo: null } } },
-  })
-  if (!group) return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
+  const date = new Date(data.scheduledDate)
 
   // Настройка организации — оплачиваются ли пробные инструктору
   const org = await db.organization.findUnique({
@@ -65,56 +65,88 @@ export async function POST(req: NextRequest) {
   })
   const defaultInstructorPay = !!org?.payForTrialLessons
 
-  const date = new Date(data.scheduledDate)
+  let lessonId: string | null = null
+  let storedDirectionId: string | null = null
+  let storedStartTime: string | null = null
+  let storedDuration: number | null = null
 
-  // Уже есть пробное на эту дату в этой группе у этого подопечного?
-  const existingTrial = await db.trialLesson.findFirst({
-    where: {
-      tenantId,
-      clientId: data.clientId,
-      wardId: data.wardId,
-      groupId: data.groupId,
-      scheduledDate: date,
-      status: "scheduled",
-    },
-  })
-  if (existingTrial) {
-    return NextResponse.json({ error: "Этот подопечный уже записан на пробное в эту группу на эту дату" }, { status: 409 })
-  }
+  if (data.groupId) {
+    // === Режим 1: пробник внутри группы ===
+    const group = await db.group.findFirst({
+      where: { id: data.groupId, tenantId, deletedAt: null },
+    })
+    if (!group) return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
 
-  // Находим существующее занятие группы на эту дату или создаём новое
-  let lesson = await db.lesson.findFirst({
-    where: { tenantId, groupId: data.groupId, date },
-  })
-
-  if (!lesson) {
-    // Время и длительность — из шаблона группы для соответствующего дня недели,
-    // либо первого шаблона, либо дефолтных значений.
-    const jsDay = date.getDay() // 0=вс, 1=пн...
-    const templateDay = jsDay === 0 ? 6 : jsDay - 1
-    const template =
-      group.templates.find((t) => t.dayOfWeek === templateDay) ||
-      group.templates[0]
-
-    const startTime = template?.startTime || "10:00"
-    const durationMinutes = template?.durationMinutes || 60
-
-    lesson = await db.lesson.create({
-      data: {
+    // Защита от дубля
+    const existingTrial = await db.trialLesson.findFirst({
+      where: {
         tenantId,
+        clientId: data.clientId,
+        wardId: data.wardId,
         groupId: data.groupId,
-        date,
-        startTime,
-        durationMinutes,
-        instructorId: group.instructorId,
-        isTrial: true,
+        scheduledDate: date,
         status: "scheduled",
       },
     })
+    if (existingTrial) {
+      return NextResponse.json(
+        { error: "Этот подопечный уже записан на пробное в эту группу на эту дату" },
+        { status: 409 }
+      )
+    }
+
+    // У группы должно быть занятие на эту дату — иначе отказ.
+    // Новое занятие НЕ создаём (это и был баг — генерация лишних занятий).
+    const lesson = await db.lesson.findFirst({
+      where: { tenantId, groupId: data.groupId, date, status: { not: "cancelled" } },
+    })
+    if (!lesson) {
+      return NextResponse.json(
+        { error: "У группы нет занятия на эту дату. Выберите другую дату или режим «Без группы»." },
+        { status: 400 }
+      )
+    }
+    lessonId = lesson.id
+  } else {
+    // === Режим 2: индивидуальный пробник ===
+    if (!data.directionId) {
+      return NextResponse.json({ error: "Для индивидуального пробного нужно направление" }, { status: 400 })
+    }
+    if (!data.startTime) {
+      return NextResponse.json({ error: "Для индивидуального пробного нужно время" }, { status: 400 })
+    }
+
+    // Направление существует
+    const direction = await db.direction.findFirst({
+      where: { id: data.directionId, tenantId, deletedAt: null },
+      select: { id: true, lessonDuration: true },
+    })
+    if (!direction) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
+
+    // Защита от дубля по дате+времени
+    const existingTrial = await db.trialLesson.findFirst({
+      where: {
+        tenantId,
+        clientId: data.clientId,
+        wardId: data.wardId,
+        scheduledDate: date,
+        startTime: data.startTime,
+        status: "scheduled",
+      },
+    })
+    if (existingTrial) {
+      return NextResponse.json(
+        { error: "У подопечного уже есть пробное в это время" },
+        { status: 409 }
+      )
+    }
+
+    storedDirectionId = data.directionId
+    storedStartTime = data.startTime
+    storedDuration = data.durationMinutes ?? direction.lessonDuration ?? 60
   }
 
-  // Исполнитель автозадачи-напоминания: ответственный за лида, иначе создатель,
-  // иначе первый owner/manager/admin.
+  // Исполнитель автозадачи-напоминания
   let reminderAssigneeId: string | null = client.assignedTo ?? session.user.employeeId ?? null
   if (!reminderAssigneeId) {
     const fallback = await db.employee.findFirst({
@@ -125,22 +157,23 @@ export async function POST(req: NextRequest) {
     reminderAssigneeId = fallback?.id ?? null
   }
 
-  // Дата задачи-напоминания — за день до пробного (но не раньше сегодняшнего дня)
   const reminderDate = new Date(date)
   reminderDate.setDate(reminderDate.getDate() - 1)
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
   const taskDueDate = reminderDate < todayStart ? todayStart : reminderDate
 
-  // Создаём пробное + меняем статус лида + автозадачу атомарно
   const trial = await db.$transaction(async (tx) => {
     const created = await tx.trialLesson.create({
       data: {
         tenantId,
         clientId: data.clientId,
         wardId: data.wardId,
-        groupId: data.groupId,
-        lessonId: lesson!.id,
+        groupId: data.groupId ?? null,
+        lessonId,
+        directionId: storedDirectionId,
+        startTime: storedStartTime,
+        durationMinutes: storedDuration,
         scheduledDate: date,
         instructorPayEnabled: defaultInstructorPay,
         comment: data.comment,

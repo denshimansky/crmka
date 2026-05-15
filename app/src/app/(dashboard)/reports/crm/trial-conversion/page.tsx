@@ -40,6 +40,7 @@ export default async function TrialConversionReportPage({
   const trialWhere: Prisma.TrialLessonWhereInput = {
     tenantId,
     scheduledDate: { gte: dateFrom, lte: dateTo },
+    groupId: { not: null }, // отчёт по педагогам — только групповые пробные
   }
   if (branchId) {
     trialWhere.group = { branchId }
@@ -90,6 +91,7 @@ export default async function TrialConversionReportPage({
     { name: string; scheduled: number; attended: number; noShow: number; cancelled: number; sales: number }
   >()
   for (const t of trialsAll) {
+    if (!t.group) continue // защита: индивидуальные пробные сюда не должны попасть
     const key = t.group.instructorId
     const prev =
       byInstructor.get(key) ||

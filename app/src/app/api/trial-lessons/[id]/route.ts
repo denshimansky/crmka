@@ -121,13 +121,40 @@ export async function PATCH(
       },
     })
 
-    // Без привязки к занятию пересчитать ничего не можем
+    // --- Эффекты, не зависящие от наличия Lesson (работают и для индивидуальных) ---
+
+    // attended → перевести лида в trial_attended, если он ещё в trial_scheduled
+    if (status === "attended" && trial.client?.funnelStatus === "trial_scheduled") {
+      await tx.client.update({
+        where: { id: trial.clientId },
+        data: { funnelStatus: "trial_attended" },
+      })
+    }
+
+    // Закрыть открытую автозадачу-напоминание при смене статуса
+    if (status !== undefined && status !== "scheduled") {
+      await tx.task.updateMany({
+        where: {
+          tenantId,
+          clientId: trial.clientId,
+          autoTrigger: "trial_reminder",
+          status: "pending",
+          deletedAt: null,
+        },
+        data: {
+          status: "completed",
+          completedAt: now,
+          completedBy: session.user.employeeId ?? undefined,
+        },
+      })
+    }
+
+    // --- Управление Attendance только для пробных, привязанных к Lesson ---
     if (!trial.lesson) return t
 
     const lessonInstructorId =
       trial.lesson.substituteInstructorId || trial.lesson.instructorId
 
-    // ---- attended ----
     if (effectiveStatus === "attended") {
       const payAmount = presentType
         ? await computeTrialPay(tx, {
@@ -179,15 +206,7 @@ export async function PATCH(
           })
         }
       }
-
-      if (status === "attended" && trial.client?.funnelStatus === "trial_scheduled") {
-        await tx.client.update({
-          where: { id: trial.clientId },
-          data: { funnelStatus: "trial_attended" },
-        })
-      }
     } else if (effectiveStatus === "no_show" || effectiveStatus === "cancelled") {
-      // Снимаем посещение, если было
       await tx.attendance.deleteMany({
         where: {
           tenantId,
@@ -195,24 +214,6 @@ export async function PATCH(
           clientId: trial.clientId,
           wardId: trial.wardId,
           isTrial: true,
-        },
-      })
-    }
-
-    // Закрыть открытую автозадачу-напоминание, если есть и статус изменился
-    if (status !== undefined && status !== "scheduled") {
-      await tx.task.updateMany({
-        where: {
-          tenantId,
-          clientId: trial.clientId,
-          autoTrigger: "trial_reminder",
-          status: "pending",
-          deletedAt: null,
-        },
-        data: {
-          status: "completed",
-          completedAt: now,
-          completedBy: session.user.employeeId ?? undefined,
         },
       })
     }

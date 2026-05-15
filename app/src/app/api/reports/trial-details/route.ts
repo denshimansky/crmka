@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
           instructor: { select: { firstName: true, lastName: true } },
         },
       },
+      direction: { select: { name: true } },
     },
     orderBy: { scheduledDate: "desc" },
   })
@@ -51,10 +52,12 @@ export async function GET(req: NextRequest) {
     wardName: t.ward
       ? [t.ward.lastName, t.ward.firstName].filter(Boolean).join(" ")
       : null,
-    group: t.group.name,
-    direction: t.group.direction.name,
-    branch: t.group.branch.name,
-    instructor: [t.group.instructor.lastName, t.group.instructor.firstName].filter(Boolean).join(" "),
+    group: t.group?.name || "Индивидуально",
+    direction: t.group?.direction.name || t.direction?.name || "—",
+    branch: t.group?.branch.name || "—",
+    instructor: t.group
+      ? [t.group.instructor.lastName, t.group.instructor.firstName].filter(Boolean).join(" ")
+      : "—",
     status: t.status,
     scheduledDate: t.scheduledDate.toISOString(),
     attendedAt: t.attendedAt?.toISOString() || null,

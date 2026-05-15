@@ -228,3 +228,54 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   return NextResponse.json(lesson)
 }
+
+// DELETE — полное удаление занятия. Защита от случайного создания / неверной генерации.
+// Доступно: owner, manager, admin. Отказ, если есть посещения или пробные — сначала их снять.
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const role = (session.user as any).role
+  if (role !== "owner" && role !== "manager" && role !== "admin") {
+    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 })
+  }
+
+  const { id } = await params
+  const tenantId = (session.user as any).tenantId
+
+  const lesson = await db.lesson.findFirst({
+    where: { id, tenantId },
+    select: {
+      id: true,
+      date: true,
+      _count: { select: { attendances: true, trialLessons: true } },
+    },
+  })
+  if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
+
+  // Закрытый период — нельзя
+  const { isPeriodLocked } = await import("@/lib/period-check")
+  if (await isPeriodLocked(tenantId, new Date(lesson.date), role)) {
+    return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
+  }
+
+  if (lesson._count.attendances > 0) {
+    return NextResponse.json(
+      { error: "На занятии есть отметки посещений. Сначала снимите их (выбор «Не отмечен»)." },
+      { status: 400 }
+    )
+  }
+  if (lesson._count.trialLessons > 0) {
+    return NextResponse.json(
+      { error: "К занятию привязаны пробные. Сначала отмените или перенесите их." },
+      { status: 400 }
+    )
+  }
+
+  await db.lesson.delete({ where: { id } })
+
+  return NextResponse.json({ ok: true })
+}

@@ -82,10 +82,12 @@ export function LeadStatusActions({
 
   const [wardId, setWardId] = useState("")
   const [directionId, setDirectionId] = useState("")
+  const [kind, setKind] = useState<"group" | "individual">("group")
   const [groupId, setGroupId] = useState("")
   const [scheduledDate, setScheduledDate] = useState(
     new Date().toISOString().slice(0, 10)
   )
+  const [startTime, setStartTime] = useState("10:00")
   const [comment, setComment] = useState("")
 
   async function handleStatusChange(value: string | null) {
@@ -112,10 +114,12 @@ export function LeadStatusActions({
 
   async function loadTrialOptions() {
     setTrialError(null)
+    setKind("group")
     setWardId(wards.length === 1 ? wards[0].id : "")
     setDirectionId("")
     setGroupId("")
     setScheduledDate(new Date().toISOString().slice(0, 10))
+    setStartTime("10:00")
     setComment("")
     try {
       const [dirRes, grpRes] = await Promise.all([
@@ -136,8 +140,16 @@ export function LeadStatusActions({
       setTrialError("Выберите подопечного")
       return
     }
-    if (!groupId) {
-      setTrialError("Выберите группу")
+    if (!directionId) {
+      setTrialError("Выберите направление")
+      return
+    }
+    if (kind === "group" && !groupId) {
+      setTrialError("Выберите группу или переключитесь на «Индивидуальный»")
+      return
+    }
+    if (kind === "individual" && !startTime) {
+      setTrialError("Укажите время")
       return
     }
     if (!scheduledDate) {
@@ -147,16 +159,23 @@ export function LeadStatusActions({
 
     setTrialLoading(true)
     try {
+      const payload: Record<string, unknown> = {
+        clientId,
+        wardId,
+        scheduledDate,
+        comment: comment.trim() || undefined,
+      }
+      if (kind === "group") {
+        payload.groupId = groupId
+      } else {
+        payload.directionId = directionId
+        payload.startTime = startTime
+      }
+
       const res = await fetch("/api/trial-lessons", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId,
-          wardId,
-          groupId,
-          scheduledDate,
-          comment: comment.trim() || undefined,
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (!res.ok) {
@@ -282,44 +301,93 @@ export function LeadStatusActions({
             </div>
 
             <div className="space-y-1.5">
-              <Label>Группа *</Label>
-              <Select
-                value={groupId}
-                onValueChange={(v) => {
-                  if (v) setGroupId(v)
-                }}
-                disabled={!directionId}
-              >
-                <SelectTrigger className="w-full">
-                  {selectedGroup ? (
-                    selectedGroup.name
-                  ) : (
-                    <span className="text-muted-foreground">
-                      {directionId ? "Выберите группу" : "Сначала выберите направление"}
-                    </span>
-                  )}
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredGroups.map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Тип пробного</Label>
+              <div className="inline-flex rounded-md border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setKind("group")}
+                  className={`px-3 py-1 text-xs rounded-sm transition-colors ${
+                    kind === "group"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  В группе
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setKind("individual")}
+                  className={`px-3 py-1 text-xs rounded-sm transition-colors ${
+                    kind === "individual"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Индивидуальный
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Дата пробного *</Label>
-              <Input
-                type="date"
-                value={scheduledDate}
-                onChange={(e) => setScheduledDate(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Если в этот день у группы нет занятия — оно автоматически добавится в расписание.
-              </p>
+            {kind === "group" && (
+              <div className="space-y-1.5">
+                <Label>Группа *</Label>
+                <Select
+                  value={groupId}
+                  onValueChange={(v) => {
+                    if (v) setGroupId(v)
+                  }}
+                  disabled={!directionId}
+                >
+                  <SelectTrigger className="w-full">
+                    {selectedGroup ? (
+                      selectedGroup.name
+                    ) : (
+                      <span className="text-muted-foreground">
+                        {directionId ? "Выберите группу" : "Сначала выберите направление"}
+                      </span>
+                    )}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredGroups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {g.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Дата *</Label>
+                <Input
+                  type="date"
+                  value={scheduledDate}
+                  onChange={(e) => setScheduledDate(e.target.value)}
+                />
+              </div>
+              {kind === "individual" && (
+                <div className="space-y-1.5">
+                  <Label>Время *</Label>
+                  <Input
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                  />
+                </div>
+              )}
             </div>
+
+            {kind === "group" ? (
+              <p className="text-xs text-muted-foreground">
+                Дата должна совпадать с расписанием выбранной группы — пробное цепляется к существующему занятию.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Индивидуальный пробник: занятие не создаётся в общем расписании, отображается только в карточке лида.
+              </p>
+            )}
 
             <div className="space-y-1.5">
               <Label>Комментарий</Label>

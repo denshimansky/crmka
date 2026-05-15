@@ -76,7 +76,7 @@ export async function GET(
       })
     : []
 
-  // Запланированные пробные у этого лида/клиента
+  // Запланированные пробные у этого лида/клиента (групповые + индивидуальные)
   const trials = await db.trialLesson.findMany({
     where: {
       tenantId,
@@ -87,6 +87,8 @@ export async function GET(
     select: {
       id: true,
       scheduledDate: true,
+      startTime: true,
+      durationMinutes: true,
       lesson: {
         select: { id: true, startTime: true, durationMinutes: true },
       },
@@ -98,6 +100,7 @@ export async function GET(
           instructor: { select: { firstName: true, lastName: true } },
         },
       },
+      direction: { select: { name: true } },
     },
     orderBy: { scheduledDate: "asc" },
     take: 50,
@@ -123,14 +126,16 @@ export async function GET(
   const trialResult = trials.map((t) => ({
     id: t.lesson?.id || t.id,
     date: t.scheduledDate.toISOString(),
-    startTime: t.lesson?.startTime || "—",
-    durationMinutes: t.lesson?.durationMinutes || 0,
-    groupName: t.group.name,
-    directionName: t.group.direction.name,
-    roomName: t.group.room.name,
-    instructorName: [t.group.instructor.lastName, t.group.instructor.firstName]
-      .filter(Boolean)
-      .join(" "),
+    startTime: t.lesson?.startTime || t.startTime || "—",
+    durationMinutes: t.lesson?.durationMinutes || t.durationMinutes || 0,
+    groupName: t.group?.name || "Индивидуально",
+    directionName: t.group?.direction.name || t.direction?.name || "—",
+    roomName: t.group?.room.name || "—",
+    instructorName: t.group?.instructor
+      ? [t.group.instructor.lastName, t.group.instructor.firstName]
+          .filter(Boolean)
+          .join(" ")
+      : "—",
     isTrial: true,
   }))
 

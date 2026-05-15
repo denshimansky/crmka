@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeft, Clock, MapPin, User, BookOpen } from "lucide-react"
 import { AttendanceTable } from "./attendance-table"
+import { DeleteLessonButton } from "./delete-lesson-button"
 import { PageHelp } from "@/components/page-help"
 
 const LESSON_STATUS_LABELS: Record<string, string> = {
@@ -345,6 +346,11 @@ export default async function LessonCardPage({
             {lesson.group.direction.name}
           </p>
         </div>
+        {(session.user.role === "owner" ||
+          session.user.role === "manager" ||
+          session.user.role === "admin") && (
+          <DeleteLessonButton lessonId={id} />
+        )}
       </div>
 
       {/* Lesson info cards */}
