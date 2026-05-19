@@ -43,7 +43,49 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   })
 
-  return NextResponse.json(items)
+  // Считаем факт: суммируем Expense за тот же период по тем же категориям
+  const factByKey = new Map<string, number>()
+  if (items.length > 0 && year && month) {
+    const y = parseInt(year, 10)
+    const m = parseInt(month, 10)
+    const periodStart = new Date(Date.UTC(y, m - 1, 1))
+    const periodEnd = new Date(Date.UTC(y, m, 1))
+    const expenses = await db.expense.findMany({
+      where: {
+        tenantId: session.user.tenantId,
+        categoryId: { in: [...new Set(items.map(i => i.categoryId))] },
+        date: { gte: periodStart, lt: periodEnd },
+        deletedAt: null,
+      },
+      include: { branches: { select: { branchId: true } } },
+    })
+    for (const item of items) {
+      let sum = 0
+      for (const e of expenses) {
+        if (e.categoryId !== item.categoryId) continue
+        if (item.branchId) {
+          if (!e.branches.some(b => b.branchId === item.branchId)) continue
+        }
+        sum += Number(e.amount)
+      }
+      factByKey.set(item.id, sum)
+    }
+  }
+
+  const result = items.map(i => ({
+    id: i.id,
+    periodYear: i.periodYear,
+    periodMonth: i.periodMonth,
+    categoryId: i.categoryId,
+    categoryName: i.category.name,
+    branchId: i.branchId,
+    branchName: i.branch?.name ?? null,
+    plannedAmount: Number(i.plannedAmount),
+    actualAmount: factByKey.get(i.id) ?? 0,
+    comment: i.comment,
+  }))
+
+  return NextResponse.json(result)
 }
 
 export async function POST(req: NextRequest) {
@@ -70,6 +112,14 @@ export async function POST(req: NextRequest) {
   })
   if (!category) return NextResponse.json({ error: "Статья расхода не найдена" }, { status: 404 })
 
+  if (data.branchId) {
+    const branch = await db.branch.findFirst({
+      where: { id: data.branchId, tenantId: session.user.tenantId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!branch) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
+  }
+
   const item = await db.plannedExpense.create({
     data: {
       tenantId: session.user.tenantId,
@@ -82,11 +132,21 @@ export async function POST(req: NextRequest) {
       comment: data.comment,
     },
     include: {
-      category: { select: { id: true, name: true, isVariable: true } },
-      employee: { select: { id: true, firstName: true, lastName: true } },
+      category: { select: { id: true, name: true } },
       branch: { select: { id: true, name: true } },
     },
   })
 
-  return NextResponse.json(item, { status: 201 })
+  return NextResponse.json({
+    id: item.id,
+    periodYear: item.periodYear,
+    periodMonth: item.periodMonth,
+    categoryId: item.categoryId,
+    categoryName: item.category.name,
+    branchId: item.branchId,
+    branchName: item.branch?.name ?? null,
+    plannedAmount: Number(item.plannedAmount),
+    actualAmount: 0,
+    comment: item.comment,
+  }, { status: 201 })
 }

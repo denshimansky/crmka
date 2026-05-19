@@ -39,10 +39,12 @@ const MONTH_NAMES = [
 
 interface PlannedExpense {
   id: string
-  year: number
-  month: number
+  periodYear: number
+  periodMonth: number
   categoryId: string
   categoryName: string
+  branchId: string | null
+  branchName: string | null
   plannedAmount: number
   actualAmount: number
   comment: string | null
@@ -52,6 +54,13 @@ interface Category {
   id: string
   name: string
 }
+
+interface Branch {
+  id: string
+  name: string
+}
+
+const ALL_BRANCHES = "__all__"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -64,12 +73,14 @@ export default function PlannedExpensesPage() {
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [items, setItems] = useState<PlannedExpense[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
   const [loading, setLoading] = useState(true)
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editItem, setEditItem] = useState<PlannedExpense | null>(null)
   const [formCategoryId, setFormCategoryId] = useState("")
+  const [formBranchId, setFormBranchId] = useState<string>(ALL_BRANCHES)
   const [formPlannedAmount, setFormPlannedAmount] = useState("")
   const [formComment, setFormComment] = useState("")
   const [saving, setSaving] = useState(false)
@@ -78,12 +89,14 @@ export default function PlannedExpensesPage() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [itemsRes, catsRes] = await Promise.all([
+      const [itemsRes, catsRes, branchesRes] = await Promise.all([
         fetch(`/api/planned-expenses?year=${year}&month=${month}`),
         fetch("/api/expense-categories"),
+        fetch("/api/branches"),
       ])
       if (itemsRes.ok) setItems(await itemsRes.json())
       if (catsRes.ok) setCategories(await catsRes.json())
+      if (branchesRes.ok) setBranches(await branchesRes.json())
     } catch { /* ignore */ }
     finally { setLoading(false) }
   }, [year, month])
@@ -103,6 +116,7 @@ export default function PlannedExpensesPage() {
   function openCreate() {
     setEditItem(null)
     setFormCategoryId("")
+    setFormBranchId(ALL_BRANCHES)
     setFormPlannedAmount("")
     setFormComment("")
     setError(null)
@@ -112,6 +126,7 @@ export default function PlannedExpensesPage() {
   function openEdit(item: PlannedExpense) {
     setEditItem(item)
     setFormCategoryId(item.categoryId)
+    setFormBranchId(item.branchId ?? ALL_BRANCHES)
     setFormPlannedAmount(String(item.plannedAmount))
     setFormComment(item.comment || "")
     setError(null)
@@ -135,15 +150,16 @@ export default function PlannedExpensesPage() {
       const url = editItem
         ? `/api/planned-expenses/${editItem.id}`
         : "/api/planned-expenses"
-      const method = editItem ? "PATCH" : "POST"
+      const method = editItem ? "PUT" : "POST"
 
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          year,
-          month,
+          periodYear: year,
+          periodMonth: month,
           categoryId: formCategoryId,
+          branchId: formBranchId === ALL_BRANCHES ? null : formBranchId,
           plannedAmount: Number(formPlannedAmount),
           comment: formComment.trim() || null,
         }),
@@ -250,6 +266,7 @@ export default function PlannedExpensesPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Категория</TableHead>
+              <TableHead>Филиал</TableHead>
               <TableHead className="text-right">План</TableHead>
               <TableHead className="text-right">Факт</TableHead>
               <TableHead className="text-right">Отклонение</TableHead>
@@ -270,6 +287,9 @@ export default function PlannedExpensesPage() {
               return (
                 <TableRow key={item.id}>
                   <TableCell className="font-medium">{item.categoryName}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {item.branchName ?? "Общее"}
+                  </TableCell>
                   <TableCell className="text-right">{formatMoney(item.plannedAmount)}</TableCell>
                   <TableCell className="text-right">{formatMoney(item.actualAmount)}</TableCell>
                   <TableCell className={`text-right font-medium ${isOver ? "text-red-600" : isUnder ? "text-green-600" : ""}`}>
@@ -298,6 +318,7 @@ export default function PlannedExpensesPage() {
             {/* Total row */}
             <TableRow className="font-bold bg-muted/50">
               <TableCell>Итого</TableCell>
+              <TableCell />
               <TableCell className="text-right">{formatMoney(totalPlanned)}</TableCell>
               <TableCell className="text-right">{formatMoney(totalActual)}</TableCell>
               <TableCell className={`text-right ${deviation > 0 ? "text-red-600" : deviation < 0 ? "text-green-600" : ""}`}>
@@ -348,6 +369,27 @@ export default function PlannedExpensesPage() {
                 <SelectContent>
                   {categories.map(c => (
                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Филиал</Label>
+              <Select
+                value={formBranchId}
+                onValueChange={(v) => { if (v) setFormBranchId(v) }}
+                disabled={!!editItem}
+              >
+                <SelectTrigger className="w-full">
+                  {formBranchId === ALL_BRANCHES
+                    ? "Общее по компании"
+                    : branches.find(b => b.id === formBranchId)?.name || "Выберите"}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_BRANCHES}>Общее по компании</SelectItem>
+                  {branches.map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

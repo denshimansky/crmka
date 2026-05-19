@@ -52,16 +52,37 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   })
   if (!existing) return NextResponse.json({ error: "Плановый расход не найден" }, { status: 404 })
 
+  if (parsed.data.branchId) {
+    const branch = await db.branch.findFirst({
+      where: { id: parsed.data.branchId, tenantId: session.user.tenantId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!branch) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
+  }
+
   const item = await db.plannedExpense.update({
     where: { id },
     data: parsed.data,
     include: {
-      category: { select: { id: true, name: true, isVariable: true } },
-      employee: { select: { id: true, firstName: true, lastName: true } },
+      category: { select: { id: true, name: true } },
       branch: { select: { id: true, name: true } },
     },
   })
-  return NextResponse.json(item)
+  return NextResponse.json({
+    id: item.id,
+    periodYear: item.periodYear,
+    periodMonth: item.periodMonth,
+    categoryId: item.categoryId,
+    categoryName: item.category.name,
+    branchId: item.branchId,
+    branchName: item.branch?.name ?? null,
+    plannedAmount: Number(item.plannedAmount),
+    comment: item.comment,
+  })
+}
+
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  return PUT(req, ctx)
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
