@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { DIRECTION_ICON_NAMES } from "@/lib/direction-icons"
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -11,6 +12,10 @@ const createSchema = z.object({
   trialPrice: z.number().min(0).optional(),
   trialFree: z.boolean().default(false),
   color: z.string().optional(),
+  icon: z.string().optional().nullable().refine(
+    v => v == null || DIRECTION_ICON_NAMES.includes(v),
+    "Недопустимая иконка",
+  ),
 })
 
 export async function GET() {
@@ -48,6 +53,7 @@ export async function POST(req: NextRequest) {
       trialPrice: data.trialPrice,
       trialFree: data.trialFree,
       color: data.color,
+      icon: data.icon ?? undefined,
     },
   })
 

@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Building2, MapPin, Megaphone, Palette, Shield, UserX } from "lucide-react"
+import { getDirectionIcon } from "@/lib/direction-icons"
 import Link from "next/link"
 import { CreateDirectionDialog } from "./create-direction-dialog"
 import { EditDirectionDialog } from "./edit-direction-dialog"
@@ -222,7 +223,9 @@ export default async function SettingsPage() {
               </Card>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {org.directions.map((dir) => (
+                {org.directions.map((dir) => {
+                  const DirIcon = getDirectionIcon(dir.icon)
+                  return (
                   <Card key={dir.id}>
                     <CardContent className="relative p-5">
                       <div className="absolute right-3 top-3">
@@ -235,6 +238,7 @@ export default async function SettingsPage() {
                             trialPrice: dir.trialPrice ? String(dir.trialPrice) : null,
                             trialFree: dir.trialFree,
                             color: dir.color,
+                            icon: dir.icon,
                           }}
                         />
                       </div>
@@ -246,7 +250,7 @@ export default async function SettingsPage() {
                             color: dir.color ?? undefined,
                           }}
                         >
-                          <Palette className="size-5" />
+                          <DirIcon className="size-5" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <h3 className="truncate font-medium">{dir.name}</h3>
@@ -271,7 +275,8 @@ export default async function SettingsPage() {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { DIRECTION_ICON_NAMES } from "@/lib/direction-icons"
 
 const updateSchema = z.object({
   name: z.string().min(1, "Название обязательно").optional(),
@@ -11,6 +12,10 @@ const updateSchema = z.object({
   trialPrice: z.number().min(0).nullable().optional(),
   trialFree: z.boolean().optional(),
   color: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  icon: z.string().nullable().optional().refine(
+    v => v == null || DIRECTION_ICON_NAMES.includes(v),
+    "Недопустимая иконка",
+  ),
 })
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Pencil } from "lucide-react"
+import { DIRECTION_ICONS, DEFAULT_DIRECTION_ICON } from "@/lib/direction-icons"
+import { cn } from "@/lib/utils"
 
 interface DirectionData {
   id: string
@@ -20,6 +22,7 @@ interface DirectionData {
   trialPrice: string | null
   trialFree: boolean
   color: string | null
+  icon: string | null
 }
 
 export function EditDirectionDialog({ direction }: { direction: DirectionData }) {
@@ -34,6 +37,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
   const [trialFree, setTrialFree] = useState(direction.trialFree)
   const [trialPrice, setTrialPrice] = useState(direction.trialPrice ?? "")
   const [color, setColor] = useState(direction.color ?? "#3b82f6")
+  const [icon, setIcon] = useState(direction.icon ?? DEFAULT_DIRECTION_ICON)
 
   function resetForm() {
     setName(direction.name)
@@ -42,6 +46,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
     setTrialFree(direction.trialFree)
     setTrialPrice(direction.trialPrice ?? "")
     setColor(direction.color ?? "#3b82f6")
+    setIcon(direction.icon ?? DEFAULT_DIRECTION_ICON)
     setError(null)
   }
 
@@ -64,6 +69,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
           trialFree,
           trialPrice: !trialFree && trialPrice ? Number(trialPrice) : null,
           color,
+          icon,
         }),
       })
 
@@ -134,6 +140,34 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
               <div className="flex items-center gap-2 mt-1">
                 <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-8 w-12 cursor-pointer rounded border" />
                 <span className="text-sm text-muted-foreground">{color}</span>
+              </div>
+            </div>
+
+            <div>
+              <Label>Иконка</Label>
+              <div className="mt-2 grid grid-cols-10 gap-1.5">
+                {DIRECTION_ICONS.map(({ name, label, Icon }) => {
+                  const selected = icon === name
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      title={label}
+                      aria-label={label}
+                      aria-pressed={selected}
+                      onClick={() => setIcon(name)}
+                      className={cn(
+                        "flex size-8 items-center justify-center rounded-md border transition-colors",
+                        selected
+                          ? "border-primary"
+                          : "border-input text-muted-foreground hover:bg-accent hover:text-foreground",
+                      )}
+                      style={selected ? { backgroundColor: `${color}20`, color } : undefined}
+                    >
+                      <Icon className="size-4" />
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>

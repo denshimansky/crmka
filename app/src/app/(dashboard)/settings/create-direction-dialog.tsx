@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Plus } from "lucide-react"
+import { DIRECTION_ICONS, DEFAULT_DIRECTION_ICON } from "@/lib/direction-icons"
+import { cn } from "@/lib/utils"
 
 export function CreateDirectionDialog() {
   const router = useRouter()
@@ -24,6 +26,7 @@ export function CreateDirectionDialog() {
   const [trialFree, setTrialFree] = useState(true)
   const [trialPrice, setTrialPrice] = useState("")
   const [color, setColor] = useState("#3b82f6")
+  const [icon, setIcon] = useState(DEFAULT_DIRECTION_ICON)
 
   function resetForm() {
     setName("")
@@ -32,6 +35,7 @@ export function CreateDirectionDialog() {
     setTrialFree(true)
     setTrialPrice("")
     setColor("#3b82f6")
+    setIcon(DEFAULT_DIRECTION_ICON)
     setError(null)
   }
 
@@ -54,6 +58,7 @@ export function CreateDirectionDialog() {
           trialFree,
           trialPrice: !trialFree && trialPrice ? Number(trialPrice) : undefined,
           color,
+          icon,
         }),
       })
 
@@ -126,6 +131,34 @@ export function CreateDirectionDialog() {
               <div className="flex items-center gap-2 mt-1">
                 <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-8 w-12 cursor-pointer rounded border" />
                 <span className="text-sm text-muted-foreground">{color}</span>
+              </div>
+            </div>
+
+            <div>
+              <Label>Иконка</Label>
+              <div className="mt-2 grid grid-cols-10 gap-1.5">
+                {DIRECTION_ICONS.map(({ name, label, Icon }) => {
+                  const selected = icon === name
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      title={label}
+                      aria-label={label}
+                      aria-pressed={selected}
+                      onClick={() => setIcon(name)}
+                      className={cn(
+                        "flex size-8 items-center justify-center rounded-md border transition-colors",
+                        selected
+                          ? "border-primary"
+                          : "border-input text-muted-foreground hover:bg-accent hover:text-foreground",
+                      )}
+                      style={selected ? { backgroundColor: `${color}20`, color } : undefined}
+                    >
+                      <Icon className="size-4" />
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>

@@ -321,6 +321,7 @@ model Direction {
   trialPrice     Decimal?  @map("trial_price") @db.Decimal(12, 2)
   trialFree      Boolean   @default(false) @map("trial_free")
   color          String?
+  icon           String?
   sortOrder      Int       @default(0) @map("sort_order")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
