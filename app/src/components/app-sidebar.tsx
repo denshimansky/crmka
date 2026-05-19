@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   Landmark, ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
   UserCog, Settings, Sparkles, ChevronDown, LogOut, Crown,
-  CalendarDays, Tag, Target, Plug, Copy, Upload,
+  CalendarDays, Tag, Target, Plug,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import {
@@ -37,8 +37,6 @@ const crmItems = [
   { title: "Воронка продаж", href: "/crm/funnel", icon: Filter },
   { title: "Клиенты", href: "/crm/clients", icon: Users },
   { title: "Обзвон", href: "/crm/calls", icon: Phone },
-  { title: "Дубликаты", href: "/crm/duplicates", icon: Copy },
-  { title: "Импорт", href: "/crm/import", icon: Upload },
 ]
 
 const financeItems = [

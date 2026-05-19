@@ -44,8 +44,8 @@ const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 interface Holiday {
   id: string
   date: string
-  name: string
-  isWorkingDay: boolean
+  comment: string
+  isWorking: boolean
 }
 
 export default function ProductionCalendarPage() {
@@ -68,7 +68,15 @@ export default function ProductionCalendarPage() {
     setLoading(true)
     try {
       const res = await fetch(`/api/production-calendar?year=${year}`)
-      if (res.ok) setHolidays(await res.json())
+      if (res.ok) {
+        const raw: Array<{ id: string; date: string; comment: string | null; isWorking: boolean }> = await res.json()
+        setHolidays(raw.map(h => ({
+          id: h.id,
+          date: typeof h.date === "string" ? h.date.slice(0, 10) : new Date(h.date).toISOString().slice(0, 10),
+          comment: h.comment || "",
+          isWorking: !!h.isWorking,
+        })))
+      }
     } catch { /* ignore */ }
     finally { setLoading(false) }
   }, [year])
@@ -87,8 +95,8 @@ export default function ProductionCalendarPage() {
   function openEdit(h: Holiday) {
     setEditHoliday(h)
     setFormDate(h.date)
-    setFormName(h.name)
-    setFormIsWorkingDay(h.isWorkingDay)
+    setFormName(h.comment)
+    setFormIsWorkingDay(h.isWorking)
     setError(null)
     setDialogOpen(true)
   }
@@ -105,15 +113,15 @@ export default function ProductionCalendarPage() {
       const url = editHoliday
         ? `/api/production-calendar/${editHoliday.id}`
         : "/api/production-calendar"
-      const method = editHoliday ? "PATCH" : "POST"
+      const method = editHoliday ? "PUT" : "POST"
 
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           date: formDate,
-          name: formName.trim(),
-          isWorkingDay: formIsWorkingDay,
+          comment: formName.trim(),
+          isWorking: formIsWorkingDay,
         }),
       })
 
@@ -249,8 +257,8 @@ export default function ProductionCalendarPage() {
                         const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
                         const holiday = holidayMap.get(dateStr)
                         const isWeekend = di >= 5
-                        const isHoliday = holiday && !holiday.isWorkingDay
-                        const isWorkingOverride = holiday?.isWorkingDay
+                        const isHoliday = holiday && !holiday.isWorking
+                        const isWorkingOverride = holiday?.isWorking
 
                         let cellClass = "rounded-lg p-2 text-center text-sm cursor-pointer hover:bg-accent transition-colors min-h-[56px]"
                         if (isHoliday) cellClass += " bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300"
@@ -266,7 +274,7 @@ export default function ProductionCalendarPage() {
                               <div className="font-medium">{day}</div>
                               {holiday && (
                                 <div className="mt-0.5 truncate text-[10px] leading-tight">
-                                  {holiday.name}
+                                  {holiday.comment}
                                 </div>
                               )}
                             </div>
@@ -317,9 +325,9 @@ export default function ProductionCalendarPage() {
                           year: "numeric",
                         })}
                       </TableCell>
-                      <TableCell className="font-medium">{h.name}</TableCell>
+                      <TableCell className="font-medium">{h.comment}</TableCell>
                       <TableCell>
-                        {h.isWorkingDay ? (
+                        {h.isWorking ? (
                           <Badge variant="default">Рабочий день</Badge>
                         ) : (
                           <Badge variant="destructive">Выходной</Badge>

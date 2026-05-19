@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
-import { Search } from "lucide-react"
+import { Search, Copy, Upload } from "lucide-react"
 
 // --- Types ---
 
@@ -152,6 +152,16 @@ export function ClientsTable({ clients }: { clients: ClientRow[] }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" render={<Link href="/crm/duplicates" />}>
+            <Copy className="mr-2 size-4" />
+            Дубликаты
+          </Button>
+          <Button variant="outline" size="sm" render={<Link href="/crm/import" />}>
+            <Upload className="mr-2 size-4" />
+            Импорт
+          </Button>
         </div>
       </div>
 

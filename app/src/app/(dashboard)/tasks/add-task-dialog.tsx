@@ -56,18 +56,16 @@ export function AddTaskDialog({ employees, clients }: { employees: EmployeeOptio
             <Label>Заголовок *</Label>
             <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Что нужно сделать?" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Исполнитель *</Label>
-              <Select value={assignedTo} onValueChange={v => { if (v) setAssignedTo(v) }}>
-                <SelectTrigger className="w-full">{selEmp ? selEmp.name : "Выберите"}</SelectTrigger>
-                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Дата *</Label>
-              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
-            </div>
+          <div className="space-y-1.5">
+            <Label>Исполнитель *</Label>
+            <Select value={assignedTo} onValueChange={v => { if (v) setAssignedTo(v) }}>
+              <SelectTrigger className="w-full">{selEmp ? selEmp.name : "Выберите"}</SelectTrigger>
+              <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Дата *</Label>
+            <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label>Клиент</Label>

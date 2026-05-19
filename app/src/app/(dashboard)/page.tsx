@@ -276,10 +276,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <span className="truncate font-medium">{g.name}</span>
                 <span className="text-muted-foreground">{g.enrolled}/{g.max}</span>
               </div>
-              <div className="h-2 rounded-full bg-muted">
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
                 <div
                   className={`h-2 rounded-full ${g.percent >= 90 ? "bg-red-500" : g.percent >= 70 ? "bg-yellow-500" : "bg-green-500"}`}
-                  style={{ width: `${g.percent}%` }}
+                  style={{ width: `${Math.min(g.percent, 100)}%` }}
                 />
               </div>
             </div>
