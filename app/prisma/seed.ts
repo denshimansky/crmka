@@ -1558,17 +1558,35 @@ async function step4_march(
   console.log("  UnprolongedComments: 5")
 
   // --- Notifications ---
-  const notifDefs = [
-    { type: "unmarked_lesson" as const, title: "Неотмеченное занятие", message: "Робототехника Пн/Ср 10:00 — 31 марта", empId: admin1.id },
-    { type: "unmarked_lesson" as const, title: "Неотмеченное занятие", message: "Английский Вт/Чт 17:00 — 31 марта", empId: admin1.id },
-    { type: "overdue_payment" as const, title: "Просроченная оплата", message: "Агеева Алёна — задолженность", empId: admin1.id },
-    { type: "overdue_payment" as const, title: "Просроченная оплата", message: "Беляков Борислав — задолженность", empId: admin2.id },
-    { type: "trial_reminder" as const, title: "Пробное занятие завтра", message: "Прохорова Полина — Рисование, 28 марта", empId: admin1.id },
-    { type: "period_close" as const, title: "Период закрыт", message: "Февраль 2026 закрыт", empId: owner.id },
+  // Поднимаем сущности, чтобы заполнить entityType/entityId — клик по уведомлению
+  // в notification-bell.tsx сразу ведёт на нужную страницу (группа/клиент).
+  const grpRobo = await db.group.findFirst({ where: { tenantId: T, name: "Робототехника Пн/Ср 10:00" } })
+  const grpEng = await db.group.findFirst({ where: { tenantId: T, name: "Английский Вт/Чт 17:00" } })
+  const clAgeeva = await db.client.findFirst({ where: { tenantId: T, lastName: "Агеева", firstName: "Алёна" } })
+  const clBelyakov = await db.client.findFirst({ where: { tenantId: T, lastName: "Беляков", firstName: "Борислав" } })
+  const clProkhorova = await db.client.findFirst({ where: { tenantId: T, lastName: "Прохорова", firstName: "Полина" } })
+
+  const notifDefs: Array<{
+    type: "unmarked_lesson" | "overdue_payment" | "trial_reminder" | "period_close"
+    title: string
+    message: string
+    empId: string
+    entityType?: string
+    entityId?: string
+  }> = [
+    { type: "unmarked_lesson", title: "Неотмеченное занятие", message: "Робототехника Пн/Ср 10:00 — 31 марта", empId: admin1.id, entityType: grpRobo ? "Group" : undefined, entityId: grpRobo?.id },
+    { type: "unmarked_lesson", title: "Неотмеченное занятие", message: "Английский Вт/Чт 17:00 — 31 марта", empId: admin1.id, entityType: grpEng ? "Group" : undefined, entityId: grpEng?.id },
+    { type: "overdue_payment", title: "Просроченная оплата", message: "Агеева Алёна — задолженность", empId: admin1.id, entityType: clAgeeva ? "Client" : undefined, entityId: clAgeeva?.id },
+    { type: "overdue_payment", title: "Просроченная оплата", message: "Беляков Борислав — задолженность", empId: admin2.id, entityType: clBelyakov ? "Client" : undefined, entityId: clBelyakov?.id },
+    { type: "trial_reminder", title: "Пробное занятие завтра", message: "Прохорова Полина — Рисование, 28 марта", empId: admin1.id, entityType: clProkhorova ? "Client" : undefined, entityId: clProkhorova?.id },
+    { type: "period_close", title: "Период закрыт", message: "Февраль 2026 закрыт", empId: owner.id },
   ]
   for (const n of notifDefs) {
     await db.notification.create({
-      data: { tenantId: T, employeeId: n.empId, type: n.type, title: n.title, message: n.message },
+      data: {
+        tenantId: T, employeeId: n.empId, type: n.type, title: n.title, message: n.message,
+        entityType: n.entityType, entityId: n.entityId,
+      },
     })
   }
   console.log("  Notifications: 6")
