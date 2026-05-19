@@ -1588,6 +1588,7 @@ function formatScheduleDate(iso: string): string {
 }
 
 function ScheduleTab({ clientId }: { clientId: string }) {
+  const router = useRouter()
   const [lessons, setLessons] = useState<ScheduleLesson[]>([])
   const [loading, setLoading] = useState(true)
   const [cancellingTrialId, setCancellingTrialId] = useState<string | null>(null)
@@ -1604,7 +1605,12 @@ function ScheduleTab({ clientId }: { clientId: string }) {
   useEffect(() => { load() }, [load])
 
   async function cancelTrial(trialId: string) {
-    if (!confirm("Отменить пробное занятие?\n\nЛид останется со статусом «Пробное записано» — при необходимости измените его вручную.")) return
+    const otherTrials = lessons.filter((l) => l.isTrial && l.trialId && l.trialId !== trialId)
+    const isLast = otherTrials.length === 0
+    const message = isLast
+      ? "Отменить пробное занятие?\n\nЭто единственное пробное у лида — он вернётся в статус «Новый»."
+      : "Отменить пробное занятие?"
+    if (!confirm(message)) return
     setCancellingTrialId(trialId)
     try {
       const res = await fetch(`/api/trial-lessons/${trialId}`, {
@@ -1614,6 +1620,7 @@ function ScheduleTab({ clientId }: { clientId: string }) {
       })
       if (res.ok) {
         await load()
+        router.refresh()
       } else {
         const data = await res.json().catch(() => ({}))
         alert(data.error || "Ошибка")

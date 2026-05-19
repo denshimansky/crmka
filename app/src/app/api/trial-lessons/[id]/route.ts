@@ -145,6 +145,29 @@ export async function PATCH(
       })
     }
 
+    // Отмена последнего пробного: если у лида не осталось активных пробных
+    // и он ещё в trial_scheduled / trial_attended — возвращаем в «Новый».
+    // Дальше воронки (awaiting_payment, active_client и т.д.) не трогаем.
+    if (status === "cancelled") {
+      const currentStatus = trial.client?.funnelStatus
+      if (currentStatus === "trial_scheduled" || currentStatus === "trial_attended") {
+        const remainingActive = await tx.trialLesson.count({
+          where: {
+            tenantId,
+            clientId: trial.clientId,
+            id: { not: id },
+            status: { not: "cancelled" },
+          },
+        })
+        if (remainingActive === 0) {
+          await tx.client.update({
+            where: { id: trial.clientId },
+            data: { funnelStatus: "new" },
+          })
+        }
+      }
+    }
+
     // --- Управление Attendance только для пробных, привязанных к Lesson ---
     if (!trial.lesson) return t
 
