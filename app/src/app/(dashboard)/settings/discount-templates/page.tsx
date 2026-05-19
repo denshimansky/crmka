@@ -255,7 +255,7 @@ export default function DiscountTemplatesPage() {
 
       {/* Create/Edit dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editTemplate ? "Редактировать шаблон" : "Новый шаблон скидки"}
@@ -281,12 +281,12 @@ export default function DiscountTemplatesPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-4">
+              <div className="space-y-2 min-w-0">
                 <Label>Тип</Label>
                 <Select value={formType} onValueChange={(v) => { if (v) setFormType(v as "percent" | "fixed") }}>
-                  <SelectTrigger className="w-full">
-                    {TYPE_LABELS[formType]}
+                  <SelectTrigger className="w-full min-w-0">
+                    <span className="truncate">{TYPE_LABELS[formType]}</span>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="percent">Процент</SelectItem>
