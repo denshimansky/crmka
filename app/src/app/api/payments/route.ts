@@ -204,5 +204,17 @@ export async function POST(req: NextRequest) {
     req,
   })
 
+  // Каскад: после оплаты убираем уведомления о просроченной оплате этого клиента.
+  // Сценарий "оплатили, но долг ещё есть" — менее вероятен; админ при необходимости
+  // получит новое уведомление по обычному циклу.
+  await db.notification.deleteMany({
+    where: {
+      tenantId: session.user.tenantId,
+      type: "overdue_payment",
+      entityType: "Client",
+      entityId: data.clientId,
+    },
+  })
+
   return NextResponse.json(payment, { status: 201 })
 }

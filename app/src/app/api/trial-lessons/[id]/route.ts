@@ -168,6 +168,33 @@ export async function PATCH(
       }
     }
 
+    // Каскад на уведомления: если триал переходит в терминальный статус
+    // и у клиента не осталось будущих запланированных пробных — убираем
+    // напоминания trial_reminder для этого клиента (они стали фантомными).
+    if (status === "cancelled" || status === "attended" || status === "no_show") {
+      const todayMidnight = new Date()
+      todayMidnight.setHours(0, 0, 0, 0)
+      const upcomingTrials = await tx.trialLesson.count({
+        where: {
+          tenantId,
+          clientId: trial.clientId,
+          id: { not: id },
+          status: "scheduled",
+          scheduledDate: { gte: todayMidnight },
+        },
+      })
+      if (upcomingTrials === 0) {
+        await tx.notification.deleteMany({
+          where: {
+            tenantId,
+            type: "trial_reminder",
+            entityType: "Client",
+            entityId: trial.clientId,
+          },
+        })
+      }
+    }
+
     // --- Управление Attendance только для пробных, привязанных к Lesson ---
     if (!trial.lesson) return t
 

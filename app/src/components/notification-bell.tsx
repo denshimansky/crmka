@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Bell, Check, CheckCheck } from "lucide-react"
+import { Bell, Check, CheckCheck, X, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
@@ -115,6 +115,24 @@ export function NotificationBell() {
     } catch { /* ignore */ }
   }
 
+  async function deleteOne(id: string) {
+    try {
+      const res = await fetch(`/api/notifications/${id}`, { method: "DELETE" })
+      if (res.ok) {
+        setNotifications(prev => prev.filter(n => n.id !== id))
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function clearRead() {
+    try {
+      const res = await fetch("/api/notifications?onlyRead=true", { method: "DELETE" })
+      if (res.ok) {
+        setNotifications(prev => prev.filter(n => !n.isRead))
+      }
+    } catch { /* ignore */ }
+  }
+
   function handleNotificationClick(n: Notification) {
     if (!n.isRead) markAsRead(n.id)
     const url = buildNotificationUrl(n)
@@ -147,19 +165,32 @@ export function NotificationBell() {
       {open && (
         <div className="absolute bottom-full left-0 mb-2 w-80 rounded-lg border bg-popover shadow-lg z-50">
           {/* Header */}
-          <div className="flex items-center justify-between border-b px-4 py-3">
+          <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
             <span className="text-sm font-semibold">Уведомления</span>
-            {unreadCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={markAllAsRead}
-              >
-                <CheckCheck className="mr-1 size-3" />
-                Прочитать все
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {unreadCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={markAllAsRead}
+                  title="Пометить все прочитанными"
+                >
+                  <CheckCheck className="size-3" />
+                </Button>
+              )}
+              {notifications.some(n => n.isRead) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={clearRead}
+                  title="Удалить прочитанные"
+                >
+                  <Trash2 className="size-3" />
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* List */}
@@ -197,18 +228,28 @@ export function NotificationBell() {
                       {formatTimeAgo(n.createdAt)}
                     </p>
                   </div>
-                  {!n.isRead && (
+                  <div className="flex shrink-0 flex-col items-center gap-1 pt-1">
+                    {!n.isRead && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          markAsRead(n.id)
+                        }}
+                        title="Отметить прочитанным"
+                      >
+                        <Check className="size-3.5 text-muted-foreground hover:text-foreground" />
+                      </button>
+                    )}
                     <button
-                      className="mt-1 shrink-0"
                       onClick={(e) => {
                         e.stopPropagation()
-                        markAsRead(n.id)
+                        deleteOne(n.id)
                       }}
-                      title="Отметить прочитанным"
+                      title="Удалить"
                     >
-                      <Check className="size-3.5 text-muted-foreground hover:text-foreground" />
+                      <X className="size-3.5 text-muted-foreground hover:text-destructive" />
                     </button>
-                  )}
+                  </div>
                 </div>
               ))
             )}

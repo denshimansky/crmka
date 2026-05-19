@@ -22,6 +22,31 @@ export async function GET(req: NextRequest) {
   const page = parseInt(searchParams.get("page") || "1", 10)
   const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 200)
 
+  // Чистим «фантомные» trial_reminder: если у клиента-получателя нет ни одного
+  // запланированного пробного в будущем — напоминание о пробном бессмысленно.
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const clientsWithUpcoming = await db.trialLesson.findMany({
+    where: {
+      tenantId: session.user.tenantId,
+      status: "scheduled",
+      scheduledDate: { gte: today },
+    },
+    select: { clientId: true },
+    distinct: ["clientId"],
+  })
+  const activeIds = clientsWithUpcoming.map(c => c.clientId)
+  await db.notification.deleteMany({
+    where: {
+      tenantId: session.user.tenantId,
+      employeeId: session.user.employeeId,
+      type: "trial_reminder",
+      entityType: "Client",
+      entityId: { not: null },
+      ...(activeIds.length > 0 ? { entityId: { notIn: activeIds } } : {}),
+    },
+  })
+
   const where: any = {
     tenantId: session.user.tenantId,
     employeeId: session.user.employeeId,
@@ -73,4 +98,23 @@ export async function POST(req: NextRequest) {
   })
 
   return NextResponse.json(item, { status: 201 })
+}
+
+// Массовое удаление: ?onlyRead=true — снести все прочитанные, иначе все мои уведомления.
+export async function DELETE(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { searchParams } = new URL(req.url)
+  const onlyRead = searchParams.get("onlyRead") === "true"
+
+  const result = await db.notification.deleteMany({
+    where: {
+      tenantId: session.user.tenantId,
+      employeeId: session.user.employeeId,
+      ...(onlyRead ? { isRead: true } : {}),
+    },
+  })
+
+  return NextResponse.json({ deleted: result.count })
 }
