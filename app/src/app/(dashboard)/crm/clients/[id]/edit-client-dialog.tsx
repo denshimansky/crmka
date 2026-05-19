@@ -21,6 +21,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { Pencil } from "lucide-react"
+import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 
 interface BranchOption {
   id: string
@@ -31,6 +32,7 @@ interface EmployeeOption {
   id: string
   firstName: string | null
   lastName: string | null
+  employeeBranches?: { branchId: string }[]
 }
 
 interface ClientData {
@@ -275,14 +277,22 @@ export function EditClientDialog({ client }: { client: ClientData }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="">Не назначен</SelectItem>
-                {employees.map((e) => {
-                  const name = [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"
-                  return (
-                    <SelectItem key={e.id} value={e.id}>
-                      {name}
-                    </SelectItem>
-                  )
-                })}
+                {(() => {
+                  const filtered = filterEmployeesByBranch(employees, branchId)
+                  const showSelectedOutOfBranch =
+                    selectedAssignee && !isEmployeeAvailableInBranch(selectedAssignee, branchId)
+                  const visible = showSelectedOutOfBranch
+                    ? [selectedAssignee!, ...filtered.filter((e) => e.id !== selectedAssignee!.id)]
+                    : filtered
+                  return visible.map((e) => {
+                    const name = [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"
+                    return (
+                      <SelectItem key={e.id} value={e.id}>
+                        {name}
+                      </SelectItem>
+                    )
+                  })
+                })()}
               </SelectContent>
             </Select>
           </div>

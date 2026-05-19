@@ -34,6 +34,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AlertTriangle, Archive, ArchiveRestore, ArrowRightLeft, CalendarDays, ExternalLink, Plus, Trash2, UserPlus, Users } from "lucide-react"
 import Link from "next/link"
+import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 
 interface LessonData {
   id: string
@@ -89,6 +90,7 @@ interface InstructorOption {
   id: string
   firstName: string
   lastName: string
+  employeeBranches: { branchId: string }[]
 }
 
 interface GroupInfo {
@@ -1016,11 +1018,20 @@ function SettingsTab({
                   {infoInstructorId ? (() => { const i = instructors.find((i) => i.id === infoInstructorId); return i ? `${i.lastName} ${i.firstName}` : "" })() : <span className="text-muted-foreground">Выберите педагога</span>}
                 </SelectTrigger>
                 <SelectContent>
-                  {instructors.map((i) => (
-                    <SelectItem key={i.id} value={i.id}>
-                      {i.lastName} {i.firstName}
-                    </SelectItem>
-                  ))}
+                  {(() => {
+                    const filtered = filterEmployeesByBranch(instructors, infoBranchId)
+                    const selected = instructors.find((x) => x.id === infoInstructorId)
+                    const showOutOfBranch =
+                      selected && !isEmployeeAvailableInBranch(selected, infoBranchId)
+                    const visible = showOutOfBranch
+                      ? [selected!, ...filtered.filter((x) => x.id !== selected!.id)]
+                      : filtered
+                    return visible.map((i) => (
+                      <SelectItem key={i.id} value={i.id}>
+                        {i.lastName} {i.firstName}
+                      </SelectItem>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
             </div>

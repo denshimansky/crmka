@@ -66,12 +66,27 @@ export default async function LessonCardPage({
 
   if (!lesson) notFound()
 
-  // Get instructors for substitute selection
-  const instructors = await db.employee.findMany({
-    where: { tenantId, deletedAt: null, role: { in: ["instructor", "owner", "manager"] } },
+  // Инструкторы для замены — только из филиала группы (либо без привязок = кросс-филиально)
+  const lessonBranchId = lesson.group.branchId
+  const instructorsRaw = await db.employee.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      role: { in: ["instructor", "owner", "manager"] },
+      OR: [
+        { employeeBranches: { none: {} } },
+        { employeeBranches: { some: { branchId: lessonBranchId } } },
+      ],
+    },
     select: { id: true, firstName: true, lastName: true },
     orderBy: { lastName: "asc" },
   })
+  // Если текущий «замещающий» уже стоит, но он не в этом филиале — добавим его, чтобы было видно, кто стоит
+  const instructors =
+    lesson.substituteInstructor &&
+    !instructorsRaw.some((i) => i.id === lesson.substituteInstructor!.id)
+      ? [lesson.substituteInstructor, ...instructorsRaw]
+      : instructorsRaw
 
   // Get enrolled students
   const enrollments = await db.groupEnrollment.findMany({

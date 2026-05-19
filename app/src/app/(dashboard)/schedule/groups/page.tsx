@@ -56,7 +56,12 @@ export default async function GroupsPage({
     }),
     db.employee.findMany({
       where: { tenantId, deletedAt: null, isActive: true, role: "instructor" },
-      select: { id: true, firstName: true, lastName: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employeeBranches: { select: { branchId: true } },
+      },
       orderBy: { lastName: "asc" },
     }),
   ])
@@ -77,6 +82,7 @@ export default async function GroupsPage({
   const instructorOptions = instructors.map((i) => ({
     id: i.id,
     name: `${i.lastName} ${i.firstName}`,
+    employeeBranches: i.employeeBranches,
   }))
 
   return (

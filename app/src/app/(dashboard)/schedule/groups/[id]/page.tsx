@@ -105,7 +105,12 @@ export default async function GroupCardPage({
   })
   const instructors = await db.employee.findMany({
     where: { tenantId, deletedAt: null, role: { in: ["instructor", "owner", "manager"] } },
-    select: { id: true, firstName: true, lastName: true },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      employeeBranches: { select: { branchId: true } },
+    },
     orderBy: { lastName: "asc" },
   })
 

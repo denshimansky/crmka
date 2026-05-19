@@ -85,7 +85,12 @@ export default async function FunnelPage({
     }),
     db.employee.findMany({
       where: { tenantId, deletedAt: null, role: { not: "readonly" } },
-      select: { id: true, firstName: true, lastName: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employeeBranches: { select: { branchId: true } },
+      },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
   ])
@@ -111,6 +116,7 @@ export default async function FunnelPage({
       nextContactDate: true,
       createdAt: true,
       assignedTo: true,
+      branchId: true,
       branch: { select: { name: true } },
     },
     orderBy,
@@ -205,6 +211,7 @@ export default async function FunnelPage({
                     <TableCell>
                       <AssigneeCell
                         clientId={lead.id}
+                        clientBranchId={lead.branchId}
                         initialAssigneeId={lead.assignedTo}
                         employees={employees}
                       />

@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select"
 import { AlertTriangle, Plus, Trash2 } from "lucide-react"
 import { useDuplicateCheck, getStatusLabel } from "@/hooks/use-duplicate-check"
+import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 
 interface Branch {
   id: string
@@ -31,6 +32,7 @@ interface EmployeeOption {
   id: string
   firstName: string | null
   lastName: string | null
+  employeeBranches?: { branchId: string }[]
 }
 
 interface WardInput {
@@ -359,12 +361,19 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="">Не назначен</SelectItem>
-                  {employees.map((e) => {
-                    const name = [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"
-                    return (
-                      <SelectItem key={e.id} value={e.id}>{name}</SelectItem>
-                    )
-                  })}
+                  {(() => {
+                    const filtered = filterEmployeesByBranch(employees, branchId)
+                    const selected = employees.find((x) => x.id === assignedTo)
+                    const showSelectedOutOfBranch =
+                      selected && !isEmployeeAvailableInBranch(selected, branchId)
+                    const visible = showSelectedOutOfBranch
+                      ? [selected!, ...filtered.filter((e) => e.id !== selected!.id)]
+                      : filtered
+                    return visible.map((e) => {
+                      const name = [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"
+                      return <SelectItem key={e.id} value={e.id}>{name}</SelectItem>
+                    })
+                  })()}
                 </SelectContent>
               </Select>
             </div>

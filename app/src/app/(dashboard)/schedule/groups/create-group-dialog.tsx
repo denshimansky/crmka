@@ -23,6 +23,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog"
 import { Plus, Trash2 } from "lucide-react"
+import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 
 interface DirectionOption {
   id: string
@@ -39,6 +40,7 @@ interface BranchOption {
 interface InstructorOption {
   id: string
   name: string
+  employeeBranches: { branchId: string }[]
 }
 
 interface ScheduleRow {
@@ -250,11 +252,18 @@ export function CreateGroupDialog({
                   {instructorId ? instructors.find(i => i.id === instructorId)?.name : <span className="text-muted-foreground">Педагог</span>}
                 </SelectTrigger>
                 <SelectContent>
-                  {instructors.map((i) => (
-                    <SelectItem key={i.id} value={i.id}>
-                      {i.name}
-                    </SelectItem>
-                  ))}
+                  {(() => {
+                    const filtered = filterEmployeesByBranch(instructors, branchId)
+                    const selected = instructors.find((x) => x.id === instructorId)
+                    const showOutOfBranch =
+                      selected && !isEmployeeAvailableInBranch(selected, branchId)
+                    const visible = showOutOfBranch
+                      ? [selected!, ...filtered.filter((x) => x.id !== selected!.id)]
+                      : filtered
+                    return visible.map((i) => (
+                      <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                    ))
+                  })()}
                 </SelectContent>
               </Select>
             </div>

@@ -22,6 +22,7 @@ import {
   SelectItem,
 } from "@/components/ui/select"
 import { CalendarPlus } from "lucide-react"
+import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "new", label: "Новый" },
@@ -55,6 +56,7 @@ interface InstructorOption {
   id: string
   firstName: string | null
   lastName: string | null
+  employeeBranches?: { branchId: string }[]
 }
 
 interface BranchOption {
@@ -426,11 +428,20 @@ export function LeadStatusActions({
                       })()}
                     </SelectTrigger>
                     <SelectContent>
-                      {instructorsList.map((e) => (
-                        <SelectItem key={e.id} value={e.id}>
-                          {[e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"}
-                        </SelectItem>
-                      ))}
+                      {(() => {
+                        const filtered = filterEmployeesByBranch(instructorsList, branchId)
+                        const selected = instructorsList.find((x) => x.id === instructorId)
+                        const showOutOfBranch =
+                          selected && !isEmployeeAvailableInBranch(selected, branchId)
+                        const visible = showOutOfBranch
+                          ? [selected!, ...filtered.filter((x) => x.id !== selected!.id)]
+                          : filtered
+                        return visible.map((e) => (
+                          <SelectItem key={e.id} value={e.id}>
+                            {[e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"}
+                          </SelectItem>
+                        ))
+                      })()}
                     </SelectContent>
                   </Select>
                 </div>

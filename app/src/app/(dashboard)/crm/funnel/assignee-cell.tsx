@@ -8,11 +8,13 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select"
+import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 
 export interface EmployeeOption {
   id: string
   firstName: string | null
   lastName: string | null
+  employeeBranches?: { branchId: string }[]
 }
 
 function fmtName(e: EmployeeOption): string {
@@ -21,10 +23,12 @@ function fmtName(e: EmployeeOption): string {
 
 export function AssigneeCell({
   clientId,
+  clientBranchId,
   initialAssigneeId,
   employees,
 }: {
   clientId: string
+  clientBranchId: string | null
   initialAssigneeId: string | null
   employees: EmployeeOption[]
 }) {
@@ -56,6 +60,13 @@ export function AssigneeCell({
   }
 
   const selected = employees.find((e) => e.id === value)
+  const availableEmployees = filterEmployeesByBranch(employees, clientBranchId)
+  // Текущий назначенный показываем даже если он не в филиале лида, иначе пользователь не поймёт, кто стоит
+  const showSelectedOutOfBranch =
+    selected && !isEmployeeAvailableInBranch(selected, clientBranchId)
+  const visibleEmployees = showSelectedOutOfBranch
+    ? [selected, ...availableEmployees.filter((e) => e.id !== selected.id)]
+    : availableEmployees
 
   return (
     <Select value={value} onValueChange={handleChange}>
@@ -71,7 +82,7 @@ export function AssigneeCell({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="">— Не назначен</SelectItem>
-        {employees.map((e) => (
+        {visibleEmployees.map((e) => (
           <SelectItem key={e.id} value={e.id}>
             {fmtName(e)}
           </SelectItem>
