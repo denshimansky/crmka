@@ -12,15 +12,29 @@ interface Notification {
   message: string
   isRead: boolean
   createdAt: string
-  link: string | null
+  entityType: string | null
+  entityId: string | null
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  info: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  warning: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
-  error: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-  success: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
-  task: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+// По entityType + entityId строим URL для перехода. Если данных нет — возвращаем null,
+// клик просто отметит уведомление прочитанным без редиректа.
+function buildNotificationUrl(n: Notification): string | null {
+  if (!n.entityType || !n.entityId) return null
+  switch (n.entityType) {
+    case "Lesson":
+      return `/schedule/lessons/${n.entityId}`
+    case "Group":
+      return `/schedule/groups/${n.entityId}`
+    case "Client":
+    case "TrialLesson":
+      return `/crm/clients/${n.entityId}`
+    case "Payment":
+      return `/finance/payments`
+    case "Subscription":
+      return `/crm/clients/${n.entityId}`
+    default:
+      return null
+  }
 }
 
 function formatTimeAgo(dateStr: string): string {
@@ -103,8 +117,9 @@ export function NotificationBell() {
 
   function handleNotificationClick(n: Notification) {
     if (!n.isRead) markAsRead(n.id)
-    if (n.link) {
-      window.location.href = n.link
+    const url = buildNotificationUrl(n)
+    if (url) {
+      window.location.href = url
     }
     setOpen(false)
   }
@@ -168,16 +183,13 @@ export function NotificationBell() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${TYPE_COLORS[n.type] || TYPE_COLORS.info}`}>
-                        {n.type}
-                      </span>
+                      <p className="text-sm font-medium leading-tight">
+                        {n.title}
+                      </p>
                       {!n.isRead && (
-                        <span className="size-1.5 rounded-full bg-blue-500" />
+                        <span className="size-1.5 shrink-0 rounded-full bg-blue-500" />
                       )}
                     </div>
-                    <p className="mt-1 text-sm font-medium leading-tight">
-                      {n.title}
-                    </p>
                     <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
                       {n.message}
                     </p>
