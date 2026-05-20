@@ -13,6 +13,20 @@ export default async function TasksPage() {
 
   const today = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()))
 
+  // Автоочистка: выполненные задачи старше 2 месяцев — soft-delete.
+  // Lazy cleanup при заходе на страницу задач (cron не настроен).
+  const cleanupCutoff = new Date()
+  cleanupCutoff.setMonth(cleanupCutoff.getMonth() - 2)
+  await db.task.updateMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      status: "completed",
+      completedAt: { lt: cleanupCutoff },
+    },
+    data: { deletedAt: new Date() },
+  })
+
   const tasks = await db.task.findMany({
     where: { tenantId, deletedAt: null },
     include: {
