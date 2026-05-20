@@ -27,6 +27,7 @@ import { Plus, Pencil, X, Ban, CalendarDays, Undo2, ArrowLeftRight } from "lucid
 import { AddWardForm } from "./add-ward-form"
 import { AttendanceTab } from "./attendance-tab"
 import { CommunicationFeed } from "@/components/communication-feed"
+import { ClientHistory } from "./client-history"
 
 interface Ward {
   id: string
@@ -1780,11 +1781,7 @@ export function ClientTabs({
       </TabsContent>
 
       <TabsContent value="history">
-        <Card>
-          <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
-            Будет позже
-          </CardContent>
-        </Card>
+        <ClientHistory clientId={clientId} />
       </TabsContent>
     </Tabs>
   )
