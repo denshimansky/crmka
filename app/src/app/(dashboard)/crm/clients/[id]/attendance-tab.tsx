@@ -253,7 +253,7 @@ export function AttendanceTab({
               <Label className="text-xs">Направление</Label>
               <Select
                 value={directionId}
-                onValueChange={(v) => setDirectionId(v === "__all" ? "" : v)}
+                onValueChange={(v) => setDirectionId(!v || v === "__all" ? "" : v)}
               >
                 <SelectTrigger className="h-8 w-[180px]">
                   {selectedDirection ? selectedDirection.name : "Все"}
@@ -274,7 +274,7 @@ export function AttendanceTab({
               <Label className="text-xs">Подопечный</Label>
               <Select
                 value={wardId}
-                onValueChange={(v) => setWardId(v === "__all" ? "" : v)}
+                onValueChange={(v) => setWardId(!v || v === "__all" ? "" : v)}
               >
                 <SelectTrigger className="h-8 w-[200px]">
                   {selectedWard ? selectedWard.name : "Все"}
