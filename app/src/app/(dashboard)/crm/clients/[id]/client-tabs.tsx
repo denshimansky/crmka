@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog"
 import { Plus, Pencil, X, Ban, CalendarDays, Undo2, ArrowLeftRight } from "lucide-react"
 import { AddWardForm } from "./add-ward-form"
+import { AttendanceTab } from "./attendance-tab"
 import { CommunicationFeed } from "@/components/communication-feed"
 
 interface Ward {
@@ -1771,11 +1772,7 @@ export function ClientTabs({
       </TabsContent>
 
       <TabsContent value="attendance">
-        <Card>
-          <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
-            Будет в модуле 5
-          </CardContent>
-        </Card>
+        <AttendanceTab clientId={clientId} wards={wards} />
       </TabsContent>
 
       <TabsContent value="communications">
