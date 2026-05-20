@@ -62,6 +62,7 @@ export async function GET(
       isTrial: true,
       isMakeup: true,
       markedAt: true,
+      wardId: true,
       lesson: {
         select: {
           id: true,
@@ -81,7 +82,6 @@ export async function GET(
           substituteInstructor: { select: { firstName: true, lastName: true } },
         },
       },
-      ward: { select: { id: true, firstName: true, lastName: true } },
       attendanceType: {
         select: {
           id: true,
@@ -99,6 +99,26 @@ export async function GET(
     orderBy: [{ lesson: { date: "desc" } }, { lesson: { startTime: "desc" } }],
     take: 500,
   })
+
+  // Подопечные (в Attendance нет relation ward, только wardId) — фетчим оптом
+  const wardIds = Array.from(
+    new Set(attendances.map((a) => a.wardId).filter((id): id is string => !!id))
+  )
+  const wards = wardIds.length
+    ? await db.ward.findMany({
+        where: { id: { in: wardIds }, tenantId },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : []
+  const wardMap = new Map(
+    wards.map((w) => [
+      w.id,
+      {
+        id: w.id,
+        name: [w.lastName, w.firstName].filter(Boolean).join(" "),
+      },
+    ])
+  )
 
   const result = attendances.map((a) => {
     const instructor = a.lesson.substituteInstructor || a.lesson.instructor
@@ -119,12 +139,7 @@ export async function GET(
       instructorName: [instructor.lastName, instructor.firstName]
         .filter(Boolean)
         .join(" "),
-      ward: a.ward
-        ? {
-            id: a.ward.id,
-            name: [a.ward.lastName, a.ward.firstName].filter(Boolean).join(" "),
-          }
-        : null,
+      ward: a.wardId ? wardMap.get(a.wardId) || null : null,
       attendanceType: a.attendanceType,
       absenceReason: a.absenceReason?.name || null,
       subscription: a.subscription,
