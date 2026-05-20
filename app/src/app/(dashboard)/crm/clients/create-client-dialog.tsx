@@ -41,13 +41,36 @@ interface WardInput {
   birthDate: string
 }
 
-export function CreateClientDialog({ branches }: { branches: Branch[] }) {
+interface CreateClientDialogProps {
+  /** Если не передан — компонент загрузит сам через /api/branches при открытии */
+  branches?: Branch[]
+  /** Кастомный триггер вместо стандартной кнопки «Клиент». */
+  trigger?: React.ReactNode
+  /** Заголовок диалога — по умолчанию «Новый клиент». */
+  title?: string
+  /** Подзаголовок — по умолчанию подсказка про телефон/соцсеть. */
+  description?: string
+  /** Текст кнопки отправки — по умолчанию «Создать». */
+  submitLabel?: string
+  /** После создания перейти в карточку нового клиента (для лидов с воронки/дашборда). */
+  redirectAfterCreate?: boolean
+}
+
+export function CreateClientDialog({
+  branches: branchesProp,
+  trigger,
+  title = "Новый клиент",
+  description = "Заполните данные клиента. Телефон или соцсеть обязательны.",
+  submitLabel = "Создать",
+  redirectAfterCreate = false,
+}: CreateClientDialogProps) {
   const router = useRouter()
   const { data: session } = useSession()
   const myEmployeeId = (session?.user as { employeeId?: string } | undefined)?.employeeId
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [branches, setBranches] = useState<Branch[]>(branchesProp || [])
 
   const [lastName, setLastName] = useState("")
   const [firstName, setFirstName] = useState("")
@@ -73,19 +96,27 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
     }
   }, [myEmployeeId, assignedTo])
 
-  // Load channels + employees on open
+  // Load channels + employees (+ branches, если не переданы) on open
   const loadOptions = async () => {
     try {
-      const [channelsRes, employeesRes] = await Promise.all([
+      const requests: Promise<Response>[] = [
         fetch("/api/lead-channels"),
         fetch("/api/employees"),
-      ])
+      ]
+      const needBranches = !branchesProp
+      if (needBranches) requests.push(fetch("/api/branches"))
+
+      const [channelsRes, employeesRes, branchesRes] = await Promise.all(requests)
       if (channelsRes.ok) {
         const data = await channelsRes.json()
         setChannels(data.filter((c: any) => c.isActive))
       }
       if (employeesRes.ok) {
         setEmployees(await employeesRes.json())
+      }
+      if (needBranches && branchesRes && branchesRes.ok) {
+        const data = await branchesRes.json()
+        setBranches(data.map((b: any) => ({ id: b.id, name: b.name })))
       }
     } catch { /* ignore */ }
   }
@@ -169,8 +200,12 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
         return
       }
 
+      const created = await res.json()
       setOpen(false)
       resetForm()
+      if (redirectAfterCreate && created?.id) {
+        router.push(`/crm/clients/${created.id}`)
+      }
       router.refresh()
     } catch {
       setError("Ошибка сети")
@@ -188,18 +223,18 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
         if (!nextOpen) resetForm()
       }}
     >
-      <DialogTrigger render={<Button size="sm" />}>
-        <Plus className="size-4" />
-        Клиент
-      </DialogTrigger>
+      {trigger ?? (
+        <DialogTrigger render={<Button size="sm" />}>
+          <Plus className="size-4" />
+          Клиент
+        </DialogTrigger>
+      )}
 
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Новый клиент</DialogTitle>
-            <DialogDescription>
-              Заполните данные клиента. Телефон или соцсеть обязательны.
-            </DialogDescription>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
 
           <div className="mt-4 space-y-4">
@@ -268,7 +303,7 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
             {/* Телефоны */}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label htmlFor="cl-phone">Телефон *</Label>
+                <Label htmlFor="cl-phone">Телефон</Label>
                 <Input
                   id="cl-phone"
                   value={phone}
@@ -446,7 +481,7 @@ export function CreateClientDialog({ branches }: { branches: Branch[] }) {
               Отмена
             </DialogClose>
             <Button type="submit" disabled={loading}>
-              {loading ? "Создание..." : "Создать"}
+              {loading ? "Создание..." : submitLabel}
             </Button>
           </DialogFooter>
         </form>
