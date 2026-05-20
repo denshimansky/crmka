@@ -187,7 +187,7 @@ export function LeadStatusActions({
       return
     }
     if (kind === "group" && !groupId) {
-      setTrialError("Выберите группу или переключитесь на «Индивидуальный»")
+      setTrialError("Выберите группу или переключитесь на «Персональный»")
       return
     }
     if (kind === "individual" && !instructorId) {
@@ -371,7 +371,7 @@ export function LeadStatusActions({
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Индивидуальный
+                  Персональный
                 </button>
               </div>
             </div>
@@ -536,7 +536,7 @@ export function LeadStatusActions({
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Индивидуальный пробник: занятие не создаётся в общем расписании, отображается только в карточке лида.
+                Персональный пробник: занятие не создаётся в общем расписании, отображается только в карточке лида.
               </p>
             )}
 

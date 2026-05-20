@@ -6,9 +6,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table, TableBody, TableCell, TableHeader, TableRow,
 } from "@/components/ui/table"
-import { Search, Copy, Upload } from "lucide-react"
+import { Search, Copy, Upload, RotateCcw } from "lucide-react"
+import { SortableTableHead } from "@/components/sortable-table-head"
+import { useTablePrefs } from "@/hooks/use-table-prefs"
 
 // --- Types ---
 
@@ -38,6 +40,13 @@ const SEGMENT_LABELS: Record<string, string> = {
   standard: "Стандарт",
   regular: "Постоянный",
   vip: "VIP",
+}
+
+const SEGMENT_ORDER: Record<string, number> = {
+  new_client: 1,
+  standard: 2,
+  regular: 3,
+  vip: 4,
 }
 
 const SEGMENT_COLORS: Record<string, string> = {
@@ -100,9 +109,118 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "all", label: "Все" },
 ]
 
+// --- Колонки ---
+
+type SortVal = string | number | null
+
+interface ColumnDef {
+  key: string
+  label: string
+  align?: "left" | "right" | "center"
+  sortable?: boolean
+  getValue: (c: ClientRow) => SortVal
+  render: (c: ClientRow) => React.ReactNode
+}
+
+const COLUMNS: ColumnDef[] = [
+  {
+    key: "name",
+    label: "ФИО",
+    getValue: (c) => [c.lastName, c.firstName].filter(Boolean).join(" ").toLowerCase() || null,
+    render: (c) => {
+      const fullName = [c.lastName, c.firstName].filter(Boolean).join(" ") || "—"
+      return (
+        <Link
+          href={`/crm/clients/${c.id}`}
+          className="font-medium hover:underline"
+        >
+          {fullName}
+        </Link>
+      )
+    },
+  },
+  {
+    key: "phone",
+    label: "Телефон",
+    getValue: (c) => c.phone?.toLowerCase() || null,
+    render: (c) => (
+      <span className="text-muted-foreground">{c.phone || "—"}</span>
+    ),
+  },
+  {
+    key: "wards",
+    label: "Дети",
+    getValue: (c) => c.wards.length,
+    render: (c) => {
+      const wardNames = c.wards
+        .map((w) => [w.firstName, w.lastName].filter(Boolean).join(" "))
+        .join(", ")
+      return (
+        <span className="text-sm text-muted-foreground">
+          {c.wards.length > 0 ? `${c.wards.length} · ${wardNames}` : "—"}
+        </span>
+      )
+    },
+  },
+  {
+    key: "segment",
+    label: "Сегмент",
+    getValue: (c) => SEGMENT_ORDER[c.segment] ?? 99,
+    render: (c) => (
+      <span
+        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${SEGMENT_COLORS[c.segment] || ""}`}
+      >
+        {SEGMENT_LABELS[c.segment] || c.segment}
+      </span>
+    ),
+  },
+  {
+    key: "balance",
+    label: "Баланс",
+    align: "right",
+    getValue: (c) => Number(c.clientBalance),
+    render: (c) => {
+      const balance = Number(c.clientBalance)
+      return (
+        <span
+          className={`font-medium ${
+            balance > 0
+              ? "text-green-600"
+              : balance < 0
+                ? "text-red-600"
+                : "text-muted-foreground"
+          }`}
+        >
+          {balance === 0 ? "—" : formatMoney(balance)}
+        </span>
+      )
+    },
+  },
+  {
+    key: "status",
+    label: "Статус",
+    getValue: (c) => (c.clientStatus || c.funnelStatus || "").toLowerCase(),
+    render: (c) => getStatusBadge(c),
+  },
+]
+
+const DEFAULT_ORDER = COLUMNS.map((c) => c.key)
+const STORAGE_KEY = "table-prefs:clients"
+
 export function ClientsTable({ clients }: { clients: ClientRow[] }) {
   const [tab, setTab] = useState<TabKey>("active")
   const [search, setSearch] = useState("")
+
+  const { columnOrder, sortBy, sortDir, handleSortClick, moveColumn, resetPrefs } =
+    useTablePrefs({ storageKey: STORAGE_KEY, defaultOrder: DEFAULT_ORDER })
+
+  const orderedCols = useMemo(
+    () =>
+      columnOrder
+        .map((k) => COLUMNS.find((c) => c.key === k))
+        .filter((c): c is ColumnDef => Boolean(c)),
+    [columnOrder],
+  )
 
   const filtered = useMemo(() => {
     let result = clients
@@ -126,8 +244,25 @@ export function ClientsTable({ clients }: { clients: ClientRow[] }) {
       })
     }
 
+    // Sort
+    if (sortBy) {
+      const col = COLUMNS.find((c) => c.key === sortBy)
+      if (col) {
+        result = [...result].sort((a, b) => {
+          const av = col.getValue(a)
+          const bv = col.getValue(b)
+          if (av == null && bv == null) return 0
+          if (av == null) return 1
+          if (bv == null) return -1
+          if (av < bv) return sortDir === "asc" ? -1 : 1
+          if (av > bv) return sortDir === "asc" ? 1 : -1
+          return 0
+        })
+      }
+    }
+
     return result
-  }, [clients, tab, search])
+  }, [clients, tab, search, sortBy, sortDir])
 
   return (
     <>
@@ -154,6 +289,15 @@ export function ClientsTable({ clients }: { clients: ClientRow[] }) {
           />
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={resetPrefs}
+            title="Вернуть исходный порядок столбцов и сбросить сортировку"
+          >
+            <RotateCcw className="mr-1 size-3.5" />
+            Сбросить
+          </Button>
           <Button variant="outline" size="sm" render={<Link href="/crm/duplicates" />}>
             <Copy className="mr-2 size-4" />
             Дубликаты
@@ -176,65 +320,34 @@ export function ClientsTable({ clients }: { clients: ClientRow[] }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>ФИО</TableHead>
-                <TableHead>Телефон</TableHead>
-                <TableHead>Дети</TableHead>
-                <TableHead>Сегмент</TableHead>
-                <TableHead className="text-right">Баланс</TableHead>
-                <TableHead>Статус</TableHead>
+                {orderedCols.map((col) => (
+                  <SortableTableHead
+                    key={col.key}
+                    columnKey={col.key}
+                    label={col.label}
+                    activeSortKey={sortBy}
+                    sortDir={sortDir}
+                    sortable={col.sortable !== false}
+                    onSortClick={handleSortClick}
+                    onMove={moveColumn}
+                    align={col.align}
+                  />
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((client) => {
-                const fullName = [client.lastName, client.firstName]
-                  .filter(Boolean)
-                  .join(" ") || "—"
-                const balance = Number(client.clientBalance)
-                const wardNames = client.wards
-                  .map((w) => [w.firstName, w.lastName].filter(Boolean).join(" "))
-                  .join(", ")
-                const wardCount = client.wards.length
-
-                return (
-                  <TableRow key={client.id} className="cursor-pointer hover:bg-muted/50">
-                    <TableCell>
-                      <Link
-                        href={`/crm/clients/${client.id}`}
-                        className="font-medium hover:underline"
-                      >
-                        {fullName}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {client.phone || "—"}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {wardCount > 0
-                        ? `${wardCount} · ${wardNames}`
-                        : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${SEGMENT_COLORS[client.segment] || ""}`}
-                      >
-                        {SEGMENT_LABELS[client.segment] || client.segment}
-                      </span>
-                    </TableCell>
+              {filtered.map((client) => (
+                <TableRow key={client.id} className="cursor-pointer hover:bg-muted/50">
+                  {orderedCols.map((col) => (
                     <TableCell
-                      className={`text-right font-medium ${
-                        balance > 0
-                          ? "text-green-600"
-                          : balance < 0
-                            ? "text-red-600"
-                            : "text-muted-foreground"
-                      }`}
+                      key={col.key}
+                      className={col.align === "right" ? "text-right" : undefined}
                     >
-                      {balance === 0 ? "—" : formatMoney(balance)}
+                      {col.render(client)}
                     </TableCell>
-                    <TableCell>{getStatusBadge(client)}</TableCell>
-                  </TableRow>
-                )
-              })}
+                  ))}
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </div>

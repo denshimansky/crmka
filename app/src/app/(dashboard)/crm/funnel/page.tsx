@@ -2,14 +2,12 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Prisma, FunnelStatus } from "@prisma/client"
 import { Card, CardContent } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import Link from "next/link"
 import { CreateClientDialog } from "../clients/create-client-dialog"
 import { PageHelp } from "@/components/page-help"
 import { QuickLeadButton } from "@/components/quick-lead-button"
 import { FunnelSortSelect } from "./funnel-sort-select"
 import { FunnelTabs, type FunnelTab } from "./funnel-tabs"
-import { AssigneeCell } from "./assignee-cell"
+import { LeadsTable, type LeadRow } from "./leads-table"
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
@@ -51,10 +49,6 @@ const COUNTER_STATUSES: FunnelStatus[] = [
   "trial_attended",
   "awaiting_payment",
 ]
-
-function formatDate(date: Date): string {
-  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
-}
 
 function buildOrderBy(sort: string): Prisma.ClientOrderByWithRelationInput[] {
   switch (sort) {
@@ -145,8 +139,18 @@ export default async function FunnelPage({
     })),
   ]
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  // Сериализуем для client-component: Date → ISO-строка
+  const leadRows: LeadRow[] = leads.map((l) => ({
+    id: l.id,
+    firstName: l.firstName,
+    lastName: l.lastName,
+    phone: l.phone,
+    branchId: l.branchId,
+    branchName: l.branch?.name ?? null,
+    assignedTo: l.assignedTo,
+    nextContactDate: l.nextContactDate ? l.nextContactDate.toISOString() : null,
+    createdAt: l.createdAt.toISOString(),
+  }))
 
   return (
     <div className="space-y-6">
@@ -177,59 +181,14 @@ export default async function FunnelPage({
       <FunnelTabs tabs={tabs} current={status} />
 
       {/* Таблица лидов */}
-      {leads.length === 0 ? (
+      {leadRows.length === 0 ? (
         <Card>
           <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
             Нет лидов в выбранной категории
           </CardContent>
         </Card>
       ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Лид</TableHead>
-                <TableHead>Телефон</TableHead>
-                <TableHead>Филиал</TableHead>
-                <TableHead>Ответственный</TableHead>
-                <TableHead>След. контакт</TableHead>
-                <TableHead>Создан</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {leads.map((lead) => {
-                const name = [lead.lastName, lead.firstName].filter(Boolean).join(" ") || "Без имени"
-                return (
-                  <TableRow key={lead.id}>
-                    <TableCell>
-                      <Link href={`/crm/funnel/${lead.id}`} className="font-medium text-primary hover:underline">
-                        {name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{lead.phone || "—"}</TableCell>
-                    <TableCell className="text-muted-foreground">{lead.branch?.name || "—"}</TableCell>
-                    <TableCell>
-                      <AssigneeCell
-                        clientId={lead.id}
-                        clientBranchId={lead.branchId}
-                        initialAssigneeId={lead.assignedTo}
-                        employees={employees}
-                      />
-                    </TableCell>
-                    <TableCell className={
-                      lead.nextContactDate && new Date(lead.nextContactDate) < today
-                        ? "font-medium text-destructive"
-                        : "text-muted-foreground"
-                    }>
-                      {lead.nextContactDate ? formatDate(lead.nextContactDate) : "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{formatDate(lead.createdAt)}</TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </div>
+        <LeadsTable leads={leadRows} employees={employees} />
       )}
 
       <QuickLeadButton />
