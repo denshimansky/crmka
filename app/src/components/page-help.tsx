@@ -21,7 +21,7 @@ export function PageHelp({ pageKey }: PageHelpProps) {
   return (
     <Sheet>
       <SheetTrigger
-        className="inline-flex size-6 shrink-0 items-center justify-center rounded-full border-2 border-primary/60 text-primary text-sm font-bold leading-none hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
+        className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-primary/60 text-primary text-xs font-bold leading-none hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
         title="Справка по странице"
         aria-label="Справка по странице"
       >

@@ -44,8 +44,8 @@ function MonthPickerInner() {
 
   return (
     <div className="flex items-center gap-2">
-      <Button variant="outline" size="icon-sm" onClick={prev}>
-        <ChevronLeft className="size-4" />
+      <Button variant="outline" size="icon-xs" onClick={prev}>
+        <ChevronLeft className="size-3.5" />
       </Button>
       <button
         onClick={goToday}
@@ -55,8 +55,8 @@ function MonthPickerInner() {
       >
         {MONTH_NAMES[month]} {year}
       </button>
-      <Button variant="outline" size="icon-sm" onClick={next}>
-        <ChevronRight className="size-4" />
+      <Button variant="outline" size="icon-xs" onClick={next}>
+        <ChevronRight className="size-3.5" />
       </Button>
     </div>
   )
