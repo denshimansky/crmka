@@ -395,17 +395,13 @@ export function AttendanceTab({
                     )}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      asChild
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
+                    <Link
+                      href={`/schedule/lessons/${a.lessonId}`}
                       title="Открыть занятие"
+                      className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
-                      <Link href={`/schedule/lessons/${a.lessonId}`}>
-                        <ExternalLink className="size-3.5" />
-                      </Link>
-                    </Button>
+                      <ExternalLink className="size-3.5" />
+                    </Link>
                   </TableCell>
                 </TableRow>
               ))}
