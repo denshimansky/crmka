@@ -3,7 +3,7 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Building2, MapPin, Megaphone, Palette, Shield, UserX } from "lucide-react"
+import { Building2, MapPin, Megaphone, Palette, Shield, UserX, CalendarDays } from "lucide-react"
 import { getDirectionIcon } from "@/lib/direction-icons"
 import Link from "next/link"
 import { CreateDirectionDialog } from "./create-direction-dialog"
@@ -345,6 +345,21 @@ export default async function SettingsPage() {
                     <h3 className="font-medium">Права ролей</h3>
                     <p className="text-xs text-muted-foreground mt-1">
                       Настройка доступа для каждой роли: что видят и могут делать сотрудники
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href="/settings/production-calendar" className="block">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="flex items-start gap-3 p-5">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <CalendarDays className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Производственный календарь</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Праздничные и выходные дни — пропускаются при генерации занятий
                     </p>
                   </div>
                 </CardContent>

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { getNonWorkingDateSet } from "@/lib/production-calendar"
 
 const copySchema = z.object({
   sourceMonth: z.string().regex(/^\d{4}-\d{2}$/, "Формат: YYYY-MM"),
@@ -68,9 +69,11 @@ export async function POST(req: NextRequest) {
     )
   )
 
-  // Calculate month offset for date shifting
-  const monthDiff = (targetYear - sourceYear) * 12 + (targetM - sourceM)
   const lastDayOfTarget = new Date(targetYear, targetM, 0).getDate()
+
+  // Производственный календарь целевого месяца — пропускаем нерабочие дни
+  const nonWorkingSet = await getNonWorkingDateSet(tenantId, targetStart, targetEnd)
+  const skippedDates: string[] = []
 
   const lessonsToCreate: Array<{
     tenantId: string
@@ -96,6 +99,11 @@ export async function POST(req: NextRequest) {
 
     if (existingSet.has(key)) continue
 
+    if (nonWorkingSet.has(dateStr)) {
+      if (!skippedDates.includes(dateStr)) skippedDates.push(dateStr)
+      continue
+    }
+
     existingSet.add(key) // prevent duplicates within same batch
 
     lessonsToCreate.push({
@@ -112,12 +120,25 @@ export async function POST(req: NextRequest) {
   }
 
   if (lessonsToCreate.length === 0) {
-    return NextResponse.json({ error: "Все занятия уже существуют в целевом месяце" }, { status: 400 })
+    return NextResponse.json(
+      {
+        error:
+          skippedDates.length > 0
+            ? `Все рабочие дни уже скопированы. Пропущено нерабочих: ${skippedDates.length}`
+            : "Все занятия уже существуют в целевом месяце",
+        skipped: skippedDates.length,
+        skippedDates,
+      },
+      { status: 400 },
+    )
   }
 
   const result = await db.lesson.createMany({
     data: lessonsToCreate,
   })
 
-  return NextResponse.json({ created: result.count }, { status: 201 })
+  return NextResponse.json(
+    { created: result.count, skipped: skippedDates.length, skippedDates },
+    { status: 201 },
+  )
 }

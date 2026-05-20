@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { getNonWorkingDateSet } from "@/lib/production-calendar"
 
 const generateSchema = z.object({
   month: z.number().min(1, "Месяц от 1 до 12").max(12, "Месяц от 1 до 12"),
@@ -66,6 +67,10 @@ export async function POST(
     )
   )
 
+  // Производственный календарь — нерабочие дни месяца
+  const nonWorkingSet = await getNonWorkingDateSet(tenantId, firstDay, lastDay)
+  const skippedDates: string[] = []
+
   // Генерация занятий
   const lessonsToCreate: Array<{
     tenantId: string
@@ -89,7 +94,10 @@ export async function POST(
         const dateStr = current.toISOString().slice(0, 10)
         const key = `${dateStr}_${template.startTime}`
 
-        if (!existingSet.has(key)) {
+        if (nonWorkingSet.has(dateStr)) {
+          // Пропуск нерабочего дня — фиксируем для отчёта пользователю
+          if (!skippedDates.includes(dateStr)) skippedDates.push(dateStr)
+        } else if (!existingSet.has(key)) {
           lessonsToCreate.push({
             tenantId,
             groupId: id,
@@ -108,13 +116,26 @@ export async function POST(
   }
 
   if (lessonsToCreate.length === 0) {
-    return NextResponse.json({ created: 0, message: "Все занятия уже существуют" })
+    return NextResponse.json({
+      created: 0,
+      skipped: skippedDates.length,
+      skippedDates,
+      message:
+        skippedDates.length > 0
+          ? `Все рабочие дни уже сгенерированы. Пропущено нерабочих: ${skippedDates.length}`
+          : "Все занятия уже существуют",
+    })
   }
 
   await db.lesson.createMany({ data: lessonsToCreate })
 
   return NextResponse.json({
     created: lessonsToCreate.length,
-    message: `Создано ${lessonsToCreate.length} занятий`,
+    skipped: skippedDates.length,
+    skippedDates,
+    message:
+      skippedDates.length > 0
+        ? `Создано ${lessonsToCreate.length} занятий, пропущено ${skippedDates.length} нерабочих дней`
+        : `Создано ${lessonsToCreate.length} занятий`,
   })
 }
