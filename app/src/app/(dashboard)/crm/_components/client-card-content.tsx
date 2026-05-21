@@ -69,8 +69,13 @@ export async function ClientCardContent({
   if (!client) notFound()
 
   // Активные абонементы — то, чем ребёнок занимается прямо сейчас:
-  // не отчислены админом (status != withdrawn, withdrawalDate IS NULL)
-  // и относятся к текущему или будущему периоду (status IN active|pending).
+  // не отчислены админом (withdrawalDate IS NULL, status != withdrawn|closed)
+  // и относятся к текущему или будущему календарному месяцу.
+  // По PRD (SUB-02) абонемент привязан к одному месяцу — каждый месяц новый;
+  // прошлые «незакрытые» абонементы не должны считаться актуальными.
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
   const activeSubscriptions = await db.subscription.findMany({
     where: {
       clientId: client.id,
@@ -78,6 +83,10 @@ export async function ClientCardContent({
       deletedAt: null,
       withdrawalDate: null,
       status: { in: ["pending", "active"] },
+      OR: [
+        { periodYear: { gt: currentYear } },
+        { periodYear: currentYear, periodMonth: { gte: currentMonth } },
+      ],
     },
     include: {
       ward: { select: { firstName: true, lastName: true } },
