@@ -5,7 +5,7 @@ import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, CreditCard, FileText } from "lucide-react"
+import { ArrowLeft, CreditCard, FileText, Building2, GraduationCap, User, Percent, CalendarDays } from "lucide-react"
 import { ClientTabs } from "../clients/[id]/client-tabs"
 import { EditClientDialog } from "../clients/[id]/edit-client-dialog"
 import { UnprolongedCommentsSection } from "../clients/[id]/unprolonged-comments"
@@ -61,11 +61,71 @@ export async function ClientCardContent({
     include: {
       wards: true,
       branch: true,
+      channel: { select: { name: true } },
       assignee: { select: { firstName: true, lastName: true } },
     },
   })
 
   if (!client) notFound()
+
+  // Активные абонементы — то, чем ребёнок занимается прямо сейчас:
+  // не отчислены админом (status != withdrawn, withdrawalDate IS NULL)
+  // и относятся к текущему или будущему периоду (status IN active|pending).
+  const activeSubscriptions = await db.subscription.findMany({
+    where: {
+      clientId: client.id,
+      tenantId,
+      deletedAt: null,
+      withdrawalDate: null,
+      status: { in: ["pending", "active"] },
+    },
+    include: {
+      ward: { select: { firstName: true, lastName: true } },
+      direction: { select: { name: true } },
+      group: {
+        select: {
+          name: true,
+          branch: { select: { name: true } },
+          instructor: { select: { firstName: true, lastName: true } },
+        },
+      },
+      discounts: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          type: true,
+          valueType: true,
+          value: true,
+          calculatedAmount: true,
+          linkedClientId: true,
+          comment: true,
+        },
+      },
+    },
+    orderBy: [{ startDate: "asc" }, { createdAt: "asc" }],
+  })
+
+  // Имена клиентов-оснований для связанных скидок (Discount.linkedClientId
+  // не имеет relation, поэтому подтягиваем отдельным запросом).
+  const linkedClientIds = Array.from(
+    new Set(
+      activeSubscriptions
+        .flatMap((s) => s.discounts.map((d) => d.linkedClientId))
+        .filter((v): v is string => Boolean(v))
+    )
+  )
+  const linkedClients = linkedClientIds.length
+    ? await db.client.findMany({
+        where: { id: { in: linkedClientIds }, tenantId },
+        select: { id: true, firstName: true, lastName: true, patronymic: true },
+      })
+    : []
+  const linkedClientNameById = new Map(
+    linkedClients.map((c) => [
+      c.id,
+      [c.lastName, c.firstName, c.patronymic].filter(Boolean).join(" ") || "Без имени",
+    ])
+  )
 
   const fullName =
     [client.lastName, client.firstName, client.patronymic]
@@ -159,6 +219,120 @@ export async function ClientCardContent({
         />
       )}
 
+      {/* Активные абонементы — то, чем ребёнок занимается прямо сейчас */}
+      {activeSubscriptions.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <GraduationCap className="size-4 text-muted-foreground" />
+              Активные занятия
+              <Badge variant="secondary" className="ml-1 font-normal">
+                {activeSubscriptions.length}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            {activeSubscriptions.map((s) => {
+              const branch = s.group.branch?.name || "—"
+              const dir = s.direction.name
+              const group = s.group.name
+              const instr = s.group.instructor
+                ? [s.group.instructor.lastName, s.group.instructor.firstName]
+                    .filter(Boolean)
+                    .join(" ")
+                : "—"
+              const wardName = s.ward
+                ? [s.ward.lastName, s.ward.firstName].filter(Boolean).join(" ")
+                : null
+              return (
+                <div
+                  key={s.id}
+                  className="rounded-lg border bg-card p-3 text-sm space-y-2"
+                >
+                  {/* Филиал → Направление → Группа */}
+                  <div className="flex items-center gap-1.5 font-medium leading-snug">
+                    <Building2 className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="text-muted-foreground">{branch}</span>
+                    <span className="text-muted-foreground">›</span>
+                    <span>{dir}</span>
+                    <span className="text-muted-foreground">›</span>
+                    <span className="text-muted-foreground">{group}</span>
+                  </div>
+                  {wardName && (
+                    <div className="text-xs text-muted-foreground">
+                      Подопечный: <span className="text-foreground">{wardName}</span>
+                    </div>
+                  )}
+                  <div className="grid gap-1 text-xs sm:grid-cols-2">
+                    <div className="flex items-center gap-1.5">
+                      <User className="size-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">Педагог:</span>
+                      <span>{instr}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <CalendarDays className="size-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">С:</span>
+                      <span>{formatDate(s.startDate)}</span>
+                    </div>
+                  </div>
+                  {s.discounts.length > 0 && (
+                    <div className="space-y-1 border-t pt-2">
+                      {s.discounts.map((d) => {
+                        const valueLabel =
+                          d.valueType === "percent"
+                            ? `${Number(d.value)}%`
+                            : formatMoney(Number(d.value))
+                        const calcLabel =
+                          Number(d.calculatedAmount) > 0
+                            ? ` (−${formatMoney(Number(d.calculatedAmount))})`
+                            : ""
+                        const typeLabel =
+                          d.type === "linked"
+                            ? "Связанная"
+                            : d.type === "permanent"
+                              ? "Постоянная"
+                              : "Разовая"
+                        const linkedName = d.linkedClientId
+                          ? linkedClientNameById.get(d.linkedClientId)
+                          : null
+                        return (
+                          <div
+                            key={d.id}
+                            className="flex items-start gap-1.5 text-xs"
+                          >
+                            <Percent className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
+                            <div className="flex-1">
+                              <span className="font-medium">{typeLabel}</span>
+                              <span className="text-muted-foreground">
+                                {" "}— {valueLabel}
+                                {calcLabel}
+                              </span>
+                              {linkedName && (
+                                <div className="text-muted-foreground">
+                                  Связана с:{" "}
+                                  <span className="text-foreground">
+                                    {linkedName}
+                                  </span>
+                                </div>
+                              )}
+                              {d.comment && !linkedName && (
+                                <div className="text-muted-foreground">
+                                  {d.comment}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Two-column layout */}
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
         {/* Main content: tabs */}
@@ -196,6 +370,10 @@ export async function ClientCardContent({
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Филиал</span>
                 <span>{client.branch?.name || "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Канал привлечения</span>
+                <span>{client.channel?.name || "—"}</span>
               </div>
               {client.phone2 && (
                 <div className="flex justify-between">

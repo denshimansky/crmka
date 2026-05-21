@@ -26,7 +26,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
-import { ClipboardCheck, ExternalLink, X } from "lucide-react"
+import { ClipboardCheck, ExternalLink, X, Sparkles } from "lucide-react"
 
 const MONTH_SHORT = [
   "",
@@ -160,6 +160,11 @@ export function AttendanceTab({
       })),
     [wards]
   )
+
+  // Разделяем пробные и обычные посещения — пробные показываем
+  // отдельным выделенным блоком (бизнес-требование).
+  const trialItems = useMemo(() => items.filter((a) => a.isTrial), [items])
+  const regularItems = useMemo(() => items.filter((a) => !a.isTrial), [items])
 
   // Итоги
   const stats = useMemo(() => {
@@ -315,100 +320,130 @@ export function AttendanceTab({
               : "У клиента пока нет отмеченных посещений"}
           </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[90px]">Дата</TableHead>
-                <TableHead className="w-[70px]">Время</TableHead>
-                <TableHead>Направление</TableHead>
-                <TableHead>Группа</TableHead>
-                {wardOptions.length > 1 && <TableHead>Подопечный</TableHead>}
-                <TableHead>Педагог</TableHead>
-                <TableHead>Вид</TableHead>
-                <TableHead>Период абонемента</TableHead>
-                <TableHead className="text-right">Списание</TableHead>
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((a) => (
-                <TableRow key={a.id}>
-                  <TableCell className="whitespace-nowrap">
-                    {formatDate(a.date)}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {a.startTime}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{a.direction.name}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <span>{a.group.name}</span>
-                      {a.isTrial && (
-                        <Badge
-                          variant="secondary"
-                          className="px-1.5 py-0 text-[10px]"
-                        >
-                          Пробное
-                        </Badge>
-                      )}
-                      {a.isMakeup && (
-                        <Badge
-                          variant="secondary"
-                          className="px-1.5 py-0 text-[10px]"
-                        >
-                          Отработка
-                        </Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  {wardOptions.length > 1 && (
-                    <TableCell className="text-muted-foreground">
-                      {a.ward?.name || "—"}
-                    </TableCell>
-                  )}
-                  <TableCell className="text-muted-foreground">
-                    {a.instructorName}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={typeBadgeVariant(
-                        a.attendanceType.code,
-                        a.attendanceType.countsAsRevenue
-                      )}
-                      title={a.absenceReason || undefined}
-                    >
-                      {a.attendanceType.name}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {a.subscription
-                      ? `${MONTH_SHORT[a.subscription.periodMonth]} ${a.subscription.periodYear}`
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {a.chargeAmount > 0 ? (
-                      formatMoney(a.chargeAmount)
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Link
-                      href={`/schedule/lessons/${a.lessonId}`}
-                      title="Открыть занятие"
-                      className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                    >
-                      <ExternalLink className="size-3.5" />
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <>
+            {/* Пробные занятия — отдельным выделенным блоком */}
+            {trialItems.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20">
+                <div className="flex items-center gap-2 border-b border-amber-200 px-3 py-2 text-sm font-medium dark:border-amber-900/50">
+                  <Sparkles className="size-4 text-amber-600 dark:text-amber-400" />
+                  <span>Пробные занятия</span>
+                  <Badge variant="secondary" className="ml-1 font-normal">
+                    {trialItems.length}
+                  </Badge>
+                </div>
+                <AttendanceItemsTable
+                  items={trialItems}
+                  showWardColumn={wardOptions.length > 1}
+                />
+              </div>
+            )}
+
+            {/* Обычные посещения */}
+            {regularItems.length > 0 && (
+              <AttendanceItemsTable
+                items={regularItems}
+                showWardColumn={wardOptions.length > 1}
+              />
+            )}
+          </>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+// Таблица посещений — переиспользуется для обычных посещений и пробных.
+function AttendanceItemsTable({
+  items,
+  showWardColumn,
+}: {
+  items: AttendanceItem[]
+  showWardColumn: boolean
+}) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-[90px]">Дата</TableHead>
+          <TableHead className="w-[70px]">Время</TableHead>
+          <TableHead>Направление</TableHead>
+          <TableHead>Группа</TableHead>
+          {showWardColumn && <TableHead>Подопечный</TableHead>}
+          <TableHead>Педагог</TableHead>
+          <TableHead>Вид</TableHead>
+          <TableHead>Период абонемента</TableHead>
+          <TableHead className="text-right">Списание</TableHead>
+          <TableHead className="w-10" />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {items.map((a) => (
+          <TableRow key={a.id}>
+            <TableCell className="whitespace-nowrap">
+              {formatDate(a.date)}
+            </TableCell>
+            <TableCell className="whitespace-nowrap text-muted-foreground">
+              {a.startTime}
+            </TableCell>
+            <TableCell>
+              <Badge variant="outline">{a.direction.name}</Badge>
+            </TableCell>
+            <TableCell>
+              <div className="flex items-center gap-1">
+                <span>{a.group.name}</span>
+                {a.isMakeup && (
+                  <Badge
+                    variant="secondary"
+                    className="px-1.5 py-0 text-[10px]"
+                  >
+                    Отработка
+                  </Badge>
+                )}
+              </div>
+            </TableCell>
+            {showWardColumn && (
+              <TableCell className="text-muted-foreground">
+                {a.ward?.name || "—"}
+              </TableCell>
+            )}
+            <TableCell className="text-muted-foreground">
+              {a.instructorName}
+            </TableCell>
+            <TableCell>
+              <Badge
+                variant={typeBadgeVariant(
+                  a.attendanceType.code,
+                  a.attendanceType.countsAsRevenue
+                )}
+                title={a.absenceReason || undefined}
+              >
+                {a.attendanceType.name}
+              </Badge>
+            </TableCell>
+            <TableCell className="text-muted-foreground">
+              {a.subscription
+                ? `${MONTH_SHORT[a.subscription.periodMonth]} ${a.subscription.periodYear}`
+                : "—"}
+            </TableCell>
+            <TableCell className="text-right tabular-nums">
+              {a.chargeAmount > 0 ? (
+                formatMoney(a.chargeAmount)
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </TableCell>
+            <TableCell>
+              <Link
+                href={`/schedule/lessons/${a.lessonId}`}
+                title="Открыть занятие"
+                className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <ExternalLink className="size-3.5" />
+              </Link>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   )
 }
