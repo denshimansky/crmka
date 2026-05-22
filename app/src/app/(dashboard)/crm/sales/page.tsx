@@ -1,5 +1,6 @@
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { PageHelp } from "@/components/page-help"
 import { CreateClientDialog } from "../clients/create-client-dialog"
 import { SalesTabs, type SalesTab } from "./sales-tabs"
@@ -12,6 +13,29 @@ const TAB_LABELS: Record<SalesTabKey, string> = {
   awaiting_payment: "Ожидаем оплату",
 }
 const TAB_ORDER: SalesTabKey[] = ["application", "trial", "trial_done", "awaiting_payment"]
+
+// Единые where-условия для каждой вкладки — counter и rows используют один объект,
+// чтобы цифры в табах всегда совпадали с количеством записей в таблице.
+function applicationWhere(tenantId: string): Prisma.ApplicationWhereInput {
+  return { tenantId, status: "active", deletedAt: null }
+}
+
+function trialWhere(tenantId: string, kind: "scheduled" | "attended"): Prisma.TrialLessonWhereInput {
+  const base: Prisma.TrialLessonWhereInput = {
+    tenantId,
+    status: kind,
+    wardId: { not: null },
+    client: { deletedAt: null },
+  }
+  if (kind === "attended") {
+    base.client = { funnelStatus: "trial_attended", deletedAt: null }
+  }
+  return base
+}
+
+function awaitingPaymentWhere(tenantId: string): Prisma.ClientWhereInput {
+  return { tenantId, deletedAt: null, funnelStatus: "awaiting_payment" }
+}
 
 function fmtMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -47,18 +71,10 @@ export default async function SalesPage({
       select: { id: true, firstName: true, lastName: true },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
-    db.application.count({ where: { tenantId, status: "active", deletedAt: null } }),
-    db.trialLesson.count({ where: { tenantId, status: "scheduled" } }),
-    db.trialLesson.count({
-      where: {
-        tenantId,
-        status: "attended",
-        client: { funnelStatus: "trial_attended", deletedAt: null },
-      },
-    }),
-    db.client.count({
-      where: { tenantId, deletedAt: null, funnelStatus: "awaiting_payment" },
-    }),
+    db.application.count({ where: applicationWhere(tenantId) }),
+    db.trialLesson.count({ where: trialWhere(tenantId, "scheduled") }),
+    db.trialLesson.count({ where: trialWhere(tenantId, "attended") }),
+    db.client.count({ where: awaitingPaymentWhere(tenantId) }),
   ])
 
   const counts: Record<SalesTabKey, number> = {
@@ -72,7 +88,7 @@ export default async function SalesPage({
 
   if (tab === "application") {
     const apps = await db.application.findMany({
-      where: { tenantId, status: "active", deletedAt: null },
+      where: applicationWhere(tenantId),
       include: {
         client: {
           select: {
@@ -119,15 +135,9 @@ export default async function SalesPage({
       assignedTo: a.client.assignedTo,
     }))
   } else if (tab === "trial" || tab === "trial_done") {
-    const trialStatus = tab === "trial" ? "scheduled" : "attended"
+    const trialStatus: "scheduled" | "attended" = tab === "trial" ? "scheduled" : "attended"
     const trials = await db.trialLesson.findMany({
-      where: {
-        tenantId,
-        status: trialStatus,
-        ...(tab === "trial_done"
-          ? { client: { funnelStatus: "trial_attended", deletedAt: null } }
-          : {}),
-      },
+      where: trialWhere(tenantId, trialStatus),
       include: {
         client: {
           select: {
@@ -158,39 +168,37 @@ export default async function SalesPage({
       },
       orderBy: { scheduledDate: tab === "trial" ? "asc" : "desc" },
     })
-    rows = trials
-      .filter((t) => t.client && t.ward)
-      .map((t) => ({
-        rowId: t.id,
-        clientId: t.client.id,
-        state: t.client._count.payments > 0 ? "client" : "lead",
-        firstName: t.client.firstName,
-        lastName: t.client.lastName,
-        phone: t.client.phone,
-        socialLink: t.client.socialLink,
-        channelName: t.client.channel?.name ?? null,
-        ward: t.ward!,
-        branchName: t.group?.branch?.name ?? t.room?.branch?.name ?? null,
-        directionName: t.group?.direction?.name ?? t.direction?.name ?? null,
-        groupOrTimeLabel:
-          t.group?.name ??
-          (t.startTime
-            ? `Индив. ${t.startTime}${t.durationMinutes ? `, ${t.durationMinutes}мин` : ""}`
-            : null),
-        scheduledDate: t.scheduledDate.toISOString(),
-        firstPaidLessonDate: t.client.firstPaidLessonDate
-          ? t.client.firstPaidLessonDate.toISOString()
-          : null,
-        expectedSubscriptionAmount: null,
-        createdAt: null,
-        nextContactDate: t.client.nextContactDate ? t.client.nextContactDate.toISOString() : null,
-        comment: t.client.comment,
-        assignedTo: t.client.assignedTo,
-      }))
+    rows = trials.map((t) => ({
+      rowId: t.id,
+      clientId: t.client.id,
+      state: t.client._count.payments > 0 ? "client" : "lead",
+      firstName: t.client.firstName,
+      lastName: t.client.lastName,
+      phone: t.client.phone,
+      socialLink: t.client.socialLink,
+      channelName: t.client.channel?.name ?? null,
+      ward: t.ward!,
+      branchName: t.group?.branch?.name ?? t.room?.branch?.name ?? null,
+      directionName: t.group?.direction?.name ?? t.direction?.name ?? null,
+      groupOrTimeLabel:
+        t.group?.name ??
+        (t.startTime
+          ? `Индив. ${t.startTime}${t.durationMinutes ? `, ${t.durationMinutes}мин` : ""}`
+          : null),
+      scheduledDate: t.scheduledDate.toISOString(),
+      firstPaidLessonDate: t.client.firstPaidLessonDate
+        ? t.client.firstPaidLessonDate.toISOString()
+        : null,
+      expectedSubscriptionAmount: null,
+      createdAt: null,
+      nextContactDate: t.client.nextContactDate ? t.client.nextContactDate.toISOString() : null,
+      comment: t.client.comment,
+      assignedTo: t.client.assignedTo,
+    }))
   } else {
     // awaiting_payment
     const clients = await db.client.findMany({
-      where: { tenantId, deletedAt: null, funnelStatus: "awaiting_payment" },
+      where: awaitingPaymentWhere(tenantId),
       include: {
         branch: { select: { id: true, name: true } },
         wards: { select: { id: true, firstName: true, lastName: true } },
