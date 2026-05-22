@@ -10,7 +10,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select"
 import { CalendarDays, X, Filter } from "lucide-react"
 import type { ScheduleView } from "./schedule-week-nav"
@@ -202,7 +201,11 @@ export function ScheduleFilterableGrid({
             }}
           >
             <SelectTrigger className="w-[220px]">
-              <SelectValue placeholder="Филиал" />
+              {branchFilter ? (
+                branches.find((b) => b.id === branchFilter)?.name || "Филиал"
+              ) : (
+                <span className="text-muted-foreground">Филиал</span>
+              )}
             </SelectTrigger>
             <SelectContent>
               {branches.map((b) => (
@@ -215,7 +218,11 @@ export function ScheduleFilterableGrid({
         ) : (
           <Select value={roomFilter} onValueChange={(v) => setRoomFilter(v ?? "")}>
             <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Кабинет" />
+              {roomFilter ? (
+                rooms.find((r) => r.id === roomFilter)?.name || "Кабинет"
+              ) : (
+                <span className="text-muted-foreground">Кабинет</span>
+              )}
             </SelectTrigger>
             <SelectContent>
               {rooms.map((room) => (
@@ -229,7 +236,11 @@ export function ScheduleFilterableGrid({
 
         <Select value={directionFilter} onValueChange={(v) => setDirectionFilter(v ?? "")}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Направление" />
+            {directionFilter ? (
+              directions.find((d) => d.id === directionFilter)?.name || "Направление"
+            ) : (
+              <span className="text-muted-foreground">Направление</span>
+            )}
           </SelectTrigger>
           <SelectContent>
             {directions.map((dir) => (
@@ -242,7 +253,11 @@ export function ScheduleFilterableGrid({
 
         <Select value={instructorFilter} onValueChange={(v) => setInstructorFilter(v ?? "")}>
           <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Педагог" />
+            {(() => {
+              const instr = instructors.find((i) => i.id === instructorFilter)
+              if (!instr) return <span className="text-muted-foreground">Педагог</span>
+              return `${instr.lastName} ${instr.firstName?.[0] || ""}.`.trim()
+            })()}
           </SelectTrigger>
           <SelectContent>
             {instructors.map((instr) => (
@@ -512,11 +527,11 @@ function WeekRoomsView({
       >
         {/* Угол: пусто над колонкой времени, ряд 1 */}
         <div className="border-r border-b bg-muted/30" style={{ gridColumn: 1, gridRow: 1 }} />
-        {/* Заголовки дней */}
+        {/* Заголовки дней — правая граница утолщённая, она же разделитель дней */}
         {weekDays.map((day, di) => (
           <div
             key={`day-${day}`}
-            className="border-r border-b bg-muted/30 p-2 text-center text-sm font-semibold"
+            className="border-r-2 border-r-border border-b bg-muted/30 p-2 text-center text-sm font-semibold"
             style={{
               gridColumn: `${2 + di * roomsCount} / span ${roomsCount}`,
               gridRow: 1,
@@ -528,21 +543,24 @@ function WeekRoomsView({
 
         {/* Угол: пусто над колонкой времени, ряд 2 */}
         <div className="border-r border-b bg-muted/20" style={{ gridColumn: 1, gridRow: 2 }} />
-        {/* Заголовки кабинетов */}
+        {/* Заголовки кабинетов — последний в дне получает утолщённую правую границу */}
         {weekDays.flatMap((day, di) =>
-          branchRooms.map((room, ri) => (
-            <div
-              key={`room-${day}-${room.id}`}
-              className="border-r border-b bg-muted/20 px-1 py-1 text-center text-xs truncate"
-              style={{
-                gridColumn: 2 + di * roomsCount + ri,
-                gridRow: 2,
-              }}
-              title={room.name}
-            >
-              {room.name}
-            </div>
-          ))
+          branchRooms.map((room, ri) => {
+            const isDayEdge = ri === roomsCount - 1
+            return (
+              <div
+                key={`room-${day}-${room.id}`}
+                className={`${isDayEdge ? "border-r-2 border-r-border" : "border-r"} border-b bg-muted/20 px-1 py-1 text-center text-xs truncate`}
+                style={{
+                  gridColumn: 2 + di * roomsCount + ri,
+                  gridRow: 2,
+                }}
+                title={room.name}
+              >
+                {room.name}
+              </div>
+            )
+          })
         )}
 
         {/* Время — слева */}
@@ -560,13 +578,14 @@ function WeekRoomsView({
         {weekDays.flatMap((day, di) =>
           branchRooms.map((room, ri) => {
             const colIdx = 2 + di * roomsCount + ri
+            const isDayEdge = ri === roomsCount - 1
             const cellLessons = lessons.filter(
               (l) => l.date === day && l.group.room.id === room.id
             )
             return (
               <div
                 key={`col-${day}-${room.id}`}
-                className="relative border-r"
+                className={`relative ${isDayEdge ? "border-r-2 border-r-border" : "border-r"}`}
                 style={{
                   gridColumn: colIdx,
                   gridRow: `3 / span ${HOURS.length}`,
