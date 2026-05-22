@@ -525,8 +525,11 @@ function WeekRoomsView({
           gridTemplateRows: `auto auto repeat(${HOURS.length}, ${CELL_HEIGHT}px)`,
         }}
       >
-        {/* Угол: пусто над колонкой времени, ряд 1 */}
-        <div className="border-r border-b bg-muted/30" style={{ gridColumn: 1, gridRow: 1 }} />
+        {/* Угол: пусто над колонкой времени, ряд 1 (sticky-left вместе со всей колонкой времени) */}
+        <div
+          className="sticky left-0 z-20 border-r border-b bg-muted/30"
+          style={{ gridColumn: 1, gridRow: 1 }}
+        />
         {/* Заголовки дней — правая граница утолщённая, она же разделитель дней */}
         {weekDays.map((day, di) => (
           <div
@@ -542,7 +545,10 @@ function WeekRoomsView({
         ))}
 
         {/* Угол: пусто над колонкой времени, ряд 2 */}
-        <div className="border-r border-b bg-muted/20" style={{ gridColumn: 1, gridRow: 2 }} />
+        <div
+          className="sticky left-0 z-20 border-r border-b bg-muted/20"
+          style={{ gridColumn: 1, gridRow: 2 }}
+        />
         {/* Заголовки кабинетов — последний в дне получает утолщённую правую границу */}
         {weekDays.flatMap((day, di) =>
           branchRooms.map((room, ri) => {
@@ -563,11 +569,12 @@ function WeekRoomsView({
           })
         )}
 
-        {/* Время — слева */}
+        {/* Время — слева, sticky-left чтобы оставаться видимым при горизонтальном скролле.
+            z-20 перекрывает карточки занятий (z-10), которые проезжают под колонкой при скролле. */}
         {HOURS.map((h, hi) => (
           <div
             key={`h-${h}`}
-            className="border-r border-b px-1 pt-1 text-right text-xs text-muted-foreground"
+            className="sticky left-0 z-20 border-r border-b bg-background px-1 pt-1 text-right text-xs text-muted-foreground"
             style={{ gridColumn: 1, gridRow: 3 + hi }}
           >
             {String(h).padStart(2, "0")}:00
