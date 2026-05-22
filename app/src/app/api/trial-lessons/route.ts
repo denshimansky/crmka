@@ -122,6 +122,9 @@ export async function POST(req: NextRequest) {
     if (!data.startTime) {
       return NextResponse.json({ error: "Для индивидуального пробного нужно время" }, { status: 400 })
     }
+    if (!data.roomId) {
+      return NextResponse.json({ error: "Для индивидуального пробного нужно выбрать кабинет" }, { status: 400 })
+    }
 
     // Направление существует
     const direction = await db.direction.findFirst({

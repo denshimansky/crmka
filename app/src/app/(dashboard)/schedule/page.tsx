@@ -10,7 +10,7 @@ import { CopyMonthDialog } from "./copy-month-dialog"
 import { PageHelp } from "@/components/page-help"
 import { ScheduleFilterableGrid } from "./schedule-filters"
 
-const ALLOWED_VIEWS = new Set<ScheduleView>(["rooms", "instructors", "directions", "list"])
+const ALLOWED_VIEWS = new Set<ScheduleView>(["week", "rooms", "instructors", "directions", "list"])
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -61,7 +61,7 @@ export default async function SchedulePage({
   const weekOffset = parseInt(sp.week || "0", 10) || 0
   const view: ScheduleView = ALLOWED_VIEWS.has(sp.view as ScheduleView)
     ? (sp.view as ScheduleView)
-    : "rooms"
+    : "week"
 
   const session = await getSession()
   const tenantId = session.user.tenantId
@@ -71,6 +71,14 @@ export default async function SchedulePage({
   const branches = await db.branch.findMany({
     where: { tenantId, deletedAt: null },
     select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  })
+
+  // Все кабинеты организации с привязкой к филиалу — нужны для вида «По неделе»,
+  // в котором кабинеты пустого филиала тоже должны отображаться столбцами.
+  const allRoomsRaw = await db.room.findMany({
+    where: { tenantId, deletedAt: null },
+    select: { id: true, name: true, branchId: true },
     orderBy: { name: "asc" },
   })
 
@@ -188,6 +196,7 @@ export default async function SchedulePage({
     id: l.id,
     date: l.date.toISOString().slice(0, 10),
     startTime: l.startTime,
+    durationMinutes: l.durationMinutes,
     instructorId: l.instructorId,
     group: {
       name: l.group.name,
@@ -223,6 +232,7 @@ export default async function SchedulePage({
       id: `trial-${t.id}`,
       date: t.scheduledDate.toISOString().slice(0, 10),
       startTime: t.startTime || "—",
+      durationMinutes: t.durationMinutes ?? 60,
       instructorId: instructor.id,
       href: `/crm/funnel/${t.clientId}`,
       isTrial: true as const,
@@ -308,7 +318,7 @@ export default async function SchedulePage({
         </h2>
       </div>
 
-      {!hasLessons ? (
+      {!hasLessons && view !== "week" ? (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
           <CalendarDays className="size-16 text-muted-foreground/50" />
           <div>
@@ -325,6 +335,8 @@ export default async function SchedulePage({
         <ScheduleFilterableGrid
           lessons={allScheduleItems}
           rooms={roomsWithTrials}
+          allRooms={allRoomsRaw}
+          branches={branches}
           directions={directions}
           instructors={instructors}
           weekDays={weekDays}

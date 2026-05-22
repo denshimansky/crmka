@@ -198,6 +198,10 @@ export function LeadStatusActions({
       setTrialError("Укажите время")
       return
     }
+    if (kind === "individual" && !roomId) {
+      setTrialError("Для индивидуального пробного выберите филиал и кабинет")
+      return
+    }
     if (!scheduledDate) {
       setTrialError("Укажите дату")
       return
@@ -448,11 +452,11 @@ export function LeadStatusActions({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label>Филиал</Label>
+                    <Label>Филиал *</Label>
                     <Select
                       value={branchId}
                       onValueChange={(v) => {
-                        if (v !== null) {
+                        if (v) {
                           setBranchId(v)
                           setRoomId("")
                         }
@@ -462,11 +466,10 @@ export function LeadStatusActions({
                         {branchId ? (
                           branchesList.find((b) => b.id === branchId)?.name
                         ) : (
-                          <span className="text-muted-foreground">Не выбран</span>
+                          <span className="text-muted-foreground">Выберите филиал</span>
                         )}
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Не выбран</SelectItem>
                         {branchesList.map((b) => (
                           <SelectItem key={b.id} value={b.id}>
                             {b.name}
@@ -476,11 +479,11 @@ export function LeadStatusActions({
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Кабинет</Label>
+                    <Label>Кабинет *</Label>
                     <Select
                       value={roomId}
                       onValueChange={(v) => {
-                        if (v !== null) setRoomId(v)
+                        if (v) setRoomId(v)
                       }}
                       disabled={!branchId}
                     >
@@ -489,12 +492,11 @@ export function LeadStatusActions({
                           roomsList.find((r) => r.id === roomId)?.name
                         ) : (
                           <span className="text-muted-foreground">
-                            {branchId ? "Не выбран" : "Сначала филиал"}
+                            {branchId ? "Выберите кабинет" : "Сначала филиал"}
                           </span>
                         )}
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Не выбран</SelectItem>
                         {roomsList
                           .filter((r) => r.branchId === branchId)
                           .map((r) => (

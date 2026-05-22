@@ -4,9 +4,10 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 
-export type ScheduleView = "rooms" | "instructors" | "directions" | "list"
+export type ScheduleView = "week" | "rooms" | "instructors" | "directions" | "list"
 
 const VIEW_OPTIONS: { value: ScheduleView; label: string }[] = [
+  { value: "week", label: "По неделе" },
   { value: "rooms", label: "По кабинетам" },
   { value: "instructors", label: "По педагогам" },
   { value: "directions", label: "По направлениям" },
@@ -25,7 +26,7 @@ export function ScheduleWeekNav({ weekOffset, weekLabel, view }: ScheduleWeekNav
   function buildUrl(offset: number, nextView: ScheduleView) {
     const params = new URLSearchParams()
     if (offset !== 0) params.set("week", String(offset))
-    if (nextView !== "rooms") params.set("view", nextView)
+    if (nextView !== "week") params.set("view", nextView)
     return `/schedule${params.toString() ? `?${params}` : ""}`
   }
 

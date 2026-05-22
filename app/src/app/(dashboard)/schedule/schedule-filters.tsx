@@ -35,6 +35,7 @@ interface LessonData {
   id: string
   date: string // ISO date string YYYY-MM-DD
   startTime: string
+  durationMinutes: number
   instructorId: string
   href?: string // если задан — переопределяет ссылку (например, для индивидуальных пробных)
   isTrial?: boolean
@@ -52,9 +53,22 @@ interface LessonData {
   }
 }
 
+interface Branch {
+  id: string
+  name: string
+}
+
+interface RoomWithBranch {
+  id: string
+  name: string
+  branchId: string
+}
+
 interface ScheduleFiltersProps {
   lessons: LessonData[]
   rooms: Room[]
+  allRooms: RoomWithBranch[]
+  branches: Branch[]
   directions: Direction[]
   instructors: Instructor[]
   weekDays: string[] // ISO date strings
@@ -78,6 +92,8 @@ function getOccupancyStyle(enrolled: number, max: number): { className: string; 
 export function ScheduleFilterableGrid({
   lessons,
   rooms,
+  allRooms,
+  branches,
   directions,
   instructors,
   weekDays,
@@ -88,6 +104,7 @@ export function ScheduleFilterableGrid({
   const [roomFilter, setRoomFilter] = useState<string>("")
   const [directionFilter, setDirectionFilter] = useState<string>("")
   const [instructorFilter, setInstructorFilter] = useState<string>("")
+  const [branchFilter, setBranchFilter] = useState<string>(() => branches[0]?.id || "")
 
   const hasFilters = !!(roomFilter || directionFilter || instructorFilter)
 
@@ -177,18 +194,38 @@ export function ScheduleFilterableGrid({
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
         <Filter className="size-4 text-muted-foreground" />
-        <Select value={roomFilter} onValueChange={(v) => setRoomFilter(v ?? "")}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Кабинет" />
-          </SelectTrigger>
-          <SelectContent>
-            {rooms.map((room) => (
-              <SelectItem key={room.id} value={room.id}>
-                {room.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {view === "week" ? (
+          <Select
+            value={branchFilter}
+            onValueChange={(v) => {
+              if (v) setBranchFilter(v)
+            }}
+          >
+            <SelectTrigger className="w-[220px]">
+              <SelectValue placeholder="Филиал" />
+            </SelectTrigger>
+            <SelectContent>
+              {branches.map((b) => (
+                <SelectItem key={b.id} value={b.id}>
+                  {b.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Select value={roomFilter} onValueChange={(v) => setRoomFilter(v ?? "")}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Кабинет" />
+            </SelectTrigger>
+            <SelectContent>
+              {rooms.map((room) => (
+                <SelectItem key={room.id} value={room.id}>
+                  {room.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <Select value={directionFilter} onValueChange={(v) => setDirectionFilter(v ?? "")}>
           <SelectTrigger className="w-[180px]">
@@ -242,7 +279,18 @@ export function ScheduleFilterableGrid({
       )}
 
       {/* Grid */}
-      {filteredLessons.length === 0 ? (
+      {view === "week" ? (
+        <WeekRoomsView
+          lessons={filteredLessons}
+          allRooms={allRooms}
+          branches={branches}
+          branchId={branchFilter}
+          weekDays={weekDays}
+          dayNames={dayNames}
+          directionColorMap={directionColorMap}
+          formatDateShort={formatDateShort}
+        />
+      ) : filteredLessons.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
           <CalendarDays className="size-16 text-muted-foreground/50" />
           <div>
@@ -398,5 +446,214 @@ export function ScheduleFilterableGrid({
         </div>
       )}
     </>
+  )
+}
+
+// ─── Вид «По неделе» ───
+// Строки = часы 7:00..21:00, столбцы = (день недели) × (кабинеты выбранного филиала).
+// Карточка занятия позиционируется абсолютно внутри столбца «день-кабинет»:
+//   top    = (часы от 7:00) * CELL_HEIGHT + (минуты начала / 60) * CELL_HEIGHT
+//   height = (длительность / 60) * CELL_HEIGHT  (45 мин = 3/4 ячейки, 30 мин = 1/2)
+const HOUR_START = 7
+const HOUR_END = 21
+const HOURS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i)
+const CELL_HEIGHT = 64
+
+interface WeekRoomsViewProps {
+  lessons: LessonData[]
+  allRooms: RoomWithBranch[]
+  branches: Branch[]
+  branchId: string
+  weekDays: string[]
+  dayNames: string[]
+  directionColorMap: Record<string, string>
+  formatDateShort: (dateStr: string) => string
+}
+
+function WeekRoomsView({
+  lessons,
+  allRooms,
+  branches,
+  branchId,
+  weekDays,
+  dayNames,
+  directionColorMap,
+  formatDateShort,
+}: WeekRoomsViewProps) {
+  if (branches.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+        В организации нет филиалов. Добавьте филиал и кабинеты в настройках.
+      </div>
+    )
+  }
+
+  const branchRooms = allRooms.filter((r) => r.branchId === branchId)
+
+  if (branchRooms.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+        В филиале нет кабинетов. Добавьте кабинеты в настройках филиала.
+      </div>
+    )
+  }
+
+  const roomsCount = branchRooms.length
+  const colCount = weekDays.length * roomsCount
+
+  return (
+    <div className="overflow-x-auto">
+      <div
+        className="grid border-l border-t bg-background"
+        style={{
+          gridTemplateColumns: `60px repeat(${colCount}, minmax(120px, 1fr))`,
+          gridTemplateRows: `auto auto repeat(${HOURS.length}, ${CELL_HEIGHT}px)`,
+        }}
+      >
+        {/* Угол: пусто над колонкой времени, ряд 1 */}
+        <div className="border-r border-b bg-muted/30" style={{ gridColumn: 1, gridRow: 1 }} />
+        {/* Заголовки дней */}
+        {weekDays.map((day, di) => (
+          <div
+            key={`day-${day}`}
+            className="border-r border-b bg-muted/30 p-2 text-center text-sm font-semibold"
+            style={{
+              gridColumn: `${2 + di * roomsCount} / span ${roomsCount}`,
+              gridRow: 1,
+            }}
+          >
+            {dayNames[di]} {formatDateShort(day)}
+          </div>
+        ))}
+
+        {/* Угол: пусто над колонкой времени, ряд 2 */}
+        <div className="border-r border-b bg-muted/20" style={{ gridColumn: 1, gridRow: 2 }} />
+        {/* Заголовки кабинетов */}
+        {weekDays.flatMap((day, di) =>
+          branchRooms.map((room, ri) => (
+            <div
+              key={`room-${day}-${room.id}`}
+              className="border-r border-b bg-muted/20 px-1 py-1 text-center text-xs truncate"
+              style={{
+                gridColumn: 2 + di * roomsCount + ri,
+                gridRow: 2,
+              }}
+              title={room.name}
+            >
+              {room.name}
+            </div>
+          ))
+        )}
+
+        {/* Время — слева */}
+        {HOURS.map((h, hi) => (
+          <div
+            key={`h-${h}`}
+            className="border-r border-b px-1 pt-1 text-right text-xs text-muted-foreground"
+            style={{ gridColumn: 1, gridRow: 3 + hi }}
+          >
+            {String(h).padStart(2, "0")}:00
+          </div>
+        ))}
+
+        {/* Колонки день × кабинет (одна на каждую пару, занимает все часы по высоте) */}
+        {weekDays.flatMap((day, di) =>
+          branchRooms.map((room, ri) => {
+            const colIdx = 2 + di * roomsCount + ri
+            const cellLessons = lessons.filter(
+              (l) => l.date === day && l.group.room.id === room.id
+            )
+            return (
+              <div
+                key={`col-${day}-${room.id}`}
+                className="relative border-r"
+                style={{
+                  gridColumn: colIdx,
+                  gridRow: `3 / span ${HOURS.length}`,
+                }}
+              >
+                {/* Горизонтальные линии на границах часов */}
+                {HOURS.map((_, idx) => (
+                  <div
+                    key={`line-${idx}`}
+                    className="pointer-events-none absolute inset-x-0 border-b"
+                    style={{ top: (idx + 1) * CELL_HEIGHT - 1 }}
+                  />
+                ))}
+                {/* Карточки занятий */}
+                {cellLessons.map((lesson) => {
+                  const [hStr, mStr] = lesson.startTime.split(":")
+                  const startHour = parseInt(hStr, 10)
+                  const startMin = parseInt(mStr, 10) || 0
+                  if (
+                    Number.isNaN(startHour) ||
+                    startHour < HOUR_START ||
+                    startHour > HOUR_END
+                  ) {
+                    return null
+                  }
+                  const top =
+                    (startHour - HOUR_START) * CELL_HEIGHT + (startMin / 60) * CELL_HEIGHT
+                  const duration = lesson.durationMinutes || 60
+                  const height = Math.max(20, (duration / 60) * CELL_HEIGHT)
+                  const enrolled = lesson.group._count.enrollments
+                  const max = lesson.group.maxStudents
+                  const occupancy = getOccupancyStyle(enrolled, max)
+                  const colorClass = directionColorMap[lesson.group.directionId] || ""
+                  const instructorName = [
+                    lesson.instructor.lastName,
+                    lesson.instructor.firstName?.[0]
+                      ? lesson.instructor.firstName[0] + "."
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")
+                  return (
+                    <Link
+                      key={lesson.id}
+                      href={lesson.href || `/schedule/lessons/${lesson.id}`}
+                      className="absolute left-0.5 right-0.5 z-10"
+                      style={{ top, height }}
+                    >
+                      <Card
+                        className={`flex h-full flex-col justify-start gap-0.5 overflow-hidden border p-1.5 text-[11px] leading-tight ${colorClass} ${occupancy.className} cursor-pointer hover:opacity-80`}
+                        title={`${lesson.startTime} · ${occupancy.label}`}
+                      >
+                        <div className="flex items-center justify-between gap-1 font-medium truncate">
+                          <span className="truncate">{lesson.group.name}</span>
+                          {lesson.isTrial && (
+                            <Badge
+                              variant="outline"
+                              className="h-3.5 px-1 text-[9px] border-blue-300 text-blue-700 dark:text-blue-400"
+                            >
+                              проб
+                            </Badge>
+                          )}
+                        </div>
+                        {height >= 36 && (
+                          <div className="opacity-70 truncate">{instructorName}</div>
+                        )}
+                        {height >= 52 && (
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold">
+                              {enrolled}/{max}
+                            </span>
+                            {max > 0 && enrolled / max > 0.9 && (
+                              <Badge variant="destructive" className="h-3.5 px-1 text-[9px]">
+                                !
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+                      </Card>
+                    </Link>
+                  )
+                })}
+              </div>
+            )
+          })
+        )}
+      </div>
+    </div>
   )
 }
