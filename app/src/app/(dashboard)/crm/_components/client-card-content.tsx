@@ -10,6 +10,7 @@ import { ClientTabs } from "../clients/[id]/client-tabs"
 import { EditClientDialog } from "../clients/[id]/edit-client-dialog"
 import { UnprolongedCommentsSection } from "../clients/[id]/unprolonged-comments"
 import { LeadStatusActions } from "./lead-status-actions"
+import { ApplicationsSection } from "./applications-section"
 
 const SEGMENT_LABELS: Record<string, string> = {
   new_client: "Новый",
@@ -343,6 +344,12 @@ export async function ClientCardContent({
           </CardContent>
         </Card>
       )}
+
+      {/* Заявки */}
+      <ApplicationsSection
+        clientId={client.id}
+        canDelete={session.user.role === "owner" || session.user.role === "manager"}
+      />
 
       {/* Two-column layout */}
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">

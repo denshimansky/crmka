@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select"
 import { CalendarPlus } from "lucide-react"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
+import { CreateApplicationDialog } from "./create-application-dialog"
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "new", label: "Новый" },
@@ -277,6 +278,8 @@ export function LeadStatusActions({
           </SelectContent>
         </Select>
       )}
+
+      <CreateApplicationDialog clientId={clientId} wards={wards} />
 
       <Dialog
         open={trialOpen}

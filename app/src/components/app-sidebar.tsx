@@ -34,8 +34,8 @@ const navItems = [
 ]
 
 const crmItems = [
-  { title: "Воронка продаж", href: "/crm/funnel", icon: Filter },
-  { title: "Клиенты", href: "/crm/clients", icon: Users },
+  { title: "Контакты", href: "/crm/contacts", icon: Users },
+  { title: "Продажи", href: "/crm/sales", icon: Filter },
   { title: "Обзвон", href: "/crm/calls", icon: Phone },
 ]
 

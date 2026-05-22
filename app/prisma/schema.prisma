@@ -125,6 +125,7 @@ model Organization {
   roomBalances              RoomBalance[]
   pageViews                 PageView[]
   loginAttempts             LoginAttempt[]
+  applications              Application[]
 
   @@map("organizations")
 }
@@ -151,6 +152,7 @@ model Branch {
   plannedExpenses    PlannedExpense[]
   adminBonusSettings AdminBonusSettings[]
   stockBalances      StockBalance[]
+  applications       Application[]
 
   @@index([tenantId])
   @@map("branches")
@@ -224,6 +226,7 @@ model Employee {
   stockMovements             StockMovement[]      @relation("StockMovementCreator")
   pageViews                  PageView[]
   loginAttempts              LoginAttempt[]
+  applicationsProcessed      Application[]        @relation("ApplicationProcessor")
 
   @@unique([tenantId, login])
   @@index([tenantId])
@@ -283,6 +286,7 @@ model Client {
   balanceTransactions ClientBalanceTransaction[]
   unprolongedComments UnprolongedComment[]
   communications      Communication[]
+  applications        Application[]
 
   @@index([tenantId, funnelStatus])
   @@index([tenantId, clientStatus])
@@ -305,6 +309,7 @@ model Ward {
   enrollments   GroupEnrollment[]
   subscriptions Subscription[]
   trialLessons  TrialLesson[]
+  applications  Application[]
 
   @@index([tenantId])
   @@map("wards")
@@ -333,6 +338,7 @@ model Direction {
   subscriptions   Subscription[]
   expenseBranches ExpenseBranch[]
   trialLessons    TrialLesson[]
+  applications    Application[]
 
   @@index([tenantId])
   @@map("directions")
@@ -1310,6 +1316,48 @@ enum TrialStatus {
   attended
   no_show
   cancelled
+}
+
+// === ЗАЯВКИ (продажи: выявленная потребность, ещё не записаны на пробное) ===
+
+model Application {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  clientId          String              @map("client_id") @db.Uuid
+  wardId            String              @map("ward_id") @db.Uuid
+  branchId          String              @map("branch_id") @db.Uuid
+  directionId       String              @map("direction_id") @db.Uuid
+  status            ApplicationStatus   @default(active)
+  processedToStatus ApplicationOutcome? @map("processed_to_status")
+  processedAt       DateTime?           @map("processed_at")
+  processedBy       String?             @map("processed_by") @db.Uuid
+  comment           String?
+  createdBy         String?             @map("created_by") @db.Uuid
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  deletedAt         DateTime?           @map("deleted_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  ward         Ward         @relation(fields: [wardId], references: [id])
+  branch       Branch       @relation(fields: [branchId], references: [id])
+  direction    Direction    @relation(fields: [directionId], references: [id])
+  processor    Employee?    @relation("ApplicationProcessor", fields: [processedBy], references: [id])
+
+  @@index([tenantId, status])
+  @@index([tenantId, clientId, status])
+  @@map("applications")
+}
+
+enum ApplicationStatus {
+  active
+  processed
+}
+
+enum ApplicationOutcome {
+  lead
+  potential
+  trial
 }
 
 // === ТРАНЗАКЦИИ БАЛАНСА КЛИЕНТА ===

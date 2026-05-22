@@ -6,5 +6,5 @@ export default async function ClientPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  return <ClientCardContent id={id} backHref="/crm/clients" />
+  return <ClientCardContent id={id} backHref="/crm/contacts" />
 }

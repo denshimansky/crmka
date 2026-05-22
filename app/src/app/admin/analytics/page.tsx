@@ -26,9 +26,11 @@ interface AnalyticsData {
 function pageName(path: string): string {
   const map: Record<string, string> = {
     "/": "Дашборд",
-    "/crm/funnel": "Воронка продаж",
-    "/crm/leads": "Воронка продаж",
-    "/crm/clients": "Клиенты",
+    "/crm/contacts": "Контакты",
+    "/crm/sales": "Продажи",
+    "/crm/funnel": "Продажи (старый URL)",
+    "/crm/leads": "Контакты-Лиды (старый URL)",
+    "/crm/clients": "Контакты-Активные (старый URL)",
     "/schedule/groups": "Группы",
     "/schedule/lessons": "Занятия",
     "/finance/payments": "Оплаты",

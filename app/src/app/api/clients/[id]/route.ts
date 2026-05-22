@@ -20,6 +20,7 @@ const updateSchema = z.object({
   nextContactDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   blacklistReason: z.string().optional(),
   promisedPaymentDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  firstPaidLessonDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
 })
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -64,6 +65,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Нельзя вернуть активного клиента в воронку лидов" }, { status: 400 })
   }
 
+  // Возврат из Архив/ЧС — только владелец
+  if (
+    data.funnelStatus &&
+    data.funnelStatus !== existing.funnelStatus &&
+    (existing.funnelStatus === "archived" || existing.funnelStatus === "blacklisted") &&
+    session.user.role !== "owner"
+  ) {
+    return NextResponse.json(
+      { error: "Только владелец может вернуть клиента из архива или чёрного списка" },
+      { status: 403 },
+    )
+  }
+
   const client = await db.client.update({
     where: { id },
     data: {
@@ -82,6 +96,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(data.nextContactDate !== undefined && { nextContactDate: data.nextContactDate ? new Date(data.nextContactDate) : null }),
       ...(data.blacklistReason && { blacklistReason: data.blacklistReason, blacklistedBy: session.user.employeeId }),
       ...(data.promisedPaymentDate !== undefined && { promisedPaymentDate: data.promisedPaymentDate ? new Date(data.promisedPaymentDate) : null }),
+      ...(data.firstPaidLessonDate !== undefined && { firstPaidLessonDate: data.firstPaidLessonDate ? new Date(data.firstPaidLessonDate) : null }),
     },
     include: { wards: true, branch: { select: { id: true, name: true } } },
   })

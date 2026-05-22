@@ -602,12 +602,12 @@ export function AttendanceTable({
           <div>
             <div className="flex items-center gap-2">
               <Link
-                href={`/crm/funnel/${trial.clientId}`}
+                href={`/crm/clients/${trial.clientId}`}
                 className="font-medium text-primary hover:underline"
               >
                 {displayName}
               </Link>
-              <Link href={`/crm/funnel/${trial.clientId}`} title="Открыть карточку лида">
+              <Link href={`/crm/clients/${trial.clientId}`} title="Открыть карточку лида">
                 <Badge
                   variant="outline"
                   className="text-xs text-blue-600 border-blue-300 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30"
@@ -1041,7 +1041,7 @@ export function AttendanceTable({
                       {trialStudents.map((t, i) => (
                         <span key={t.trialId} className="inline-flex items-center">
                           <Link
-                            href={`/crm/funnel/${t.clientId}`}
+                            href={`/crm/clients/${t.clientId}`}
                             className="hover:underline"
                             title="Открыть карточку лида"
                           >

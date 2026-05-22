@@ -147,7 +147,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
   const stats = [
-    { title: "Активные абонементы", value: String(activeSubscriptions), icon: Users, color: "text-green-600", bg: "bg-green-50", href: "/crm/clients" },
+    { title: "Активные абонементы", value: String(activeSubscriptions), icon: Users, color: "text-green-600", bg: "bg-green-50", href: "/crm/contacts?tab=active" },
     { title: "Выручка за месяц", value: formatMoney(monthRevenue), icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50", href: "/reports/finance/pnl" },
     { title: "Расходы за месяц", value: formatMoney(monthExpenses), icon: TrendingDown, color: "text-red-600", bg: "bg-red-50", href: "/finance/expenses" },
     { title: "Должники", value: `${debtorCount} / ${formatMoney(totalDebt)}`, icon: AlertTriangle, color: "text-orange-600", bg: "bg-orange-50", href: "/finance/debtors" },

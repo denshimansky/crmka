@@ -15,7 +15,8 @@ test.describe("Навигация", () => {
 
   const pages = [
     { path: "/", title: "Главная" },
-    { path: "/crm/clients", title: "Клиенты" },
+    { path: "/crm/contacts", title: "Контакты" },
+    { path: "/crm/sales", title: "Продажи" },
     { path: "/schedule", title: "Расписание" },
     { path: "/schedule/groups", title: "Группы" },
     { path: "/finance/payments", title: "Оплаты" },

@@ -1,10 +1,10 @@
-import { ClientCardContent } from "../../_components/client-card-content"
+import { redirect } from "next/navigation"
 
-export default async function FunnelClientPage({
+export default async function FunnelClientRedirect({
   params,
 }: {
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  return <ClientCardContent id={id} backHref="/crm/funnel" />
+  redirect(`/crm/clients/${id}`)
 }

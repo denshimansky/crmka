@@ -35,7 +35,8 @@ export async function GET(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { searchParams } = new URL(req.url)
-  const status = searchParams.get("status") // active, lead, churned, all
+  const status = searchParams.get("status") // (legacy) active, lead, churned, all
+  const tab = searchParams.get("tab") // leads, potential, nontarget, active, churned, archived, blacklist, all
   const search = searchParams.get("search")
   const segment = searchParams.get("segment")
   const branchId = searchParams.get("branchId")
@@ -45,8 +46,35 @@ export async function GET(req: NextRequest) {
     deletedAt: null,
   }
 
-  // Фильтр по статусу
-  if (status === "active") {
+  const noActiveApplication: Prisma.ClientWhereInput = {
+    applications: { none: { status: "active", deletedAt: null } },
+  }
+
+  if (tab) {
+    if (tab === "leads") {
+      where.funnelStatus = "new"
+      where.AND = [noActiveApplication, { payments: { none: {} } }]
+    } else if (tab === "potential") {
+      where.funnelStatus = "potential"
+      where.AND = [noActiveApplication]
+    } else if (tab === "nontarget") {
+      where.funnelStatus = "non_target"
+    } else if (tab === "active") {
+      where.AND = [
+        { subscriptions: { some: { status: "active", deletedAt: null } } },
+        noActiveApplication,
+        { funnelStatus: { notIn: ["archived", "blacklisted"] } },
+      ]
+    } else if (tab === "churned") {
+      where.clientStatus = "churned"
+      where.subscriptions = { none: { status: "active", deletedAt: null } }
+    } else if (tab === "archived") {
+      where.funnelStatus = "archived"
+    } else if (tab === "blacklist") {
+      where.funnelStatus = "blacklisted"
+    }
+    // tab === "all" — без дополнительных фильтров
+  } else if (status === "active") {
     where.clientStatus = "active"
   } else if (status === "lead") {
     where.clientStatus = null

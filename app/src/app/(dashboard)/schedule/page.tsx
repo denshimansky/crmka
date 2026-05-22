@@ -248,7 +248,7 @@ export default async function SchedulePage({
       startTime: t.startTime || "—",
       durationMinutes: t.durationMinutes ?? 60,
       instructorId: instructor.id,
-      href: `/crm/funnel/${t.clientId}`,
+      href: `/crm/clients/${t.clientId}`,
       isTrial: true as const,
       group: {
         name: `Пробное: ${wardName || clientName}`,
