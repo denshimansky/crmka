@@ -205,28 +205,30 @@ export async function ClientCardContent({
       </div>
 
       {/* Action buttons / Lead actions */}
-      {client.clientStatus ? (
-        <div className="flex gap-2">
-          <Button disabled>
-            <CreditCard className="mr-2 size-4" />
-            Оплата
-          </Button>
-          <Button variant="outline" disabled>
-            <FileText className="mr-2 size-4" />
-            Абонемент
-          </Button>
-        </div>
-      ) : (
+      <div className="flex flex-wrap items-center gap-2">
+        {client.clientStatus && (
+          <>
+            <Button disabled>
+              <CreditCard className="mr-2 size-4" />
+              Оплата
+            </Button>
+            <Button variant="outline" disabled>
+              <FileText className="mr-2 size-4" />
+              Абонемент
+            </Button>
+          </>
+        )}
         <LeadStatusActions
           clientId={client.id}
           currentStatus={client.funnelStatus}
+          isActiveClient={!!client.clientStatus}
           wards={client.wards.map((w) => ({
             id: w.id,
             firstName: w.firstName,
             lastName: w.lastName,
           }))}
         />
-      )}
+      </div>
 
       {/* Активные абонементы — то, чем ребёнок занимается прямо сейчас */}
       {activeSubscriptions.length > 0 && (

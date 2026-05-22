@@ -46,10 +46,10 @@ export async function POST(req: NextRequest) {
       lastName: true,
     },
   })
-  if (!client) return NextResponse.json({ error: "Лид не найден" }, { status: 404 })
-  if (client.clientStatus === "active") {
-    return NextResponse.json({ error: "Это уже активный клиент, а не лид" }, { status: 400 })
-  }
+  if (!client) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
+  // Активные клиенты тоже могут записаться на пробное (новое направление).
+  // funnelStatus у них трогать не надо — они уже вне воронки лидов.
+  const isActiveClient = client.clientStatus === "active"
 
   // Подопечный существует и принадлежит этому лиду
   const ward = await db.ward.findFirst({
@@ -211,10 +211,13 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    await tx.client.update({
-      where: { id: data.clientId },
-      data: { funnelStatus: "trial_scheduled" },
-    })
+    if (!isActiveClient) {
+      // Лида двигаем в trial_scheduled. Активного клиента — нет: он уже за пределами воронки лидов.
+      await tx.client.update({
+        where: { id: data.clientId },
+        data: { funnelStatus: "trial_scheduled" },
+      })
+    }
 
     if (reminderAssigneeId) {
       const leadName = [client.lastName, client.firstName].filter(Boolean).join(" ") || "лид"

@@ -78,10 +78,13 @@ export function LeadStatusActions({
   clientId,
   currentStatus,
   wards,
+  isActiveClient = false,
 }: {
   clientId: string
   currentStatus: string
   wards: WardLite[]
+  // Активный клиент — селектор воронки скрываем, остаётся только запись на пробное (новое направление)
+  isActiveClient?: boolean
 }) {
   const router = useRouter()
   const [statusLoading, setStatusLoading] = useState(false)
@@ -256,22 +259,24 @@ export function LeadStatusActions({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Select value={statusValue} onValueChange={handleStatusChange}>
-        <SelectTrigger
-          className="h-7 min-w-[170px] text-xs"
-          disabled={statusLoading}
-        >
-          {STATUS_OPTIONS.find((s) => s.value === statusValue)?.label ||
-            statusValue}
-        </SelectTrigger>
-        <SelectContent>
-          {STATUS_OPTIONS.map((s) => (
-            <SelectItem key={s.value} value={s.value}>
-              {s.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {!isActiveClient && (
+        <Select value={statusValue} onValueChange={handleStatusChange}>
+          <SelectTrigger
+            className="h-7 min-w-[170px] text-xs"
+            disabled={statusLoading}
+          >
+            {STATUS_OPTIONS.find((s) => s.value === statusValue)?.label ||
+              statusValue}
+          </SelectTrigger>
+          <SelectContent>
+            {STATUS_OPTIONS.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       <Dialog
         open={trialOpen}
