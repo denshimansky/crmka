@@ -11,6 +11,8 @@ import { EditDirectionDialog } from "./edit-direction-dialog"
 import { CreateBranchDialog } from "./create-branch-dialog"
 import { PageHelp } from "@/components/page-help"
 import { CreateRoomDialog } from "./create-room-dialog"
+import { EditBranchDialog } from "./edit-branch-dialog"
+import { EditRoomDialog } from "./edit-room-dialog"
 import { RoleDisplayNamesForm } from "./role-display-names-form"
 import { AdminBonusContent } from "./admin-bonus/admin-bonus-content"
 
@@ -162,12 +164,24 @@ export default async function SettingsPage() {
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {org.branches.map((branch) => (
                   <Card key={branch.id}>
-                    <CardContent className="p-5">
+                    <CardContent className="relative p-5">
+                      <div className="absolute right-3 top-3">
+                        <EditBranchDialog
+                          branch={{
+                            id: branch.id,
+                            name: branch.name,
+                            address: branch.address,
+                            workingHoursStart: branch.workingHoursStart,
+                            workingHoursEnd: branch.workingHoursEnd,
+                            hasRooms: branch.rooms.length > 0,
+                          }}
+                        />
+                      </div>
                       <div className="flex items-start gap-3">
                         <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                           <Building2 className="size-5" />
                         </div>
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-0 flex-1 pr-8">
                           <h3 className="truncate font-medium">{branch.name}</h3>
                           {branch.address && (
                             <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
@@ -189,9 +203,16 @@ export default async function SettingsPage() {
                           {branch.rooms.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1">
                               {branch.rooms.map((room) => (
-                                <Badge key={room.id} variant="outline" className="text-xs">
-                                  {room.name} ({room.capacity} чел.)
-                                </Badge>
+                                <EditRoomDialog
+                                  key={room.id}
+                                  room={{
+                                    id: room.id,
+                                    name: room.name,
+                                    capacity: room.capacity,
+                                    branchId: branch.id,
+                                  }}
+                                  branches={org.branches.map((b) => ({ id: b.id, name: b.name }))}
+                                />
                               ))}
                             </div>
                           )}
