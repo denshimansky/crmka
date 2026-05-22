@@ -70,9 +70,23 @@ export default async function SchedulePage({
 
   const branches = await db.branch.findMany({
     where: { tenantId, deletedAt: null },
-    select: { id: true, name: true },
+    select: { id: true, name: true, workingHoursStart: true, workingHoursEnd: true },
     orderBy: { name: "asc" },
   })
+
+  // Диапазон часов для вида «По неделе» = объединение workingHours по всем филиалам.
+  // Если филиал A работает 08:00–19:00, филиал B — 10:00–20:00, итог 08:00–20:00.
+  // При отсутствии настроек — дефолт 08:00–21:00.
+  function parseHour(time: string | null | undefined): number | null {
+    if (!time) return null
+    const [h] = time.split(":")
+    const n = parseInt(h, 10)
+    return Number.isFinite(n) && n >= 0 && n <= 23 ? n : null
+  }
+  const starts = branches.map((b) => parseHour(b.workingHoursStart)).filter((h): h is number => h !== null)
+  const ends = branches.map((b) => parseHour(b.workingHoursEnd)).filter((h): h is number => h !== null)
+  const weekHourStart = starts.length > 0 ? Math.min(...starts) : 8
+  const weekHourEnd = ends.length > 0 ? Math.max(...ends) : 21
 
   // Все кабинеты организации с привязкой к филиалу — нужны для вида «По неделе»,
   // в котором кабинеты пустого филиала тоже должны отображаться столбцами.
@@ -336,13 +350,15 @@ export default async function SchedulePage({
           lessons={allScheduleItems}
           rooms={roomsWithTrials}
           allRooms={allRoomsRaw}
-          branches={branches}
+          branches={branches.map((b) => ({ id: b.id, name: b.name }))}
           directions={directions}
           instructors={instructors}
           weekDays={weekDays}
           dayNames={DAY_NAMES}
           directionColorMap={directionColorMap}
           view={view}
+          weekHourStart={weekHourStart}
+          weekHourEnd={weekHourEnd}
         />
       )}
     </div>

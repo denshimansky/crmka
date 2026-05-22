@@ -7,8 +7,8 @@ import { z } from "zod"
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (session.user.role !== "owner" && session.user.role !== "manager") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  if (session.user.role !== "owner") {
+    return NextResponse.json({ error: "Только владелец может редактировать филиалы" }, { status: 403 })
   }
 
   const { id } = await params
@@ -43,8 +43,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (session.user.role !== "owner" && session.user.role !== "manager") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  if (session.user.role !== "owner") {
+    return NextResponse.json({ error: "Только владелец может удалять филиалы" }, { status: 403 })
   }
 
   const { id } = await params

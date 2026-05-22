@@ -19,6 +19,7 @@ import { AdminBonusContent } from "./admin-bonus/admin-bonus-content"
 export default async function SettingsPage() {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const isOwner = session.user.role === "owner"
 
   const org = await db.organization.findUnique({
     where: { id: tenantId },
@@ -165,18 +166,20 @@ export default async function SettingsPage() {
                 {org.branches.map((branch) => (
                   <Card key={branch.id}>
                     <CardContent className="relative p-5">
-                      <div className="absolute right-3 top-3">
-                        <EditBranchDialog
-                          branch={{
-                            id: branch.id,
-                            name: branch.name,
-                            address: branch.address,
-                            workingHoursStart: branch.workingHoursStart,
-                            workingHoursEnd: branch.workingHoursEnd,
-                            hasRooms: branch.rooms.length > 0,
-                          }}
-                        />
-                      </div>
+                      {isOwner && (
+                        <div className="absolute right-3 top-3">
+                          <EditBranchDialog
+                            branch={{
+                              id: branch.id,
+                              name: branch.name,
+                              address: branch.address,
+                              workingHoursStart: branch.workingHoursStart,
+                              workingHoursEnd: branch.workingHoursEnd,
+                              hasRooms: branch.rooms.length > 0,
+                            }}
+                          />
+                        </div>
+                      )}
                       <div className="flex items-start gap-3">
                         <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                           <Building2 className="size-5" />
@@ -202,18 +205,24 @@ export default async function SettingsPage() {
                           </div>
                           {branch.rooms.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1">
-                              {branch.rooms.map((room) => (
-                                <EditRoomDialog
-                                  key={room.id}
-                                  room={{
-                                    id: room.id,
-                                    name: room.name,
-                                    capacity: room.capacity,
-                                    branchId: branch.id,
-                                  }}
-                                  branches={org.branches.map((b) => ({ id: b.id, name: b.name }))}
-                                />
-                              ))}
+                              {branch.rooms.map((room) =>
+                                isOwner ? (
+                                  <EditRoomDialog
+                                    key={room.id}
+                                    room={{
+                                      id: room.id,
+                                      name: room.name,
+                                      capacity: room.capacity,
+                                      branchId: branch.id,
+                                    }}
+                                    branches={org.branches.map((b) => ({ id: b.id, name: b.name }))}
+                                  />
+                                ) : (
+                                  <Badge key={room.id} variant="outline" className="text-xs">
+                                    {room.name} ({room.capacity} чел.)
+                                  </Badge>
+                                )
+                              )}
                             </div>
                           )}
                         </div>

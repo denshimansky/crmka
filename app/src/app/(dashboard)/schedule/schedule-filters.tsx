@@ -74,6 +74,9 @@ interface ScheduleFiltersProps {
   dayNames: string[]
   directionColorMap: Record<string, string>
   view: ScheduleView
+  // Объединённый диапазон часов работы филиалов (для вида «По неделе»)
+  weekHourStart: number
+  weekHourEnd: number
 }
 
 function getOccupancyStyle(enrolled: number, max: number): { className: string; label: string } {
@@ -99,6 +102,8 @@ export function ScheduleFilterableGrid({
   dayNames,
   directionColorMap,
   view,
+  weekHourStart,
+  weekHourEnd,
 }: ScheduleFiltersProps) {
   const [roomFilter, setRoomFilter] = useState<string>("")
   const [directionFilter, setDirectionFilter] = useState<string>("")
@@ -304,6 +309,8 @@ export function ScheduleFilterableGrid({
           dayNames={dayNames}
           directionColorMap={directionColorMap}
           formatDateShort={formatDateShort}
+          hourStart={weekHourStart}
+          hourEnd={weekHourEnd}
         />
       ) : filteredLessons.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
@@ -465,13 +472,11 @@ export function ScheduleFilterableGrid({
 }
 
 // ─── Вид «По неделе» ───
-// Строки = часы 7:00..21:00, столбцы = (день недели) × (кабинеты выбранного филиала).
+// Строки = часы от hourStart до hourEnd (объединение working hours филиалов),
+// столбцы = (день недели) × (кабинеты выбранного филиала).
 // Карточка занятия позиционируется абсолютно внутри столбца «день-кабинет»:
-//   top    = (часы от 7:00) * CELL_HEIGHT + (минуты начала / 60) * CELL_HEIGHT
+//   top    = (часы от hourStart) * CELL_HEIGHT + (минуты начала / 60) * CELL_HEIGHT
 //   height = (длительность / 60) * CELL_HEIGHT  (45 мин = 3/4 ячейки, 30 мин = 1/2)
-const HOUR_START = 7
-const HOUR_END = 21
-const HOURS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i)
 const CELL_HEIGHT = 64
 
 interface WeekRoomsViewProps {
@@ -483,6 +488,8 @@ interface WeekRoomsViewProps {
   dayNames: string[]
   directionColorMap: Record<string, string>
   formatDateShort: (dateStr: string) => string
+  hourStart: number
+  hourEnd: number
 }
 
 function WeekRoomsView({
@@ -494,7 +501,23 @@ function WeekRoomsView({
   dayNames,
   directionColorMap,
   formatDateShort,
+  hourStart,
+  hourEnd,
 }: WeekRoomsViewProps) {
+  // Если занятие начинается до/после рабочих часов филиалов — расширяем сетку,
+  // чтобы оно не пропало из виду (например, лид-занятие в 7:30 при филиале 8–21).
+  let effStart = hourStart
+  let effEnd = hourEnd
+  for (const l of lessons) {
+    const [hStr] = l.startTime.split(":")
+    const h = parseInt(hStr, 10)
+    if (Number.isFinite(h)) {
+      if (h < effStart) effStart = h
+      if (h > effEnd) effEnd = h
+    }
+  }
+  if (effStart >= effEnd) effEnd = effStart + 1
+  const HOURS = Array.from({ length: effEnd - effStart + 1 }, (_, i) => effStart + i)
   if (branches.length === 0) {
     return (
       <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -613,13 +636,13 @@ function WeekRoomsView({
                   const startMin = parseInt(mStr, 10) || 0
                   if (
                     Number.isNaN(startHour) ||
-                    startHour < HOUR_START ||
-                    startHour > HOUR_END
+                    startHour < effStart ||
+                    startHour > effEnd
                   ) {
                     return null
                   }
                   const top =
-                    (startHour - HOUR_START) * CELL_HEIGHT + (startMin / 60) * CELL_HEIGHT
+                    (startHour - effStart) * CELL_HEIGHT + (startMin / 60) * CELL_HEIGHT
                   const duration = lesson.durationMinutes || 60
                   const height = Math.max(20, (duration / 60) * CELL_HEIGHT)
                   const enrolled = lesson.group._count.enrollments
