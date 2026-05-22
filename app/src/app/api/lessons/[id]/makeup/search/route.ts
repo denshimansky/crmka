@@ -4,48 +4,49 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
 /**
- * GET /api/lessons/[id]/makeup/search?q=...&groupId=...
- * Поиск учеников из других групп для отработки.
- * Возвращает клиентов с активными абонементами (не из текущей группы).
+ * GET /api/lessons/[id]/makeup/search?q=...
+ *
+ * Поиск клиентов с активными абонементами для добавления их подопечного на
+ * отработку. После выбора клиента/подопечного, конкретное оригинальное занятие
+ * выбирается отдельно через /api/clients/[id]/makeup-eligible-lessons.
+ *
+ * Возвращает по одной строке на каждого подопечного (ward) с активным
+ * абонементом, чтобы UI мог сразу показать «Ваня (родитель Петров) — английский».
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id: lessonId } = await params
-  const tenantId = (session.user as any).tenantId
+  const tenantId = session.user.tenantId
 
   const url = new URL(req.url)
   const q = url.searchParams.get("q")?.trim() || ""
-  const groupId = url.searchParams.get("groupId") || ""
 
-  if (q.length < 2) {
-    return NextResponse.json([])
-  }
+  if (q.length < 2) return NextResponse.json([])
 
   // Verify lesson exists
   const lesson = await db.lesson.findFirst({
     where: { id: lessonId, tenantId },
-    select: { id: true, date: true, groupId: true },
+    select: { id: true },
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
 
-  const currentGroupId = groupId || lesson.groupId
-
-  // Search clients by name (not enrolled in the current group)
   const searchTerms = q.split(/\s+/).filter(Boolean)
-  const searchConditions = searchTerms.map(term => ({
-    OR: [
-      { firstName: { contains: term, mode: "insensitive" as const } },
-      { lastName: { contains: term, mode: "insensitive" as const } },
-    ],
-  }))
 
+  // Ищем по ФИО клиента (родителя) и подопечного.
   const clients = await db.client.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      AND: searchConditions,
+      AND: searchTerms.map((term) => ({
+        OR: [
+          { firstName: { contains: term, mode: "insensitive" as const } },
+          { lastName: { contains: term, mode: "insensitive" as const } },
+          { wards: { some: { firstName: { contains: term, mode: "insensitive" as const } } } },
+          { wards: { some: { lastName: { contains: term, mode: "insensitive" as const } } } },
+        ],
+      })),
     },
     select: {
       id: true,
@@ -54,75 +55,48 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       wards: {
         select: { id: true, firstName: true, lastName: true },
       },
-    },
-    take: 20,
-  })
-
-  if (clients.length === 0) return NextResponse.json([])
-
-  const clientIds = clients.map(c => c.id)
-
-  // Get active subscriptions for these clients (from OTHER groups, not current)
-  const subscriptions = await db.subscription.findMany({
-    where: {
-      tenantId,
-      clientId: { in: clientIds },
-      groupId: { not: currentGroupId },
-      deletedAt: null,
-      status: { in: ["active", "pending"] },
-      balance: { gt: 0 },
-    },
-    include: {
-      group: {
-        select: { name: true, direction: { select: { name: true } } },
+      subscriptions: {
+        where: { deletedAt: null, status: { in: ["active", "pending"] } },
+        select: { id: true, wardId: true, groupId: true },
       },
     },
+    take: 30,
   })
 
-  // Already attending this lesson
+  // Уже отмеченные на этом занятии — исключаем
   const existingAttendances = await db.attendance.findMany({
     where: { lessonId, tenantId },
     select: { clientId: true, wardId: true },
   })
   const attendingKeys = new Set(
-    existingAttendances.map(a => `${a.clientId}:${a.wardId || ""}`)
+    existingAttendances.map((a) => `${a.clientId}:${a.wardId || ""}`),
   )
 
-  // Build results
   const results: Array<{
     clientId: string
     clientName: string
-    wardId: string | null
-    wardName: string | null
-    subscriptionId: string
-    subscriptionLabel: string
-    balance: number
-    lessonPrice: number
+    wardId: string
+    wardName: string
+    activeSubscriptionsCount: number
   }> = []
 
-  for (const sub of subscriptions) {
-    const client = clients.find(c => c.id === sub.clientId)
-    if (!client) continue
-
-    const wardId = sub.wardId
-    const key = `${sub.clientId}:${wardId || ""}`
-    if (attendingKeys.has(key)) continue
-
-    const ward = wardId ? client.wards.find(w => w.id === wardId) : null
-    const clientName = [client.lastName, client.firstName].filter(Boolean).join(" ") || "Без имени"
-    const wardName = ward ? [ward.lastName, ward.firstName].filter(Boolean).join(" ") : null
-
-    results.push({
-      clientId: sub.clientId,
-      clientName,
-      wardId: wardId,
-      wardName,
-      subscriptionId: sub.id,
-      subscriptionLabel: `${sub.group.direction.name} — ${sub.group.name}`,
-      balance: Number(sub.balance),
-      lessonPrice: Number(sub.lessonPrice),
-    })
+  for (const c of clients) {
+    const clientName =
+      [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени"
+    for (const w of c.wards) {
+      const key = `${c.id}:${w.id}`
+      if (attendingKeys.has(key)) continue
+      const wardSubs = c.subscriptions.filter((s) => s.wardId === w.id)
+      if (wardSubs.length === 0) continue
+      results.push({
+        clientId: c.id,
+        clientName,
+        wardId: w.id,
+        wardName: [w.lastName, w.firstName].filter(Boolean).join(" ") || "Без имени",
+        activeSubscriptionsCount: wardSubs.length,
+      })
+    }
   }
 
-  return NextResponse.json(results.slice(0, 15))
+  return NextResponse.json(results.slice(0, 20))
 }

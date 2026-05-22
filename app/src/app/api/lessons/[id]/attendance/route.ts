@@ -353,6 +353,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     where: { lessonId, tenantId },
   })
 
+  // Ученики, у которых пропуск этого Lesson уже отработан в другой группе:
+  // их при «Отметить всех» отмечаем как «Отработано» (без списания, без ЗП), а
+  // не «Явка» — иначе будет двойное списание.
+  const madeUpResolutions = await db.attendance.findMany({
+    where: { tenantId, makeupOfLessonId: lessonId },
+    select: { wardId: true, clientId: true },
+  })
+  const madeUpKeys = new Set(
+    madeUpResolutions.map((m) => `${m.clientId}:${m.wardId || ""}`),
+  )
+  const makeupType = madeUpKeys.size
+    ? await db.attendanceType.findFirst({
+        where: { code: "makeup", OR: [{ tenantId: null }, { tenantId }], isActive: true },
+      })
+    : null
+
   // === Вся bulk-логика в одной транзакции ===
   const results = await db.$transaction(async (tx) => {
     const atts = []
@@ -365,13 +381,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         )
       )
 
+      // Если этот пропуск уже отработан в другой группе — отмечаем как
+      // «Отработано» (chargesSubscription=false, paysInstructor=false).
+      const enrollmentKey = `${enrollment.clientId}:${enrollment.wardId || ""}`
+      const isAlreadyMadeUp = madeUpKeys.has(enrollmentKey) && !!makeupType
+      const effectiveType = isAlreadyMadeUp ? makeupType! : attendanceType
+
       let chargeAmount = new Prisma.Decimal(0)
-      if (attendanceType.chargesSubscription && subscription) {
+      if (effectiveType.chargesSubscription && subscription) {
         chargeAmount = subscription.lessonPrice
       }
 
       let instructorPayAmount = new Prisma.Decimal(0)
-      if (attendanceType.paysInstructor && salaryRate) {
+      if (effectiveType.paysInstructor && salaryRate) {
         if (salaryRate.scheme === "per_student" && salaryRate.ratePerStudent) {
           instructorPayAmount = salaryRate.ratePerStudent
         } else if (salaryRate.scheme === "per_lesson" && salaryRate.ratePerLesson && isFirstForLesson) {
@@ -412,7 +434,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           const att = await tx.attendance.update({
             where: { id: existing.id },
             data: {
-              attendanceTypeId: parsed.data.attendanceTypeId,
+              attendanceTypeId: effectiveType.id,
               chargeAmount,
               instructorPayAmount,
               instructorPayEnabled: true,
@@ -429,7 +451,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               subscriptionId,
               clientId: enrollment.clientId,
               wardId: enrollment.wardId,
-              attendanceTypeId: parsed.data.attendanceTypeId,
+              attendanceTypeId: effectiveType.id,
               chargeAmount,
               instructorPayAmount,
               instructorPayEnabled: true,
@@ -441,7 +463,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         }
 
         // Debit subscription
-        if (attendanceType.chargesSubscription && Number(chargeAmount) > 0) {
+        if (effectiveType.chargesSubscription && Number(chargeAmount) > 0) {
           await tx.subscription.update({
             where: { id: subscriptionId },
             data: {
@@ -462,7 +484,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           const att = await tx.attendance.update({
             where: { id: existing.id },
             data: {
-              attendanceTypeId: parsed.data.attendanceTypeId,
+              attendanceTypeId: effectiveType.id,
               chargeAmount: 0,
               instructorPayAmount,
               instructorPayEnabled: true,
@@ -479,7 +501,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               subscriptionId: null,
               clientId: enrollment.clientId,
               wardId: enrollment.wardId,
-              attendanceTypeId: parsed.data.attendanceTypeId,
+              attendanceTypeId: effectiveType.id,
               chargeAmount: 0,
               instructorPayAmount,
               instructorPayEnabled: true,

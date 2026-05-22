@@ -218,6 +218,31 @@ export default async function LessonCardPage({
       })
     : []
 
+  // Отработки этого занятия в других группах: ученики, у которых пропуск этого
+  // Lesson уже компенсирован Attendance с makeupOfLessonId=lesson.id.
+  // Используется, чтобы UI пометил их «Отработано в …» и не списал ещё раз.
+  const madeUpAttendances = await db.attendance.findMany({
+    where: { tenantId, makeupOfLessonId: lesson.id },
+    select: {
+      id: true,
+      wardId: true,
+      clientId: true,
+      lesson: {
+        select: {
+          id: true,
+          date: true,
+          startTime: true,
+          group: {
+            select: {
+              name: true,
+              direction: { select: { name: true } },
+            },
+          },
+        },
+      },
+    },
+  })
+
   const trialStudents = trialLessons.map((t) => {
     const att = trialAttendances.find(
       (a) => a.clientId === t.clientId && a.wardId === t.wardId
@@ -283,6 +308,12 @@ export default async function LessonCardPage({
       ? Number(subscription.lessonPrice)
       : Number(lesson.group.direction.lessonPrice)
 
+    const madeUp = madeUpAttendances.find(
+      (m) =>
+        m.clientId === enrollment.clientId &&
+        (enrollment.wardId ? m.wardId === enrollment.wardId : !m.wardId),
+    )
+
     return {
       enrollmentId: enrollment.id,
       clientId: enrollment.clientId,
@@ -294,6 +325,15 @@ export default async function LessonCardPage({
         : null,
       subscriptionId: subscription?.id || null,
       lessonPrice,
+      makeupResolved: madeUp
+        ? {
+            attendanceId: madeUp.id,
+            date: madeUp.lesson.date.toISOString().slice(0, 10),
+            startTime: madeUp.lesson.startTime,
+            directionName: madeUp.lesson.group.direction.name,
+            groupName: madeUp.lesson.group.name,
+          }
+        : null,
       attendance: attendance
         ? {
             id: attendance.id,
@@ -419,6 +459,7 @@ export default async function LessonCardPage({
       {/* Attendance table (client component) */}
       <AttendanceTable
         lessonId={id}
+        lessonDateISO={lesson.date.toISOString().slice(0, 10)}
         groupId={lesson.groupId}
         topic={lesson.topic}
         homework={lesson.homework}

@@ -415,6 +415,7 @@ model Lesson {
   instructor           Employee      @relation("LessonInstructor", fields: [instructorId], references: [id])
   substituteInstructor Employee?     @relation("SubstituteInstructor", fields: [substituteInstructorId], references: [id])
   attendances          Attendance[]
+  makeupAttendances    Attendance[]  @relation("MakeupOfLesson")
   trialLessons         TrialLesson[]
 
   @@index([tenantId, date])
@@ -685,6 +686,7 @@ model Attendance {
   instructorPayEnabled Boolean   @default(true) @map("instructor_pay_enabled")
   isTrial              Boolean   @default(false) @map("is_trial")
   isMakeup             Boolean   @default(false) @map("is_makeup")
+  makeupOfLessonId     String?   @map("makeup_of_lesson_id") @db.Uuid
   markedBy             String?   @map("marked_by") @db.Uuid
   markedAt             DateTime? @map("marked_at")
   isAfterPeriodClose   Boolean   @default(false) @map("is_after_period_close")
@@ -696,9 +698,11 @@ model Attendance {
   client         Client          @relation(fields: [clientId], references: [id])
   attendanceType AttendanceType  @relation(fields: [attendanceTypeId], references: [id])
   absenceReason  AbsenceReason?  @relation(fields: [absenceReasonId], references: [id])
+  makeupOfLesson Lesson?         @relation("MakeupOfLesson", fields: [makeupOfLessonId], references: [id])
 
   @@unique([tenantId, lessonId, subscriptionId])
   @@index([tenantId, lessonId])
+  @@index([tenantId, makeupOfLessonId])
   @@map("attendances")
 }
 

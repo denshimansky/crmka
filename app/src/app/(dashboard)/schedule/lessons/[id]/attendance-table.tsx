@@ -8,21 +8,14 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
+import { AddMakeupDialog } from "./add-makeup-dialog"
 import {
   Table,
   TableBody,
@@ -31,11 +24,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { CheckCircle2, Loader2, Users, UserCheck, UserPlus, X } from "lucide-react"
+import { CheckCircle2, Loader2, Users, UserCheck, X } from "lucide-react"
 
 interface AbsenceReasonData {
   id: string
   name: string
+}
+
+interface MakeupResolvedInfo {
+  attendanceId: string
+  date: string
+  startTime: string
+  directionName: string
+  groupName: string
 }
 
 interface StudentData {
@@ -48,6 +49,8 @@ interface StudentData {
   subscriptionId: string | null
   lessonPrice: number
   isMakeup?: boolean
+  /** Если пропуск этого занятия уже отработан в другом — здесь информация. */
+  makeupResolved?: MakeupResolvedInfo | null
   attendance: {
     id: string
     attendanceTypeId: string
@@ -106,19 +109,9 @@ const TRIAL_STATUS_OPTIONS = [
   { value: "cancelled", label: "Отменить запись" },
 ]
 
-interface MakeupSearchResult {
-  clientId: string
-  clientName: string
-  wardId: string | null
-  wardName: string | null
-  subscriptionId: string
-  subscriptionLabel: string
-  balance: number
-  lessonPrice: number
-}
-
 interface AttendanceTableProps {
   lessonId: string
+  lessonDateISO: string
   groupId?: string
   topic: string | null
   homework: string | null
@@ -141,6 +134,7 @@ function formatMoney(amount: number): string {
 
 export function AttendanceTable({
   lessonId,
+  lessonDateISO,
   groupId,
   topic: initialTopic,
   homework: initialHomework,
@@ -169,13 +163,6 @@ export function AttendanceTable({
   const [substituteId, setSubstituteId] = useState<string | null>(initSubstituteId || null)
   const [substituteName, setSubstituteName] = useState<string | null>(initSubstituteName || null)
   const [savingSubstitute, setSavingSubstitute] = useState(false)
-
-  // Makeup dialog state
-  const [makeupDialogOpen, setMakeupDialogOpen] = useState(false)
-  const [makeupSearch, setMakeupSearch] = useState("")
-  const [makeupSearchResults, setMakeupSearchResults] = useState<MakeupSearchResult[]>([])
-  const [makeupSearching, setMakeupSearching] = useState(false)
-  const [addingMakeup, setAddingMakeup] = useState(false)
 
   const presentType = attendanceTypes.find((t) => t.code === "present")
 
@@ -358,12 +345,16 @@ export function AttendanceTable({
           (payload.attendances || []).map((a) => [`${a.clientId}|${a.wardId || ""}`, a.id])
         )
         router.refresh()
+        const makeupType = attendanceTypes.find((t) => t.code === "makeup")
         // Optimistic update
         setStudents((prev) =>
           prev.map((s) => {
-            const chargeAmount = presentType.chargesSubscription ? s.lessonPrice : 0
+            // Если этот пропуск уже отработан в другой группе — сервер ставит
+            // тип «Отработка» без списания; отражаем то же в UI оптимистично.
+            const useType = s.makeupResolved && makeupType ? makeupType : presentType
+            const chargeAmount = useType.chargesSubscription ? s.lessonPrice : 0
             let instructorPayAmount = 0
-            if (presentType.paysInstructor && salaryRate) {
+            if (useType.paysInstructor && salaryRate) {
               if (salaryRate.scheme === "per_student" && salaryRate.ratePerStudent) {
                 instructorPayAmount = salaryRate.ratePerStudent
               }
@@ -374,12 +365,12 @@ export function AttendanceTable({
               ...s,
               attendance: {
                 id: realId,
-                attendanceTypeId: presentType.id,
-                attendanceTypeName: presentType.name,
-                attendanceTypeCode: presentType.code,
+                attendanceTypeId: useType.id,
+                attendanceTypeName: useType.name,
+                attendanceTypeCode: useType.code,
                 chargeAmount,
                 instructorPayAmount,
-                instructorPayEnabled: true,
+                instructorPayEnabled: useType.paysInstructor,
               },
             }
           })
@@ -425,58 +416,6 @@ export function AttendanceTable({
       }
     } catch {
       // silently fail
-    }
-  }
-
-  // Makeup: search for students from other groups
-  async function searchMakeupStudents(query: string) {
-    setMakeupSearch(query)
-    if (query.length < 2) {
-      setMakeupSearchResults([])
-      return
-    }
-    setMakeupSearching(true)
-    try {
-      const res = await fetch(
-        `/api/lessons/${lessonId}/makeup/search?q=${encodeURIComponent(query)}&groupId=${groupId || ""}`
-      )
-      if (res.ok) {
-        const data = await res.json()
-        setMakeupSearchResults(data)
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setMakeupSearching(false)
-    }
-  }
-
-  // Makeup: add student
-  async function addMakeupStudent(result: MakeupSearchResult) {
-    setAddingMakeup(true)
-    try {
-      const res = await fetch(`/api/lessons/${lessonId}/makeup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: result.clientId,
-          wardId: result.wardId,
-          subscriptionId: result.subscriptionId,
-        }),
-      })
-      if (res.ok) {
-        setMakeupDialogOpen(false)
-        setMakeupSearch("")
-        setMakeupSearchResults([])
-        router.refresh()
-      } else {
-        const err = await res.json()
-        alert(err.error || "Ошибка при добавлении на отработку")
-      }
-    } catch {
-      alert("Ошибка сети")
-    } finally {
-      setAddingMakeup(false)
     }
   }
 
@@ -683,11 +622,20 @@ export function AttendanceTable({
       <TableRow key={student.enrollmentId}>
         <TableCell>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium">{displayName}</span>
               {student.isMakeup && (
                 <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">
                   отработка
+                </Badge>
+              )}
+              {student.makeupResolved && (
+                <Badge
+                  variant="outline"
+                  className="text-xs text-emerald-700 dark:text-emerald-300 border-emerald-300"
+                  title={`Отработано ${new Date(student.makeupResolved.date).toLocaleDateString("ru-RU")} в группе «${student.makeupResolved.groupName}» (${student.makeupResolved.directionName}) в ${student.makeupResolved.startTime}`}
+                >
+                  отработано {new Date(student.makeupResolved.date).toLocaleDateString("ru-RU")}
                 </Badge>
               )}
             </div>
@@ -892,74 +840,7 @@ export function AttendanceTable({
               Посещаемость ({markedStudents.length}/{allStudents.length})
             </CardTitle>
             <div className="flex items-center gap-2">
-              {/* Makeup dialog */}
-              <Dialog open={makeupDialogOpen} onOpenChange={setMakeupDialogOpen}>
-                <DialogTrigger render={<Button size="sm" variant="outline" />}>
-                    <UserPlus className="mr-2 size-4" />
-                    Добавить на отработку
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[500px]">
-                  <DialogHeader>
-                    <DialogTitle>Добавить ученика на отработку</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div>
-                      <Input
-                        placeholder="Поиск по имени или фамилии..."
-                        value={makeupSearch}
-                        onChange={(e) => searchMakeupStudents(e.target.value)}
-                        autoFocus
-                      />
-                    </div>
-                    {makeupSearching && (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
-                        <Loader2 className="size-4 animate-spin" />
-                        Поиск...
-                      </div>
-                    )}
-                    {!makeupSearching && makeupSearch.length >= 2 && makeupSearchResults.length === 0 && (
-                      <div className="text-sm text-muted-foreground text-center py-4">
-                        Ученики не найдены
-                      </div>
-                    )}
-                    {makeupSearchResults.length > 0 && (
-                      <div className="max-h-[300px] overflow-y-auto space-y-2">
-                        {makeupSearchResults.map((result) => (
-                          <div
-                            key={`${result.clientId}-${result.wardId || ""}-${result.subscriptionId}`}
-                            className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent"
-                          >
-                            <div>
-                              <div className="font-medium text-sm">
-                                {result.wardName || result.clientName}
-                              </div>
-                              {result.wardName && (
-                                <div className="text-xs text-muted-foreground">
-                                  {result.clientName}
-                                </div>
-                              )}
-                              <div className="text-xs text-muted-foreground">
-                                {result.subscriptionLabel} — баланс: {formatMoney(result.balance)}
-                              </div>
-                            </div>
-                            <Button
-                              size="sm"
-                              disabled={addingMakeup}
-                              onClick={() => addMakeupStudent(result)}
-                            >
-                              {addingMakeup ? (
-                                <Loader2 className="size-4 animate-spin" />
-                              ) : (
-                                "Добавить"
-                              )}
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </DialogContent>
-              </Dialog>
+              <AddMakeupDialog lessonId={lessonId} lessonDateISO={lessonDateISO} />
 
               {presentType && (
                 <Button
