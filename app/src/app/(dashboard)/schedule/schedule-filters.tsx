@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react"
 import Link from "next/link"
+import { useRouter, usePathname, useSearchParams } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -11,7 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
-import { CalendarDays, X, Filter } from "lucide-react"
+import { CalendarDays, X, Filter, Baby } from "lucide-react"
 import type { ScheduleView } from "./schedule-week-nav"
 
 interface Room {
@@ -63,6 +64,13 @@ interface RoomWithBranch {
   branchId: string
 }
 
+interface WardOption {
+  id: string
+  firstName: string
+  lastName: string | null
+  parentName: string
+}
+
 interface ScheduleFiltersProps {
   lessons: LessonData[]
   rooms: Room[]
@@ -70,6 +78,8 @@ interface ScheduleFiltersProps {
   branches: Branch[]
   directions: Direction[]
   instructors: Instructor[]
+  wards: WardOption[]
+  currentWardId: string | null
   weekDays: string[] // ISO date strings
   dayNames: string[]
   directionColorMap: Record<string, string>
@@ -77,6 +87,11 @@ interface ScheduleFiltersProps {
   // Объединённый диапазон часов работы филиалов (для вида «По неделе»)
   weekHourStart: number
   weekHourEnd: number
+}
+
+function wardLabel(w: WardOption): string {
+  const own = [w.lastName, w.firstName].filter(Boolean).join(" ") || "Без имени"
+  return `${own} · ${w.parentName}`
 }
 
 function getOccupancyStyle(enrolled: number, max: number): { className: string; label: string } {
@@ -98,6 +113,8 @@ export function ScheduleFilterableGrid({
   branches,
   directions,
   instructors,
+  wards,
+  currentWardId,
   weekDays,
   dayNames,
   directionColorMap,
@@ -105,12 +122,37 @@ export function ScheduleFilterableGrid({
   weekHourStart,
   weekHourEnd,
 }: ScheduleFiltersProps) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
   const [roomFilter, setRoomFilter] = useState<string>("")
   const [directionFilter, setDirectionFilter] = useState<string>("")
   const [instructorFilter, setInstructorFilter] = useState<string>("")
   const [branchFilter, setBranchFilter] = useState<string>(() => branches[0]?.id || "")
+  const [wardSearch, setWardSearch] = useState<string>("")
 
-  const hasFilters = !!(roomFilter || directionFilter || instructorFilter)
+  const hasFilters = !!(roomFilter || directionFilter || instructorFilter || currentWardId)
+
+  function setWardFilter(id: string | null) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (id) params.set("wardId", id)
+    else params.delete("wardId")
+    const qs = params.toString()
+    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }
+
+  const selectedWard = wards.find((w) => w.id === currentWardId) || null
+  const filteredWards = useMemo(() => {
+    const q = wardSearch.trim().toLowerCase()
+    if (!q) return wards.slice(0, 100)
+    return wards
+      .filter((w) => {
+        const own = [w.lastName, w.firstName].filter(Boolean).join(" ").toLowerCase()
+        return own.includes(q) || w.parentName.toLowerCase().includes(q)
+      })
+      .slice(0, 100)
+  }, [wards, wardSearch])
 
   const filteredLessons = useMemo(() => {
     return lessons.filter((l) => {
@@ -163,6 +205,7 @@ export function ScheduleFilterableGrid({
     setRoomFilter("")
     setDirectionFilter("")
     setInstructorFilter("")
+    if (currentWardId) setWardFilter(null)
   }
 
   function formatDateShort(dateStr: string): string {
@@ -190,6 +233,12 @@ export function ScheduleFilterableGrid({
     activeFilterLabels.push({
       label: `Педагог: ${instr ? `${instr.lastName} ${instr.firstName?.[0] || ""}.` : "?"}`,
       onClear: () => setInstructorFilter(""),
+    })
+  }
+  if (selectedWard) {
+    activeFilterLabels.push({
+      label: `Ребёнок: ${wardLabel(selectedWard)}`,
+      onClear: () => setWardFilter(null),
     })
   }
 
@@ -270,6 +319,51 @@ export function ScheduleFilterableGrid({
                 {instr.lastName} {instr.firstName?.[0]}.
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={currentWardId ?? ""}
+          onValueChange={(v) => setWardFilter(v || null)}
+        >
+          <SelectTrigger className="w-[260px]">
+            {selectedWard ? (
+              <span className="flex items-center gap-1.5">
+                <Baby className="size-3.5" />
+                {wardLabel(selectedWard)}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <Baby className="size-3.5" />
+                Ребёнок
+              </span>
+            )}
+          </SelectTrigger>
+          <SelectContent>
+            <div className="sticky top-0 z-10 -mx-1 mb-1 border-b bg-popover p-1">
+              <input
+                value={wardSearch}
+                onChange={(e) => setWardSearch(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                placeholder="Поиск по ФИО ребёнка или родителя..."
+                className="h-8 w-full rounded-sm border bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            {selectedWard && !filteredWards.some((w) => w.id === selectedWard.id) && (
+              <SelectItem value={selectedWard.id}>{wardLabel(selectedWard)}</SelectItem>
+            )}
+            {filteredWards.length === 0 ? (
+              <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                Не найдено
+              </div>
+            ) : (
+              filteredWards.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {wardLabel(w)}
+                </SelectItem>
+              ))
+            )}
           </SelectContent>
         </Select>
 

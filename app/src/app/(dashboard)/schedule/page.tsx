@@ -55,13 +55,14 @@ function formatWeekLabel(monday: Date, sunday: Date): string {
 export default async function SchedulePage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string; view?: string }>
+  searchParams: Promise<{ week?: string; view?: string; wardId?: string }>
 }) {
   const sp = await searchParams
   const weekOffset = parseInt(sp.week || "0", 10) || 0
   const view: ScheduleView = ALLOWED_VIEWS.has(sp.view as ScheduleView)
     ? (sp.view as ScheduleView)
     : "week"
+  const wardIdFilter = sp.wardId && /^[0-9a-f-]{36}$/i.test(sp.wardId) ? sp.wardId : null
 
   const session = await getSession()
   const tenantId = session.user.tenantId
@@ -96,11 +97,37 @@ export default async function SchedulePage({
     orderBy: { name: "asc" },
   })
 
+  // Список подопечных для селекта фильтра (с ФИО родителя для уникальности тёзок).
+  // Берём только активных, чтобы не загромождать список архивом.
+  const wardsForFilter = await db.ward.findMany({
+    where: {
+      tenantId,
+      client: { deletedAt: null },
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      client: { select: { firstName: true, lastName: true } },
+    },
+    orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+    take: 1000,
+  })
+
   const lessons = await db.lesson.findMany({
     where: {
       tenantId,
       date: { gte: monday, lte: sunday },
       status: { not: "cancelled" },
+      ...(wardIdFilter
+        ? {
+            group: {
+              enrollments: {
+                some: { wardId: wardIdFilter, isActive: true, deletedAt: null },
+              },
+            },
+          }
+        : {}),
     },
     include: {
       group: {
@@ -125,6 +152,7 @@ export default async function SchedulePage({
       status: "scheduled",
       groupId: null,
       lessonId: null,
+      ...(wardIdFilter ? { wardId: wardIdFilter } : {}),
     },
     select: {
       id: true,
@@ -353,6 +381,15 @@ export default async function SchedulePage({
           branches={branches.map((b) => ({ id: b.id, name: b.name }))}
           directions={directions}
           instructors={instructors}
+          wards={wardsForFilter.map((w) => ({
+            id: w.id,
+            firstName: w.firstName,
+            lastName: w.lastName,
+            parentName:
+              [w.client.lastName, w.client.firstName].filter(Boolean).join(" ") ||
+              "Без имени",
+          }))}
+          currentWardId={wardIdFilter}
           weekDays={weekDays}
           dayNames={DAY_NAMES}
           directionColorMap={directionColorMap}
