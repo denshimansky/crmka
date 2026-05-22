@@ -149,18 +149,19 @@ export function EditableSelectCell({
     setValue(initialValue ?? "")
   }, [initialValue])
 
-  async function commit(newValue: string) {
-    if (newValue === initialRef.current) return
-    setValue(newValue)
+  async function commit(newValue: string | null) {
+    const v = newValue ?? ""
+    if (v === initialRef.current) return
+    setValue(v)
     setSaving(true)
     try {
       const res = await fetch(endpoint.url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...extraBody, [endpoint.field]: newValue || null }),
+        body: JSON.stringify({ ...extraBody, [endpoint.field]: v || null }),
       })
       if (res.ok) {
-        initialRef.current = newValue
+        initialRef.current = v
         router.refresh()
       } else {
         setValue(initialRef.current)
