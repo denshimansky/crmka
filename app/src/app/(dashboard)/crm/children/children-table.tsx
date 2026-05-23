@@ -4,6 +4,8 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { Search } from "lucide-react"
 import { EditableTextCell } from "../_components/editable-cell"
 
 export type ChildState =
@@ -68,18 +70,35 @@ export function ChildrenTable({ rows }: { rows: ChildRow[] }) {
   const [showArchived, setShowArchived] = useState(true)
   const [showBlacklist, setShowBlacklist] = useState(true)
   const [showNontarget, setShowNontarget] = useState(true)
+  const [query, setQuery] = useState("")
 
   const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
     return rows.filter((r) => {
       if (!showArchived && r.state === "archived") return false
       if (!showBlacklist && r.state === "blacklist") return false
       if (!showNontarget && r.state === "nontarget") return false
+      if (q) {
+        const childName = wardFullName(r).toLowerCase()
+        const parentName = r.parentName.toLowerCase()
+        if (!childName.includes(q) && !parentName.includes(q)) return false
+      }
       return true
     })
-  }, [rows, showArchived, showBlacklist, showNontarget])
+  }, [rows, showArchived, showBlacklist, showNontarget, query])
 
   return (
     <>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск по ФИО ребёнка или родителя..."
+          className="pl-9"
+        />
+      </div>
+
       <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-card p-3 text-sm">
         <span className="text-muted-foreground">Показывать:</span>
         <label className="flex items-center gap-2 cursor-pointer">

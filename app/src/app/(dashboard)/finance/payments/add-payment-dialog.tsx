@@ -19,6 +19,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
+import { ClientCombobox } from "@/components/client-combobox"
 import { Plus } from "lucide-react"
 
 interface ClientOption {
@@ -148,7 +149,6 @@ export function AddPaymentDialog({
   }
 
   const selectedMethod = METHOD_OPTIONS.find(m => m.value === method)
-  const selectedClient = clients.find(c => c.id === clientId)
   const selectedAccount = accounts.find(a => a.id === accountId)
   const selectedSub = clientSubs.find(s => s.id === subscriptionId)
 
@@ -171,16 +171,12 @@ export function AddPaymentDialog({
 
           <div className="space-y-1.5">
             <Label>Клиент *</Label>
-            <Select value={clientId} onValueChange={(v) => { if (v) loadClientSubs(v) }}>
-              <SelectTrigger className="w-full">
-                {selectedClient ? selectedClient.name : "Выберите клиента"}
-              </SelectTrigger>
-              <SelectContent>
-                {clients.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ClientCombobox
+              options={clients}
+              value={clientId}
+              onChange={(id) => loadClientSubs(id)}
+              placeholder="Начните вводить ФИО..."
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

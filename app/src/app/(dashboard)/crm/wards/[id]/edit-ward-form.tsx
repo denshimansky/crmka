@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { BirthDateInput } from "@/components/birth-date-input"
 
 interface EditWardFormProps {
   wardId: string
@@ -88,7 +89,7 @@ export function EditWardForm({ wardId, initial }: EditWardFormProps) {
           </div>
           <div className="space-y-1.5">
             <Label>Дата рождения</Label>
-            <Input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
+            <BirthDateInput value={birthDate} onChange={setBirthDate} />
           </div>
           <Button type="submit" disabled={saving || !dirty} className="w-full">
             {saving ? "Сохранение..." : "Сохранить"}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { BirthDateInput } from "@/components/birth-date-input"
 import { Plus, X } from "lucide-react"
 
 export function AddWardForm({ clientId }: { clientId: string }) {
@@ -95,11 +96,7 @@ export function AddWardForm({ clientId }: { clientId: string }) {
         </div>
         <div className="w-36">
           <Label>Дата рождения</Label>
-          <Input
-            type="date"
-            value={birthDate}
-            onChange={(e) => setBirthDate(e.target.value)}
-          />
+          <BirthDateInput value={birthDate} onChange={setBirthDate} />
         </div>
       </div>
       <div className="flex gap-2">

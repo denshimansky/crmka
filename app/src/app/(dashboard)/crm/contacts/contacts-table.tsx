@@ -1,8 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { Search } from "lucide-react"
 import { CreateApplicationDialog } from "../_components/create-application-dialog"
 import {
   EditableDateCell,
@@ -99,6 +101,8 @@ export function ContactsTable({
   rows: ContactRow[]
   employees: EmployeeOption[]
 }) {
+  const [query, setQuery] = useState("")
+
   const employeeOptions = useMemo(
     () =>
       employees.map((e) => ({
@@ -108,15 +112,55 @@ export function ContactsTable({
     [employees],
   )
 
+  const visibleRows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((r) => {
+      const parent = fullName(r).toLowerCase()
+      if (parent.includes(q)) return true
+      return r.wards.some((w) =>
+        [w.firstName, w.lastName].filter(Boolean).join(" ").toLowerCase().includes(q),
+      )
+    })
+  }, [rows, query])
+
+  const searchBar = (
+    <div className="relative">
+      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Поиск по ФИО родителя или ребёнка..."
+        className="pl-9"
+      />
+    </div>
+  )
+
   if (rows.length === 0) {
     return (
-      <div className="flex items-center justify-center rounded-lg border bg-card p-12 text-sm text-muted-foreground">
-        В этой категории пока пусто
-      </div>
+      <>
+        {searchBar}
+        <div className="flex items-center justify-center rounded-lg border bg-card p-12 text-sm text-muted-foreground">
+          В этой категории пока пусто
+        </div>
+      </>
+    )
+  }
+
+  if (visibleRows.length === 0) {
+    return (
+      <>
+        {searchBar}
+        <div className="flex items-center justify-center rounded-lg border bg-card p-12 text-sm text-muted-foreground">
+          Никто не найден по запросу «{query}»
+        </div>
+      </>
     )
   }
 
   return (
+    <>
+    {searchBar}
     <div className="overflow-x-auto rounded-lg border bg-card">
       <Table>
         <TableHeader>
@@ -153,7 +197,7 @@ export function ContactsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => (
+          {visibleRows.map((r) => (
             <TableRow key={r.id}>
               {(tab === "leads" || tab === "potential") && (
                 <TableCell>
@@ -240,5 +284,6 @@ export function ContactsTable({
         </TableBody>
       </Table>
     </div>
+    </>
   )
 }

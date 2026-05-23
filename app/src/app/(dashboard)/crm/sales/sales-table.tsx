@@ -4,7 +4,8 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
-import { Settings2 } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Settings2, Search } from "lucide-react"
 import {
   EditableDateCell,
   EditableSelectCell,
@@ -69,6 +70,7 @@ export function SalesTable({
   employees: EmployeeOption[]
 }) {
   const [processing, setProcessing] = useState<SalesRow | null>(null)
+  const [query, setQuery] = useState("")
 
   const employeeOptions = useMemo(
     () =>
@@ -79,16 +81,53 @@ export function SalesTable({
     [employees],
   )
 
+  const visibleRows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((r) => {
+      const parent = fullName(r).toLowerCase()
+      if (parent.includes(q)) return true
+      return wardName(r.ward).toLowerCase().includes(q)
+    })
+  }, [rows, query])
+
+  const searchBar = (
+    <div className="relative">
+      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Поиск по ФИО родителя или ребёнка..."
+        className="pl-9"
+      />
+    </div>
+  )
+
   if (rows.length === 0) {
     return (
-      <div className="flex items-center justify-center rounded-lg border bg-card p-12 text-sm text-muted-foreground">
-        В этой категории пока пусто
-      </div>
+      <>
+        {searchBar}
+        <div className="flex items-center justify-center rounded-lg border bg-card p-12 text-sm text-muted-foreground">
+          В этой категории пока пусто
+        </div>
+      </>
+    )
+  }
+
+  if (visibleRows.length === 0) {
+    return (
+      <>
+        {searchBar}
+        <div className="flex items-center justify-center rounded-lg border bg-card p-12 text-sm text-muted-foreground">
+          Никто не найден по запросу «{query}»
+        </div>
+      </>
     )
   }
 
   return (
     <>
+      {searchBar}
       <div className="overflow-x-auto rounded-lg border bg-card">
         <Table>
           <TableHeader>
@@ -119,7 +158,7 @@ export function SalesTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((r) => (
+            {visibleRows.map((r) => (
               <TableRow key={r.rowId}>
                 <TableCell className="text-xs font-medium">
                   {r.state === "client" ? "Клиент" : "Лид"}
