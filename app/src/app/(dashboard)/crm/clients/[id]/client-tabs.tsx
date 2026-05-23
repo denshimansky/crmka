@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -864,6 +865,7 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Ребёнок</TableHead>
                 <TableHead>Направление</TableHead>
                 <TableHead>Группа</TableHead>
                 <TableHead>Период</TableHead>
@@ -878,8 +880,20 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                 const paid = s.payments.reduce((sum, p) => sum + Number(p.amount), 0)
                 const balance = Number(s.balance)
                 const canEdit = s.status === "pending" || s.status === "active"
+                const wardLabel = s.ward
+                  ? [s.ward.firstName, s.ward.lastName].filter(Boolean).join(" ")
+                  : null
                 return (
                   <TableRow key={s.id}>
+                    <TableCell className="text-sm">
+                      {s.ward ? (
+                        <Link href={`/crm/wards/${s.ward.id}`} className="hover:underline">
+                          {wardLabel}
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="font-medium">{s.direction.name}</TableCell>
                     <TableCell>{s.group.name}</TableCell>
                     <TableCell>{MONTH_NAMES[s.periodMonth]} {s.periodYear}</TableCell>
@@ -1746,7 +1760,9 @@ export function ClientTabs({
                     key={w.id}
                     className="flex items-center justify-between rounded-md border p-3"
                   >
-                    <span className="font-medium">{name}</span>
+                    <Link href={`/crm/wards/${w.id}`} className="font-medium hover:underline">
+                      {name}
+                    </Link>
                     <span className="text-sm text-muted-foreground">
                       {w.birthDate
                         ? `${formatDate(w.birthDate)} (${calculateAge(w.birthDate)})`
