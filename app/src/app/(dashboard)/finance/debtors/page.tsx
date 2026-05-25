@@ -55,6 +55,48 @@ export default async function DebtorsPage() {
     orderBy: { clientBalance: "asc" }, // самый большой долг первым
   })
 
+  // Источники долга: группируем транзакции по абонементу/направлению.
+  // Каждой строчке должника покажем разбивку «по чему он должен» — это даёт
+  // ответ на вопрос «откуда долг», который раньше можно было только догадаться.
+  const debtorIds = debtors.map((d) => d.id)
+  const txns = debtorIds.length
+    ? await db.clientBalanceTransaction.findMany({
+        where: { tenantId, clientId: { in: debtorIds } },
+        select: {
+          clientId: true,
+          amount: true,
+          type: true,
+          subscriptionId: true,
+          subscription: {
+            select: {
+              periodYear: true,
+              periodMonth: true,
+              direction: { select: { name: true } },
+            },
+          },
+          direction: { select: { name: true } },
+        },
+      })
+    : []
+
+  type DebtSourceRow = { key: string; label: string; amount: number }
+  const sourcesByClient = new Map<string, DebtSourceRow[]>()
+  for (const t of txns) {
+    const key = t.subscriptionId ?? `direction:${t.direction?.name ?? "—"}`
+    const label = t.subscription
+      ? `${t.subscription.direction.name} (${String(t.subscription.periodMonth).padStart(2, "0")}.${t.subscription.periodYear})`
+      : t.direction?.name ?? "Прочее"
+    const list = sourcesByClient.get(t.clientId) ?? []
+    const found = list.find((r) => r.key === key)
+    const delta = Number(t.amount)
+    if (found) {
+      found.amount += delta
+    } else {
+      list.push({ key, label, amount: delta })
+    }
+    sourcesByClient.set(t.clientId, list)
+  }
+
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
@@ -69,8 +111,12 @@ export default async function DebtorsPage() {
     const isOverdue = promised && promised < today
     const directions = d.subscriptions.map(s => s.direction.name).join(", ") || "—"
     const branchName = d.branch?.name || "—"
+    const sources = (sourcesByClient.get(d.id) ?? [])
+      .filter((s) => s.amount < 0)
+      .sort((a, b) => a.amount - b.amount)
+      .slice(0, 4)
 
-    return { id: d.id, name, debt, branchName, directions, lastPayment, promised, isOverdue, phone: d.phone }
+    return { id: d.id, name, debt, branchName, directions, lastPayment, promised, isOverdue, phone: d.phone, sources }
   })
 
   return (
@@ -147,7 +193,7 @@ export default async function DebtorsPage() {
               <TableRow>
                 <TableHead>Клиент</TableHead>
                 <TableHead>Филиал</TableHead>
-                <TableHead>Направление</TableHead>
+                <TableHead>Источник долга</TableHead>
                 <TableHead className="text-right">Долг</TableHead>
                 <TableHead>Последняя оплата</TableHead>
                 <TableHead>Обещанная дата</TableHead>
@@ -163,7 +209,20 @@ export default async function DebtorsPage() {
                     </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{r.branchName}</TableCell>
-                  <TableCell className="text-muted-foreground">{r.directions}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {r.sources.length === 0 ? (
+                      <span>{r.directions}</span>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {r.sources.map((s) => (
+                          <div key={s.key} className="flex items-baseline gap-2 text-xs">
+                            <span className="text-foreground">{s.label}</span>
+                            <span className="text-red-600 tabular-nums">−{formatMoney(Math.abs(s.amount))}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right font-medium text-red-600">{formatMoney(r.debt)}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(r.lastPayment)}</TableCell>
                   <TableCell>
