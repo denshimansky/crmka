@@ -3,9 +3,19 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
+
+// Недосписанная (возвратная) часть посещения = lessonPrice * (100 - chargePercent) / 100.
+// При chargePercent=100 (по умолчанию) вернётся 0 — поведение совместимо со старой логикой.
+function calcRefund(chargeAmount: Prisma.Decimal | number, chargePercent: number): Prisma.Decimal {
+  const charge = new Prisma.Decimal(chargeAmount)
+  if (charge.lte(0) || chargePercent >= 100) return new Prisma.Decimal(0)
+  const remaining = Math.max(0, 100 - chargePercent)
+  return charge.mul(remaining).div(100)
+}
 
 const markSchema = z.object({
   clientId: z.string().uuid("Некорректный ID клиента"),
@@ -147,7 +157,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (subscriptionId) {
       const existing = await tx.attendance.findUnique({
         where: { tenantId_lessonId_subscriptionId: { tenantId, lessonId, subscriptionId } },
+        include: { attendanceType: { select: { chargePercent: true } } },
       })
+
+      // Откат предыдущего возврата (lesson_refund) при смене типа посещения
+      if (existing && Number(existing.chargeAmount) > 0) {
+        const prevRefund = calcRefund(existing.chargeAmount, existing.attendanceType.chargePercent)
+        if (prevRefund.gt(0)) {
+          await applyBalanceDelta(tx, {
+            tenantId,
+            clientId: data.clientId,
+            delta: prevRefund.negated(),
+            type: "attendance_revert",
+            refs: { lessonId, attendanceId: existing.id, directionId: lesson.group.directionId },
+            createdBy: employeeId,
+          })
+        }
+      }
 
       if (existing) {
         // Reverse previous charge
@@ -199,6 +225,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             chargedAmount: { increment: chargeAmount },
           },
         })
+
+        // Возврат недосписанной части на баланс клиента при chargePercent < 100
+        const refund = calcRefund(chargeAmount, attendanceType.chargePercent)
+        if (refund.gt(0)) {
+          await applyBalanceDelta(tx, {
+            tenantId,
+            clientId: data.clientId,
+            delta: refund,
+            type: "lesson_refund",
+            refs: { lessonId, attendanceId: att.id, directionId: lesson.group.directionId, subscriptionId },
+            createdBy: employeeId,
+          })
+        }
 
         // Lead→Client conversion: первое платное посещение конвертирует лида
         const client = await tx.client.findUnique({ where: { id: data.clientId } })
@@ -351,6 +390,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   // === Предзагрузка existing attendances (batch вместо N+1) ===
   const existingAttendances = await db.attendance.findMany({
     where: { lessonId, tenantId },
+    include: { attendanceType: { select: { chargePercent: true } } },
   })
 
   // Ученики, у которых пропуск этого Lesson уже отработан в другой группе:
@@ -419,6 +459,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           (a) => a.subscriptionId === subscriptionId
         )
 
+        // Откат предыдущего возврата (lesson_refund) при смене типа
+        if (existing && Number(existing.chargeAmount) > 0) {
+          const prevRefund = calcRefund(existing.chargeAmount, existing.attendanceType.chargePercent)
+          if (prevRefund.gt(0)) {
+            await applyBalanceDelta(tx, {
+              tenantId,
+              clientId: enrollment.clientId,
+              delta: prevRefund.negated(),
+              type: "attendance_revert",
+              refs: { lessonId, attendanceId: existing.id, directionId: lesson.group.directionId },
+              createdBy: employeeId,
+            })
+          }
+        }
+
+        let att
         if (existing) {
           // Reverse previous charge
           if (existing.subscriptionId && Number(existing.chargeAmount) > 0) {
@@ -431,7 +487,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             })
           }
 
-          const att = await tx.attendance.update({
+          att = await tx.attendance.update({
             where: { id: existing.id },
             data: {
               attendanceTypeId: effectiveType.id,
@@ -442,9 +498,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               markedAt: new Date(),
             },
           })
-          atts.push(att)
         } else {
-          const att = await tx.attendance.create({
+          att = await tx.attendance.create({
             data: {
               tenantId,
               lessonId,
@@ -459,8 +514,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               markedAt: new Date(),
             },
           })
-          atts.push(att)
         }
+        atts.push(att)
 
         // Debit subscription
         if (effectiveType.chargesSubscription && Number(chargeAmount) > 0) {
@@ -471,6 +526,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               chargedAmount: { increment: chargeAmount },
             },
           })
+
+          // Возврат недосписанной части при chargePercent < 100
+          const refund = calcRefund(chargeAmount, effectiveType.chargePercent)
+          if (refund.gt(0)) {
+            await applyBalanceDelta(tx, {
+              tenantId,
+              clientId: enrollment.clientId,
+              delta: refund,
+              type: "lesson_refund",
+              refs: { lessonId, attendanceId: att.id, directionId: lesson.group.directionId, subscriptionId },
+              createdBy: employeeId,
+            })
+          }
         }
       } else {
         // No subscription — ищем в предзагруженных
@@ -570,6 +638,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const existing = data.attendanceId
     ? await db.attendance.findFirst({
         where: { id: data.attendanceId, lessonId, tenantId },
+        include: {
+          attendanceType: { select: { chargePercent: true } },
+          lesson: { select: { group: { select: { directionId: true } } } },
+        },
       })
     : await db.attendance.findFirst({
         where: {
@@ -577,6 +649,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
           tenantId,
           clientId: data.clientId,
           wardId: data.wardId ?? null,
+        },
+        include: {
+          attendanceType: { select: { chargePercent: true } },
+          lesson: { select: { group: { select: { directionId: true } } } },
         },
       })
 
@@ -600,6 +676,26 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
           chargedAmount: { decrement: existing.chargeAmount },
         },
       })
+    }
+
+    // Откат возврата (lesson_refund) на баланс клиента
+    if (Number(existing.chargeAmount) > 0) {
+      const refund = calcRefund(existing.chargeAmount, existing.attendanceType.chargePercent)
+      if (refund.gt(0)) {
+        await applyBalanceDelta(tx, {
+          tenantId,
+          clientId: existing.clientId,
+          delta: refund.negated(),
+          type: "attendance_revert",
+          refs: {
+            lessonId,
+            attendanceId: existing.id,
+            directionId: existing.lesson.group.directionId,
+            subscriptionId: existing.subscriptionId,
+          },
+          createdBy: employeeId,
+        })
+      }
     }
 
     await tx.attendance.delete({ where: { id: existing.id } })
