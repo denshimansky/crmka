@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -153,10 +154,14 @@ export async function POST(req: NextRequest) {
       data: { balance: { increment: data.amount } },
     })
 
-    // Обновляем баланс клиента
-    await tx.client.update({
-      where: { id: data.clientId },
-      data: { clientBalance: { increment: data.amount } },
+    // Обновляем баланс клиента через единый ledger
+    await applyBalanceDelta(tx, {
+      tenantId: session.user.tenantId,
+      clientId: data.clientId,
+      delta: data.amount,
+      type: "payment_received",
+      refs: { paymentId: p.id, subscriptionId: data.subscriptionId ?? null },
+      createdBy: session.user.employeeId,
     })
 
     // Если привязан абонемент — уменьшаем остаток и активируем если pending

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -91,32 +92,47 @@ export async function POST(req: NextRequest) {
     ? new Date(data.startDate)
     : new Date(data.periodYear, data.periodMonth - 1, 1)
 
-  const subscription = await db.subscription.create({
-    data: {
+  const subscription = await db.$transaction(async (tx) => {
+    const sub = await tx.subscription.create({
+      data: {
+        tenantId: session.user.tenantId,
+        clientId: data.clientId,
+        wardId: data.wardId,
+        directionId: data.directionId,
+        groupId: data.groupId,
+        type: "calendar",
+        status: "pending",
+        periodYear: data.periodYear,
+        periodMonth: data.periodMonth,
+        lessonPrice: data.lessonPrice,
+        totalLessons: data.totalLessons,
+        totalAmount,
+        discountAmount: data.discountAmount,
+        finalAmount,
+        balance,
+        startDate,
+        createdBy: session.user.employeeId,
+      },
+      include: {
+        client: { select: { id: true, firstName: true, lastName: true } },
+        direction: { select: { id: true, name: true } },
+        group: { select: { id: true, name: true } },
+        ward: { select: { id: true, firstName: true, lastName: true } },
+      },
+    })
+
+    // Выписка абонемента уводит баланс клиента в минус на finalAmount.
+    // Это «долг к оплате» — обнуляется поступающими Payment'ами.
+    await applyBalanceDelta(tx, {
       tenantId: session.user.tenantId,
       clientId: data.clientId,
-      wardId: data.wardId,
-      directionId: data.directionId,
-      groupId: data.groupId,
-      type: "calendar",
-      status: "pending",
-      periodYear: data.periodYear,
-      periodMonth: data.periodMonth,
-      lessonPrice: data.lessonPrice,
-      totalLessons: data.totalLessons,
-      totalAmount,
-      discountAmount: data.discountAmount,
-      finalAmount,
-      balance,
-      startDate,
+      delta: new Prisma.Decimal(finalAmount).negated(),
+      type: "subscription_issued",
+      refs: { subscriptionId: sub.id, directionId: data.directionId },
       createdBy: session.user.employeeId,
-    },
-    include: {
-      client: { select: { id: true, firstName: true, lastName: true } },
-      direction: { select: { id: true, name: true } },
-      group: { select: { id: true, name: true } },
-      ward: { select: { id: true, firstName: true, lastName: true } },
-    },
+    })
+
+    return sub
   })
 
   return NextResponse.json(subscription, { status: 201 })
