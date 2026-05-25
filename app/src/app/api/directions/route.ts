@@ -11,6 +11,7 @@ const createSchema = z.object({
   lessonDuration: z.number().min(15).max(480).default(45),
   trialPrice: z.number().min(0).optional(),
   trialFree: z.boolean().default(false),
+  singleVisitPrice: z.number().min(0).nullable().optional(),
   color: z.string().optional(),
   icon: z.string().optional().nullable().refine(
     v => v == null || DIRECTION_ICON_NAMES.includes(v),
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
       lessonDuration: data.lessonDuration,
       trialPrice: data.trialPrice,
       trialFree: data.trialFree,
+      singleVisitPrice: data.singleVisitPrice ?? null,
       color: data.color,
       icon: data.icon ?? undefined,
     },

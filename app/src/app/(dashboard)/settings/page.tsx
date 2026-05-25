@@ -267,6 +267,7 @@ export default async function SettingsPage() {
                             lessonDuration: dir.lessonDuration,
                             trialPrice: dir.trialPrice ? String(dir.trialPrice) : null,
                             trialFree: dir.trialFree,
+                            singleVisitPrice: dir.singleVisitPrice ? String(dir.singleVisitPrice) : null,
                             color: dir.color,
                             icon: dir.icon,
                           }}

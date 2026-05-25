@@ -21,6 +21,7 @@ interface DirectionData {
   lessonDuration: number
   trialPrice: string | null
   trialFree: boolean
+  singleVisitPrice: string | null
   color: string | null
   icon: string | null
 }
@@ -36,6 +37,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
   const [lessonDuration, setLessonDuration] = useState(String(direction.lessonDuration))
   const [trialFree, setTrialFree] = useState(direction.trialFree)
   const [trialPrice, setTrialPrice] = useState(direction.trialPrice ?? "")
+  const [singleVisitPrice, setSingleVisitPrice] = useState(direction.singleVisitPrice ?? "")
   const [color, setColor] = useState(direction.color ?? "#3b82f6")
   const [icon, setIcon] = useState(direction.icon ?? DEFAULT_DIRECTION_ICON)
 
@@ -45,6 +47,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
     setLessonDuration(String(direction.lessonDuration))
     setTrialFree(direction.trialFree)
     setTrialPrice(direction.trialPrice ?? "")
+    setSingleVisitPrice(direction.singleVisitPrice ?? "")
     setColor(direction.color ?? "#3b82f6")
     setIcon(direction.icon ?? DEFAULT_DIRECTION_ICON)
     setError(null)
@@ -68,6 +71,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
           lessonDuration: Number(lessonDuration) || 45,
           trialFree,
           trialPrice: !trialFree && trialPrice ? Number(trialPrice) : null,
+          singleVisitPrice: singleVisitPrice ? Number(singleVisitPrice) : null,
           color,
           icon,
         }),
@@ -133,6 +137,20 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
                   <Input type="number" min="0" value={trialPrice} onChange={(e) => setTrialPrice(e.target.value)} placeholder="500" />
                 </div>
               )}
+            </div>
+
+            <div>
+              <Label>Стоимость разового посещения, ₽</Label>
+              <Input
+                type="number"
+                min="0"
+                value={singleVisitPrice}
+                onChange={(e) => setSingleVisitPrice(e.target.value)}
+                placeholder="Если пусто — берём цену занятия"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Списывается с баланса родителя, когда ученика добавляют на конкретное занятие без абонемента
+              </p>
             </div>
 
             <div>

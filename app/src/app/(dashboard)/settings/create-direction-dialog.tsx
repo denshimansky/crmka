@@ -25,6 +25,7 @@ export function CreateDirectionDialog() {
   const [lessonDuration, setLessonDuration] = useState("45")
   const [trialFree, setTrialFree] = useState(true)
   const [trialPrice, setTrialPrice] = useState("")
+  const [singleVisitPrice, setSingleVisitPrice] = useState("")
   const [color, setColor] = useState("#3b82f6")
   const [icon, setIcon] = useState(DEFAULT_DIRECTION_ICON)
 
@@ -34,6 +35,7 @@ export function CreateDirectionDialog() {
     setLessonDuration("45")
     setTrialFree(true)
     setTrialPrice("")
+    setSingleVisitPrice("")
     setColor("#3b82f6")
     setIcon(DEFAULT_DIRECTION_ICON)
     setError(null)
@@ -57,6 +59,7 @@ export function CreateDirectionDialog() {
           lessonDuration: Number(lessonDuration) || 45,
           trialFree,
           trialPrice: !trialFree && trialPrice ? Number(trialPrice) : undefined,
+          singleVisitPrice: singleVisitPrice ? Number(singleVisitPrice) : null,
           color,
           icon,
         }),
@@ -124,6 +127,20 @@ export function CreateDirectionDialog() {
                   <Input type="number" min="0" value={trialPrice} onChange={(e) => setTrialPrice(e.target.value)} placeholder="500" />
                 </div>
               )}
+            </div>
+
+            <div>
+              <Label>Стоимость разового посещения, ₽</Label>
+              <Input
+                type="number"
+                min="0"
+                value={singleVisitPrice}
+                onChange={(e) => setSingleVisitPrice(e.target.value)}
+                placeholder="Если пусто — берём цену занятия"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Списывается с баланса родителя, когда ученика добавляют на конкретное занятие без абонемента
+              </p>
             </div>
 
             <div>

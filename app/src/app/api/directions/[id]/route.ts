@@ -11,6 +11,7 @@ const updateSchema = z.object({
   lessonDuration: z.number().min(15).max(480).optional(),
   trialPrice: z.number().min(0).nullable().optional(),
   trialFree: z.boolean().optional(),
+  singleVisitPrice: z.number().min(0).nullable().optional(),
   color: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   icon: z.string().nullable().optional().refine(
     v => v == null || DIRECTION_ICON_NAMES.includes(v),
