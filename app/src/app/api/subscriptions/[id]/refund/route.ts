@@ -2,25 +2,30 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { z } from "zod"
 
+// accountId/method остались опциональными для обратной совместимости с UI,
+// но фактически больше не используются — возврат идёт на Client.clientBalance,
+// а не как расход с кассы.
 const refundSchema = z.object({
-  accountId: z.string().uuid("Некорректный ID счёта"),
-  method: z.enum(["cash", "bank_transfer", "acquiring", "online_yukassa", "online_robokassa", "sbp_qr"]),
+  accountId: z.string().uuid().optional(),
+  method: z.string().optional(),
   comment: z.string().max(500).optional(),
 })
 
 /**
  * POST /api/subscriptions/[id]/refund
- * Полный возврат остатка абонемента.
+ * Закрытие абонемента с возвратом невыработанной части на баланс клиента.
  *
  * Логика:
- * 1. Считаем использованные занятия (attendance с chargeAmount > 0)
- * 2. Остаток занятий = totalLessons - использованные
- * 3. Сумма возврата = остаток занятий × lessonPrice
- * 4. Создаём Payment type=refund с отрицательной суммой
- * 5. Деактивируем абонемент (status=withdrawn)
- * 6. Деактивируем связанные зачисления
+ * 1. Считаем использованные занятия (attendance с chargeAmount > 0).
+ * 2. Остаток занятий = totalLessons − использованные.
+ * 3. Сумма возврата = остаток × lessonPrice.
+ * 4. Возвращаем на Client.clientBalance через ClientBalanceTransaction
+ *    (type=subscription_closed_refund). Клиент сможет потратить кредит
+ *    на следующий абонемент.
+ * 5. Деактивируем абонемент (status=withdrawn) и зачисления.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
@@ -32,15 +37,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params
-  const body = await req.json()
+  const body = await req.json().catch(() => ({}))
   const parsed = refundSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
-  const { accountId, method, comment } = parsed.data
+  const { comment } = parsed.data
 
   const result = await db.$transaction(async (tx) => {
-    // 1. Находим абонемент
     const subscription = await tx.subscription.findFirst({
       where: { id, tenantId: session.user.tenantId, deletedAt: null },
       include: {
@@ -54,20 +58,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return { error: "Абонемент не найден", status: 404 }
     }
 
-    // Возврат только для активных/ожидающих абонементов
     if (subscription.status !== "active" && subscription.status !== "pending") {
       return { error: "Возврат возможен только для активного или ожидающего абонемента", status: 400 }
     }
 
-    // 2. Проверяем что счёт принадлежит тенанту
-    const account = await tx.financialAccount.findFirst({
-      where: { id: accountId, tenantId: session.user.tenantId, deletedAt: null },
-    })
-    if (!account) {
-      return { error: "Счёт не найден", status: 404 }
-    }
-
-    // 3. Считаем использованные занятия
     const attendedCount = await tx.attendance.count({
       where: {
         tenantId: session.user.tenantId,
@@ -84,48 +78,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const refundAmount = remainingLessons * Number(subscription.lessonPrice)
 
-    // 4. Считаем фактически оплаченную сумму
-    const paidAgg = await tx.payment.aggregate({
-      where: { subscriptionId: id, deletedAt: null },
-      _sum: { amount: true },
-    })
-    const totalPaid = Number(paidAgg._sum.amount || 0)
-
-    // Сумма возврата не может превышать фактически оплаченное
-    const actualRefund = Math.min(refundAmount, totalPaid)
-
-    if (actualRefund <= 0) {
-      return { error: "Нет средств для возврата (абонемент не оплачен)", status: 400 }
-    }
-
-    // 5. Создаём платёж-возврат (отрицательная сумма)
-    const payment = await tx.payment.create({
-      data: {
-        tenantId: session.user.tenantId,
-        clientId: subscription.clientId,
+    // Возврат на баланс клиента (не на кассу). Финансово это «обнуление»
+    // того минуса, который мы создали при выписке абонемента.
+    await applyBalanceDelta(tx, {
+      tenantId: session.user.tenantId,
+      clientId: subscription.clientId,
+      delta: refundAmount,
+      type: "subscription_closed_refund",
+      refs: {
         subscriptionId: id,
-        accountId,
-        amount: -actualRefund,
-        type: "refund",
-        method,
-        date: new Date(),
-        comment: comment || `Возврат: ${subscription.direction.name} (${subscription.group.name})`,
-        createdBy: session.user.employeeId,
+        directionId: subscription.directionId,
       },
+      comment: comment || `Возврат: ${subscription.direction.name} (${subscription.group.name})`,
+      createdBy: session.user.employeeId,
     })
 
-    // 6. Деактивируем абонемент
-    const newBalance = Number(subscription.finalAmount) - (totalPaid - actualRefund)
     await tx.subscription.update({
       where: { id },
       data: {
         status: "withdrawn",
         withdrawalDate: new Date(),
-        balance: newBalance,
+        balance: 0,
       },
     })
 
-    // 7. Деактивируем связанные зачисления
     await tx.groupEnrollment.updateMany({
       where: {
         tenantId: session.user.tenantId,
@@ -142,9 +118,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     return {
       data: {
-        paymentId: payment.id,
         subscriptionId: id,
-        refundAmount: actualRefund,
+        refundAmount,
         remainingLessons,
         attendedLessons: attendedCount,
         totalLessons: subscription.totalLessons,
@@ -201,18 +176,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     _sum: { amount: true },
   })
   const totalPaid = Number(paidAgg._sum.amount || 0)
-  const actualRefund = Math.min(refundAmount, totalPaid)
 
   return NextResponse.json({
     totalLessons: subscription.totalLessons,
     attendedLessons: attendedCount,
     remainingLessons,
     lessonPrice: Number(subscription.lessonPrice),
-    refundAmount: actualRefund,
+    refundAmount,
     totalPaid,
     direction: subscription.direction.name,
     group: subscription.group.name,
     status: subscription.status,
-    canRefund: (subscription.status === "active" || subscription.status === "pending") && actualRefund > 0 && remainingLessons > 0,
+    canRefund: (subscription.status === "active" || subscription.status === "pending") && remainingLessons > 0,
   })
 }

@@ -363,12 +363,6 @@ interface RefundPreview {
   canRefund: boolean
 }
 
-interface AccountOption {
-  id: string
-  name: string
-  type: string
-}
-
 function RefundSubscriptionDialog({
   subscription,
   onSuccess,
@@ -381,33 +375,22 @@ function RefundSubscriptionDialog({
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<RefundPreview | null>(null)
-  const [accounts, setAccounts] = useState<AccountOption[]>([])
-  const [accountId, setAccountId] = useState("")
-  const [method, setMethod] = useState("cash")
   const [comment, setComment] = useState("")
 
   async function loadPreview() {
     setLoadingPreview(true)
     setError(null)
     try {
-      const [refundRes, accountsRes] = await Promise.all([
-        fetch(`/api/subscriptions/${subscription.id}/refund`),
-        fetch("/api/financial-accounts"),
-      ])
+      const refundRes = await fetch(`/api/subscriptions/${subscription.id}/refund`)
       if (refundRes.ok) {
         const data = await refundRes.json()
         setPreview(data)
         if (!data.canRefund) {
-          setError("Возврат невозможен: нет неиспользованных оплаченных занятий")
+          setError("Возврат невозможен: нет неиспользованных занятий")
         }
       } else {
         const data = await refundRes.json().catch(() => ({}))
         setError(data.error || "Ошибка загрузки данных")
-      }
-      if (accountsRes.ok) {
-        const accs = await accountsRes.json()
-        setAccounts(accs)
-        if (accs.length > 0 && !accountId) setAccountId(accs[0].id)
       }
     } catch {
       setError("Ошибка сети")
@@ -428,11 +411,6 @@ function RefundSubscriptionDialog({
   }
 
   async function handleRefund() {
-    if (!accountId) {
-      setError("Выберите счёт")
-      return
-    }
-
     setLoading(true)
     setError(null)
     try {
@@ -440,8 +418,6 @@ function RefundSubscriptionDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          accountId,
-          method,
           comment: comment || undefined,
         }),
       })
@@ -460,8 +436,6 @@ function RefundSubscriptionDialog({
       setLoading(false)
     }
   }
-
-  const selectedAccount = accounts.find(a => a.id === accountId)
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
@@ -523,53 +497,23 @@ function RefundSubscriptionDialog({
               </div>
               <hr className="my-1 border-orange-200 dark:border-orange-800" />
               <div className="flex justify-between font-bold text-base">
-                <span>Сумма возврата:</span>
-                <span className="text-orange-600">{formatMoney(preview.refundAmount)}</span>
+                <span>На баланс клиента:</span>
+                <span className="text-orange-600">+{formatMoney(preview.refundAmount)}</span>
               </div>
             </div>
 
             <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200">
-              Абонемент будет деактивирован, ученик отчислен из группы. Это действие необратимо.
+              Абонемент будет закрыт, ученик отчислен из группы. Остаток возвращается на баланс клиента — он сможет потратить его на следующий абонемент. Если нужно выдать наличными — отдельной операцией возврата платежа.
             </div>
 
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>Счёт для списания *</Label>
-                <Select value={accountId} onValueChange={(v) => { if (v) setAccountId(v) }}>
-                  <SelectTrigger className="w-full">
-                    {selectedAccount ? selectedAccount.name : "Выберите счёт"}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts.map(a => (
-                      <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Способ возврата</Label>
-                <Select value={method} onValueChange={(v) => { if (v) setMethod(v) }}>
-                  <SelectTrigger className="w-full">
-                    {METHOD_LABELS[method] || method}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(METHOD_LABELS).map(([val, label]) => (
-                      <SelectItem key={val} value={val}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Комментарий</Label>
-                <Input
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="Причина возврата"
-                  maxLength={500}
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label>Комментарий</Label>
+              <Input
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Причина возврата"
+                maxLength={500}
+              />
             </div>
 
             <DialogFooter>
@@ -577,7 +521,7 @@ function RefundSubscriptionDialog({
               <Button
                 variant="destructive"
                 onClick={handleRefund}
-                disabled={loading || !preview.canRefund || !accountId}
+                disabled={loading || !preview.canRefund}
               >
                 {loading ? "Обработка..." : `Вернуть ${formatMoney(preview.refundAmount)}`}
               </Button>
