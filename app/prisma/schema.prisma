@@ -448,17 +448,22 @@ model GroupEnrollment {
 }
 
 model AttendanceType {
-  id                  String   @id @default(uuid()) @db.Uuid
-  tenantId            String?  @map("tenant_id") @db.Uuid
-  name                String
-  code                String
-  chargesSubscription Boolean  @default(true) @map("charges_subscription")
-  paysInstructor      Boolean  @default(true) @map("pays_instructor")
-  countsAsRevenue     Boolean  @default(true) @map("counts_as_revenue")
-  isSystem            Boolean  @default(false) @map("is_system")
-  isActive            Boolean  @default(true) @map("is_active")
-  sortOrder           Int      @default(0) @map("sort_order")
-  createdAt           DateTime @default(now()) @map("created_at")
+  id                    String   @id @default(uuid()) @db.Uuid
+  tenantId              String?  @map("tenant_id") @db.Uuid
+  name                  String
+  code                  String
+  chargesSubscription   Boolean  @default(true) @map("charges_subscription")
+  paysInstructor        Boolean  @default(true) @map("pays_instructor")
+  countsAsRevenue       Boolean  @default(true) @map("counts_as_revenue")
+  availableToInstructor Boolean  @default(false) @map("available_to_instructor")
+  partOfPlan            Boolean  @default(true) @map("part_of_plan")
+  partOfFact            Boolean  @default(false) @map("part_of_fact")
+  partOfForecast        Boolean  @default(false) @map("part_of_forecast")
+  chargePercent         Int      @default(100) @map("charge_percent")
+  isSystem              Boolean  @default(false) @map("is_system")
+  isActive              Boolean  @default(true) @map("is_active")
+  sortOrder             Int      @default(0) @map("sort_order")
+  createdAt             DateTime @default(now()) @map("created_at")
 
   attendances Attendance[]
 
