@@ -70,6 +70,9 @@
 | onboarding_status | OnboardingStatus | да | Статус прохождения wizard | — |
 | onboarding_needs_help | Boolean | да | Флаг «нужна помощь» (дефолт false) | — |
 | onboarding_assigned_to | UUID | нет | FK → BackofficeUser | Ответственный из команды CRMka |
+| task_trigger_settings | Json | нет | Ф6: настройки автотриггеров задач — массив `{ trigger: TaskAutoTrigger, enabled: bool, startDayOfMonth?: int }`. null или отсутствие триггера = триггер включён | Используется генератором задач |
+| hide_phones_from_instructors | Boolean | да | **Ф8 / dead code:** поле осталось от Ф6 для конфигурируемой политики. Логика хардкоднута — инструктор всегда не видит телефоны, флаг не читается и не пишется | — |
+| restrict_client_export | Boolean | да | **Ф8 / dead code:** аналогично — инструктор всегда не может выгрузить базу, флаг не используется | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 
@@ -126,6 +129,7 @@
 | base_lesson_price | Decimal(12,2) | да | Базовая стоимость одного занятия | — |
 | trial_price | Decimal(12,2) | да | Стоимость пробного (0 = бесплатное) | — |
 | trial_is_free | Boolean | да | Пробное бесплатное (дефолт true) | — |
+| single_visit_price | Decimal(12,2) | нет | **Ф2:** Стоимость разового посещения. Используется в кнопке «Добавить ученика» при источнике=баланс родителя. Fallback на `base_lesson_price` если null | — |
 | default_duration_minutes | Int | да | Длительность занятия по умолчанию (мин) | — |
 | is_active | Boolean | да | Активно (дефолт true) | — |
 | sort_order | Int | да | Порядок сортировки (дефолт 0) | — |
@@ -214,16 +218,53 @@
 | branch_id | UUID | нет | FK → Branch | Филиал (null = все филиалы, для окладной) |
 | direction_id | UUID | нет | FK → Direction | Направление (null = все, для окладной) |
 | group_id | UUID | нет | FK → Group | Группа (опц., для индивидуальной ставки) |
-| type | SalaryRateType | да | Тип: per_student / per_lesson / fixed_plus_per_student / fixed_salary / per_shift | — |
+| scheme | SalaryScheme | да | **Ф3:** Тип: per_student / per_lesson / fixed_plus_per_student / percent_of_payments / floating_by_students | — |
 | rate_per_student | Decimal(12,2) | нет | Ставка за ученика | — |
 | rate_per_lesson | Decimal(12,2) | нет | Фикс за занятие | — |
 | rate_fixed_per_shift | Decimal(12,2) | нет | Фикс за выход | — |
 | rate_fixed_salary | Decimal(12,2) | нет | Окладная ЗП (в месяц) | — |
+| percent_of_payments | Decimal(5,2) | нет | **Ф3:** Процент от `chargeAmount` ученика (0–100), для schema=percent_of_payments | — |
 | effective_from | Date | да | Дата начала действия ставки | — |
 | effective_to | Date | нет | Дата окончания (null = бессрочно) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
+
+---
+
+## SalaryBracket (Ф3)
+
+Строка плавающей матрицы ставок «N учеников → ставка за занятие». Привязана к `SalaryRate` (если `scheme=floating_by_students`) или к `GroupSalaryRate`.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| salary_rate_id | UUID | нет | FK → SalaryRate | Для личной ставки |
+| group_salary_rate_id | UUID | нет | FK → GroupSalaryRate | Для ставки группы |
+| min_students | Int | да | Минимум учеников для применения этой строки (включительно) | — |
+| rate_per_lesson | Decimal(12,2) | да | Ставка за это занятие, если число учеников ≥ minStudents | — |
+
+**Логика выбора:** среди brackets с `minStudents <= currentStudents` берётся с наибольшим `minStudents`. ЗП выплачивается только на первой платной отметке lesson (как `per_lesson`).
+
+---
+
+## GroupSalaryRate (Ф3)
+
+Ставка ЗП, привязанная к группе. **Перекрывает** личные `SalaryRate` всех педагогов (включая замещающего) при расчёте ЗП за конкретное занятие.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | Мультитенант |
+| group_id | UUID | да | FK → Group (unique) | Группа — 1:1 связь |
+| scheme | SalaryScheme | да | Та же enum, что в SalaryRate | — |
+| rate_per_student | Decimal(12,2) | нет | Ставка за ученика | — |
+| rate_per_lesson | Decimal(12,2) | нет | Фикс за занятие | — |
+| fixed_per_shift | Decimal(12,2) | нет | Фикс за выход | — |
+| percent_of_payments | Decimal(5,2) | нет | Процент | — |
+| brackets | SalaryBracket[] | нет | Плавающая матрица (для floating_by_students) | — |
+| created_at | DateTime | да | Дата создания | — |
+| updated_at | DateTime | да | Дата обновления | — |
 
 ---
 
@@ -321,42 +362,54 @@
 | subscription_id | UUID | нет | FK → Subscription | Абонемент (для списания) |
 | trial_lesson_id | UUID | нет | FK → TrialLesson | Пробное занятие (если посещение по пробному) |
 | client_id | UUID | да | FK → Client | Клиент |
-| ward_id | UUID | нет | FK → Ward | Подопечный (если есть) |
+| ward_id | UUID | нет | FK → Ward | Подопечный (если есть). **Внимание:** scalar поле без relation — для имени ребёнка нужен отдельный запрос к Ward |
 | attendance_type_id | UUID | да | FK → AttendanceType | Вид дня |
 | absence_reason_id | UUID | нет | FK → AbsenceReason | Причина пропуска |
-| charge_amount | Decimal(12,2) | да | Сумма списания с абонемента (0 при перерасчёте) | — |
+| charge_amount | Decimal(12,2) | да | Сумма списания с абонемента (0 при перерасчёте). **Ф2:** при `chargePercent<100` списывает полную цену, разница уходит на `clientBalance` как `lesson_refund` | — |
 | instructor_pay_amount | Decimal(12,2) | да | Начисление ЗП инструктору | — |
 | instructor_pay_enabled | Boolean | да | Оплата инструктору включена (переключатель) | — |
 | is_trial | Boolean | да | Пробное посещение (дефолт false) | — |
-| marked_by | UUID | нет | FK → Employee | Кто отметил | — |
+| is_makeup | Boolean | да | **Ф1:** Эта Attendance — реальная отработка пропуска другого занятия. Списание идёт с абонемента группы пропущенного занятия | — |
+| makeup_of_lesson_id | UUID | нет | **Ф1:** FK → Lesson — какой пропуск отрабатывает (только при `is_makeup=true`) | — |
+| scheduled_makeup_lesson_id | UUID | нет | **Ф1:** FK → Lesson — целевое занятие, куда назначена отработка (для `attendance_type.code=makeup_scheduled`) | — |
+| marked_by | UUID | нет | FK → Employee | Кто отметил |
 | marked_at | DateTime | нет | Когда отметили | — |
 | is_after_period_close | Boolean | да | Отмечено после закрытия периода (дефолт false) | Аудит |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 
-**Уникальность:** (lesson_id, subscription_id)
+**Уникальность:** (tenant_id, lesson_id, subscription_id)
 
-**Ограничение:** Одно из subscription_id или trial_lesson_id должно быть заполнено (CHECK: subscription_id IS NOT NULL OR trial_lesson_id IS NOT NULL).
+**Ограничение:** Одно из subscription_id или trial_lesson_id должно быть заполнено (CHECK: subscription_id IS NOT NULL OR trial_lesson_id IS NOT NULL). При `is_makeup=true` `subscription_id` указывает на абонемент исходной группы (не текущего lesson).
 
 ---
 
 ## AttendanceType
 
-Вид дня — справочник (Явка, Прогул, Перерасчёт, Отработка + пользовательские).
+Вид дня — справочник (Был, Не был, Уваж. пропуск, Прогул, Перерасчёт, Назначена отработка, Отработка + пользовательские).
 
 | Поле | Тип | Обязательное | Описание | Связь |
 |---|---|---|---|---|
 | id | UUID | да | PK | — |
-| tenant_id | UUID | нет | FK → Organization | null = системные (предустановленные) |
-| name | String | да | Название (Явка, Прогул, Перерасчёт, Отработка) | — |
-| code | String | да | Машинный код (present, absent, recalculation, makeup) | — |
+| tenant_id | UUID | нет | FK → Organization | null = системные (предустановленные), `seed-attendance-types.ts` |
+| name | String | да | Название (Был, Не был, ...) | — |
+| code | String | да | Машинный код (`present`, `no_show`, `excused`, `absent`, `recalculation`, `makeup_scheduled`, `makeup`) | — |
 | charges_subscription | Boolean | да | Списывать с абонемента? | — |
 | pays_instructor | Boolean | да | Начислять ЗП инструктору? (переопределяется настройкой организации) | — |
 | counts_as_revenue | Boolean | да | Считается как выручка? | — |
-| is_system | Boolean | да | Системный (нельзя удалить) | — |
+| available_to_instructor | Boolean | да | **Ф1:** Доступно педагогу в выпадашке отметки | — |
+| available_to_admin | Boolean | да | **Ф1:** Доступно администратору в выпадашке отметки | — |
+| part_of_plan | Boolean | да | **Ф1:** Учитывается в плановом расписании | — |
+| part_of_fact | Boolean | да | **Ф1:** Засчитывается как фактическое посещение | — |
+| part_of_forecast | Boolean | да | **Ф1:** Входит в прогноз выручки/списаний | — |
+| charge_percent | Int | да | **Ф1:** Процент списания (0-100), применяется при `charges_subscription=true`. Дефолт 100. При <100 списывает полную цену с абонемента, разницу возвращает на `clientBalance` (`lesson_refund`) | — |
+| is_system | Boolean | да | Системный — нельзя удалить | — |
+| is_flags_locked | Boolean | да | **Ф1:** Бизнес-флаги (`charges_subscription` и т.п.) нельзя менять через UI. Изменяемы только: `available_to_*`, `is_active`, `sort_order` | — |
 | is_active | Boolean | да | Активен (дефолт true) | — |
 | sort_order | Int | да | Порядок сортировки (дефолт 0) | — |
 | created_at | DateTime | да | Дата создания | — |
+
+**Скрытые из UI типы (`internal-only`):** если `available_to_instructor=false` И `available_to_admin=false` — тип скрыт из выпадашки отметки и из таблицы матрицы настроек для всех ролей. Применяется к `makeup` (используется только bulk safety-net программно).
 
 ---
 
@@ -448,8 +501,8 @@
 | total_amount | Decimal(12,2) | да | Полная сумма абонемента (до скидок) | — |
 | discount_amount | Decimal(12,2) | да | Сумма скидки (дефолт 0) | — |
 | final_amount | Decimal(12,2) | да | Итоговая сумма (total_amount - discount_amount) | — |
-| balance | Decimal(12,2) | да | Текущий баланс абонемента (дефолт 0) | — |
-| charged_amount | Decimal(12,2) | да | Списано всего (сумма charge_amount из Attendance, дефолт 0) | — |
+| balance | Decimal(12,2) | да | **Ф2:** Финансовый остаток абонемента **в ₽** (не в занятиях!). Уменьшается на `lesson_price` при каждой платной отметке. Не уходит в минус. Количество оставшихся занятий = `round(balance / lesson_price)` | — |
+| charged_amount | Decimal(12,2) | да | **Ф2:** Накопительная сумма списаний по абонементу в ₽. Количество отработанных занятий = `round(charged_amount / lesson_price)` | — |
 | start_date | Date | да | Дата начала (может быть не 1 число) | — |
 | end_date | Date | нет | Дата окончания | — |
 | withdrawal_reason_id | UUID | нет | FK → WithdrawalReason | Причина отчисления (при закрытии) |
@@ -530,6 +583,43 @@
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
 | deleted_at | DateTime | нет | Мягкое удаление | — |
+
+---
+
+## ClientBalanceTransaction (Ф2)
+
+Единый ledger движений `Client.clientBalance` — добавлен в Ф2 для замены неявной модели «баланс = касса». Каждая мутация `clientBalance` создаёт строку транзакции через утилиту `applyBalanceDelta`.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | Мультитенант |
+| client_id | UUID | да | FK → Client | Клиент |
+| type | BalanceTransactionType | да | Тип движения (см. ниже) | — |
+| amount | Decimal(12,2) | да | Дельта: + увеличивает баланс, − уменьшает | — |
+| balance_after | Decimal(12,2) | да | Снапшот `clientBalance` после операции — для аудита и отчётов | — |
+| subscription_id | UUID | нет | FK → Subscription | Связанный абонемент (если применимо) |
+| payment_id | UUID | нет | FK → Payment | Связанный платёж |
+| lesson_id | UUID | нет | FK → Lesson | Связанное занятие (для lesson_refund, attendance_revert) |
+| direction_id | UUID | нет | FK → Direction | Связанное направление |
+| attendance_id | UUID | нет | FK → Attendance | Связанная отметка |
+| comment | String | нет | Комментарий (например, «backfill») | — |
+| created_by | UUID | нет | FK → Employee | Кто инициировал (null = система) |
+| created_at | DateTime | да | Дата создания | — |
+
+### Типы транзакций (enum BalanceTransactionType)
+
+- `payment_received` (+) — поступила оплата
+- `subscription_issued` (−) — выписан абонемент, баланс уходит в минус на `finalAmount` (долг)
+- `lesson_refund` (+) — возврат недосписанной части при `chargePercent<100`
+- `subscription_closed_refund` (+) — закрытие абонемента возвращает остаток на баланс
+- `personal_lesson_charge` (−) — списание за разовое посещение (кнопка «Добавить ученика» → баланс родителя)
+- `attendance_revert` (−/+) — откат при удалении/смене отметки (компенсирует прежний `lesson_refund`)
+- `refund` (−) — старый Payment refund (касса), деньги ушли клиенту физически
+- `transfer_to_subscription` (+/−) — перенос баланса между абонементами
+- `correction` (±) — ручная корректировка владельцем
+
+**Инвариант:** сумма всех `amount` для клиента + 0 (исходный) = текущий `Client.clientBalance`.
 
 ---
 
@@ -1432,10 +1522,18 @@
 `manual` | `auto`
 
 ## TaskAutoTrigger
-`contact_date` | `trial_reminder` | `payment_due` | `birthday` | `absence` | `promised_payment` | `unmarked_lesson`
+`contact_date` | `trial_reminder` | `payment_due` | `birthday` | `absence` | `promised_payment` | `unmarked_lesson` | `missed_makeup`
+
+**Ф7:** `missed_makeup` создаётся, когда: (1) педагог отметил «Не был» на виртуальной строке отработки; (2) целевое занятие отработки отменено. Задача назначается админу/менеджеру/владельцу — переназначить отработку.
 
 ## TaskStatus
 `pending` | `completed` | `cancelled`
+
+## SalaryScheme (Ф3)
+`per_student` | `per_lesson` | `fixed_plus_per_student` | `percent_of_payments` | `floating_by_students`
+
+## BalanceTransactionType (Ф2)
+`payment_received` | `subscription_issued` | `lesson_refund` | `subscription_closed_refund` | `personal_lesson_charge` | `attendance_revert` | `refund` | `transfer_to_subscription` | `correction`
 
 ## CallCampaignStatus
 `active` | `closed` | `archived`
