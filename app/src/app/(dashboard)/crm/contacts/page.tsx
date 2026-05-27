@@ -179,11 +179,9 @@ export default async function ContactsPage({
           <PageHelp pageKey="crm/contacts" />
         </div>
         <div className="flex items-center gap-2">
-          <Button asChild variant="outline">
-            <Link href="/crm/import">
-              <Upload className="mr-2 size-4" />
-              Импорт
-            </Link>
+          <Button variant="outline" size="sm" render={<Link href="/crm/import" />}>
+            <Upload className="mr-2 size-4" />
+            Импорт
           </Button>
           <CreateClientDialog branches={branches} />
         </div>
