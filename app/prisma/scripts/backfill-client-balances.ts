@@ -22,9 +22,55 @@
  * НЕ запускается автоматически миграцией Prisma.
  */
 import { PrismaClient, Prisma } from "@prisma/client"
-import { applyBalanceDelta } from "../../src/lib/balance/transactions"
+import type { BalanceTransactionType } from "@prisma/client"
 
 const db = new PrismaClient()
+
+// Inline-копия applyBalanceDelta — скрипт запускается в контейнере app, где
+// src/lib не присутствует (Next.js standalone ships only compiled output).
+// Логика 1-в-1 совпадает с src/lib/balance/transactions.ts:applyBalanceDelta.
+async function applyBalanceDelta(
+  tx: Prisma.TransactionClient,
+  input: {
+    tenantId: string
+    clientId: string
+    delta: Prisma.Decimal | number | string
+    type: BalanceTransactionType
+    refs?: {
+      subscriptionId?: string | null
+      paymentId?: string | null
+      lessonId?: string | null
+      directionId?: string | null
+      attendanceId?: string | null
+    }
+    comment?: string
+    createdBy?: string | null
+  },
+) {
+  const delta = new Prisma.Decimal(input.delta)
+  const updated = await tx.client.update({
+    where: { id: input.clientId },
+    data: { clientBalance: { increment: delta } },
+    select: { clientBalance: true },
+  })
+  await tx.clientBalanceTransaction.create({
+    data: {
+      tenantId: input.tenantId,
+      clientId: input.clientId,
+      type: input.type,
+      amount: delta,
+      balanceAfter: updated.clientBalance,
+      subscriptionId: input.refs?.subscriptionId ?? null,
+      paymentId: input.refs?.paymentId ?? null,
+      lessonId: input.refs?.lessonId ?? null,
+      directionId: input.refs?.directionId ?? null,
+      attendanceId: input.refs?.attendanceId ?? null,
+      comment: input.comment,
+      createdBy: input.createdBy ?? null,
+    },
+    select: { id: true },
+  })
+}
 
 type Event =
   | { kind: "payment"; date: Date; paymentId: string; subscriptionId: string | null; amount: Prisma.Decimal; type: "incoming" | "refund" | "transfer_in" }
