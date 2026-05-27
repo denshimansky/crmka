@@ -6,6 +6,7 @@ import { QuickLeadButton } from "@/components/quick-lead-button"
 import { CreateClientDialog } from "../clients/create-client-dialog"
 import { ContactsTabs, type ContactsTab } from "./contacts-tabs"
 import { ContactsTable, type ContactRow, type ContactsTabKey } from "./contacts-table"
+import { maskPhone, getVisibilitySettings } from "@/lib/permissions/phone-visibility"
 
 const TAB_LABELS: Record<ContactsTabKey, string> = {
   leads: "Лиды",
@@ -76,6 +77,9 @@ export default async function ContactsPage({
     ? (rawTab as ContactsTabKey)
     : "leads"
 
+  const visibility = await getVisibilitySettings(tenantId)
+  const role = session.user.role
+
   const [branches, employees, ...countsArr] = await Promise.all([
     db.branch.findMany({
       where: { tenantId, deletedAt: null },
@@ -130,7 +134,7 @@ export default async function ContactsPage({
       id: c.id,
       firstName: c.firstName,
       lastName: c.lastName,
-      phone: c.phone,
+      phone: maskPhone(c.phone, role, visibility.hidePhonesFromInstructors),
       socialLink: c.socialLink,
       segment: c.segment,
       channelName: c.channel?.name ?? null,

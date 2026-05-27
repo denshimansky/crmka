@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
+import { maskPhone, getVisibilitySettings } from "@/lib/permissions/phone-visibility"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -112,7 +113,16 @@ export async function GET(req: NextRequest) {
     take: 100,
   })
 
-  return NextResponse.json(clients)
+  // Маскирование телефонов для роли «инструктор» при включённой настройке
+  const settings = await getVisibilitySettings(session.user.tenantId)
+  const role = session.user.role
+  const masked = clients.map((c) => ({
+    ...c,
+    phone: maskPhone(c.phone, role, settings.hidePhonesFromInstructors),
+    phone2: maskPhone(c.phone2, role, settings.hidePhonesFromInstructors),
+  }))
+
+  return NextResponse.json(masked)
 }
 
 export async function POST(req: NextRequest) {

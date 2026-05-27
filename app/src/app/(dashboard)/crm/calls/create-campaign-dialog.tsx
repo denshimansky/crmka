@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog"
@@ -12,6 +13,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@/components/ui/select"
 import { Plus } from "lucide-react"
+import { MANAGED_TRIGGERS, TRIGGER_LABEL } from "@/lib/tasks/trigger-settings"
 
 const FUNNEL_OPTIONS = [
   { value: "", label: "Все статусы" },
@@ -39,8 +41,22 @@ export function CreateCampaignDialog() {
   const [name, setName] = useState("")
   const [funnelStatus, setFunnelStatus] = useState("")
   const [segment, setSegment] = useState("")
+  const [triggers, setTriggers] = useState<Set<string>>(new Set())
 
-  function reset() { setName(""); setFunnelStatus(""); setSegment(""); setError(null) }
+  function reset() {
+    setName(""); setFunnelStatus(""); setSegment("")
+    setTriggers(new Set())
+    setError(null)
+  }
+
+  function toggleTrigger(t: string) {
+    setTriggers((prev) => {
+      const next = new Set(prev)
+      if (next.has(t)) next.delete(t)
+      else next.add(t)
+      return next
+    })
+  }
 
   const selectedFunnel = FUNNEL_OPTIONS.find(o => o.value === funnelStatus)
   const selectedSegment = SEGMENT_OPTIONS.find(o => o.value === segment)
@@ -50,9 +66,10 @@ export function CreateCampaignDialog() {
     if (!name) { setError("Введите название"); return }
     setLoading(true)
     try {
-      const filterCriteria: any = {}
+      const filterCriteria: Record<string, unknown> = {}
       if (funnelStatus) filterCriteria.funnelStatus = funnelStatus
       if (segment) filterCriteria.segment = segment
+      if (triggers.size > 0) filterCriteria.autoTriggers = Array.from(triggers)
 
       const res = await fetch("/api/call-campaigns", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -93,6 +110,24 @@ export function CreateCampaignDialog() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Типы автозадач, включаемых в кампанию</Label>
+            <div className="space-y-1.5 rounded-md border p-3">
+              {MANAGED_TRIGGERS.map((t) => (
+                <label key={t} className="flex items-center gap-2 cursor-pointer text-sm">
+                  <Checkbox
+                    checked={triggers.has(t)}
+                    onCheckedChange={() => toggleTrigger(t)}
+                  />
+                  <span>{TRIGGER_LABEL[t]}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Если выбраны — в обзвон попадут клиенты с открытыми автозадачами выбранных типов.
+              Пусто — отбор только по статусу/сегменту выше.
+            </p>
           </div>
           <DialogFooter><Button type="submit" disabled={loading}>{loading ? "Создание..." : "Создать обзвон"}</Button></DialogFooter>
         </form>

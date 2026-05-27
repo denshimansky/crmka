@@ -89,6 +89,14 @@ model Organization {
   rolePermissions    Json?    @map("role_permissions")
   onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
 
+  // Ф6: Безопасность данных
+  hidePhonesFromInstructors Boolean @default(false) @map("hide_phones_from_instructors")
+  restrictClientExport      Boolean @default(false) @map("restrict_client_export")
+
+  // Ф6: Настройки автотриггеров задач (массив { trigger, enabled, startDayOfMonth? }).
+  // Если null — все триггеры считаются включёнными (обратная совместимость).
+  taskTriggerSettings Json? @map("task_trigger_settings")
+
   // Биллинг
   billingStatus BillingStatus @default(active) @map("billing_status")
   contactPerson String?       @map("contact_person")
