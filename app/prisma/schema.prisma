@@ -372,6 +372,7 @@ model Group {
   enrollments   GroupEnrollment[]
   subscriptions Subscription[]
   trialLessons  TrialLesson[]
+  salaryRate    GroupSalaryRate?
 
   @@index([tenantId])
   @@index([tenantId, branchId])
@@ -496,21 +497,66 @@ model EmployeeBranch {
 // === СТАВКИ ЗП ===
 
 model SalaryRate {
-  id             String       @id @default(uuid()) @db.Uuid
-  tenantId       String       @map("tenant_id") @db.Uuid
-  employeeId     String       @map("employee_id") @db.Uuid
-  directionId    String?      @map("direction_id") @db.Uuid
-  scheme         SalaryScheme
-  ratePerStudent Decimal?     @map("rate_per_student") @db.Decimal(12, 2)
-  ratePerLesson  Decimal?     @map("rate_per_lesson") @db.Decimal(12, 2)
-  fixedPerShift  Decimal?     @map("fixed_per_shift") @db.Decimal(12, 2)
-  createdAt      DateTime     @default(now()) @map("created_at")
+  id                String       @id @default(uuid()) @db.Uuid
+  tenantId          String       @map("tenant_id") @db.Uuid
+  employeeId        String       @map("employee_id") @db.Uuid
+  directionId       String?      @map("direction_id") @db.Uuid
+  scheme            SalaryScheme
+  ratePerStudent    Decimal?     @map("rate_per_student") @db.Decimal(12, 2)
+  ratePerLesson     Decimal?     @map("rate_per_lesson") @db.Decimal(12, 2)
+  fixedPerShift     Decimal?     @map("fixed_per_shift") @db.Decimal(12, 2)
+  percentOfPayments Decimal?     @map("percent_of_payments") @db.Decimal(5, 2)
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at")
 
-  employee  Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  direction Direction? @relation(fields: [directionId], references: [id])
+  employee  Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  direction Direction?      @relation(fields: [directionId], references: [id])
+  brackets  SalaryBracket[]
 
   @@index([tenantId])
+  @@index([tenantId, employeeId, directionId])
   @@map("salary_rates")
+}
+
+// Ставка для конкретной группы — перекрывает личные ставки всех педагогов
+// (включая замещающего) при расчёте ЗП за занятия этой группы. Используется,
+// когда в группе нестандартные условия (например, premium-цена за студента).
+model GroupSalaryRate {
+  id                String       @id @default(uuid()) @db.Uuid
+  tenantId          String       @map("tenant_id") @db.Uuid
+  groupId           String       @unique @map("group_id") @db.Uuid
+  scheme            SalaryScheme
+  ratePerStudent    Decimal?     @map("rate_per_student") @db.Decimal(12, 2)
+  ratePerLesson     Decimal?     @map("rate_per_lesson") @db.Decimal(12, 2)
+  fixedPerShift     Decimal?     @map("fixed_per_shift") @db.Decimal(12, 2)
+  percentOfPayments Decimal?     @map("percent_of_payments") @db.Decimal(5, 2)
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  group    Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  brackets SalaryBracket[]
+
+  @@index([tenantId])
+  @@map("group_salary_rates")
+}
+
+// Строка плавающей матрицы «N учеников → ставка за занятие». Может относиться
+// либо к личной SalaryRate, либо к GroupSalaryRate (используется ровно один FK).
+model SalaryBracket {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  salaryRateId      String?  @map("salary_rate_id") @db.Uuid
+  groupSalaryRateId String?  @map("group_salary_rate_id") @db.Uuid
+  minStudents       Int      @map("min_students")
+  ratePerLesson     Decimal  @map("rate_per_lesson") @db.Decimal(12, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  salaryRate      SalaryRate?      @relation(fields: [salaryRateId], references: [id], onDelete: Cascade)
+  groupSalaryRate GroupSalaryRate? @relation(fields: [groupSalaryRateId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, salaryRateId])
+  @@index([tenantId, groupSalaryRateId])
+  @@map("salary_brackets")
 }
 
 // === ВЫПЛАТЫ ЗП ===
@@ -989,6 +1035,8 @@ enum SalaryScheme {
   per_student
   per_lesson
   fixed_plus_per_student
+  percent_of_payments
+  floating_by_students
 }
 
 enum FunnelStatus {
