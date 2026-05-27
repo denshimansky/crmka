@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowLeft, Users } from "lucide-react"
 import { GroupTabs } from "./group-tabs"
+import { GroupSalaryRateButton } from "./group-salary-rate-button"
 import { PageHelp } from "@/components/page-help"
 
 const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -230,6 +231,7 @@ export default async function GroupCardPage({
             </span>
           </div>
         </Card>
+        <GroupSalaryRateButton groupId={id} groupName={group.name} />
       </div>
 
       {/* Tabs */}

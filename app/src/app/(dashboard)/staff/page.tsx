@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/table"
 import { CreateEmployeeDialog } from "./create-employee-dialog"
 import { EditEmployeeDialog } from "./edit-employee-dialog"
+import { SalaryRatesDialog } from "./salary-rates-dialog"
 import type { Role } from "@prisma/client"
 import { PageHelp } from "@/components/page-help"
 import Link from "next/link"
@@ -37,7 +38,7 @@ export default async function StaffPage() {
   const tenantId = session.user.tenantId
   const canEdit = session.user.role === "owner" || session.user.role === "manager"
 
-  const [employees, branches] = await Promise.all([
+  const [employees, branches, directions] = await Promise.all([
     db.employee.findMany({
       where: { tenantId, deletedAt: null },
       include: {
@@ -48,6 +49,11 @@ export default async function StaffPage() {
       orderBy: { lastName: "asc" },
     }),
     db.branch.findMany({
+      where: { tenantId, deletedAt: null },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    db.direction.findMany({
       where: { tenantId, deletedAt: null },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
@@ -127,13 +133,22 @@ export default async function StaffPage() {
                       </TableCell>
                       {canEdit && (
                         <TableCell>
-                          <EditEmployeeDialog
-                            employee={{
-                              ...emp,
-                              birthDate: emp.birthDate?.toISOString() || null,
-                            }}
-                            branches={branches}
-                          />
+                          <div className="flex items-center gap-1">
+                            {emp.role === "instructor" && (
+                              <SalaryRatesDialog
+                                employeeId={emp.id}
+                                employeeName={fullName || emp.login}
+                                directions={directions}
+                              />
+                            )}
+                            <EditEmployeeDialog
+                              employee={{
+                                ...emp,
+                                birthDate: emp.birthDate?.toISOString() || null,
+                              }}
+                              branches={branches}
+                            />
+                          </div>
                         </TableCell>
                       )}
                     </TableRow>
