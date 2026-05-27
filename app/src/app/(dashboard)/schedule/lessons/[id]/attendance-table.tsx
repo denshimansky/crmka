@@ -193,9 +193,25 @@ export function AttendanceTable({
   const [substituteName, setSubstituteName] = useState<string | null>(initSubstituteName || null)
   const [savingSubstitute, setSavingSubstitute] = useState(false)
   const [scheduleMakeupFor, setScheduleMakeupFor] = useState<StudentData | null>(null)
+  // Ф8/C6: подтверждение смены «Был» на «Не был» / «Не отмечен» на отработке.
+  // Доступно только админ+, для них показываем модалку про ведомости ЗП.
+  const [pendingMakeupChange, setPendingMakeupChange] = useState<
+    | { student: StudentData; action: "no_show"; typeId: string }
+    | { student: StudentData; action: "clear" }
+    | null
+  >(null)
 
   const presentType = attendanceTypes.find((t) => t.code === "present")
   const scheduledMakeupType = attendanceTypes.find((t) => t.code === "makeup_scheduled")
+
+  /** Ф8/C6: ловушка для смены отметки «Был» на отработке — нужно подтверждение. */
+  function isReducingMakeupAttendance(student: StudentData, newTypeCode: string | "clear"): boolean {
+    if (!student.isMakeup) return false
+    if (!student.attendance) return false
+    if (student.attendance.attendanceTypeCode !== "present") return false
+    if (Number(student.attendance.chargeAmount) <= 0) return false
+    return newTypeCode === "no_show" || newTypeCode === "clear"
+  }
 
   // All students combined (enrolled + makeup)
   const allStudents = [...students, ...makeupStudents]
@@ -731,12 +747,26 @@ export function AttendanceTable({
               onValueChange={(val) => {
                 if (!val) return
                 if (val === "__unmarked__") {
-                  if (student.attendance) clearAttendance(student)
+                  if (!student.attendance) return
+                  // Ф8/C6: снятие «Был» на отработке — модалка для админ+.
+                  // Инструктору эта опция в выпадашке уже не показывается.
+                  if (isReducingMakeupAttendance(student, "clear")) {
+                    setPendingMakeupChange({ student, action: "clear" })
+                    return
+                  }
+                  clearAttendance(student)
                   return
                 }
                 // «Назначена отработка» требует выбора целевого занятия
                 if (scheduledMakeupType && val === scheduledMakeupType.id) {
                   setScheduleMakeupFor(student)
+                  return
+                }
+                // Ф8/C6: смена «Был» → «Не был» на отработке требует подтверждения
+                // (ЗП могла быть выплачена).
+                const targetType = attendanceTypes.find((t) => t.id === val)
+                if (targetType && isReducingMakeupAttendance(student, targetType.code)) {
+                  setPendingMakeupChange({ student, action: "no_show", typeId: val })
                   return
                 }
                 markAttendance(student, val)
@@ -748,14 +778,27 @@ export function AttendanceTable({
                 )}
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__unmarked__">
-                  <span className="text-muted-foreground">Не отмечен</span>
-                </SelectItem>
+                {/* «Не отмечен» (сброс) — для инструктора на уже отмеченной отработке прячем. */}
+                {!isReducingMakeupAttendance(student, "clear") || currentUserRole !== "instructor" ? (
+                  <SelectItem value="__unmarked__">
+                    <span className="text-muted-foreground">Не отмечен</span>
+                  </SelectItem>
+                ) : null}
                 {attendanceTypes
                   .filter((type) => {
                     // Ф7: для отработок (makeup-строк) разрешены только «Был» / «Не был».
                     if (student.isMakeup) {
-                      return type.code === "present" || type.code === "no_show"
+                      if (type.code !== "present" && type.code !== "no_show") return false
+                      // Ф8/C6: инструктор не может снять собственный «Был» на отработке
+                      // → опция «Не был» прячется. Админ+ видит обе.
+                      if (
+                        type.code === "no_show" &&
+                        currentUserRole === "instructor" &&
+                        isReducingMakeupAttendance(student, "no_show")
+                      ) {
+                        return false
+                      }
+                      return true
                     }
                     // Системные internal-only типы (оба availableTo*=false) скрываем
                     // из выпадашки для ВСЕХ ролей — они ставятся программно (bulk).
@@ -1068,6 +1111,70 @@ export function AttendanceTable({
           }}
         />
       )}
+
+      {pendingMakeupChange && (
+        <MakeupChangeWarningDialog
+          student={pendingMakeupChange.student}
+          newAction={pendingMakeupChange.action}
+          onCancel={() => setPendingMakeupChange(null)}
+          onConfirm={() => {
+            const change = pendingMakeupChange
+            setPendingMakeupChange(null)
+            if (change.action === "clear") {
+              clearAttendance(change.student)
+            } else {
+              markAttendance(change.student, change.typeId)
+            }
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ───── Модалка подтверждения смены «Был» → «Не был»/«Не отмечен» на отработке ─────
+
+function MakeupChangeWarningDialog({
+  student,
+  newAction,
+  onCancel,
+  onConfirm,
+}: {
+  student: StudentData
+  newAction: "no_show" | "clear"
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const displayName = student.wardName || student.clientName
+  const newLabel = newAction === "clear" ? "Не отмечен" : "Не был"
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-lg bg-card shadow-lg">
+        <div className="border-b p-4">
+          <div className="text-base font-semibold">Снять отметку «Был» на отработке?</div>
+          <div className="text-sm text-muted-foreground mt-0.5">
+            {displayName} → {newLabel}
+          </div>
+        </div>
+
+        <div className="space-y-3 p-4 text-sm">
+          <div className="rounded-md bg-amber-100 px-3 py-2 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+            <strong>Внимание:</strong> ЗП за это занятие могла быть уже выплачена педагогу.
+            После изменения проверьте ведомости — возможно, потребуется ручная корректировка.
+          </div>
+          <div className="text-muted-foreground">
+            Со списания с абонемента исходной группы откатится автоматически. Связь с
+            пропущенным занятием сохранится — администратор может переназначить отработку.
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t p-3">
+          <Button variant="outline" onClick={onCancel}>Отмена</Button>
+          <Button variant="destructive" onClick={onConfirm}>
+            Снять отметку
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

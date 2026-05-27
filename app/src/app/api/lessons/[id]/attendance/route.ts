@@ -155,6 +155,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     )
   }
 
+  // Снятие отметки «Был» на отработке — только админ/управляющий/владелец.
+  // Инструктор поставил отметку → за неё могла быть выплачена ЗП. Дальше
+  // менять должен старший: он же отвечает за корректировку ведомостей.
+  if (
+    existingForLockCheck &&
+    existingForLockCheck.isMakeup &&
+    Number(existingForLockCheck.chargeAmount) > 0 &&
+    attendanceType.code !== "present" &&
+    role === "instructor"
+  ) {
+    return NextResponse.json(
+      { error: "Снять «Был» на отработке может только админ, управляющий или владелец" },
+      { status: 403 },
+    )
+  }
+
   // Ф7: Виртуальная отработка — на ЭТО занятие назначена отработка с другого
   // (более раннего) занятия. На L1 живёт Attendance с code=makeup_scheduled и
   // scheduledMakeupLessonId=текущему lessonId. Здесь, на L2, ребёнок появляется
@@ -845,6 +861,19 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json(
       { error: "Снимите отметку пробного через выпадашку статуса пробного" },
       { status: 400 }
+    )
+  }
+
+  // Снятие отметки «Был» на отработке — только админ+.
+  // ЗП могла быть уже выплачена педагогу; решение об откате принимает старший.
+  if (
+    existing.isMakeup &&
+    Number(existing.chargeAmount) > 0 &&
+    role === "instructor"
+  ) {
+    return NextResponse.json(
+      { error: "Снять отметку «Был» на отработке может только админ, управляющий или владелец" },
+      { status: 403 },
     )
   }
 
