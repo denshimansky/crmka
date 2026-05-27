@@ -10,6 +10,7 @@ const updateSchema = z.object({
   paysInstructor: z.boolean().optional(),
   countsAsRevenue: z.boolean().optional(),
   availableToInstructor: z.boolean().optional(),
+  availableToAdmin: z.boolean().optional(),
   partOfPlan: z.boolean().optional(),
   partOfFact: z.boolean().optional(),
   partOfForecast: z.boolean().optional(),
@@ -17,6 +18,15 @@ const updateSchema = z.object({
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 })
+
+// Поля, которые разрешено менять у залоченного (isFlagsLocked=true) системного типа.
+// Семантика поведения зафиксирована, доступ к ролям — настраивается каждым центром.
+const LOCKED_ALLOWED_FIELDS = new Set([
+  "availableToInstructor",
+  "availableToAdmin",
+  "isActive",
+  "sortOrder",
+])
 
 // PATCH /api/attendance-types/[id] — обновить тип посещения
 // Системные строки (tenantId=null): можно менять name/флаги/isActive/sortOrder, нельзя code.
@@ -44,13 +54,6 @@ export async function PATCH(
   })
   if (!existing) return NextResponse.json({ error: "Тип не найден" }, { status: 404 })
 
-  if (existing.isFlagsLocked) {
-    return NextResponse.json(
-      { error: "Этот тип посещения нельзя редактировать — он зашит в бизнес-логику." },
-      { status: 403 }
-    )
-  }
-
   const body = await request.json()
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) {
@@ -60,12 +63,26 @@ export async function PATCH(
     )
   }
 
+  // Для залоченных типов разрешаем только настройки доступа к ролям/видимости.
+  if (existing.isFlagsLocked) {
+    const offendingField = Object.keys(parsed.data).find(
+      (k) => parsed.data[k as keyof typeof parsed.data] !== undefined && !LOCKED_ALLOWED_FIELDS.has(k),
+    )
+    if (offendingField) {
+      return NextResponse.json(
+        { error: "У этого типа можно менять только доступ к ролям и видимость — остальное зашито в бизнес-логику." },
+        { status: 403 }
+      )
+    }
+  }
+
   const data: Record<string, unknown> = {}
   if (parsed.data.name !== undefined) data.name = parsed.data.name
   if (parsed.data.chargesSubscription !== undefined) data.chargesSubscription = parsed.data.chargesSubscription
   if (parsed.data.paysInstructor !== undefined) data.paysInstructor = parsed.data.paysInstructor
   if (parsed.data.countsAsRevenue !== undefined) data.countsAsRevenue = parsed.data.countsAsRevenue
   if (parsed.data.availableToInstructor !== undefined) data.availableToInstructor = parsed.data.availableToInstructor
+  if (parsed.data.availableToAdmin !== undefined) data.availableToAdmin = parsed.data.availableToAdmin
   if (parsed.data.partOfPlan !== undefined) data.partOfPlan = parsed.data.partOfPlan
   if (parsed.data.partOfFact !== undefined) data.partOfFact = parsed.data.partOfFact
   if (parsed.data.partOfForecast !== undefined) data.partOfForecast = parsed.data.partOfForecast

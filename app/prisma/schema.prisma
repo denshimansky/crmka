@@ -460,6 +460,7 @@ model AttendanceType {
   paysInstructor        Boolean  @default(true) @map("pays_instructor")
   countsAsRevenue       Boolean  @default(true) @map("counts_as_revenue")
   availableToInstructor Boolean  @default(false) @map("available_to_instructor")
+  availableToAdmin      Boolean  @default(true) @map("available_to_admin")
   partOfPlan            Boolean  @default(true) @map("part_of_plan")
   partOfFact            Boolean  @default(false) @map("part_of_fact")
   partOfForecast        Boolean  @default(false) @map("part_of_forecast")

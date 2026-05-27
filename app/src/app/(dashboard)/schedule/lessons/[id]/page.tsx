@@ -398,6 +398,7 @@ export default async function LessonCardPage({
     chargesSubscription: t.chargesSubscription,
     paysInstructor: t.paysInstructor,
     availableToInstructor: t.availableToInstructor,
+    availableToAdmin: t.availableToAdmin,
   }))
 
   const currentUserRole = session.user.role

@@ -74,10 +74,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
 
-  // Педагог может ставить только типы с availableToInstructor=true
+  // Доступ роли к типу: педагог → availableToInstructor, админ → availableToAdmin.
+  // Управляющий и владелец видят/ставят всё.
   if (role === "instructor" && !attendanceType.availableToInstructor) {
     return NextResponse.json(
       { error: `Тип «${attendanceType.name}» не доступен педагогу. Обратитесь к администратору.` },
+      { status: 403 }
+    )
+  }
+  if (role === "admin" && !attendanceType.availableToAdmin) {
+    return NextResponse.json(
+      { error: `Тип «${attendanceType.name}» не доступен администратору в этом центре.` },
       { status: 403 }
     )
   }
@@ -425,10 +432,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
 
-  // Педагог может ставить только типы с availableToInstructor=true
+  // Доступ роли к типу: педагог → availableToInstructor, админ → availableToAdmin.
+  // Управляющий и владелец видят/ставят всё.
   if (role === "instructor" && !attendanceType.availableToInstructor) {
     return NextResponse.json(
       { error: `Тип «${attendanceType.name}» не доступен педагогу. Обратитесь к администратору.` },
+      { status: 403 }
+    )
+  }
+  if (role === "admin" && !attendanceType.availableToAdmin) {
+    return NextResponse.json(
+      { error: `Тип «${attendanceType.name}» не доступен администратору в этом центре.` },
       { status: 403 }
     )
   }

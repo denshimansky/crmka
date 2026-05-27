@@ -81,6 +81,7 @@ interface AttendanceTypeData {
   chargesSubscription: boolean
   paysInstructor: boolean
   availableToInstructor?: boolean
+  availableToAdmin?: boolean
 }
 
 interface SalaryRateData {
@@ -713,11 +714,11 @@ export function AttendanceTable({
                   <span className="text-muted-foreground">Не отмечен</span>
                 </SelectItem>
                 {attendanceTypes
-                  .filter((type) =>
-                    currentUserRole === "instructor"
-                      ? type.availableToInstructor === true
-                      : true,
-                  )
+                  .filter((type) => {
+                    if (currentUserRole === "instructor") return type.availableToInstructor === true
+                    if (currentUserRole === "admin") return type.availableToAdmin !== false
+                    return true
+                  })
                   .map((type) => (
                     <SelectItem key={type.id} value={type.id}>
                       {type.name}

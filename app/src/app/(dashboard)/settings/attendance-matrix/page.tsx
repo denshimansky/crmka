@@ -35,6 +35,7 @@ interface AttendanceType {
   paysInstructor: boolean
   countsAsRevenue: boolean
   availableToInstructor: boolean
+  availableToAdmin: boolean
   partOfPlan: boolean
   partOfFact: boolean
   partOfForecast: boolean
@@ -47,6 +48,7 @@ interface AttendanceType {
 
 type FlagKey =
   | "availableToInstructor"
+  | "availableToAdmin"
   | "partOfPlan"
   | "partOfFact"
   | "partOfForecast"
@@ -54,8 +56,16 @@ type FlagKey =
   | "paysInstructor"
   | "isActive"
 
+// Поля, которые остаются редактируемыми даже у заблокированных (системных) типов.
+// Настройки доступа к ролям — на усмотрение каждого центра.
+const LOCKED_ALLOWED: ReadonlySet<FlagKey> = new Set<FlagKey>([
+  "availableToInstructor",
+  "availableToAdmin",
+])
+
 const FLAG_COLUMNS: { key: FlagKey; label: string; hint: string }[] = [
   { key: "availableToInstructor", label: "Доступно педагогу", hint: "Педагог может сам выбрать этот статус в карточке занятия" },
+  { key: "availableToAdmin", label: "Доступно админу", hint: "Администратор может выбрать этот статус в карточке занятия" },
   { key: "partOfPlan", label: "План", hint: "Учитывается в плановом расписании" },
   { key: "partOfFact", label: "Факт", hint: "Засчитывается как фактическое посещение" },
   { key: "partOfForecast", label: "Прогноз", hint: "Входит в прогноз выручки/списаний" },
@@ -78,6 +88,7 @@ export default function AttendanceMatrixPage() {
     paysInstructor: false,
     countsAsRevenue: false,
     availableToInstructor: false,
+    availableToAdmin: true,
     partOfPlan: false,
     partOfFact: false,
     partOfForecast: false,
@@ -142,6 +153,7 @@ export default function AttendanceMatrixPage() {
       paysInstructor: false,
       countsAsRevenue: false,
       availableToInstructor: false,
+      availableToAdmin: true,
       partOfPlan: false,
       partOfFact: false,
       partOfForecast: false,
@@ -161,6 +173,7 @@ export default function AttendanceMatrixPage() {
       paysInstructor: t.paysInstructor,
       countsAsRevenue: t.countsAsRevenue,
       availableToInstructor: t.availableToInstructor,
+      availableToAdmin: t.availableToAdmin,
       partOfPlan: t.partOfPlan,
       partOfFact: t.partOfFact,
       partOfForecast: t.partOfForecast,
@@ -192,6 +205,7 @@ export default function AttendanceMatrixPage() {
             paysInstructor: form.paysInstructor,
             countsAsRevenue: form.countsAsRevenue,
             availableToInstructor: form.availableToInstructor,
+            availableToAdmin: form.availableToAdmin,
             partOfPlan: form.partOfPlan,
             partOfFact: form.partOfFact,
             partOfForecast: form.partOfForecast,
@@ -299,17 +313,21 @@ export default function AttendanceMatrixPage() {
                   <TableRow key={t.id} className={!t.isActive ? "opacity-50" : ""}>
                     <TableCell className="font-medium">{t.name}</TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">{t.code}</TableCell>
-                    {FLAG_COLUMNS.map((c) => (
-                      <TableCell key={c.key} className="text-center">
-                        <input
-                          type="checkbox"
-                          checked={t[c.key]}
-                          disabled={savingId === t.id || t.isFlagsLocked}
-                          onChange={() => toggleFlag(t, c.key)}
-                          className="size-4 rounded border cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                        />
-                      </TableCell>
-                    ))}
+                    {FLAG_COLUMNS.map((c) => {
+                      const disabled =
+                        savingId === t.id || (t.isFlagsLocked && !LOCKED_ALLOWED.has(c.key))
+                      return (
+                        <TableCell key={c.key} className="text-center">
+                          <input
+                            type="checkbox"
+                            checked={t[c.key]}
+                            disabled={disabled}
+                            onChange={() => toggleFlag(t, c.key)}
+                            className="size-4 rounded border cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                          />
+                        </TableCell>
+                      )
+                    })}
                     <TableCell className="text-center">
                       {t.chargesSubscription ? (
                         <Input
@@ -326,12 +344,10 @@ export default function AttendanceMatrixPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {t.isFlagsLocked ? (
-                        <Badge variant="outline" title="Этот тип нельзя редактировать — он зашит в бизнес-логику">
-                          Заблокирован
+                      {t.isSystem ? (
+                        <Badge variant="outline" title={t.isFlagsLocked ? "Системный тип — менять можно только доступ к ролям и видимость" : undefined}>
+                          Системный
                         </Badge>
-                      ) : t.isSystem ? (
-                        <Badge variant="outline">Системный</Badge>
                       ) : (
                         <Badge variant="secondary">Свой</Badge>
                       )}
