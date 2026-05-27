@@ -2,7 +2,7 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { PageHelp } from "@/components/page-help"
 import { ChildrenTable, type ChildRow, type BranchOption } from "./children-table"
-import { maskPhone, getVisibilitySettings } from "@/lib/permissions/phone-visibility"
+import { maskPhone } from "@/lib/permissions/phone-visibility"
 
 export default async function ChildrenPage() {
   const session = await getSession()
@@ -123,7 +123,6 @@ export default async function ChildrenPage() {
     return "lead"
   }
 
-  const visibility = await getVisibilitySettings(tenantId)
   const role = session.user.role
 
   const rows: ChildRow[] = wards.map((w) => {
@@ -136,7 +135,7 @@ export default async function ChildrenPage() {
       parentId: w.client.id,
       parentName:
         [w.client.lastName, w.client.firstName, w.client.patronymic].filter(Boolean).join(" ") || "Без имени",
-      parentPhone: maskPhone(w.client.phone, role, visibility.hidePhonesFromInstructors),
+      parentPhone: maskPhone(w.client.phone, role),
       parentComment: w.client.comment,
       branchId: branch.branchId,
       branchName: branch.branchName,

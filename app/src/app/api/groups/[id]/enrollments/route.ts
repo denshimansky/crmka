@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { maskPhone } from "@/lib/permissions/phone-visibility"
 
 // GET /api/groups/[id]/enrollments — список зачислений группы
 export async function GET(
@@ -25,7 +26,13 @@ export async function GET(
     orderBy: { enrolledAt: "desc" },
   })
 
-  return NextResponse.json(enrollments)
+  // Маскирование телефонов для инструктора — жёсткая политика.
+  const masked = enrollments.map((e) => ({
+    ...e,
+    client: { ...e.client, phone: maskPhone(e.client.phone, session.user.role) },
+  }))
+
+  return NextResponse.json(masked)
 }
 
 // POST /api/groups/[id]/enrollments — зачислить ученика

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { z } from "zod"
 
 const updateSchema = z.object({
@@ -27,7 +28,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!ward) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
 
-  return NextResponse.json(ward)
+  return NextResponse.json({
+    ...ward,
+    client: { ...ward.client, phone: maskPhone(ward.client.phone, session.user.role) },
+  })
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

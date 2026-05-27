@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -53,7 +54,13 @@ export async function GET(req: NextRequest) {
     take: 200,
   })
 
-  return NextResponse.json(subscriptions)
+  // Маскирование телефонов для инструктора.
+  const masked = subscriptions.map((s) => ({
+    ...s,
+    client: { ...s.client, phone: maskPhone(s.client.phone, session.user.role) },
+  }))
+
+  return NextResponse.json(masked)
 }
 
 export async function POST(req: NextRequest) {

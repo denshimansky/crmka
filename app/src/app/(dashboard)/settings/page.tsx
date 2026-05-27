@@ -3,7 +3,7 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Building2, MapPin, Megaphone, Palette, Shield, UserX, CalendarDays, ListChecks, EyeOff, Bell } from "lucide-react"
+import { Building2, MapPin, Megaphone, Palette, Shield, UserX, CalendarDays, ListChecks, Bell } from "lucide-react"
 import { getDirectionIcon } from "@/lib/direction-icons"
 import Link from "next/link"
 import { CreateDirectionDialog } from "./create-direction-dialog"
@@ -411,23 +411,6 @@ export default async function SettingsPage() {
                 </CardContent>
               </Card>
             </Link>
-            {isOwner && (
-              <Link href="/settings/security" className="block">
-                <Card className="hover:border-primary/50 transition-colors cursor-pointer">
-                  <CardContent className="flex items-start gap-3 p-5">
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <EyeOff className="size-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-medium">Безопасность данных</h3>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Скрытие телефонов у инструктора и запрет выгрузки клиентской базы
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            )}
             <Link href="/settings/tasks" className="block">
               <Card className="hover:border-primary/50 transition-colors cursor-pointer">
                 <CardContent className="flex items-start gap-3 p-5">

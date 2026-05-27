@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { maskPhone, getVisibilitySettings } from "@/lib/permissions/phone-visibility"
+import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { z } from "zod"
 
 const updateSchema = z.object({
@@ -41,12 +41,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   if (!client) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
 
-  // Маскирование телефонов для роли «инструктор»
-  const settings = await getVisibilitySettings(session.user.tenantId)
+  // Маскирование телефонов для роли «инструктор» — жёсткая политика.
   return NextResponse.json({
     ...client,
-    phone: maskPhone(client.phone, session.user.role, settings.hidePhonesFromInstructors),
-    phone2: maskPhone(client.phone2, session.user.role, settings.hidePhonesFromInstructors),
+    phone: maskPhone(client.phone, session.user.role),
+    phone2: maskPhone(client.phone2, session.user.role),
   })
 }
 
