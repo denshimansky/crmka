@@ -712,11 +712,17 @@ export function AttendanceTable({
                 <SelectItem value="__unmarked__">
                   <span className="text-muted-foreground">Не отмечен</span>
                 </SelectItem>
-                {attendanceTypes.map((type) => (
-                  <SelectItem key={type.id} value={type.id}>
-                    {type.name}
-                  </SelectItem>
-                ))}
+                {attendanceTypes
+                  .filter((type) =>
+                    currentUserRole === "instructor"
+                      ? type.availableToInstructor === true
+                      : true,
+                  )
+                  .map((type) => (
+                    <SelectItem key={type.id} value={type.id}>
+                      {type.name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           )}

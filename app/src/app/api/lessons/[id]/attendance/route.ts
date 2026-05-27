@@ -74,6 +74,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
 
+  // Педагог может ставить только типы с availableToInstructor=true
+  if (role === "instructor" && !attendanceType.availableToInstructor) {
+    return NextResponse.json(
+      { error: `Тип «${attendanceType.name}» не доступен педагогу. Обратитесь к администратору.` },
+      { status: 403 }
+    )
+  }
+
   // Валидация «Назначена отработка»: обязательное целевое занятие и проверка,
   // что ребёнок уже не отработал этот пропуск где-то ещё.
   let scheduledMakeupLessonId: string | null = data.scheduledMakeupLessonId
@@ -416,6 +424,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     },
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
+
+  // Педагог может ставить только типы с availableToInstructor=true
+  if (role === "instructor" && !attendanceType.availableToInstructor) {
+    return NextResponse.json(
+      { error: `Тип «${attendanceType.name}» не доступен педагогу. Обратитесь к администратору.` },
+      { status: 403 }
+    )
+  }
 
   // Проверка закрытия периода
   if (await isPeriodLocked(tenantId, new Date(lesson.date), role)) {

@@ -74,12 +74,13 @@ async function main() {
       // «Назначена отработка» — статус на пропущенном занятии, когда админ
       // выбрал, на каком занятии в будущем будет отрабатывать ребёнок.
       // Списание происходит при фактическом проведении отработки, не здесь.
+      // Педагог НЕ ставит сам — это решение администратора/владельца.
       code: "makeup_scheduled",
       name: "Назначена отработка",
       chargesSubscription: false,
       paysInstructor: false,
       countsAsRevenue: false,
-      availableToInstructor: true,
+      availableToInstructor: false,
       partOfPlan: true,
       partOfFact: false,
       partOfForecast: false,
