@@ -289,7 +289,7 @@ async function step1_setup(org: { id: string }) {
   // Источник правды — prisma/seed-attendance-types.ts.
   const CANONICAL_TYPES = [
     { code: "present", name: "Был", chargesSubscription: true, paysInstructor: true, countsAsRevenue: true, availableToInstructor: true, availableToAdmin: true, partOfPlan: true, partOfFact: true, partOfForecast: true, sortOrder: 1 },
-    { code: "no_show", name: "Не был", chargesSubscription: true, paysInstructor: false, countsAsRevenue: true, availableToInstructor: true, availableToAdmin: true, partOfPlan: true, partOfFact: false, partOfForecast: true, sortOrder: 2 },
+    { code: "no_show", name: "Не был", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, availableToInstructor: true, availableToAdmin: true, partOfPlan: true, partOfFact: false, partOfForecast: true, sortOrder: 2 },
     { code: "makeup_scheduled", name: "Назначена отработка", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, availableToInstructor: false, availableToAdmin: true, partOfPlan: true, partOfFact: false, partOfForecast: false, sortOrder: 3 },
     { code: "excused", name: "Уваж. пропуск", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, availableToInstructor: false, availableToAdmin: true, partOfPlan: true, partOfFact: false, partOfForecast: false, sortOrder: 4 },
     { code: "absent", name: "Прогул", chargesSubscription: true, paysInstructor: true, countsAsRevenue: true, availableToInstructor: false, availableToAdmin: true, partOfPlan: true, partOfFact: false, partOfForecast: true, sortOrder: 5 },

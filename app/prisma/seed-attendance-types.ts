@@ -27,11 +27,14 @@ async function main() {
       sortOrder: 1,
     },
     {
+      // «Не был» — промежуточный статус: ребёнок не пришёл, оператор позже
+      // уточнит причину (УП / Прогул / Отработка). Деньги и ЗП пока не двигаем,
+      // чтобы не гонять баланс туда-сюда.
       code: "no_show",
       name: "Не был",
-      chargesSubscription: true,
+      chargesSubscription: false,
       paysInstructor: false,
-      countsAsRevenue: true,
+      countsAsRevenue: false,
       availableToInstructor: true,
       availableToAdmin: true,
       partOfPlan: true,
@@ -119,27 +122,39 @@ async function main() {
       where: { code: t.code, tenantId: null },
     })
 
+    const canonical = {
+      name: t.name,
+      chargesSubscription: t.chargesSubscription,
+      paysInstructor: t.paysInstructor,
+      countsAsRevenue: t.countsAsRevenue,
+      availableToAdmin: t.availableToAdmin,
+      partOfPlan: t.partOfPlan,
+      partOfFact: t.partOfFact,
+      partOfForecast: t.partOfForecast,
+      chargePercent: 100,
+      isSystem: true,
+      isFlagsLocked: true,
+      sortOrder: t.sortOrder,
+    }
+
     if (existing) {
-      console.log(`Exists: ${t.name} (${t.code})`)
+      // Системные строки приводим к каноническим значениям при каждом seed —
+      // иначе изменения в этом файле не доезжают до уже развёрнутых баз.
+      // `availableToInstructor` и `isActive` НЕ переписываем: владелец мог
+      // подправить эти поля под себя в UI.
+      await db.attendanceType.update({
+        where: { id: existing.id },
+        data: canonical,
+      })
+      console.log(`Updated: ${t.name} (${t.code})`)
     } else {
       await db.attendanceType.create({
         data: {
           tenantId: null,
           code: t.code,
-          name: t.name,
-          chargesSubscription: t.chargesSubscription,
-          paysInstructor: t.paysInstructor,
-          countsAsRevenue: t.countsAsRevenue,
+          ...canonical,
           availableToInstructor: t.availableToInstructor,
-          availableToAdmin: t.availableToAdmin,
-          partOfPlan: t.partOfPlan,
-          partOfFact: t.partOfFact,
-          partOfForecast: t.partOfForecast,
-          chargePercent: 100,
-          isSystem: true,
-          isFlagsLocked: true,
           isActive: true,
-          sortOrder: t.sortOrder,
         },
       })
       console.log(`Created: ${t.name} (${t.code})`)

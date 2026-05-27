@@ -69,8 +69,8 @@ const FLAG_COLUMNS: { key: FlagKey; label: string; hint: string }[] = [
   { key: "partOfPlan", label: "План", hint: "Учитывается в плановом расписании" },
   { key: "partOfFact", label: "Факт", hint: "Засчитывается как фактическое посещение" },
   { key: "partOfForecast", label: "Прогноз", hint: "Входит в прогноз выручки/списаний" },
-  { key: "chargesSubscription", label: "Расчёт", hint: "Списывается занятие/деньги с клиента" },
-  { key: "paysInstructor", label: "ЗП", hint: "Начисляется оплата инструктору" },
+  { key: "chargesSubscription", label: "Списание оплаты", hint: "Списывается занятие/деньги с клиента" },
+  { key: "paysInstructor", label: "Начисление педагогу", hint: "Начисляется оплата инструктору" },
 ]
 
 export default function AttendanceMatrixPage() {
@@ -305,7 +305,7 @@ export default function AttendanceMatrixPage() {
                       {c.label}
                     </TableHead>
                   ))}
-                  <TableHead className="text-center" title="Процент списания при «Расчёт=да». 100% = полное списание занятия">
+                  <TableHead className="text-center" title="Процент списания при «Списание оплаты=да». 100% = полное списание занятия">
                     %
                   </TableHead>
                   <TableHead>Тип</TableHead>
