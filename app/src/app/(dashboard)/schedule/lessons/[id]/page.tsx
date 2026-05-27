@@ -293,8 +293,11 @@ export default async function LessonCardPage({
   // Отработки этого занятия в других группах: ученики, у которых пропуск этого
   // Lesson уже компенсирован Attendance с makeupOfLessonId=lesson.id.
   // Используется, чтобы UI пометил их «Отработано в …» и не списал ещё раз.
+  // chargeAmount > 0 — отрезаем «не пришёл на отработку» (Не был у виртуальной
+  // строки L2 сохраняет isMakeup=true + makeupOfLessonId, но chargeAmount=0).
+  // Без этого фильтра бейдж «отработано DD.MM» оставался бы и после смены Был→Не был.
   const madeUpAttendances = await db.attendance.findMany({
-    where: { tenantId, makeupOfLessonId: lesson.id },
+    where: { tenantId, makeupOfLessonId: lesson.id, chargeAmount: { gt: 0 } },
     select: {
       id: true,
       wardId: true,

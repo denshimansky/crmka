@@ -113,6 +113,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         tenantId,
         makeupOfLessonId: lessonId,
         clientId: data.clientId,
+        // chargeAmount > 0 — реальная отработка (Был), не «не пришёл».
+        // Иначе админ не сможет переназначить отработку после «Не был».
+        chargeAmount: { gt: 0 },
         ...(data.wardId ? { wardId: data.wardId } : {}),
       },
       select: { id: true },
@@ -563,8 +566,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   // Ученики, у которых пропуск этого Lesson уже отработан в другой группе:
   // их при «Отметить всех» отмечаем как «Отработано» (без списания, без ЗП), а
   // не «Явка» — иначе будет двойное списание.
+  // chargeAmount > 0 — учитываем только успешные отработки (Был на L2).
+  // «Не пришёл на отработку» (chargeAmount=0) bulk не должен интерпретировать
+  // как «уже отработано», иначе при «Отметить всех — Явка» система ошибочно
+  // поставит этим ученикам тип «Отработка» без списания.
   const madeUpResolutions = await db.attendance.findMany({
-    where: { tenantId, makeupOfLessonId: lessonId },
+    where: { tenantId, makeupOfLessonId: lessonId, chargeAmount: { gt: 0 } },
     select: { wardId: true, clientId: true },
   })
   const madeUpKeys = new Set(
