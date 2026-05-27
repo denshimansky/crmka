@@ -4,20 +4,12 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { calcRefund } from "@/lib/balance/calc-refund"
 import { resolveRate } from "@/lib/salary/resolve-rate"
 import { calcPay } from "@/lib/salary/calc-pay"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
-
-// Недосписанная (возвратная) часть посещения = lessonPrice * (100 - chargePercent) / 100.
-// При chargePercent=100 (по умолчанию) вернётся 0 — поведение совместимо со старой логикой.
-function calcRefund(chargeAmount: Prisma.Decimal | number, chargePercent: number): Prisma.Decimal {
-  const charge = new Prisma.Decimal(chargeAmount)
-  if (charge.lte(0) || chargePercent >= 100) return new Prisma.Decimal(0)
-  const remaining = Math.max(0, 100 - chargePercent)
-  return charge.mul(remaining).div(100)
-}
 
 const markSchema = z.object({
   clientId: z.string().uuid("Некорректный ID клиента"),

@@ -3,6 +3,10 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { isPeriodLocked } from "@/lib/period-check"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { calcRefund } from "@/lib/balance/calc-refund"
+import { logAudit } from "@/lib/audit"
 
 const updateSchema = z.object({
   topic: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
@@ -14,7 +18,22 @@ const updateSchema = z.object({
     if (typeof v === "string" && v.trim()) return v.trim()
     return undefined
   }),
+  // Перенос даты / времени / длительности — Ф4.1
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата в формате YYYY-MM-DD").optional(),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Время в формате HH:MM").optional(),
+  durationMinutes: z.number().int().positive().max(600).optional(),
+  // Подтверждение сброса отметок (если на занятии есть посещения)
+  confirmResetAttendances: z.boolean().optional(),
 })
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number)
+  return h * 60 + m
+}
+
+function intervalsOverlap(s1: number, d1: number, s2: number, d2: number): boolean {
+  return s1 < s2 + d2 && s2 < s1 + d1
+}
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
@@ -203,6 +222,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { id } = await params
   const tenantId = (session.user as any).tenantId
+  const role = (session.user as any).role
+  const employeeId = (session.user as any).employeeId
 
   const body = await req.json()
   const parsed = updateSchema.safeParse(body)
@@ -211,20 +232,212 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   const data = parsed.data
 
-  const existing = await db.lesson.findFirst({ where: { id, tenantId } })
+  const existing = await db.lesson.findFirst({
+    where: { id, tenantId },
+    include: {
+      group: { select: { id: true, name: true, roomId: true, directionId: true, room: { select: { name: true } } } },
+      _count: { select: { attendances: true } },
+    },
+  })
   if (!existing) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
 
+  // ── Ф4.1: Перенос даты/времени ──
+  const isMove =
+    data.date !== undefined ||
+    data.startTime !== undefined ||
+    data.durationMinutes !== undefined
+
+  let newDate = existing.date
+  let newStartTime = existing.startTime
+  let newDurationMinutes = existing.durationMinutes
+  const attendancesCount = existing._count.attendances
+
+  if (isMove) {
+    if (data.date !== undefined) {
+      const d = new Date(data.date)
+      if (isNaN(d.getTime())) {
+        return NextResponse.json({ error: "Некорректная дата" }, { status: 400 })
+      }
+      newDate = d
+    }
+    if (data.startTime !== undefined) newStartTime = data.startTime
+    if (data.durationMinutes !== undefined) newDurationMinutes = data.durationMinutes
+
+    // Закрытый период (старая И новая даты) — нельзя для не-владельца/не-управляющего
+    if (await isPeriodLocked(tenantId, new Date(existing.date), role)) {
+      return NextResponse.json(
+        { error: "Старая дата в закрытом периоде. Перенос невозможен." },
+        { status: 403 },
+      )
+    }
+    if (await isPeriodLocked(tenantId, newDate, role)) {
+      return NextResponse.json(
+        { error: "Новая дата в закрытом периоде. Перенос невозможен." },
+        { status: 403 },
+      )
+    }
+
+    // Права: без отметок → admin/manager/owner, с отметками → только manager/owner.
+    if (attendancesCount > 0) {
+      if (role !== "manager" && role !== "owner") {
+        return NextResponse.json(
+          { error: "Перенос занятия с отметками доступен только управляющему или владельцу" },
+          { status: 403 },
+        )
+      }
+    } else {
+      if (role !== "admin" && role !== "manager" && role !== "owner") {
+        return NextResponse.json(
+          { error: "Недостаточно прав для переноса занятия" },
+          { status: 403 },
+        )
+      }
+    }
+
+    // Если есть отметки и нет подтверждения — возвращаем 409 для модалки подтверждения
+    if (attendancesCount > 0 && !data.confirmResetAttendances) {
+      return NextResponse.json(
+        {
+          error: `На занятии ${attendancesCount} отметок. Подтвердите сброс отметок для переноса.`,
+          requiresConfirmation: true,
+          attendancesCount,
+        },
+        { status: 409 },
+      )
+    }
+
+    // Конфликт: педагог или кабинет уже заняты в новой дате/времени.
+    const effectiveInstructorId = existing.substituteInstructorId || existing.instructorId
+    const candidates = await db.lesson.findMany({
+      where: {
+        tenantId,
+        date: newDate,
+        id: { not: id },
+        status: { not: "cancelled" },
+        OR: [
+          { instructorId: effectiveInstructorId },
+          { substituteInstructorId: effectiveInstructorId },
+          { group: { roomId: existing.group.roomId } },
+        ],
+      },
+      select: {
+        id: true,
+        startTime: true,
+        durationMinutes: true,
+        instructorId: true,
+        substituteInstructorId: true,
+        group: {
+          select: {
+            name: true,
+            roomId: true,
+            room: { select: { name: true } },
+          },
+        },
+        instructor: { select: { firstName: true, lastName: true } },
+      },
+    })
+    const newStart = timeToMinutes(newStartTime)
+    const conflicts = candidates.filter((l) =>
+      intervalsOverlap(newStart, newDurationMinutes, timeToMinutes(l.startTime), l.durationMinutes),
+    )
+    if (conflicts.length > 0) {
+      const first = conflicts[0]
+      const sameInstructor =
+        first.instructorId === effectiveInstructorId ||
+        first.substituteInstructorId === effectiveInstructorId
+      const reason = sameInstructor
+        ? `педагог уже занят (${[first.instructor.lastName, first.instructor.firstName].filter(Boolean).join(" ") || "—"})`
+        : `кабинет «${first.group.room?.name || "—"}» уже занят`
+      return NextResponse.json(
+        {
+          error: `Конфликт: ${reason} в ${first.startTime} (группа «${first.group.name}»)`,
+          conflicts: conflicts.map((c) => ({
+            id: c.id,
+            startTime: c.startTime,
+            groupName: c.group.name,
+            roomName: c.group.room?.name || null,
+          })),
+        },
+        { status: 409 },
+      )
+    }
+  }
+
+  // ── Состав обновления ──
   const updateData: Record<string, unknown> = {}
   if (data.topic !== undefined) updateData.topic = data.topic
   if (data.homework !== undefined) updateData.homework = data.homework
   if (data.status !== undefined) updateData.status = data.status
   if (data.cancelReason !== undefined) updateData.cancelReason = data.cancelReason
   if (data.substituteInstructorId !== undefined) updateData.substituteInstructorId = data.substituteInstructorId
+  if (data.date !== undefined) updateData.date = newDate
+  if (data.startTime !== undefined) updateData.startTime = newStartTime
+  if (data.durationMinutes !== undefined) updateData.durationMinutes = newDurationMinutes
 
-  const lesson = await db.lesson.update({
-    where: { id },
-    data: updateData,
+  // ── Транзакция: откат отметок (если перенос с подтверждением) + апдейт занятия ──
+  const lesson = await db.$transaction(async (tx) => {
+    if (isMove && attendancesCount > 0) {
+      const attendances = await tx.attendance.findMany({
+        where: { lessonId: id, tenantId },
+        include: { attendanceType: { select: { chargePercent: true } } },
+      })
+
+      for (const att of attendances) {
+        // Откат списания с абонемента
+        if (att.subscriptionId && Number(att.chargeAmount) > 0) {
+          await tx.subscription.update({
+            where: { id: att.subscriptionId },
+            data: {
+              balance: { increment: att.chargeAmount },
+              chargedAmount: { decrement: att.chargeAmount },
+            },
+          })
+        }
+        // Откат lesson_refund (если был возврат за частичное списание)
+        if (Number(att.chargeAmount) > 0) {
+          const refund = calcRefund(att.chargeAmount, att.attendanceType.chargePercent)
+          if (refund.gt(0)) {
+            await applyBalanceDelta(tx, {
+              tenantId,
+              clientId: att.clientId,
+              delta: refund.negated(),
+              type: "attendance_revert",
+              refs: {
+                lessonId: id,
+                attendanceId: att.id,
+                directionId: existing.group.directionId,
+                subscriptionId: att.subscriptionId,
+              },
+              createdBy: employeeId,
+            })
+          }
+        }
+        await tx.attendance.delete({ where: { id: att.id } })
+      }
+    }
+
+    return tx.lesson.update({ where: { id }, data: updateData })
   })
+
+  if (isMove) {
+    logAudit({
+      tenantId,
+      employeeId,
+      action: "update",
+      entityType: "Lesson",
+      entityId: id,
+      changes: {
+        date: {
+          old: existing.date.toISOString().slice(0, 10),
+          new: newDate.toISOString().slice(0, 10),
+        },
+        startTime: { old: existing.startTime, new: newStartTime },
+        durationMinutes: { old: existing.durationMinutes, new: newDurationMinutes },
+        ...(attendancesCount > 0 ? { attendancesReset: { new: attendancesCount } } : {}),
+      },
+      req,
+    })
+  }
 
   return NextResponse.json(lesson)
 }

@@ -16,6 +16,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { AddMakeupDialog } from "./add-makeup-dialog"
+import { AddStudentDialog } from "./add-student-dialog"
 import {
   Table,
   TableBody,
@@ -139,6 +140,8 @@ interface AttendanceTableProps {
   substituteInstructorName?: string | null
   instructors?: InstructorOption[]
   currentUserRole?: string
+  /** Цена разового посещения направления (для модалки «Добавить ученика»). */
+  singleVisitPrice?: number
 }
 
 function formatMoney(amount: number): string {
@@ -163,6 +166,7 @@ export function AttendanceTable({
   substituteInstructorName: initSubstituteName,
   instructors = [],
   currentUserRole,
+  singleVisitPrice = 0,
 }: AttendanceTableProps) {
   const router = useRouter()
   const [students, setStudents] = useState(initialStudents)
@@ -886,6 +890,12 @@ export function AttendanceTable({
               Посещаемость ({markedStudents.length}/{allStudents.length})
             </CardTitle>
             <div className="flex items-center gap-2">
+              {currentUserRole !== "instructor" && (
+                <AddStudentDialog
+                  lessonId={lessonId}
+                  singleVisitPrice={singleVisitPrice}
+                />
+              )}
               <AddMakeupDialog lessonId={lessonId} lessonDateISO={lessonDateISO} />
 
               {presentType && (

@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeft, Clock, MapPin, User, BookOpen } from "lucide-react"
 import { AttendanceTable } from "./attendance-table"
 import { DeleteLessonButton } from "./delete-lesson-button"
+import { MoveLessonDialog } from "./move-lesson-dialog"
 import { PageHelp } from "@/components/page-help"
 
 const LESSON_STATUS_LABELS: Record<string, string> = {
@@ -49,7 +50,7 @@ export default async function LessonCardPage({
     include: {
       group: {
         include: {
-          direction: { select: { id: true, name: true, lessonPrice: true } },
+          direction: { select: { id: true, name: true, lessonPrice: true, singleVisitPrice: true } },
           room: { select: { id: true, name: true } },
         },
       },
@@ -450,7 +451,21 @@ export default async function LessonCardPage({
         {(session.user.role === "owner" ||
           session.user.role === "manager" ||
           session.user.role === "admin") && (
-          <DeleteLessonButton lessonId={id} />
+          <div className="flex items-center gap-2">
+            <MoveLessonDialog
+              lessonId={id}
+              currentDateISO={lesson.date.toISOString().slice(0, 10)}
+              currentStartTime={lesson.startTime}
+              currentDurationMinutes={lesson.durationMinutes}
+              attendancesCount={lesson.attendances.length}
+              canMove={
+                lesson.attendances.length > 0
+                  ? session.user.role === "owner" || session.user.role === "manager"
+                  : true
+              }
+            />
+            <DeleteLessonButton lessonId={id} />
+          </div>
         )}
       </div>
 
@@ -520,6 +535,11 @@ export default async function LessonCardPage({
         substituteInstructorName={substituteInstructorName}
         instructors={instructorsData}
         currentUserRole={currentUserRole}
+        singleVisitPrice={
+          lesson.group.direction.singleVisitPrice
+            ? Number(lesson.group.direction.singleVisitPrice)
+            : Number(lesson.group.direction.lessonPrice)
+        }
       />
     </div>
   )
