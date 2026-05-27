@@ -8,6 +8,7 @@ import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { calcRefund } from "@/lib/balance/calc-refund"
 import { logAudit } from "@/lib/audit"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
+import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
 
 const updateSchema = z.object({
   topic: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
@@ -383,6 +384,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         include: { attendanceType: { select: { chargePercent: true } } },
       })
 
+      // Эффективный педагог занятия — для корректировки ЗП при выплате.
+      const effectiveInstructorId = existing.substituteInstructorId || existing.instructorId
       for (const att of attendances) {
         // Откат списания с абонемента
         if (att.subscriptionId && Number(att.chargeAmount) > 0) {
@@ -412,6 +415,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
               createdBy: employeeId,
             })
           }
+        }
+        // Ф-аудит: если ЗП за период уже выплачена — создаём компенсирующий
+        // SalaryAdjustment, чтобы переплата не висела.
+        if (Number(att.instructorPayAmount) > 0) {
+          await maybeRollbackPaidSalary(tx, {
+            tenantId,
+            employeeId: effectiveInstructorId,
+            lessonDate: new Date(existing.date),
+            amount: att.instructorPayAmount,
+            createdBy: employeeId,
+            comment: `Перенос занятия ${new Date(existing.date).toLocaleDateString("ru-RU")}`,
+          })
         }
         await tx.attendance.delete({ where: { id: att.id } })
       }

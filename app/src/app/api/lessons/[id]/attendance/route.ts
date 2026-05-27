@@ -7,6 +7,7 @@ import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { calcRefund } from "@/lib/balance/calc-refund"
 import { resolveRate } from "@/lib/salary/resolve-rate"
 import { calcPay } from "@/lib/salary/calc-pay"
+import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
@@ -801,7 +802,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   const lesson = await db.lesson.findFirst({
     where: { id: lessonId, tenantId },
-    select: { id: true, date: true },
+    select: { id: true, date: true, instructorId: true, substituteInstructorId: true },
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
 
@@ -870,6 +871,20 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
           createdBy: employeeId,
         })
       }
+    }
+
+    // Ф-аудит: если педагогу уже выплатили ЗП за этот период, компенсируем
+    // удаление через SalaryAdjustment, иначе у него «висит» переплата.
+    if (Number(existing.instructorPayAmount) > 0) {
+      const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
+      await maybeRollbackPaidSalary(tx, {
+        tenantId,
+        employeeId: effectiveInstructorId,
+        lessonDate: new Date(lesson.date),
+        amount: existing.instructorPayAmount,
+        createdBy: employeeId,
+        comment: `Удалена отметка от ${new Date(lesson.date).toLocaleDateString("ru-RU")}`,
+      })
     }
 
     await tx.attendance.delete({ where: { id: existing.id } })
