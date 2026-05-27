@@ -9,7 +9,9 @@ export async function GET() {
   const tenantId = session.user.tenantId
 
   const groups = await db.group.findMany({
-    where: { tenantId, deletedAt: null },
+    // Скрываем технические одноразовые группы — они существуют только как
+    // контейнер для разового Lesson и не должны светиться в списках.
+    where: { tenantId, deletedAt: null, isOneTime: false },
     include: {
       direction: true,
       branch: true,

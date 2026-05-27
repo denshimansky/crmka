@@ -31,6 +31,8 @@ export default async function GroupsPage({
     db.group.findMany({
       where: {
         tenantId,
+        // Технические одноразовые группы в списке групп не показываем.
+        isOneTime: false,
         ...(showArchived ? {} : { deletedAt: null }),
       },
       include: {

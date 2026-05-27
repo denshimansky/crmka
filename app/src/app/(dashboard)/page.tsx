@@ -125,9 +125,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   ]
   const maxFunnel = Math.max(...funnelStages.map(f => f.count), 1)
 
-  // Заполняемость групп (топ-5)
+  // Заполняемость групп (топ-5) — одноразовые технические группы не показываем.
   const groups = await db.group.findMany({
-    where: { tenantId, deletedAt: null, isActive: true },
+    where: { tenantId, deletedAt: null, isActive: true, isOneTime: false },
     select: {
       name: true,
       maxStudents: true,

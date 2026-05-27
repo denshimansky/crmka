@@ -11,7 +11,9 @@ export async function GET(req: NextRequest) {
   const branchId = searchParams.get("branchId")
   const directionId = searchParams.get("directionId")
 
-  const groupWhere: any = { tenantId, deletedAt: null, isActive: true }
+  // Отчёт по свободным местам в группах — технические одноразовые группы
+  // не имеют ёмкости в обычном смысле (maxStudents=1), их в отчёте не показываем.
+  const groupWhere: any = { tenantId, deletedAt: null, isActive: true, isOneTime: false }
   if (branchId) groupWhere.branchId = branchId
   if (directionId) groupWhere.directionId = directionId
 

@@ -11,7 +11,9 @@ export async function GET(req: NextRequest) {
   const { dateFrom, dateTo } = dateRange
   const branchId = searchParams.get("branchId")
 
-  const groupWhere: any = { tenantId, deletedAt: null, isActive: true }
+  // P&L строится по группам — технические одноразовые группы исключаем,
+  // их выручка/расходы попадут в общий итог по филиалу через автораспределение.
+  const groupWhere: any = { tenantId, deletedAt: null, isActive: true, isOneTime: false }
   if (branchId) groupWhere.branchId = branchId
 
   const groups = await db.group.findMany({

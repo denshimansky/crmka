@@ -366,6 +366,10 @@ model Group {
   instructorId String    @map("instructor_id") @db.Uuid
   maxStudents  Int       @default(15) @map("max_students")
   isActive     Boolean   @default(true) @map("is_active")
+  // Технический флаг: группа создана под одно разовое занятие (Lesson вне
+  // расписания группы). Такие группы скрываются из списка групп и из отчётов
+  // с группировкой по группам — в UI пользователь их не видит.
+  isOneTime    Boolean   @default(false) @map("is_one_time")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")

@@ -11,9 +11,9 @@ export default async function CapacityReportPage() {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  // Все активные группы с зачислениями
+  // Все активные группы с зачислениями (одноразовые технические группы исключаем).
   const groups = await db.group.findMany({
-    where: { tenantId, deletedAt: null, isActive: true },
+    where: { tenantId, deletedAt: null, isActive: true, isOneTime: false },
     include: {
       direction: { select: { name: true } },
       branch: { select: { name: true } },

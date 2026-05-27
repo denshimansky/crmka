@@ -2,9 +2,10 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Plus, CalendarDays } from "lucide-react"
+import { CalendarDays } from "lucide-react"
 import { ScheduleWeekNav, type ScheduleView } from "./schedule-week-nav"
 import { CancelDayDialog } from "./cancel-day-dialog"
+import { StandaloneLessonDialog } from "./standalone-lesson-dialog"
 import { SchedulePrintButton } from "@/components/schedule-print"
 import { CopyMonthDialog } from "./copy-month-dialog"
 import { PageHelp } from "@/components/page-help"
@@ -325,12 +326,8 @@ export default async function SchedulePage({
           <Link href="/schedule/groups">
             <Button variant="outline">Группы</Button>
           </Link>
-          <Link href="/schedule/groups">
-            <Button>
-              <Plus className="mr-2 size-4" />
-              Занятие
-            </Button>
-          </Link>
+          <StandaloneLessonDialog defaultDate={defaultDate} />
+
         </div>
       </div>
 
