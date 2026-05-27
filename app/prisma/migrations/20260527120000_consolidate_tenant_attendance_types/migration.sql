@@ -2,9 +2,38 @@
 --
 -- На dev legacy-типы (absent_excused/absent_unexcused/recalc/sick/trial)
 -- и копии канонических (present/makeup) сидят с tenant_id != null.
--- Через CTE строим map старый_id → новый_канонический_id и одним
--- UPDATE-ом мигрируем все Attendance. После этого DELETE проходит,
--- т.к. FK-ссылок не остаётся.
+-- При этом глобальных канонических present/makeup могло вообще не быть —
+-- старая seed-логика не вставляла их если уже был tenant-specific.
+-- Поэтому сначала создаём недостающие глобальные канонические, потом
+-- через CTE мигрируем Attendance и удаляем дубли.
+
+-- 0. Досев недостающих канонических — на случай если их нет с tenant_id IS NULL.
+
+INSERT INTO "attendance_types" (
+  "id", "tenant_id", "name", "code",
+  "charges_subscription", "pays_instructor", "counts_as_revenue",
+  "available_to_instructor", "available_to_admin",
+  "part_of_plan", "part_of_fact", "part_of_forecast",
+  "charge_percent", "is_system", "is_flags_locked", "is_active", "sort_order", "created_at"
+)
+SELECT gen_random_uuid(), NULL, 'Был', 'present',
+       true, true, true,
+       true, true, true, true, true,
+       100, true, true, true, 1, NOW()
+WHERE NOT EXISTS (SELECT 1 FROM "attendance_types" WHERE code='present' AND tenant_id IS NULL);
+
+INSERT INTO "attendance_types" (
+  "id", "tenant_id", "name", "code",
+  "charges_subscription", "pays_instructor", "counts_as_revenue",
+  "available_to_instructor", "available_to_admin",
+  "part_of_plan", "part_of_fact", "part_of_forecast",
+  "charge_percent", "is_system", "is_flags_locked", "is_active", "sort_order", "created_at"
+)
+SELECT gen_random_uuid(), NULL, 'Отработка', 'makeup',
+       false, false, false,
+       false, false, false, true, false,
+       100, true, true, true, 7, NOW()
+WHERE NOT EXISTS (SELECT 1 FROM "attendance_types" WHERE code='makeup' AND tenant_id IS NULL);
 
 -- 1. Tenant-specific дубли с теми же кодами, что у глобальных канонических.
 WITH dup_map AS (
@@ -33,7 +62,7 @@ WHERE t.tenant_id IS NOT NULL
     SELECT 1 FROM "attendance_types" g WHERE g.code = t.code AND g.tenant_id IS NULL
   );
 
--- 2. Legacy-коды → канонические аналоги (карта переименований).
+-- 2. Legacy-коды → канонические аналоги.
 WITH legacy_map(legacy_code, target_code) AS (
   VALUES
     ('absent_excused',   'excused'),
@@ -51,7 +80,6 @@ id_map AS (
 UPDATE "attendances" a
 SET
   "attendance_type_id" = m.new_id,
-  -- Для trial-типа дополнительно проставляем is_trial.
   "is_trial" = CASE WHEN m.legacy_code = 'trial' THEN true ELSE a."is_trial" END
 FROM id_map m
 WHERE a."attendance_type_id" = m.old_id;
