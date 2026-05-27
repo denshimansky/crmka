@@ -7,6 +7,7 @@ import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { calcRefund } from "@/lib/balance/calc-refund"
 import { resolveRate } from "@/lib/salary/resolve-rate"
 import { calcPay } from "@/lib/salary/calc-pay"
+import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
@@ -150,6 +151,52 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     )
   }
 
+  // Ф7: Виртуальная отработка — на ЭТО занятие назначена отработка с другого
+  // (более раннего) занятия. На L1 живёт Attendance с code=makeup_scheduled и
+  // scheduledMakeupLessonId=текущему lessonId. Здесь, на L2, ребёнок появляется
+  // как виртуальная строка. Педагог ставит «Был» (создаём реальную отработку,
+  // списываем с абонемента L1) или «Не был» (задача админу переназначить).
+  const virtualMakeup = await db.attendance.findFirst({
+    where: {
+      tenantId,
+      clientId: data.clientId,
+      wardId: data.wardId,
+      scheduledMakeupLessonId: lessonId,
+      attendanceType: { code: "makeup_scheduled" },
+    },
+    include: {
+      lesson: {
+        select: {
+          id: true,
+          date: true,
+          group: { select: { direction: { select: { name: true } } } },
+        },
+      },
+      client: { select: { firstName: true, lastName: true } },
+    },
+  })
+  // Ward не имеет relation в Attendance — подгружаем отдельно, если нужно.
+  const virtualMakeupWard = virtualMakeup?.wardId
+    ? await db.ward.findUnique({
+        where: { id: virtualMakeup.wardId },
+        select: { firstName: true, lastName: true },
+      })
+    : null
+  const isMakeupArrival = !!virtualMakeup
+  const sourceMakeupLessonId = virtualMakeup?.lesson.id ?? null
+
+  if (isMakeupArrival) {
+    if (attendanceType.code !== "present" && attendanceType.code !== "no_show") {
+      return NextResponse.json(
+        { error: "На отработке доступны только «Был» или «Не был»" },
+        { status: 400 },
+      )
+    }
+    // Переключаем subscriptionId на исходное (L1) — списания/откаты пойдут
+    // с абонемента группы пропущенного занятия, а не текущей.
+    data.subscriptionId = virtualMakeup.subscriptionId
+  }
+
   // Fetch org setting for trial lesson instructor pay
   const org = await db.organization.findUnique({
     where: { id: tenantId },
@@ -218,6 +265,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
+    // Ф7: «Не был» на виртуальной отработке — никаких списаний и ЗП.
+    // Только фиксация факта неявки + последующая задача админу (после транзакции).
+    if (isMakeupArrival && attendanceType.code === "no_show") {
+      chargeAmount = new Prisma.Decimal(0)
+      instructorPayAmount = new Prisma.Decimal(0)
+    }
+
     // Upsert attendance
     let att
     if (subscriptionId) {
@@ -261,6 +315,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             instructorPayAmount,
             instructorPayEnabled: data.instructorPayEnabled,
             scheduledMakeupLessonId,
+            isMakeup: isMakeupArrival,
+            makeupOfLessonId: sourceMakeupLessonId,
             markedBy: employeeId,
             markedAt: new Date(),
           },
@@ -278,6 +334,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             instructorPayAmount,
             instructorPayEnabled: data.instructorPayEnabled,
             scheduledMakeupLessonId,
+            isMakeup: isMakeupArrival,
+            makeupOfLessonId: sourceMakeupLessonId,
             markedBy: employeeId,
             markedAt: new Date(),
           },
@@ -339,6 +397,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             instructorPayAmount,
             instructorPayEnabled: data.instructorPayEnabled,
             scheduledMakeupLessonId,
+            isMakeup: isMakeupArrival,
+            makeupOfLessonId: sourceMakeupLessonId,
             markedBy: employeeId,
             markedAt: new Date(),
           },
@@ -356,6 +416,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             instructorPayAmount,
             instructorPayEnabled: data.instructorPayEnabled,
             scheduledMakeupLessonId,
+            isMakeup: isMakeupArrival,
+            makeupOfLessonId: sourceMakeupLessonId,
             markedBy: employeeId,
             markedAt: new Date(),
           },
@@ -375,6 +437,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     changes: { lessonId: { new: lessonId }, clientId: { new: data.clientId }, attendanceTypeId: { new: data.attendanceTypeId } },
     req,
   })
+
+  // Ф7: «Не был» на виртуальной отработке — создаём задачу админу переназначить.
+  if (isMakeupArrival && attendanceType.code === "no_show" && virtualMakeup) {
+    const wardName = virtualMakeupWard
+      ? [virtualMakeupWard.lastName, virtualMakeupWard.firstName].filter(Boolean).join(" ")
+      : ""
+    const clientName = [virtualMakeup.client.lastName, virtualMakeup.client.firstName].filter(Boolean).join(" ")
+    const childDisplayName = wardName || clientName || "Без имени"
+    await createMissedMakeupTask(db, {
+      tenantId,
+      clientId: data.clientId,
+      childDisplayName,
+      sourceLessonDate: virtualMakeup.lesson.date,
+      sourceDirectionName: virtualMakeup.lesson.group.direction.name,
+      targetLessonDate: new Date(lesson.date),
+      targetDirectionName: lesson.group.direction.name,
+      reason: "no_show",
+    })
+  }
 
   return NextResponse.json(attendance)
 }

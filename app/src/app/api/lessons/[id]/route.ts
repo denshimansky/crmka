@@ -7,6 +7,7 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { calcRefund } from "@/lib/balance/calc-refund"
 import { logAudit } from "@/lib/audit"
+import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 
 const updateSchema = z.object({
   topic: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
@@ -437,6 +438,59 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       },
       req,
     })
+  }
+
+  // Ф7: если занятие переведено в «cancelled» и оно было целевым для отработок —
+  // создаём задачу админу переназначить каждому из «ожидающих».
+  if (data.status === "cancelled" && existing.status !== "cancelled") {
+    const scheduledArrivals = await db.attendance.findMany({
+      where: {
+        tenantId,
+        scheduledMakeupLessonId: id,
+        attendanceType: { code: "makeup_scheduled" },
+      },
+      include: {
+        client: { select: { firstName: true, lastName: true } },
+        lesson: {
+          select: {
+            date: true,
+            group: { select: { direction: { select: { name: true } } } },
+          },
+        },
+      },
+    })
+    // Ward не имеет relation в Attendance — подгружаем имена отдельным запросом.
+    const arrivalWardIds = scheduledArrivals
+      .map((a) => a.wardId)
+      .filter((x): x is string => !!x)
+    const arrivalWards = arrivalWardIds.length
+      ? await db.ward.findMany({
+          where: { id: { in: arrivalWardIds } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : []
+    const targetDirection = await db.direction.findUnique({
+      where: { id: existing.group.directionId },
+      select: { name: true },
+    })
+    for (const arrival of scheduledArrivals) {
+      const ward = arrival.wardId ? arrivalWards.find((w) => w.id === arrival.wardId) : null
+      const wardName = ward
+        ? [ward.lastName, ward.firstName].filter(Boolean).join(" ")
+        : ""
+      const clientName = [arrival.client.lastName, arrival.client.firstName].filter(Boolean).join(" ")
+      const childDisplayName = wardName || clientName || "Без имени"
+      await createMissedMakeupTask(db, {
+        tenantId,
+        clientId: arrival.clientId,
+        childDisplayName,
+        sourceLessonDate: arrival.lesson.date,
+        sourceDirectionName: arrival.lesson.group.direction.name,
+        targetLessonDate: new Date(existing.date),
+        targetDirectionName: targetDirection?.name ?? "—",
+        reason: "lesson_cancelled",
+      })
+    }
   }
 
   return NextResponse.json(lesson)

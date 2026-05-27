@@ -15,7 +15,6 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
-import { AddMakeupDialog } from "./add-makeup-dialog"
 import { AddStudentDialog } from "./add-student-dialog"
 import {
   Table,
@@ -34,6 +33,8 @@ interface AbsenceReasonData {
 
 interface MakeupResolvedInfo {
   attendanceId: string
+  /** lessonId занятия, на котором отработка была проведена — клик ведёт сюда. */
+  lessonId: string
   date: string
   startTime: string
   directionName: string
@@ -62,6 +63,15 @@ interface StudentData {
   makeupResolved?: MakeupResolvedInfo | null
   /** Если стоит «Назначена отработка» — целевое будущее занятие. */
   scheduledMakeup?: ScheduledMakeupInfo | null
+  /** Ф7: если эта строка — отработка ребёнка из другой группы, здесь данные
+   *  исходного (пропущенного) занятия. Бейдж «Отработка за DD.MM», клик → L1. */
+  makeupSource?: {
+    lessonId: string
+    date: string
+    startTime: string
+    directionName: string
+    groupName: string
+  } | null
   attendance: {
     id: string
     attendanceTypeId: string
@@ -654,28 +664,52 @@ export function AttendanceTable({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium">{displayName}</span>
-              {student.isMakeup && (
+              {/* Бейдж «Отработка за DD.MM» — для отработок (виртуальных и отмеченных).
+                  Клик → исходное (пропущенное) занятие. Если makeupSource не передан,
+                  падаем на старый простой «отработка» (для совместимости). */}
+              {student.isMakeup && student.makeupSource && (
+                <Link
+                  href={`/schedule/lessons/${student.makeupSource.lessonId}`}
+                  title={`Отрабатывает занятие ${new Date(student.makeupSource.date).toLocaleDateString("ru-RU")} в ${student.makeupSource.startTime}, группа «${student.makeupSource.groupName}» (${student.makeupSource.directionName}). Кликните, чтобы открыть.`}
+                >
+                  <Badge
+                    variant="outline"
+                    className="text-xs text-orange-600 border-orange-300 cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-950/30"
+                  >
+                    Отработка за {new Date(student.makeupSource.date).toLocaleDateString("ru-RU")}
+                  </Badge>
+                </Link>
+              )}
+              {student.isMakeup && !student.makeupSource && (
                 <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">
                   отработка
                 </Badge>
               )}
               {student.makeupResolved && (
-                <Badge
-                  variant="outline"
-                  className="text-xs text-emerald-700 dark:text-emerald-300 border-emerald-300"
-                  title={`Отработано ${new Date(student.makeupResolved.date).toLocaleDateString("ru-RU")} в группе «${student.makeupResolved.groupName}» (${student.makeupResolved.directionName}) в ${student.makeupResolved.startTime}`}
+                <Link
+                  href={`/schedule/lessons/${student.makeupResolved.lessonId}`}
+                  title={`Отработано ${new Date(student.makeupResolved.date).toLocaleDateString("ru-RU")} в группе «${student.makeupResolved.groupName}» (${student.makeupResolved.directionName}) в ${student.makeupResolved.startTime}. Кликните, чтобы открыть.`}
                 >
-                  отработано {new Date(student.makeupResolved.date).toLocaleDateString("ru-RU")}
-                </Badge>
+                  <Badge
+                    variant="outline"
+                    className="text-xs text-emerald-700 dark:text-emerald-300 border-emerald-300 cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                  >
+                    отработано {new Date(student.makeupResolved.date).toLocaleDateString("ru-RU")}
+                  </Badge>
+                </Link>
               )}
               {!student.makeupResolved && student.scheduledMakeup && (
-                <Badge
-                  variant="outline"
-                  className="text-xs text-amber-700 dark:text-amber-300 border-amber-300"
-                  title={`Назначена отработка на ${new Date(student.scheduledMakeup.date).toLocaleDateString("ru-RU")} в группе «${student.scheduledMakeup.groupName}» (${student.scheduledMakeup.directionName}) в ${student.scheduledMakeup.startTime}`}
+                <Link
+                  href={`/schedule/lessons/${student.scheduledMakeup.lessonId}`}
+                  title={`Назначена отработка на ${new Date(student.scheduledMakeup.date).toLocaleDateString("ru-RU")} в группе «${student.scheduledMakeup.groupName}» (${student.scheduledMakeup.directionName}) в ${student.scheduledMakeup.startTime}. Кликните, чтобы открыть.`}
                 >
-                  назначена отработка {new Date(student.scheduledMakeup.date).toLocaleDateString("ru-RU")}
-                </Badge>
+                  <Badge
+                    variant="outline"
+                    className="text-xs text-amber-700 dark:text-amber-300 border-amber-300 cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                  >
+                    назначена отработка {new Date(student.scheduledMakeup.date).toLocaleDateString("ru-RU")}
+                  </Badge>
+                </Link>
               )}
             </div>
             {student.wardName && (
@@ -719,6 +753,18 @@ export function AttendanceTable({
                 </SelectItem>
                 {attendanceTypes
                   .filter((type) => {
+                    // Ф7: для отработок (makeup-строк) разрешены только «Был» / «Не был».
+                    if (student.isMakeup) {
+                      return type.code === "present" || type.code === "no_show"
+                    }
+                    // Системные internal-only типы (оба availableTo*=false) скрываем
+                    // из выпадашки для ВСЕХ ролей — они ставятся программно (bulk).
+                    if (
+                      type.availableToInstructor === false &&
+                      type.availableToAdmin === false
+                    ) {
+                      return false
+                    }
                     if (currentUserRole === "instructor") return type.availableToInstructor === true
                     if (currentUserRole === "admin") return type.availableToAdmin !== false
                     return true
@@ -896,7 +942,6 @@ export function AttendanceTable({
                   singleVisitPrice={singleVisitPrice}
                 />
               )}
-              <AddMakeupDialog lessonId={lessonId} lessonDateISO={lessonDateISO} />
 
               {presentType && (
                 <Button

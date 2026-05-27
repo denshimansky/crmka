@@ -175,6 +175,76 @@ export default async function LessonCardPage({
       })
     : []
 
+  // Для уже отмеченных отработок — детали исходного занятия (на L1).
+  const makeupSourceIds = [
+    ...new Set(
+      makeupAttendances
+        .map((a) => a.makeupOfLessonId)
+        .filter((x): x is string => !!x),
+    ),
+  ]
+  const makeupSourceLessons = makeupSourceIds.length
+    ? await db.lesson.findMany({
+        where: { id: { in: makeupSourceIds }, tenantId },
+        select: {
+          id: true,
+          date: true,
+          startTime: true,
+          group: {
+            select: {
+              name: true,
+              direction: { select: { name: true } },
+            },
+          },
+        },
+      })
+    : []
+
+  // Ф7: «Виртуальные» отработки — те, у кого admin поставил «Назначена отработка»
+  // с scheduledMakeupLessonId=текущему lessonId, но реальная отметка на L2 ещё
+  // не сделана. Показываем такого ребёнка строкой с бейджем «Отработка за DD.MM».
+  const expectedArrivals = await db.attendance.findMany({
+    where: {
+      tenantId,
+      scheduledMakeupLessonId: id,
+      attendanceType: { code: "makeup_scheduled" },
+    },
+    include: {
+      client: { select: { id: true, firstName: true, lastName: true, phone: true } },
+      subscription: { select: { id: true, lessonPrice: true } },
+      lesson: {
+        select: {
+          id: true,
+          date: true,
+          startTime: true,
+          group: {
+            select: {
+              name: true,
+              direction: { select: { name: true } },
+            },
+          },
+        },
+      },
+    },
+  })
+  // Ward подгружаем отдельным запросом — у Attendance нет relation на Ward.
+  const expectedArrivalWardIds = expectedArrivals
+    .map((a) => a.wardId)
+    .filter((x): x is string => !!x)
+  const expectedArrivalWards = expectedArrivalWardIds.length
+    ? await db.ward.findMany({
+        where: { id: { in: expectedArrivalWardIds } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : []
+  // Уже отмеченные отработки — исключаем из виртуальных (показываем как marked).
+  const markedMakeupKeys = new Set(
+    makeupAttendances.map((a) => `${a.clientId}:${a.wardId || ""}`),
+  )
+  const virtualArrivals = expectedArrivals.filter(
+    (a) => !markedMakeupKeys.has(`${a.clientId}:${a.wardId || ""}`),
+  )
+
   // Пробные ученики на этом занятии
   const trialLessons = await db.trialLesson.findMany({
     where: {
@@ -294,33 +364,74 @@ export default async function LessonCardPage({
     }
   })
 
-  const makeupStudents = makeupAttendances.map(a => {
-    const client = makeupClients.find(c => c.id === a.clientId)
-    const ward = a.wardId ? makeupWards.find(w => w.id === a.wardId) : null
-    return {
-      enrollmentId: `makeup-${a.id}`,
-      clientId: a.clientId,
-      clientName: client
-        ? [client.lastName, client.firstName].filter(Boolean).join(" ") || "Без имени"
-        : "Без имени",
-      clientPhone: maskPhone(client?.phone || null, currentRole, visibility.hidePhonesFromInstructors),
-      wardId: a.wardId,
-      wardName: ward ? [ward.lastName, ward.firstName].filter(Boolean).join(" ") : null,
-      subscriptionId: a.subscriptionId,
-      lessonPrice: a.subscription ? Number(a.subscription.lessonPrice) : 0,
-      isMakeup: true as const,
-      attendance: {
-        id: a.id,
-        attendanceTypeId: a.attendanceTypeId,
-        attendanceTypeName: a.attendanceType.name,
-        attendanceTypeCode: a.attendanceType.code,
-        chargeAmount: Number(a.chargeAmount),
-        instructorPayAmount: Number(a.instructorPayAmount),
-        instructorPayEnabled: a.instructorPayEnabled,
-        absenceReasonId: a.absenceReasonId,
-      },
-    }
-  })
+  const makeupStudents = [
+    // Уже отмеченные отработки (реальная Attendance на L2 с isMakeup=true).
+    ...makeupAttendances.map((a) => {
+      const client = makeupClients.find((c) => c.id === a.clientId)
+      const ward = a.wardId ? makeupWards.find((w) => w.id === a.wardId) : null
+      const sourceLesson = a.makeupOfLessonId
+        ? makeupSourceLessons.find((l) => l.id === a.makeupOfLessonId)
+        : null
+      return {
+        enrollmentId: `makeup-${a.id}`,
+        clientId: a.clientId,
+        clientName: client
+          ? [client.lastName, client.firstName].filter(Boolean).join(" ") || "Без имени"
+          : "Без имени",
+        clientPhone: maskPhone(client?.phone || null, currentRole, visibility.hidePhonesFromInstructors),
+        wardId: a.wardId,
+        wardName: ward ? [ward.lastName, ward.firstName].filter(Boolean).join(" ") : null,
+        subscriptionId: a.subscriptionId,
+        lessonPrice: a.subscription ? Number(a.subscription.lessonPrice) : 0,
+        isMakeup: true as const,
+        makeupSource: sourceLesson
+          ? {
+              lessonId: sourceLesson.id,
+              date: sourceLesson.date.toISOString().slice(0, 10),
+              startTime: sourceLesson.startTime,
+              directionName: sourceLesson.group.direction.name,
+              groupName: sourceLesson.group.name,
+            }
+          : null,
+        attendance: {
+          id: a.id,
+          attendanceTypeId: a.attendanceTypeId,
+          attendanceTypeName: a.attendanceType.name,
+          attendanceTypeCode: a.attendanceType.code,
+          chargeAmount: Number(a.chargeAmount),
+          instructorPayAmount: Number(a.instructorPayAmount),
+          instructorPayEnabled: a.instructorPayEnabled,
+          absenceReasonId: a.absenceReasonId,
+        },
+      }
+    }),
+    // Ф7: «Виртуальные» отработки — ожидают отметки. На L2 пока нет Attendance,
+    // она появится при первом «Был» / «Не был». attendance=null → строка показана
+    // как «Не отмечен» с бейджем «Отработка за DD.MM».
+    ...virtualArrivals.map((a) => {
+      const w = a.wardId ? expectedArrivalWards.find((x) => x.id === a.wardId) : null
+      return {
+        enrollmentId: `virtual-makeup-${a.id}`,
+        clientId: a.clientId,
+        clientName:
+          [a.client.lastName, a.client.firstName].filter(Boolean).join(" ") || "Без имени",
+        clientPhone: maskPhone(a.client.phone, currentRole, visibility.hidePhonesFromInstructors),
+        wardId: a.wardId,
+        wardName: w ? [w.lastName, w.firstName].filter(Boolean).join(" ") : null,
+        subscriptionId: a.subscriptionId,
+        lessonPrice: a.subscription ? Number(a.subscription.lessonPrice) : 0,
+        isMakeup: true as const,
+        makeupSource: {
+          lessonId: a.lesson.id,
+          date: a.lesson.date.toISOString().slice(0, 10),
+          startTime: a.lesson.startTime,
+          directionName: a.lesson.group.direction.name,
+          groupName: a.lesson.group.name,
+        },
+        attendance: null,
+      }
+    }),
+  ]
 
   // Build serialized data for client component
   const students = enrollments.map((enrollment) => {
@@ -365,6 +476,7 @@ export default async function LessonCardPage({
       makeupResolved: madeUp
         ? {
             attendanceId: madeUp.id,
+            lessonId: madeUp.lesson.id,
             date: madeUp.lesson.date.toISOString().slice(0, 10),
             startTime: madeUp.lesson.startTime,
             directionName: madeUp.lesson.group.direction.name,

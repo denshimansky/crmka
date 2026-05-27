@@ -102,7 +102,12 @@ export default function AttendanceMatrixPage() {
     setLoading(true)
     try {
       const res = await fetch("/api/attendance-types")
-      if (res.ok) setTypes(await res.json())
+      if (res.ok) {
+        const all = (await res.json()) as AttendanceType[]
+        // Ф7: скрываем internal-only типы (оба availableTo*=false) — они ставятся
+        // программно (bulk safety-net), вручную не выбираются ни одной ролью.
+        setTypes(all.filter((t) => t.availableToInstructor || t.availableToAdmin))
+      }
     } catch { /* ignore */ }
     finally { setLoading(false) }
   }, [])

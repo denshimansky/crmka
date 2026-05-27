@@ -31,6 +31,7 @@ export const TRIGGER_LABEL: Record<TaskAutoTrigger, string> = {
   payment_due: "Долгое ожидание оплаты (>3 дней)",
   trial_reminder: "Напоминание о пробном",
   absence: "Пропуск занятия",
+  missed_makeup: "Отработка не состоялась (переназначить)",
 }
 
 export function parseTriggerSettings(raw: unknown): TriggerSetting[] {
