@@ -43,6 +43,10 @@ const FILTERS: FilterDef[] = [
   { key: "status", label: "Статусы", kinds: ["status_change"] },
 ]
 
+// Фильтры, недоступные в режиме «история ребёнка» — оплаты/коммуникации/статусы
+// клиента общие на семью, к конкретному ребёнку не относятся.
+const WARD_HIDDEN_FILTERS = new Set(["comm", "pay", "status"])
+
 const KIND_CONFIG: Record<
   string,
   { icon: typeof StickyNote; color: string; bg: string }
@@ -85,7 +89,15 @@ function formatDateHeader(key: string): string {
   })
 }
 
-export function ClientHistory({ clientId }: { clientId: string }) {
+export function ClientHistory({
+  clientId,
+  wardId,
+}: {
+  clientId: string
+  /** Если задан — лента фильтруется до событий конкретного ребёнка
+   *  (пробные/абонементы/посещения по wardId). */
+  wardId?: string
+}) {
   const [events, setEvents] = useState<TimelineEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -94,15 +106,24 @@ export function ClientHistory({ clientId }: { clientId: string }) {
     trial: true,
     sub: true,
     pay: true,
-    att: false, // посещений много — выключено по умолчанию
+    // В ward-режиме посещений мало (только этого ребёнка) — включаем по умолчанию.
+    att: !!wardId,
     status: true,
   })
+
+  const visibleFilters = useMemo(
+    () => (wardId ? FILTERS.filter((f) => !WARD_HIDDEN_FILTERS.has(f.key)) : FILTERS),
+    [wardId],
+  )
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetch(`/api/clients/${clientId}/timeline`)
+    const url = wardId
+      ? `/api/clients/${clientId}/timeline?wardId=${encodeURIComponent(wardId)}`
+      : `/api/clients/${clientId}/timeline`
+    fetch(url)
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (cancelled) return
@@ -121,15 +142,15 @@ export function ClientHistory({ clientId }: { clientId: string }) {
     return () => {
       cancelled = true
     }
-  }, [clientId])
+  }, [clientId, wardId])
 
   const visible = useMemo(() => {
     const allowedKinds = new Set<string>()
-    for (const f of FILTERS) {
+    for (const f of visibleFilters) {
       if (enabled[f.key]) f.kinds.forEach((k) => allowedKinds.add(k))
     }
     return events.filter((e) => allowedKinds.has(e.kind))
-  }, [events, enabled])
+  }, [events, enabled, visibleFilters])
 
   // Группируем по дню
   const groups = useMemo(() => {
@@ -153,7 +174,7 @@ export function ClientHistory({ clientId }: { clientId: string }) {
             </Badge>
           </CardTitle>
           <div className="flex flex-wrap items-center gap-3">
-            {FILTERS.map((f) => (
+            {visibleFilters.map((f) => (
               <label
                 key={f.key}
                 className="inline-flex cursor-pointer items-center gap-1.5 text-xs"

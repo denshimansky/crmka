@@ -47,6 +47,7 @@ interface Subscription {
   totalAmount: string
   finalAmount: string
   balance: string
+  chargedAmount: string
   direction: { id: string; name: string }
   group: { id: string; name: string }
   ward: { id: string; firstName: string; lastName: string | null } | null
@@ -814,8 +815,11 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                 <TableHead>Группа</TableHead>
                 <TableHead>Период</TableHead>
                 <TableHead>Статус</TableHead>
+                <TableHead className="text-right">Полная стоимость</TableHead>
                 <TableHead className="text-right">К оплате</TableHead>
                 <TableHead className="text-right">Оплачено</TableHead>
+                <TableHead className="text-right">Отработано</TableHead>
+                <TableHead className="text-right">Остаток</TableHead>
                 <TableHead className="w-[100px]"></TableHead>
               </TableRow>
             </TableHeader>
@@ -823,6 +827,13 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
               {subs.map((s) => {
                 const paid = s.payments.reduce((sum, p) => sum + Number(p.amount), 0)
                 const balance = Number(s.balance)
+                const finalAmount = Number(s.finalAmount)
+                const lessonPrice = Number(s.lessonPrice) || 0
+                const chargedAmount = Number(s.chargedAmount) || 0
+                // Subscription.balance / chargedAmount хранятся в ₽; занятие списывает
+                // ровно lessonPrice, поэтому делением получаем целое число занятий.
+                const usedLessons = lessonPrice > 0 ? Math.round(chargedAmount / lessonPrice) : 0
+                const remainingLessons = Math.max(0, s.totalLessons - usedLessons)
                 const canEdit = s.status === "pending" || s.status === "active"
                 const wardLabel = s.ward
                   ? [s.ward.firstName, s.ward.lastName].filter(Boolean).join(" ")
@@ -846,11 +857,20 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                         {STATUS_LABELS[s.status] || s.status}
                       </span>
                     </TableCell>
+                    <TableCell className="text-right text-sm text-muted-foreground">
+                      {formatMoney(finalAmount)}
+                    </TableCell>
                     <TableCell className={`text-right font-medium ${balance > 0 ? "text-red-600" : "text-green-600"}`}>
                       {balance > 0 ? formatMoney(balance) : "Оплачен"}
                     </TableCell>
                     <TableCell className="text-right text-green-600">
                       {paid > 0 ? formatMoney(paid) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right text-sm">
+                      {usedLessons} / {s.totalLessons}
+                    </TableCell>
+                    <TableCell className={`text-right text-sm font-medium ${remainingLessons === 0 ? "text-muted-foreground" : ""}`}>
+                      {remainingLessons}
                     </TableCell>
                     <TableCell>
                       {canEdit && (

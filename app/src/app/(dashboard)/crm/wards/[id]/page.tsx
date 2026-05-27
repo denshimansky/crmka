@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { ArrowLeft, Building2, GraduationCap, User as UserIcon, CalendarDays } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
 import { EditWardForm } from "./edit-ward-form"
+import { ClientHistory } from "../../clients/[id]/client-history"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -177,6 +178,9 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
               )}
             </CardContent>
           </Card>
+
+          {/* История событий ребёнка — только относящееся к этому wardId */}
+          <ClientHistory clientId={ward.client.id} wardId={ward.id} />
         </div>
 
         {/* Sidebar — редактирование данных ребёнка */}

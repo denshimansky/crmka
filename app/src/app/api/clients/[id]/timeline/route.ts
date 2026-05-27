@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
+
+// Точные типы результатов findMany c include — нужны, чтобы в ward-режиме
+// (когда мы возвращаем пустой массив вместо запроса) типизация сохранилась.
+type TimelineCommunication = Prisma.CommunicationGetPayload<{
+  include: { employee: { select: { firstName: true; lastName: true } } }
+}>
+type TimelinePayment = Prisma.PaymentGetPayload<{
+  include: { account: { select: { name: true } } }
+}>
+type TimelineAuditLog = Prisma.AuditLogGetPayload<{
+  include: { employee: { select: { firstName: true; lastName: true } } }
+}>
 
 /**
  * GET /api/clients/[id]/timeline
@@ -35,7 +48,7 @@ export interface TimelineEvent {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await getServerSession(authOptions)
@@ -45,6 +58,12 @@ export async function GET(
   const { id: clientId } = await params
   const tenantId = (session.user as any).tenantId
 
+  // wardId — опциональный фильтр: ограничивает ленту событиями только этого
+  // ребёнка (используется на карточке /crm/wards/[id]). Коммуникации, оплаты
+  // и смены статуса клиента — общие на семью, поэтому в ward-режиме их не
+  // показываем.
+  const wardId = new URL(req.url).searchParams.get("wardId") || null
+
   // Проверяем что клиент принадлежит организации
   const client = await db.client.findFirst({
     where: { id: clientId, tenantId, deletedAt: null },
@@ -53,7 +72,19 @@ export async function GET(
   if (!client)
     return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
 
-  // Параллельно собираем всё, что относится к клиенту
+  // Если указан wardId — проверяем принадлежность ребёнка клиенту/тенанту
+  if (wardId) {
+    const ward = await db.ward.findFirst({
+      where: { id: wardId, clientId, tenantId },
+      select: { id: true },
+    })
+    if (!ward) {
+      return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
+    }
+  }
+
+  // Параллельно собираем всё, что относится к клиенту (или ребёнку, если wardId).
+  // В ward-режиме коммуникации/оплаты/аудит-статусы клиента — не подгружаем.
   const [
     communications,
     trials,
@@ -62,16 +93,18 @@ export async function GET(
     attendances,
     auditLogs,
   ] = await Promise.all([
-    db.communication.findMany({
-      where: { tenantId, clientId },
-      include: {
-        employee: { select: { firstName: true, lastName: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    }),
+    wardId
+      ? Promise.resolve([] as TimelineCommunication[])
+      : db.communication.findMany({
+          where: { tenantId, clientId },
+          include: {
+            employee: { select: { firstName: true, lastName: true } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        }),
     db.trialLesson.findMany({
-      where: { tenantId, clientId },
+      where: { tenantId, clientId, ...(wardId ? { wardId } : {}) },
       include: {
         direction: { select: { name: true } },
         instructor: { select: { firstName: true, lastName: true } },
@@ -81,7 +114,7 @@ export async function GET(
       take: 200,
     }),
     db.subscription.findMany({
-      where: { tenantId, clientId, deletedAt: null },
+      where: { tenantId, clientId, deletedAt: null, ...(wardId ? { wardId } : {}) },
       include: {
         direction: { select: { name: true } },
         group: { select: { name: true } },
@@ -90,16 +123,18 @@ export async function GET(
       orderBy: { createdAt: "desc" },
       take: 200,
     }),
-    db.payment.findMany({
-      where: { tenantId, clientId, deletedAt: null },
-      include: {
-        account: { select: { name: true } },
-      },
-      orderBy: { date: "desc" },
-      take: 200,
-    }),
+    wardId
+      ? Promise.resolve([] as TimelinePayment[])
+      : db.payment.findMany({
+          where: { tenantId, clientId, deletedAt: null },
+          include: {
+            account: { select: { name: true } },
+          },
+          orderBy: { date: "desc" },
+          take: 200,
+        }),
     db.attendance.findMany({
-      where: { tenantId, clientId },
+      where: { tenantId, clientId, ...(wardId ? { wardId } : {}) },
       include: {
         attendanceType: { select: { name: true, code: true } },
         lesson: {
@@ -113,18 +148,20 @@ export async function GET(
       orderBy: { markedAt: "desc" },
       take: 500,
     }),
-    db.auditLog.findMany({
-      where: {
-        tenantId,
-        entityType: "Client",
-        entityId: clientId,
-      },
-      include: {
-        employee: { select: { firstName: true, lastName: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    }),
+    wardId
+      ? Promise.resolve([] as TimelineAuditLog[])
+      : db.auditLog.findMany({
+          where: {
+            tenantId,
+            entityType: "Client",
+            entityId: clientId,
+          },
+          include: {
+            employee: { select: { firstName: true, lastName: true } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        }),
   ])
 
   const events: TimelineEvent[] = []
