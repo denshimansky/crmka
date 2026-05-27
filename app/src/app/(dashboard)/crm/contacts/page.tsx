@@ -1,6 +1,9 @@
+import Link from "next/link"
+import { Upload } from "lucide-react"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
+import { Button } from "@/components/ui/button"
 import { PageHelp } from "@/components/page-help"
 import { QuickLeadButton } from "@/components/quick-lead-button"
 import { CreateClientDialog } from "../clients/create-client-dialog"
@@ -175,7 +178,15 @@ export default async function ContactsPage({
           <h1 className="text-2xl font-bold">Контакты</h1>
           <PageHelp pageKey="crm/contacts" />
         </div>
-        <CreateClientDialog branches={branches} />
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/crm/import">
+              <Upload className="mr-2 size-4" />
+              Импорт
+            </Link>
+          </Button>
+          <CreateClientDialog branches={branches} />
+        </div>
       </div>
 
       <ContactsTabs tabs={tabs} current={tab} />
