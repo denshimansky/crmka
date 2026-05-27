@@ -22,13 +22,16 @@ function daysInMonth(year: number, month: number, daysOfWeek: number[]): Date[] 
 }
 
 /** Deterministic attendance type index based on student+lesson indices */
+// Псевдослучайное распределение типов посещения по канonical-кодам системных
+// AttendanceType (tenantId=null). Возвращает один из: present / excused /
+// absent / recalculation. `makeup` НЕ генерируется демо-данными — он
+// internal-only и создаётся программно при реальной отработке.
 function attendanceTypeIndex(studentIdx: number, lessonIdx: number, presentRate: number): string {
   const v = ((studentIdx * 31 + lessonIdx * 17) % 100)
   if (v < presentRate) return "present"
-  if (v < presentRate + 10) return "absent_excused"
-  if (v < presentRate + 18) return "absent_unexcused"
-  if (v < presentRate + 23) return "sick"
-  return "makeup"
+  if (v < presentRate + 15) return "excused"
+  if (v < presentRate + 25) return "absent"
+  return "recalculation"
 }
 
 /** Deterministic payment method */
@@ -281,24 +284,49 @@ async function step1_setup(org: { id: string }) {
   }
   console.log("  ExpenseCategories: 10")
 
-  // --- Attendance types ---
-  const atTypes = [
-    { name: "Присутствие", code: "present", chargesSubscription: true, paysInstructor: true, countsAsRevenue: true, sortOrder: 1 },
-    { name: "Уваж. пропуск", code: "absent_excused", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, sortOrder: 2 },
-    { name: "Неуваж. пропуск", code: "absent_unexcused", chargesSubscription: true, paysInstructor: false, countsAsRevenue: true, sortOrder: 3 },
-    { name: "Пробное", code: "trial", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, sortOrder: 4 },
-    { name: "Отработка", code: "makeup", chargesSubscription: true, paysInstructor: true, countsAsRevenue: true, sortOrder: 5 },
-    { name: "Перерасчёт", code: "recalc", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, sortOrder: 6 },
-    { name: "Болезнь", code: "sick", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, sortOrder: 7 },
+  // --- Attendance types (canonical, tenantId=null, шарятся на всех тенантов) ---
+  // Если их ещё нет в БД (свежая база) — создаём здесь, идемпотентно через upsert.
+  // Источник правды — prisma/seed-attendance-types.ts.
+  const CANONICAL_TYPES = [
+    { code: "present", name: "Был", chargesSubscription: true, paysInstructor: true, countsAsRevenue: true, availableToInstructor: true, availableToAdmin: true, partOfPlan: true, partOfFact: true, partOfForecast: true, sortOrder: 1 },
+    { code: "no_show", name: "Не был", chargesSubscription: true, paysInstructor: false, countsAsRevenue: true, availableToInstructor: true, availableToAdmin: true, partOfPlan: true, partOfFact: false, partOfForecast: true, sortOrder: 2 },
+    { code: "makeup_scheduled", name: "Назначена отработка", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, availableToInstructor: false, availableToAdmin: true, partOfPlan: true, partOfFact: false, partOfForecast: false, sortOrder: 3 },
+    { code: "excused", name: "Уваж. пропуск", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, availableToInstructor: false, availableToAdmin: true, partOfPlan: true, partOfFact: false, partOfForecast: false, sortOrder: 4 },
+    { code: "absent", name: "Прогул", chargesSubscription: true, paysInstructor: true, countsAsRevenue: true, availableToInstructor: false, availableToAdmin: true, partOfPlan: true, partOfFact: false, partOfForecast: true, sortOrder: 5 },
+    { code: "recalculation", name: "Перерасчёт", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, availableToInstructor: false, availableToAdmin: true, partOfPlan: false, partOfFact: false, partOfForecast: false, sortOrder: 6 },
+    { code: "makeup", name: "Отработка", chargesSubscription: false, paysInstructor: false, countsAsRevenue: false, availableToInstructor: false, availableToAdmin: false, partOfPlan: false, partOfFact: true, partOfForecast: false, sortOrder: 7 },
   ]
   const attTypeMap: Record<string, { id: string; charges: boolean; pays: boolean; revenue: boolean }> = {}
-  for (const at of atTypes) {
-    const created = await db.attendanceType.create({
-      data: { tenantId: T, name: at.name, code: at.code, chargesSubscription: at.chargesSubscription, paysInstructor: at.paysInstructor, countsAsRevenue: at.countsAsRevenue, isSystem: true, sortOrder: at.sortOrder },
+  for (const t of CANONICAL_TYPES) {
+    const existing = await db.attendanceType.findFirst({ where: { code: t.code, tenantId: null } })
+    const row = existing ?? await db.attendanceType.create({
+      data: {
+        tenantId: null,
+        code: t.code,
+        name: t.name,
+        chargesSubscription: t.chargesSubscription,
+        paysInstructor: t.paysInstructor,
+        countsAsRevenue: t.countsAsRevenue,
+        availableToInstructor: t.availableToInstructor,
+        availableToAdmin: t.availableToAdmin,
+        partOfPlan: t.partOfPlan,
+        partOfFact: t.partOfFact,
+        partOfForecast: t.partOfForecast,
+        chargePercent: 100,
+        isSystem: true,
+        isFlagsLocked: true,
+        isActive: true,
+        sortOrder: t.sortOrder,
+      },
     })
-    attTypeMap[at.code] = { id: created.id, charges: at.chargesSubscription, pays: at.paysInstructor, revenue: at.countsAsRevenue }
+    attTypeMap[t.code] = {
+      id: row.id,
+      charges: row.chargesSubscription,
+      pays: row.paysInstructor,
+      revenue: row.countsAsRevenue,
+    }
   }
-  console.log("  AttendanceTypes: 7")
+  console.log(`  AttendanceTypes: ${CANONICAL_TYPES.length} (canonical, shared)`)
 
   // --- Salary rates ---
   const salaryRatesDef: { empId: string; dirId: string; rate: number }[] = [
