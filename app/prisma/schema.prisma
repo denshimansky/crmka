@@ -1157,6 +1157,7 @@ enum TaskAutoTrigger {
   promised_payment
   unmarked_lesson
   missed_makeup
+  no_show_review
 }
 
 enum TaskStatus {

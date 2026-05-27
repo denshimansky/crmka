@@ -21,6 +21,7 @@ export const MANAGED_TRIGGERS: TaskAutoTrigger[] = [
   "birthday",
   "unmarked_lesson",
   "payment_due",
+  "no_show_review",
 ]
 
 export const TRIGGER_LABEL: Record<TaskAutoTrigger, string> = {
@@ -29,6 +30,7 @@ export const TRIGGER_LABEL: Record<TaskAutoTrigger, string> = {
   birthday: "День рождения подопечного",
   unmarked_lesson: "Неотмеченные занятия (вчера)",
   payment_due: "Долгое ожидание оплаты (>3 дней)",
+  no_show_review: "Уточнить «Не был» (старше 3 дней)",
   trial_reminder: "Напоминание о пробном",
   absence: "Пропуск занятия",
   missed_makeup: "Отработка не состоялась (переназначить)",

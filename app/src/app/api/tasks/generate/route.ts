@@ -165,5 +165,86 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // 6. «Не был» старше 3 дней — переходный статус не уточнён администратором.
+  if (isTriggerEnabled("no_show_review", triggerSettings, todayLocal)) {
+    const threeDaysAgo = new Date(today)
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+    // Учитываем только обычные no_show (НЕ виртуальные отработки — у тех своя
+    // задача missed_makeup создаётся отдельно при отметке «Не был» на L2).
+    const pendingNoShows = await db.attendance.findMany({
+      where: {
+        tenantId,
+        attendanceType: { code: "no_show" },
+        isMakeup: false,
+        lesson: { date: { lte: threeDaysAgo } },
+      },
+      include: {
+        client: { select: { firstName: true, lastName: true } },
+        lesson: {
+          select: {
+            id: true,
+            date: true,
+            group: {
+              select: { name: true, direction: { select: { name: true } } },
+            },
+          },
+        },
+      },
+    })
+
+    // Подгружаем имена подопечных одним запросом — у Attendance нет relation на Ward.
+    const wardIds = pendingNoShows.map((a) => a.wardId).filter((x): x is string => !!x)
+    const wards = wardIds.length
+      ? await db.ward.findMany({
+          where: { id: { in: wardIds } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : []
+
+    for (const att of pendingNoShows) {
+      const ward = att.wardId ? wards.find((w) => w.id === att.wardId) : null
+      const wardName = ward ? [ward.lastName, ward.firstName].filter(Boolean).join(" ") : ""
+      const clientName = [att.client.lastName, att.client.firstName].filter(Boolean).join(" ")
+      const childDisplayName = wardName || clientName || "Без имени"
+      const lessonDateStr = att.lesson.date.toLocaleDateString("ru-RU")
+      const directionName = att.lesson.group.direction.name
+      const groupName = att.lesson.group.name
+
+      // Идемпотентность: ищем активную задачу для этой attendance.
+      // Маркер attendance_id в description — не visible в title для админа.
+      const marker = `[att=${att.id}]`
+      const description =
+        `Педагог отметил «Не был» на занятии «${directionName} — ${groupName}» ` +
+        `${lessonDateStr}. Уточните причину и переведите в «Уваж. пропуск», ` +
+        `«Прогул» или «Назначена отработка». ${marker}`
+
+      const exists = await db.task.findFirst({
+        where: {
+          tenantId,
+          autoTrigger: "no_show_review",
+          status: "pending",
+          deletedAt: null,
+          description: { contains: marker },
+        },
+      })
+      if (exists) continue
+
+      await db.task.create({
+        data: {
+          tenantId,
+          title: `Уточнить «Не был»: ${childDisplayName} (${lessonDateStr})`,
+          description,
+          type: "auto",
+          autoTrigger: "no_show_review",
+          status: "pending",
+          dueDate: today,
+          assignedTo: defaultAssignee.id,
+          clientId: att.clientId,
+        },
+      })
+      created++
+    }
+  }
+
   return NextResponse.json({ created })
 }
