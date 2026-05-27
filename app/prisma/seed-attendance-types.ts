@@ -71,15 +71,18 @@ async function main() {
       sortOrder: 5,
     },
     {
+      // «Отработка» — маркер для bulk-операции «уже отработано в другой группе»:
+      // НЕ списывает и НЕ платит, потому что фактические списание/ЗП происходят
+      // при создании реальной отработки (present + isMakeup=true).
       code: "makeup",
       name: "Отработка",
-      chargesSubscription: true,
-      paysInstructor: true,
-      countsAsRevenue: true,
+      chargesSubscription: false,
+      paysInstructor: false,
+      countsAsRevenue: false,
       availableToInstructor: false,
       partOfPlan: false,
       partOfFact: true,
-      partOfForecast: true,
+      partOfForecast: false,
       sortOrder: 6,
     },
   ]
