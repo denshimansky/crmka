@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
+import { resolveRate } from "@/lib/salary/resolve-rate"
+import { calcPay } from "@/lib/salary/calc-pay"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
@@ -157,24 +159,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const chargeAmount = subscription.lessonPrice
 
-  // ЗП инструктору за разового ученика (по схеме per_student / fixed_plus_per_student)
+  // ЗП инструктору через единую утилиту — все 5 схем поддерживаются
+  // одинаково для отметки, отработки и bulk.
   let instructorPayAmount = new Prisma.Decimal(0)
-  const salaryRate = await db.salaryRate.findFirst({
-    where: {
-      tenantId,
-      employeeId: lesson.substituteInstructorId || lesson.instructorId,
-      directionId: lesson.group.directionId,
-    },
+  const resolvedRate = await resolveRate(db, {
+    tenantId,
+    groupId: lesson.groupId,
+    employeeId: lesson.substituteInstructorId || lesson.instructorId,
+    directionId: lesson.group.directionId,
   })
-  if (salaryRate) {
-    if (salaryRate.scheme === "per_student" && salaryRate.ratePerStudent) {
-      instructorPayAmount = salaryRate.ratePerStudent
-    } else if (salaryRate.scheme === "fixed_plus_per_student" && salaryRate.ratePerStudent) {
-      instructorPayAmount = salaryRate.ratePerStudent
-    }
-  }
 
   const attendance = await db.$transaction(async (tx) => {
+    if (resolvedRate) {
+      instructorPayAmount = await calcPay(tx, {
+        rate: resolvedRate,
+        lessonId,
+        tenantId,
+        currentClientId: data.clientId,
+        currentChargeAmount: chargeAmount,
+      })
+    }
     const att = await tx.attendance.create({
       data: {
         tenantId,

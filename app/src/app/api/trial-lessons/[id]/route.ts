@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { resolveRate } from "@/lib/salary/resolve-rate"
+import { calcPay } from "@/lib/salary/calc-pay"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -14,12 +16,16 @@ const updateSchema = z
     message: "Нечего обновлять",
   })
 
-// Расчёт ставки инструктора за пробное — копирует логику обычной отметки
+// Расчёт ставки инструктора за пробное через единые утилиты.
+// Для пробных currentChargeAmount=0 (пробное не списывает с абонемента),
+// поэтому для percent_of_payments выйдет 0 — это совпадает со старым поведением.
 async function computeTrialPay(
   tx: Prisma.TransactionClient,
   args: {
     tenantId: string
     lessonId: string
+    groupId: string
+    clientId: string
     instructorId: string
     directionId: string
     instructorPayEnabled: boolean
@@ -27,33 +33,21 @@ async function computeTrialPay(
 ): Promise<Prisma.Decimal> {
   if (!args.instructorPayEnabled) return new Prisma.Decimal(0)
 
-  const salaryRate = await tx.salaryRate.findFirst({
-    where: {
-      tenantId: args.tenantId,
-      employeeId: args.instructorId,
-      directionId: args.directionId,
-    },
+  const rate = await resolveRate(tx, {
+    tenantId: args.tenantId,
+    groupId: args.groupId,
+    employeeId: args.instructorId,
+    directionId: args.directionId,
   })
-  if (!salaryRate) return new Prisma.Decimal(0)
+  if (!rate) return new Prisma.Decimal(0)
 
-  if (salaryRate.scheme === "per_student" && salaryRate.ratePerStudent) {
-    return salaryRate.ratePerStudent
-  }
-  if (salaryRate.scheme === "fixed_plus_per_student" && salaryRate.ratePerStudent) {
-    return salaryRate.ratePerStudent
-  }
-  if (salaryRate.scheme === "per_lesson" && salaryRate.ratePerLesson) {
-    // per_lesson — оплата раз за занятие. Если уже есть оплачиваемые посещения — не дублируем.
-    const existingCount = await tx.attendance.count({
-      where: {
-        lessonId: args.lessonId,
-        attendanceType: { paysInstructor: true },
-        instructorPayEnabled: true,
-      },
-    })
-    if (existingCount === 0) return salaryRate.ratePerLesson
-  }
-  return new Prisma.Decimal(0)
+  return calcPay(tx, {
+    rate,
+    lessonId: args.lessonId,
+    tenantId: args.tenantId,
+    currentClientId: args.clientId,
+    currentChargeAmount: 0,
+  })
 }
 
 // PATCH /api/trial-lessons/[id] — изменить статус или флаг оплаты инструктору
@@ -83,6 +77,7 @@ export async function PATCH(
       lesson: {
         select: {
           id: true,
+          groupId: true,
           instructorId: true,
           substituteInstructorId: true,
           group: { select: { directionId: true } },
@@ -206,6 +201,8 @@ export async function PATCH(
         ? await computeTrialPay(tx, {
             tenantId,
             lessonId: trial.lesson.id,
+            groupId: trial.lesson.groupId,
+            clientId: trial.clientId,
             instructorId: lessonInstructorId,
             directionId: trial.lesson.group.directionId,
             instructorPayEnabled: effectivePay,

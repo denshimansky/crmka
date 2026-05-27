@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { resolveRate } from "@/lib/salary/resolve-rate"
+import { calcPay } from "@/lib/salary/calc-pay"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
@@ -195,36 +197,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
-    // Calculate instructor pay
+    // Calculate instructor pay через единые утилиты resolve-rate + calc-pay
     let instructorPayAmount = new Prisma.Decimal(0)
     if (attendanceType.paysInstructor && data.instructorPayEnabled) {
-      const salaryRate = await tx.salaryRate.findFirst({
-        where: {
-          tenantId,
-          employeeId: lesson.substituteInstructorId || lesson.instructorId,
-          directionId: lesson.group.directionId,
-        },
+      const rate = await resolveRate(tx, {
+        tenantId,
+        groupId: lesson.groupId,
+        employeeId: lesson.substituteInstructorId || lesson.instructorId,
+        directionId: lesson.group.directionId,
       })
-      if (salaryRate) {
-        if (salaryRate.scheme === "per_student" && salaryRate.ratePerStudent) {
-          instructorPayAmount = salaryRate.ratePerStudent
-        } else if (salaryRate.scheme === "per_lesson" && salaryRate.ratePerLesson) {
-          const existingCount = await tx.attendance.count({
-            where: {
-              lessonId,
-              attendanceType: { paysInstructor: true },
-              instructorPayEnabled: true,
-              clientId: { not: data.clientId },
-            },
-          })
-          if (existingCount === 0) {
-            instructorPayAmount = salaryRate.ratePerLesson
-          }
-        } else if (salaryRate.scheme === "fixed_plus_per_student") {
-          if (salaryRate.ratePerStudent) {
-            instructorPayAmount = salaryRate.ratePerStudent
-          }
-        }
+      if (rate) {
+        instructorPayAmount = await calcPay(tx, {
+          rate,
+          lessonId,
+          tenantId,
+          currentClientId: data.clientId,
+          currentChargeAmount: chargeAmount,
+        })
       }
     }
 
@@ -475,14 +464,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     },
   })
 
-  // Get salary rate (use substitute instructor's rate if present)
+  // Резолв ставки ЗП через единую утилиту: приоритет — GroupSalaryRate
+  // группы → личное исключение по направлению → дефолт педагога.
   const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
-  const salaryRate = await db.salaryRate.findFirst({
-    where: {
-      tenantId,
-      employeeId: effectiveInstructorId,
-      directionId: lesson.group.directionId,
-    },
+  const resolvedRate = await resolveRate(db, {
+    tenantId,
+    groupId: lesson.groupId,
+    employeeId: effectiveInstructorId,
+    directionId: lesson.group.directionId,
   })
 
   // Fetch org setting for trial lesson instructor pay
@@ -516,7 +505,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   // === Вся bulk-логика в одной транзакции ===
   const results = await db.$transaction(async (tx) => {
     const atts = []
-    let isFirstForLesson = true
 
     for (const enrollment of enrollments) {
       const subscription = subscriptions.find(
@@ -547,15 +535,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
 
       let instructorPayAmount = new Prisma.Decimal(0)
-      if (effectiveType.paysInstructor && salaryRate) {
-        if (salaryRate.scheme === "per_student" && salaryRate.ratePerStudent) {
-          instructorPayAmount = salaryRate.ratePerStudent
-        } else if (salaryRate.scheme === "per_lesson" && salaryRate.ratePerLesson && isFirstForLesson) {
-          instructorPayAmount = salaryRate.ratePerLesson
-          isFirstForLesson = false
-        } else if (salaryRate.scheme === "fixed_plus_per_student" && salaryRate.ratePerStudent) {
-          instructorPayAmount = salaryRate.ratePerStudent
-        }
+      if (effectiveType.paysInstructor && resolvedRate) {
+        instructorPayAmount = await calcPay(tx, {
+          rate: resolvedRate,
+          lessonId,
+          tenantId,
+          currentClientId: enrollment.clientId,
+          currentChargeAmount: chargeAmount,
+        })
       }
 
       // Trial lesson instructor pay logic (same as single attendance)
