@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -1205,6 +1205,10 @@ function ScheduleMakeupDialog({
   onConfirm: (targetLessonId: string) => void
 }) {
   const [date, setDate] = useState(defaultDate)
+  const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
+  const [directions, setDirections] = useState<{ id: string; name: string }[]>([])
+  const [branchId, setBranchId] = useState<string>("")
+  const [directionId, setDirectionId] = useState<string>("")
   const [lessons, setLessons] = useState<LessonOption[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [targetId, setTargetId] = useState<string | null>(null)
@@ -1212,14 +1216,42 @@ function ScheduleMakeupDialog({
 
   const displayName = student.wardName || student.clientName
 
-  const loadLessons = useCallback(async (d: string) => {
+  // Подгружаем филиалы и направления один раз при открытии модалки.
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      fetch("/api/branches").then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/directions").then((r) => (r.ok ? r.json() : [])),
+    ])
+      .then(([bs, ds]: [Array<{ id: string; name: string }>, Array<{ id: string; name: string }>]) => {
+        if (cancelled) return
+        if (Array.isArray(bs)) setBranches(bs.map((b) => ({ id: b.id, name: b.name })))
+        if (Array.isArray(ds)) setDirections(ds.map((d) => ({ id: d.id, name: d.name })))
+      })
+      .catch(() => { /* ignore — оператор увидит пустые селекты */ })
+    return () => { cancelled = true }
+  }, [])
+
+  // При смене любого из фильтров сбрасываем список занятий: оператор должен
+  // снова нажать «Показать занятия», иначе выбор может не соответствовать фильтру.
+  useEffect(() => {
+    setLessons(null)
+    setTargetId(null)
+  }, [date, branchId, directionId])
+
+  const loadLessons = useCallback(async () => {
+    if (!date || !branchId || !directionId) return
     setLoading(true)
     setError(null)
     setTargetId(null)
     try {
-      const res = await fetch(
-        `/api/lessons?date=${encodeURIComponent(d)}&excludeId=${encodeURIComponent(excludeLessonId)}`,
-      )
+      const params = new URLSearchParams({
+        date,
+        excludeId: excludeLessonId,
+        branchId,
+        directionId,
+      })
+      const res = await fetch(`/api/lessons?${params.toString()}`)
       if (res.ok) {
         setLessons(await res.json())
       } else {
@@ -1233,7 +1265,9 @@ function ScheduleMakeupDialog({
     } finally {
       setLoading(false)
     }
-  }, [excludeLessonId])
+  }, [date, branchId, directionId, excludeLessonId])
+
+  const canSearch = !!date && !!branchId && !!directionId && !loading
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1241,7 +1275,7 @@ function ScheduleMakeupDialog({
         <div className="border-b p-4">
           <div className="text-base font-semibold">Назначить отработку</div>
           <div className="text-sm text-muted-foreground mt-0.5">
-            {displayName} — выберите дату и занятие, на котором ребёнок будет отрабатывать пропуск.
+            {displayName} — выберите дату, филиал и направление, затем нажмите «Показать занятия».
             Списание пройдёт по стоимости текущего занятия (с абонемента исходной группы).
           </div>
         </div>
@@ -1255,15 +1289,44 @@ function ScheduleMakeupDialog({
               onChange={(e) => setDate(e.target.value)}
               className="h-9 w-full rounded border bg-background px-3 text-sm"
             />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => loadLessons(date)}
-              disabled={!date || loading}
-            >
-              {loading ? "Загрузка..." : "Показать занятия"}
-            </Button>
           </div>
+
+          <div className="space-y-1.5">
+            <Label>Филиал</Label>
+            <select
+              value={branchId}
+              onChange={(e) => setBranchId(e.target.value)}
+              className="h-9 w-full rounded border bg-background px-3 text-sm"
+            >
+              <option value="">— выберите филиал —</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Направление</Label>
+            <select
+              value={directionId}
+              onChange={(e) => setDirectionId(e.target.value)}
+              className="h-9 w-full rounded border bg-background px-3 text-sm"
+            >
+              <option value="">— выберите направление —</option>
+              {directions.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={loadLessons}
+            disabled={!canSearch}
+          >
+            {loading ? "Загрузка..." : "Показать занятия"}
+          </Button>
 
           {error && (
             <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -1274,7 +1337,7 @@ function ScheduleMakeupDialog({
           {lessons !== null && (
             lessons.length === 0 ? (
               <div className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
-                В эту дату нет занятий.
+                В эту дату нет занятий по выбранному филиалу и направлению.
               </div>
             ) : (
               <div className="max-h-64 space-y-1 overflow-y-auto rounded border p-2">
