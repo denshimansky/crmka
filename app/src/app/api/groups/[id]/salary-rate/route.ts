@@ -3,13 +3,9 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
-import { validateForScheme } from "@/app/api/employees/[id]/salary-rates/route"
+import { bracketSchema, validateForScheme } from "@/lib/salary/rate-schema"
 
-const bracketSchema = z.object({
-  minStudents: z.number().int().min(1).max(50),
-  ratePerLesson: z.number().min(0),
-})
-
+// Для GroupSalaryRate directionId не нужен (один rate на группу — независимо от направления).
 const groupRateSchema = z.object({
   scheme: z.enum([
     "per_student",

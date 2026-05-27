@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { baseRateSchema, validateForScheme } from "@/app/api/employees/[id]/salary-rates/route"
+import { baseRateSchema, validateForScheme } from "@/lib/salary/rate-schema"
 
 // PATCH /api/salary-rates/[id] — обновить ставку (включая полное переписывание матрицы)
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

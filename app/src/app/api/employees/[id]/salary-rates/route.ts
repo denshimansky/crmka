@@ -2,50 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { z } from "zod"
-
-const bracketSchema = z.object({
-  minStudents: z.number().int().min(1).max(50),
-  ratePerLesson: z.number().min(0),
-})
-
-const baseRateSchema = z.object({
-  scheme: z.enum([
-    "per_student",
-    "per_lesson",
-    "fixed_plus_per_student",
-    "percent_of_payments",
-    "floating_by_students",
-  ]),
-  directionId: z.string().uuid().nullable().optional(),
-  ratePerStudent: z.number().min(0).nullable().optional(),
-  ratePerLesson: z.number().min(0).nullable().optional(),
-  fixedPerShift: z.number().min(0).nullable().optional(),
-  percentOfPayments: z.number().min(0).max(100).nullable().optional(),
-  brackets: z.array(bracketSchema).optional(),
-})
-
-// Проверка консистентности: для каждой схемы — обязательные поля.
-function validateForScheme(data: z.infer<typeof baseRateSchema>): string | null {
-  switch (data.scheme) {
-    case "per_student":
-      if (!data.ratePerStudent || data.ratePerStudent <= 0) return "Укажите ставку за ученика"
-      return null
-    case "per_lesson":
-      if (!data.ratePerLesson || data.ratePerLesson <= 0) return "Укажите ставку за занятие"
-      return null
-    case "fixed_plus_per_student":
-      if (!data.ratePerStudent || data.ratePerStudent <= 0) return "Укажите ставку за ученика"
-      if (!data.fixedPerShift || data.fixedPerShift <= 0) return "Укажите фикс за выход"
-      return null
-    case "percent_of_payments":
-      if (!data.percentOfPayments || data.percentOfPayments <= 0) return "Укажите процент списания"
-      return null
-    case "floating_by_students":
-      if (!data.brackets || data.brackets.length === 0) return "Добавьте хотя бы одну строку матрицы"
-      return null
-  }
-}
+import { baseRateSchema, validateForScheme } from "@/lib/salary/rate-schema"
 
 // GET /api/employees/[id]/salary-rates — список ставок инструктора
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -145,4 +102,3 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   return NextResponse.json(created, { status: 201 })
 }
 
-export { baseRateSchema, validateForScheme }
