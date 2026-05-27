@@ -225,6 +225,63 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // === Вся бизнес-логика в транзакции ===
   const attendance = await db.$transaction(async (tx) => {
+    // Ф8: Отмена отработки. «Не был» на L2-виртуальной отработке = отработка
+    // не состоялась. Возвращаем оба занятия к «не отмечено»: удаляем запись
+    // `makeup_scheduled` на L1 и (если уже была) реальную отметку на L2.
+    // Откаты списания / refund / ЗП — здесь же, чтобы не оставлять «осиротевших»
+    // транзакций в балансе.
+    if (isMakeupArrival && attendanceType.code === "no_show") {
+      const existingOnL2 = data.subscriptionId
+        ? await tx.attendance.findUnique({
+            where: { tenantId_lessonId_subscriptionId: { tenantId, lessonId, subscriptionId: data.subscriptionId } },
+            include: { attendanceType: { select: { chargePercent: true } } },
+          })
+        : null
+
+      if (existingOnL2) {
+        if (Number(existingOnL2.chargeAmount) > 0) {
+          const prevRefund = calcRefund(existingOnL2.chargeAmount, existingOnL2.attendanceType.chargePercent)
+          if (prevRefund.gt(0)) {
+            await applyBalanceDelta(tx, {
+              tenantId,
+              clientId: data.clientId,
+              delta: prevRefund.negated(),
+              type: "attendance_revert",
+              refs: { lessonId, attendanceId: existingOnL2.id, directionId: lesson.group.directionId },
+              createdBy: employeeId,
+            })
+          }
+          if (existingOnL2.subscriptionId) {
+            await tx.subscription.update({
+              where: { id: existingOnL2.subscriptionId },
+              data: {
+                balance: { increment: existingOnL2.chargeAmount },
+                chargedAmount: { decrement: existingOnL2.chargeAmount },
+              },
+            })
+          }
+        }
+        if (Number(existingOnL2.instructorPayAmount) > 0) {
+          const effInstructorId = lesson.substituteInstructorId || lesson.instructorId
+          if (effInstructorId) {
+            await maybeRollbackPaidSalary(tx, {
+              tenantId,
+              employeeId: effInstructorId,
+              lessonDate: new Date(lesson.date),
+              amount: existingOnL2.instructorPayAmount,
+              createdBy: employeeId,
+              comment: `Отмена отработки на занятии ${new Date(lesson.date).toLocaleDateString("ru-RU")}`,
+            })
+          }
+        }
+        await tx.attendance.delete({ where: { id: existingOnL2.id } })
+      }
+      if (virtualMakeup) {
+        await tx.attendance.delete({ where: { id: virtualMakeup.id } })
+      }
+      return null
+    }
+
     // Calculate charge amount
     let chargeAmount = new Prisma.Decimal(0)
     let subscriptionId = data.subscriptionId
@@ -283,13 +340,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (!org?.payForTrialLessons || Number(chargeAmount) === 0) {
         instructorPayAmount = new Prisma.Decimal(0)
       }
-    }
-
-    // Ф7: «Не был» на виртуальной отработке — никаких списаний и ЗП.
-    // Только фиксация факта неявки + последующая задача админу (после транзакции).
-    if (isMakeupArrival && attendanceType.code === "no_show") {
-      chargeAmount = new Prisma.Decimal(0)
-      instructorPayAmount = new Prisma.Decimal(0)
     }
 
     // Upsert attendance
@@ -448,15 +498,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return att
   })
 
-  logAudit({
-    tenantId,
-    employeeId,
-    action: "create",
-    entityType: "Attendance",
-    entityId: attendance.id,
-    changes: { lessonId: { new: lessonId }, clientId: { new: data.clientId }, attendanceTypeId: { new: data.attendanceTypeId } },
-    req,
-  })
+  if (attendance) {
+    logAudit({
+      tenantId,
+      employeeId,
+      action: "create",
+      entityType: "Attendance",
+      entityId: attendance.id,
+      changes: { lessonId: { new: lessonId }, clientId: { new: data.clientId }, attendanceTypeId: { new: data.attendanceTypeId } },
+      req,
+    })
+  } else if (virtualMakeup) {
+    // Отработка отменена — фиксируем удаление записи makeup_scheduled на L1.
+    logAudit({
+      tenantId,
+      employeeId,
+      action: "delete",
+      entityType: "Attendance",
+      entityId: virtualMakeup.id,
+      changes: { reason: { new: "makeup_cancelled" }, targetLessonId: { new: lessonId } },
+      req,
+    })
+  }
 
   // Ф7: «Не был» на виртуальной отработке — создаём задачу админу переназначить.
   if (isMakeupArrival && attendanceType.code === "no_show" && virtualMakeup) {
