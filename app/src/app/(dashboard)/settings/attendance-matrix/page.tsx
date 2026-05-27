@@ -295,7 +295,6 @@ export default function AttendanceMatrixPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Название</TableHead>
-                  <TableHead>Код</TableHead>
                   {FLAG_COLUMNS.map((c) => (
                     <TableHead key={c.key} className="text-center" title={c.hint}>
                       {c.label}
@@ -312,7 +311,6 @@ export default function AttendanceMatrixPage() {
                 {types.map((t) => (
                   <TableRow key={t.id} className={!t.isActive ? "opacity-50" : ""}>
                     <TableCell className="font-medium">{t.name}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{t.code}</TableCell>
                     {FLAG_COLUMNS.map((c) => {
                       const disabled =
                         savingId === t.id || (t.isFlagsLocked && !LOCKED_ALLOWED.has(c.key))
