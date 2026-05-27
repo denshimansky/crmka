@@ -44,6 +44,13 @@ export async function PATCH(
   })
   if (!existing) return NextResponse.json({ error: "Тип не найден" }, { status: 404 })
 
+  if (existing.isFlagsLocked) {
+    return NextResponse.json(
+      { error: "Этот тип посещения нельзя редактировать — он зашит в бизнес-логику." },
+      { status: 403 }
+    )
+  }
+
   const body = await request.json()
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) {

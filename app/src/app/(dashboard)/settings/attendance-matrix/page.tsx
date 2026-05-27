@@ -40,6 +40,7 @@ interface AttendanceType {
   partOfForecast: boolean
   chargePercent: number
   isSystem: boolean
+  isFlagsLocked: boolean
   isActive: boolean
   sortOrder: number
 }
@@ -303,9 +304,9 @@ export default function AttendanceMatrixPage() {
                         <input
                           type="checkbox"
                           checked={t[c.key]}
-                          disabled={savingId === t.id}
+                          disabled={savingId === t.id || t.isFlagsLocked}
                           onChange={() => toggleFlag(t, c.key)}
-                          className="size-4 rounded border cursor-pointer"
+                          className="size-4 rounded border cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                         />
                       </TableCell>
                     ))}
@@ -316,7 +317,7 @@ export default function AttendanceMatrixPage() {
                           min={0}
                           max={100}
                           defaultValue={t.chargePercent}
-                          disabled={savingId === t.id}
+                          disabled={savingId === t.id || t.isFlagsLocked}
                           onBlur={(e) => commitPercent(t, e.target.value)}
                           className="h-7 w-16 text-center text-xs px-1"
                         />
@@ -325,7 +326,11 @@ export default function AttendanceMatrixPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {t.isSystem ? (
+                      {t.isFlagsLocked ? (
+                        <Badge variant="outline" title="Этот тип нельзя редактировать — он зашит в бизнес-логику">
+                          Заблокирован
+                        </Badge>
+                      ) : t.isSystem ? (
                         <Badge variant="outline">Системный</Badge>
                       ) : (
                         <Badge variant="secondary">Свой</Badge>
@@ -333,15 +338,17 @@ export default function AttendanceMatrixPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          onClick={() => openEdit(t)}
-                          title="Редактировать"
-                        >
-                          <Pencil className="size-4 text-muted-foreground" />
-                        </Button>
+                        {!t.isFlagsLocked && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            onClick={() => openEdit(t)}
+                            title="Редактировать"
+                          >
+                            <Pencil className="size-4 text-muted-foreground" />
+                          </Button>
+                        )}
                         {!t.isSystem && (
                           <Button
                             variant="ghost"

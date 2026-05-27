@@ -243,6 +243,33 @@ export default async function LessonCardPage({
     },
   })
 
+  // Целевые занятия для «Назначена отработка»: ученики этого Lesson, у которых
+  // scheduledMakeupLessonId указывает на будущее занятие. Подгружаем детали
+  // для плашки «назначена отработка ДД.ММ».
+  const scheduledMakeupIds = [
+    ...new Set(
+      lesson.attendances
+        .map((a) => a.scheduledMakeupLessonId)
+        .filter((x): x is string => !!x),
+    ),
+  ]
+  const scheduledMakeupLessons = scheduledMakeupIds.length
+    ? await db.lesson.findMany({
+        where: { id: { in: scheduledMakeupIds }, tenantId },
+        select: {
+          id: true,
+          date: true,
+          startTime: true,
+          group: {
+            select: {
+              name: true,
+              direction: { select: { name: true } },
+            },
+          },
+        },
+      })
+    : []
+
   const trialStudents = trialLessons.map((t) => {
     const att = trialAttendances.find(
       (a) => a.clientId === t.clientId && a.wardId === t.wardId
@@ -314,6 +341,11 @@ export default async function LessonCardPage({
         (enrollment.wardId ? m.wardId === enrollment.wardId : !m.wardId),
     )
 
+    const scheduledLesson =
+      attendance?.scheduledMakeupLessonId
+        ? scheduledMakeupLessons.find((l) => l.id === attendance.scheduledMakeupLessonId)
+        : null
+
     return {
       enrollmentId: enrollment.id,
       clientId: enrollment.clientId,
@@ -334,6 +366,15 @@ export default async function LessonCardPage({
             groupName: madeUp.lesson.group.name,
           }
         : null,
+      scheduledMakeup: scheduledLesson
+        ? {
+            lessonId: scheduledLesson.id,
+            date: scheduledLesson.date.toISOString().slice(0, 10),
+            startTime: scheduledLesson.startTime,
+            directionName: scheduledLesson.group.direction.name,
+            groupName: scheduledLesson.group.name,
+          }
+        : null,
       attendance: attendance
         ? {
             id: attendance.id,
@@ -344,6 +385,7 @@ export default async function LessonCardPage({
             instructorPayAmount: Number(attendance.instructorPayAmount),
             instructorPayEnabled: attendance.instructorPayEnabled,
             absenceReasonId: attendance.absenceReasonId,
+            scheduledMakeupLessonId: attendance.scheduledMakeupLessonId,
           }
         : null,
     }
@@ -355,7 +397,10 @@ export default async function LessonCardPage({
     code: t.code,
     chargesSubscription: t.chargesSubscription,
     paysInstructor: t.paysInstructor,
+    availableToInstructor: t.availableToInstructor,
   }))
+
+  const currentUserRole = session.user.role
 
   const salaryRateData = salaryRate
     ? {
@@ -473,6 +518,7 @@ export default async function LessonCardPage({
         substituteInstructorId={lesson.substituteInstructorId}
         substituteInstructorName={substituteInstructorName}
         instructors={instructorsData}
+        currentUserRole={currentUserRole}
       />
     </div>
   )

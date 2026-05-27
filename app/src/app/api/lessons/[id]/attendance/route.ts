@@ -23,6 +23,9 @@ const markSchema = z.object({
   subscriptionId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   attendanceTypeId: z.string().uuid("Некорректный тип посещения"),
   instructorPayEnabled: z.boolean().default(true),
+  // Для типа makeup_scheduled — обязательно указать целевое занятие, на котором
+  // ребёнок будет отрабатывать пропущенное.
+  scheduledMakeupLessonId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
 })
 
 const bulkSchema = z.object({
@@ -70,6 +73,73 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     },
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
+
+  // Валидация «Назначена отработка»: обязательное целевое занятие и проверка,
+  // что ребёнок уже не отработал этот пропуск где-то ещё.
+  let scheduledMakeupLessonId: string | null = data.scheduledMakeupLessonId
+  if (attendanceType.code === "makeup_scheduled") {
+    if (!scheduledMakeupLessonId) {
+      return NextResponse.json(
+        { error: "Для «Назначена отработка» нужно выбрать дату и занятие, где будет отработка" },
+        { status: 400 }
+      )
+    }
+    if (scheduledMakeupLessonId === lessonId) {
+      return NextResponse.json(
+        { error: "Целевое занятие отработки не может совпадать с текущим" },
+        { status: 400 }
+      )
+    }
+    const targetLesson = await db.lesson.findFirst({
+      where: { id: scheduledMakeupLessonId, tenantId },
+      select: { id: true },
+    })
+    if (!targetLesson) {
+      return NextResponse.json({ error: "Целевое занятие не найдено" }, { status: 404 })
+    }
+    const alreadyMadeUp = await db.attendance.findFirst({
+      where: {
+        tenantId,
+        makeupOfLessonId: lessonId,
+        clientId: data.clientId,
+        ...(data.wardId ? { wardId: data.wardId } : {}),
+      },
+      select: { id: true },
+    })
+    if (alreadyMadeUp) {
+      return NextResponse.json(
+        { error: "Ребёнок уже отработал этот пропуск — назначать отработку повторно нельзя" },
+        { status: 409 }
+      )
+    }
+  } else {
+    // Для всех остальных типов поле игнорируем — связь висит только на makeup_scheduled.
+    scheduledMakeupLessonId = null
+  }
+
+  // Снятие/смена статуса «Назначена отработка» — только владелец.
+  // Админ/менеджер не могут передумать за владельца, чтобы не было «незаметной»
+  // отмены назначения и неожиданного списания.
+  const existingForLockCheck = data.subscriptionId
+    ? await db.attendance.findUnique({
+        where: { tenantId_lessonId_subscriptionId: { tenantId, lessonId, subscriptionId: data.subscriptionId } },
+        include: { attendanceType: { select: { code: true } } },
+      })
+    : await db.attendance.findFirst({
+        where: { lessonId, tenantId, clientId: data.clientId, wardId: data.wardId, subscriptionId: null },
+        include: { attendanceType: { select: { code: true } } },
+      })
+  if (
+    existingForLockCheck &&
+    existingForLockCheck.attendanceType.code === "makeup_scheduled" &&
+    existingForLockCheck.attendanceTypeId !== data.attendanceTypeId &&
+    role !== "owner"
+  ) {
+    return NextResponse.json(
+      { error: "Снять «Назначена отработка» может только владелец" },
+      { status: 403 }
+    )
+  }
 
   // Fetch org setting for trial lesson instructor pay
   const org = await db.organization.findUnique({
@@ -194,6 +264,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             chargeAmount,
             instructorPayAmount,
             instructorPayEnabled: data.instructorPayEnabled,
+            scheduledMakeupLessonId,
             markedBy: employeeId,
             markedAt: new Date(),
           },
@@ -210,6 +281,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             chargeAmount,
             instructorPayAmount,
             instructorPayEnabled: data.instructorPayEnabled,
+            scheduledMakeupLessonId,
             markedBy: employeeId,
             markedAt: new Date(),
           },
@@ -270,6 +342,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             chargeAmount: 0,
             instructorPayAmount,
             instructorPayEnabled: data.instructorPayEnabled,
+            scheduledMakeupLessonId,
             markedBy: employeeId,
             markedAt: new Date(),
           },
@@ -286,6 +359,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             chargeAmount: 0,
             instructorPayAmount,
             instructorPayEnabled: data.instructorPayEnabled,
+            scheduledMakeupLessonId,
             markedBy: employeeId,
             markedAt: new Date(),
           },
@@ -390,7 +464,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   // === Предзагрузка existing attendances (batch вместо N+1) ===
   const existingAttendances = await db.attendance.findMany({
     where: { lessonId, tenantId },
-    include: { attendanceType: { select: { chargePercent: true } } },
+    include: { attendanceType: { select: { chargePercent: true, code: true } } },
   })
 
   // Ученики, у которых пропуск этого Lesson уже отработан в другой группе:
@@ -420,6 +494,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
         )
       )
+
+      // Если у ученика уже стоит «Назначена отработка» — bulk не перетирает,
+      // чтобы случайно не отменить назначение и не списать дважды (списание
+      // произойдёт когда ребёнок реально придёт на целевое занятие).
+      const existingForEnrollment = existingAttendances.find(
+        (a) => a.clientId === enrollment.clientId && a.wardId === enrollment.wardId
+      )
+      if (existingForEnrollment && existingForEnrollment.attendanceType.code === "makeup_scheduled") {
+        continue
+      }
 
       // Если этот пропуск уже отработан в другой группе — отмечаем как
       // «Отработано» (chargesSubscription=false, paysInstructor=false).

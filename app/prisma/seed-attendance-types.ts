@@ -71,6 +71,22 @@ async function main() {
       sortOrder: 5,
     },
     {
+      // «Назначена отработка» — статус на пропущенном занятии, когда админ
+      // выбрал, на каком занятии в будущем будет отрабатывать ребёнок.
+      // Списание происходит при фактическом проведении отработки, не здесь.
+      code: "makeup_scheduled",
+      name: "Назначена отработка",
+      chargesSubscription: false,
+      paysInstructor: false,
+      countsAsRevenue: false,
+      availableToInstructor: true,
+      partOfPlan: true,
+      partOfFact: false,
+      partOfForecast: false,
+      isFlagsLocked: true,
+      sortOrder: 3,
+    },
+    {
       // «Отработка» — маркер для bulk-операции «уже отработано в другой группе»:
       // НЕ списывает и НЕ платит, потому что фактические списание/ЗП происходят
       // при создании реальной отработки (present + isMakeup=true).
@@ -83,6 +99,7 @@ async function main() {
       partOfPlan: false,
       partOfFact: true,
       partOfForecast: false,
+      isFlagsLocked: true,
       sortOrder: 6,
     },
   ]
@@ -117,6 +134,7 @@ async function main() {
           partOfForecast: t.partOfForecast,
           chargePercent: 100,
           isSystem: true,
+          isFlagsLocked: ("isFlagsLocked" in t ? Boolean((t as { isFlagsLocked?: boolean }).isFlagsLocked) : false),
           isActive: true,
           sortOrder: t.sortOrder,
         },

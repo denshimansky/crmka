@@ -39,6 +39,14 @@ interface MakeupResolvedInfo {
   groupName: string
 }
 
+interface ScheduledMakeupInfo {
+  lessonId: string
+  date: string
+  startTime: string
+  directionName: string
+  groupName: string
+}
+
 interface StudentData {
   enrollmentId: string
   clientId: string
@@ -51,6 +59,8 @@ interface StudentData {
   isMakeup?: boolean
   /** Если пропуск этого занятия уже отработан в другом — здесь информация. */
   makeupResolved?: MakeupResolvedInfo | null
+  /** Если стоит «Назначена отработка» — целевое будущее занятие. */
+  scheduledMakeup?: ScheduledMakeupInfo | null
   attendance: {
     id: string
     attendanceTypeId: string
@@ -60,6 +70,7 @@ interface StudentData {
     instructorPayAmount: number
     instructorPayEnabled: boolean
     absenceReasonId?: string | null
+    scheduledMakeupLessonId?: string | null
   } | null
 }
 
@@ -69,6 +80,7 @@ interface AttendanceTypeData {
   code: string
   chargesSubscription: boolean
   paysInstructor: boolean
+  availableToInstructor?: boolean
 }
 
 interface SalaryRateData {
@@ -125,6 +137,7 @@ interface AttendanceTableProps {
   substituteInstructorId?: string | null
   substituteInstructorName?: string | null
   instructors?: InstructorOption[]
+  currentUserRole?: string
 }
 
 function formatMoney(amount: number): string {
@@ -148,6 +161,7 @@ export function AttendanceTable({
   substituteInstructorId: initSubstituteId,
   substituteInstructorName: initSubstituteName,
   instructors = [],
+  currentUserRole,
 }: AttendanceTableProps) {
   const router = useRouter()
   const [students, setStudents] = useState(initialStudents)
@@ -163,8 +177,10 @@ export function AttendanceTable({
   const [substituteId, setSubstituteId] = useState<string | null>(initSubstituteId || null)
   const [substituteName, setSubstituteName] = useState<string | null>(initSubstituteName || null)
   const [savingSubstitute, setSavingSubstitute] = useState(false)
+  const [scheduleMakeupFor, setScheduleMakeupFor] = useState<StudentData | null>(null)
 
   const presentType = attendanceTypes.find((t) => t.code === "present")
+  const scheduledMakeupType = attendanceTypes.find((t) => t.code === "makeup_scheduled")
 
   // All students combined (enrolled + makeup)
   const allStudents = [...students, ...makeupStudents]
@@ -255,7 +271,8 @@ export function AttendanceTable({
   async function markAttendance(
     student: StudentData,
     attendanceTypeId: string,
-    instructorPayEnabled: boolean = true
+    instructorPayEnabled: boolean = true,
+    scheduledMakeupLessonId: string | null = null
   ) {
     const uniqueKey = student.enrollmentId
     setLoadingStudentId(uniqueKey)
@@ -270,10 +287,17 @@ export function AttendanceTable({
           subscriptionId: student.subscriptionId,
           attendanceTypeId,
           instructorPayEnabled,
+          scheduledMakeupLessonId,
         }),
       })
 
-      if (res.ok) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || "Не удалось сохранить отметку")
+        return
+      }
+
+      {
         // Берём настоящий id из ответа сервера, чтобы потом можно было
         // корректно сделать DELETE (сброс отметки) до router.refresh().
         const created: { id?: string } = await res.json().catch(() => ({}))
@@ -307,6 +331,7 @@ export function AttendanceTable({
                       chargeAmount,
                       instructorPayAmount,
                       instructorPayEnabled,
+                      scheduledMakeupLessonId,
                     },
                   }
                 : s
@@ -638,6 +663,15 @@ export function AttendanceTable({
                   отработано {new Date(student.makeupResolved.date).toLocaleDateString("ru-RU")}
                 </Badge>
               )}
+              {!student.makeupResolved && student.scheduledMakeup && (
+                <Badge
+                  variant="outline"
+                  className="text-xs text-amber-700 dark:text-amber-300 border-amber-300"
+                  title={`Назначена отработка на ${new Date(student.scheduledMakeup.date).toLocaleDateString("ru-RU")} в группе «${student.scheduledMakeup.groupName}» (${student.scheduledMakeup.directionName}) в ${student.scheduledMakeup.startTime}`}
+                >
+                  назначена отработка {new Date(student.scheduledMakeup.date).toLocaleDateString("ru-RU")}
+                </Badge>
+              )}
             </div>
             {student.wardName && (
               <div className="text-xs text-muted-foreground">
@@ -659,6 +693,11 @@ export function AttendanceTable({
                 if (!val) return
                 if (val === "__unmarked__") {
                   if (student.attendance) clearAttendance(student)
+                  return
+                }
+                // «Назначена отработка» требует выбора целевого занятия
+                if (scheduledMakeupType && val === scheduledMakeupType.id) {
+                  setScheduleMakeupFor(student)
                   return
                 }
                 markAttendance(student, val)
@@ -953,6 +992,167 @@ export function AttendanceTable({
           </CardContent>
         </Card>
       )}
+
+      {scheduleMakeupFor && scheduledMakeupType && (
+        <ScheduleMakeupDialog
+          student={scheduleMakeupFor}
+          excludeLessonId={lessonId}
+          defaultDate={lessonDateISO}
+          onClose={() => setScheduleMakeupFor(null)}
+          onConfirm={(targetLessonId) => {
+            const s = scheduleMakeupFor
+            setScheduleMakeupFor(null)
+            markAttendance(s, scheduledMakeupType.id, true, targetLessonId)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ───── Модалка выбора целевого занятия для «Назначена отработка» ─────
+
+interface LessonOption {
+  id: string
+  date: string
+  startTime: string
+  durationMinutes: number
+  group: { name: string; direction: { name: string }; room: { name: string } | null }
+  instructor: { firstName: string | null; lastName: string | null }
+  substituteInstructor: { firstName: string | null; lastName: string | null } | null
+}
+
+function ScheduleMakeupDialog({
+  student,
+  excludeLessonId,
+  defaultDate,
+  onClose,
+  onConfirm,
+}: {
+  student: StudentData
+  excludeLessonId: string
+  defaultDate: string
+  onClose: () => void
+  onConfirm: (targetLessonId: string) => void
+}) {
+  const [date, setDate] = useState(defaultDate)
+  const [lessons, setLessons] = useState<LessonOption[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [targetId, setTargetId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const displayName = student.wardName || student.clientName
+
+  const loadLessons = useCallback(async (d: string) => {
+    setLoading(true)
+    setError(null)
+    setTargetId(null)
+    try {
+      const res = await fetch(
+        `/api/lessons?date=${encodeURIComponent(d)}&excludeId=${encodeURIComponent(excludeLessonId)}`,
+      )
+      if (res.ok) {
+        setLessons(await res.json())
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Не удалось загрузить занятия")
+        setLessons([])
+      }
+    } catch {
+      setError("Ошибка сети")
+      setLessons([])
+    } finally {
+      setLoading(false)
+    }
+  }, [excludeLessonId])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg rounded-lg bg-card shadow-lg">
+        <div className="border-b p-4">
+          <div className="text-base font-semibold">Назначить отработку</div>
+          <div className="text-sm text-muted-foreground mt-0.5">
+            {displayName} — выберите дату и занятие, на котором ребёнок будет отрабатывать пропуск.
+            Списание пройдёт по стоимости текущего занятия (с абонемента исходной группы).
+          </div>
+        </div>
+
+        <div className="space-y-4 p-4">
+          <div className="space-y-1.5">
+            <Label>Дата</Label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="h-9 w-full rounded border bg-background px-3 text-sm"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => loadLessons(date)}
+              disabled={!date || loading}
+            >
+              {loading ? "Загрузка..." : "Показать занятия"}
+            </Button>
+          </div>
+
+          {error && (
+            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+
+          {lessons !== null && (
+            lessons.length === 0 ? (
+              <div className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+                В эту дату нет занятий.
+              </div>
+            ) : (
+              <div className="max-h-64 space-y-1 overflow-y-auto rounded border p-2">
+                {lessons.map((l) => {
+                  const instr = l.substituteInstructor || l.instructor
+                  const instrName = [instr.lastName, instr.firstName].filter(Boolean).join(" ")
+                  return (
+                    <label
+                      key={l.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded p-2 text-sm hover:bg-muted/50 ${
+                        targetId === l.id ? "bg-muted" : ""
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetLesson"
+                        checked={targetId === l.id}
+                        onChange={() => setTargetId(l.id)}
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium">
+                          {l.startTime} — {l.group.direction.name} ({l.group.name})
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {instrName}
+                          {l.group.room && ` · ${l.group.room.name}`}
+                          {` · ${l.durationMinutes} мин`}
+                        </div>
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+            )
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t p-3">
+          <Button variant="outline" onClick={onClose}>Отмена</Button>
+          <Button
+            disabled={!targetId}
+            onClick={() => targetId && onConfirm(targetId)}
+          >
+            Назначить
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -418,6 +418,7 @@ model Lesson {
   substituteInstructor      Employee?                  @relation("SubstituteInstructor", fields: [substituteInstructorId], references: [id])
   attendances               Attendance[]
   makeupAttendances         Attendance[]               @relation("MakeupOfLesson")
+  scheduledMakeupAttendances Attendance[]              @relation("ScheduledMakeupLesson")
   trialLessons              TrialLesson[]
   clientBalanceTransactions ClientBalanceTransaction[]
 
@@ -464,6 +465,7 @@ model AttendanceType {
   partOfForecast        Boolean  @default(false) @map("part_of_forecast")
   chargePercent         Int      @default(100) @map("charge_percent")
   isSystem              Boolean  @default(false) @map("is_system")
+  isFlagsLocked         Boolean  @default(false) @map("is_flags_locked")
   isActive              Boolean  @default(true) @map("is_active")
   sortOrder             Int      @default(0) @map("sort_order")
   createdAt             DateTime @default(now()) @map("created_at")
@@ -695,6 +697,7 @@ model Attendance {
   isTrial              Boolean   @default(false) @map("is_trial")
   isMakeup             Boolean   @default(false) @map("is_makeup")
   makeupOfLessonId     String?   @map("makeup_of_lesson_id") @db.Uuid
+  scheduledMakeupLessonId String?   @map("scheduled_makeup_lesson_id") @db.Uuid
   markedBy             String?   @map("marked_by") @db.Uuid
   markedAt             DateTime? @map("marked_at")
   isAfterPeriodClose   Boolean   @default(false) @map("is_after_period_close")
@@ -707,11 +710,13 @@ model Attendance {
   attendanceType            AttendanceType             @relation(fields: [attendanceTypeId], references: [id])
   absenceReason             AbsenceReason?             @relation(fields: [absenceReasonId], references: [id])
   makeupOfLesson            Lesson?                    @relation("MakeupOfLesson", fields: [makeupOfLessonId], references: [id])
+  scheduledMakeupLesson     Lesson?                    @relation("ScheduledMakeupLesson", fields: [scheduledMakeupLessonId], references: [id])
   clientBalanceTransactions ClientBalanceTransaction[]
 
   @@unique([tenantId, lessonId, subscriptionId])
   @@index([tenantId, lessonId])
   @@index([tenantId, makeupOfLessonId])
+  @@index([tenantId, scheduledMakeupLessonId])
   @@map("attendances")
 }
 

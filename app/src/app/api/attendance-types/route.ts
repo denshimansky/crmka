@@ -57,6 +57,15 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Зарезервированные коды нельзя занимать пользовательскими типами.
+  const RESERVED_CODES = ["present", "no_show", "excused", "absent", "recalculation", "makeup", "makeup_scheduled"]
+  if (RESERVED_CODES.includes(parsed.data.code)) {
+    return NextResponse.json(
+      { error: `Код "${parsed.data.code}" зарезервирован системой` },
+      { status: 409 }
+    )
+  }
+
   const codeConflict = await db.attendanceType.findFirst({
     where: {
       code: parsed.data.code,
