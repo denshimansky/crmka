@@ -186,6 +186,19 @@ export function AttendanceTable({
   const [students, setStudents] = useState(initialStudents)
   const [makeupStudents, setMakeupStudents] = useState(initialMakeupStudents)
   const [trialStudents, setTrialStudents] = useState(initialTrialStudents)
+
+  // Синхронизация локального state со свежими server-props после router.refresh().
+  // Без этого useState(initialStudents) держит снимок с момента первого монтирования,
+  // и добавление/удаление ученика не отражается, пока вручную не обновишь страницу.
+  useEffect(() => {
+    setStudents(initialStudents)
+  }, [initialStudents])
+  useEffect(() => {
+    setMakeupStudents(initialMakeupStudents)
+  }, [initialMakeupStudents])
+  useEffect(() => {
+    setTrialStudents(initialTrialStudents)
+  }, [initialTrialStudents])
   const [loadingTrialId, setLoadingTrialId] = useState<string | null>(null)
   const [topic, setTopic] = useState(initialTopic || "")
   const [homework, setHomework] = useState(initialHomework || "")
