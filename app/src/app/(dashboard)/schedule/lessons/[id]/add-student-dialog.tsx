@@ -22,7 +22,7 @@ type StudentResult = {
   clientName: string
   clientPhone: string | null
   clientBalance: number
-  wardId: string | null
+  wardId: string
   wardName: string
   subscription: { id: string; balance: number; lessonPrice: number } | null
 }
@@ -185,7 +185,7 @@ export function AddStudentDialog({ lessonId, singleVisitPrice }: AddStudentDialo
         {step === "search" && (
           <div className="space-y-3">
             <Input
-              placeholder="Поиск по ФИО ребёнка / родителя или телефону..."
+              placeholder="Поиск по ФИО ребёнка или родителя, телефону..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               autoFocus

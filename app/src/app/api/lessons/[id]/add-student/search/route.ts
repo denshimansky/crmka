@@ -6,9 +6,13 @@ import { db } from "@/lib/db"
 /**
  * GET /api/lessons/[id]/add-student/search?q=...
  *
- * Поиск любых детей (с привязкой к Client) для добавления на занятие.
+ * Поиск детей (Ward) с привязкой к клиенту для добавления на занятие.
  * Возвращает список ward-ов с информацией о родителе (баланс) и об активном
  * абонементе на группу этого занятия (если есть).
+ *
+ * Поиск идёт по ФИО/телефону родителя ИЛИ по ФИО ребёнка — но в результатах
+ * всегда конкретный ребёнок. Клиенты без подопечных в выдачу не попадают:
+ * на занятие может быть добавлен только ребёнок, родитель самостоятельно — нет.
  *
  * Отличие от /makeup/search: тут не отсекаем детей без абонемента — для них
  * доступен вариант «баланс родителя» / разовое посещение.
@@ -40,6 +44,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     where: {
       tenantId,
       deletedAt: null,
+      // На занятие можно добавить только ребёнка — клиенты без подопечных не возвращаются.
+      wards: { some: {} },
       AND: searchTerms.map((term) => ({
         OR: [
           { firstName: { contains: term, mode: "insensitive" as const } },
@@ -85,27 +91,24 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     clientName: string
     clientPhone: string | null
     clientBalance: number
-    wardId: string | null
+    wardId: string
     wardName: string
     subscription: { id: string; balance: number; lessonPrice: number } | null
   }> = []
 
   for (const c of clients) {
     const clientName = [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени"
-    const wards = c.wards.length > 0 ? c.wards : [null]
-    for (const w of wards) {
-      const key = `${c.id}:${w?.id || ""}`
+    for (const w of c.wards) {
+      const key = `${c.id}:${w.id}`
       if (attendingKeys.has(key)) continue
-      const sub = c.subscriptions.find((s) => s.wardId === (w?.id || null))
+      const sub = c.subscriptions.find((s) => s.wardId === w.id)
       results.push({
         clientId: c.id,
         clientName,
         clientPhone: c.phone,
         clientBalance: Number(c.clientBalance),
-        wardId: w?.id || null,
-        wardName: w
-          ? [w.lastName, w.firstName].filter(Boolean).join(" ") || "Без имени"
-          : clientName,
+        wardId: w.id,
+        wardName: [w.lastName, w.firstName].filter(Boolean).join(" ") || "Без имени",
         subscription:
           sub && Number(sub.balance) > 0
             ? { id: sub.id, balance: Number(sub.balance), lessonPrice: Number(sub.lessonPrice) }

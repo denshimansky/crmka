@@ -12,7 +12,8 @@ import { Prisma } from "@prisma/client"
 
 const schema = z.object({
   clientId: z.string().uuid("Некорректный ID клиента"),
-  wardId: z.string().uuid().nullable().optional(),
+  // На занятие добавляется ребёнок-подопечный, не родитель. wardId обязателен.
+  wardId: z.string().uuid("Подопечный обязателен"),
   source: z.enum(["subscription", "balance"]),
   subscriptionId: z.string().uuid().optional(),
   // Стоимость списания с баланса родителя (для source=balance).
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     )
   }
   const data = parsed.data
-  const wardId = data.wardId ?? null
+  const wardId = data.wardId
 
   const lesson = await db.lesson.findFirst({
     where: { id: lessonId, tenantId },
@@ -72,19 +73,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   // Ребёнок принадлежит клиенту?
-  if (wardId) {
-    const ward = await db.ward.findFirst({
-      where: { id: wardId, clientId: data.clientId, tenantId },
-      select: { id: true },
-    })
-    if (!ward) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
-  } else {
-    const client = await db.client.findFirst({
-      where: { id: data.clientId, tenantId, deletedAt: null },
-      select: { id: true },
-    })
-    if (!client) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
-  }
+  const ward = await db.ward.findFirst({
+    where: { id: wardId, clientId: data.clientId, tenantId },
+    select: { id: true },
+  })
+  if (!ward) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
 
   // Уже отмечен на этом занятии?
   if (lesson.attendances.some((a) => a.clientId === data.clientId && a.wardId === wardId)) {
