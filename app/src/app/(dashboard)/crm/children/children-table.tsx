@@ -258,10 +258,10 @@ export function ChildrenTable({
                 key={s}
                 type="button"
                 onClick={() => toggleState(s)}
-                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition ${
+                className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs transition ${
                   on
-                    ? STATE_BADGE[s]
-                    : "bg-muted text-muted-foreground hover:bg-muted/70 opacity-60"
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border hover:bg-muted"
                 }`}
               >
                 {STATE_LABEL[s]}
