@@ -535,7 +535,9 @@ export async function DELETE(
       date: true,
       _count: {
         select: {
-          attendances: true,
+          // Реальные отметки блокируют удаление. Placeholder (isPending=true)
+          // удаляются автоматически вместе с занятием.
+          attendances: { where: { isPending: false } },
           trialLessons: { where: { status: { not: "cancelled" } } },
         },
       },
@@ -566,6 +568,12 @@ export async function DELETE(
   await db.trialLesson.updateMany({
     where: { lessonId: id, status: "cancelled" },
     data: { lessonId: null },
+  })
+
+  // Снимаем placeholder-attendances (разовые ученики, не отмеченные) — у них
+  // нет списаний, оставлять их незачем.
+  await db.attendance.deleteMany({
+    where: { lessonId: id, tenantId, isPending: true },
   })
 
   await db.lesson.delete({ where: { id } })

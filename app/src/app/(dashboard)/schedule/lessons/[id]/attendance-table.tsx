@@ -59,6 +59,10 @@ interface StudentData {
   subscriptionId: string | null
   lessonPrice: number
   isMakeup?: boolean
+  /** Разовое посещение (без зачисления в группу). Рендерим с бейджем
+   *  «Разовое». При attendance=null это placeholder (isPending) — у такой
+   *  строки есть кнопка «Убрать» для полного удаления записи. */
+  isOneTime?: boolean
   /** Если пропуск этого занятия уже отработан в другом — здесь информация. */
   makeupResolved?: MakeupResolvedInfo | null
   /** Если стоит «Назначена отработка» — целевое будущее занятие. */
@@ -150,8 +154,8 @@ interface AttendanceTableProps {
   substituteInstructorName?: string | null
   instructors?: InstructorOption[]
   currentUserRole?: string
-  /** Цена разового посещения направления (для модалки «Добавить ученика»). */
-  singleVisitPrice?: number
+  /** Скрытая разовая группа (Group.isOneTime=true) — для модалки «Добавить ученика». */
+  groupIsOneTime?: boolean
 }
 
 function formatMoney(amount: number): string {
@@ -176,7 +180,7 @@ export function AttendanceTable({
   substituteInstructorName: initSubstituteName,
   instructors = [],
   currentUserRole,
-  singleVisitPrice = 0,
+  groupIsOneTime = false,
 }: AttendanceTableProps) {
   const router = useRouter()
   const [students, setStudents] = useState(initialStudents)
@@ -289,6 +293,31 @@ export function AttendanceTable({
         } else {
           setStudents(updateFn)
         }
+        router.refresh()
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingStudentId(null)
+    }
+  }
+
+  // Полное удаление разового ученика с занятия (placeholder уходит совсем).
+  async function removeOneTimeStudent(student: StudentData) {
+    if (!confirm(`Убрать ${student.wardName || student.clientName} с занятия?`)) return
+    setLoadingStudentId(student.enrollmentId)
+    try {
+      const res = await fetch(`/api/lessons/${lessonId}/attendance`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: student.clientId,
+          wardId: student.wardId,
+          purge: true,
+        }),
+      })
+      if (res.ok) {
+        setStudents((prev) => prev.filter((s) => s.enrollmentId !== student.enrollmentId))
         router.refresh()
       }
     } catch {
@@ -680,6 +709,28 @@ export function AttendanceTable({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium">{displayName}</span>
+              {student.isOneTime && (
+                <Badge
+                  variant="outline"
+                  className="text-xs text-purple-700 dark:text-purple-300 border-purple-300"
+                  title="Разовое посещение (без зачисления в группу)"
+                >
+                  Разовое
+                </Badge>
+              )}
+              {/* Кнопка убрать разового — только для placeholder (Не отмечен). */}
+              {student.isOneTime && !student.attendance && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeOneTimeStudent(student)}
+                  disabled={loadingStudentId === student.enrollmentId}
+                  title="Убрать с занятия"
+                >
+                  <X className="size-3" />
+                </Button>
+              )}
               {/* Бейдж «Отработка за DD.MM» — для отработок (виртуальных и отмеченных).
                   Клик → исходное (пропущенное) занятие. Если makeupSource не передан,
                   падаем на старый простой «отработка» (для совместимости). */}
@@ -982,7 +1033,7 @@ export function AttendanceTable({
               {currentUserRole !== "instructor" && (
                 <AddStudentDialog
                   lessonId={lessonId}
-                  singleVisitPrice={singleVisitPrice}
+                  groupIsOneTime={groupIsOneTime}
                 />
               )}
 

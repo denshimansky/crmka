@@ -760,6 +760,11 @@ model Attendance {
   markedBy             String?   @map("marked_by") @db.Uuid
   markedAt             DateTime? @map("marked_at")
   isAfterPeriodClose   Boolean   @default(false) @map("is_after_period_close")
+  // Placeholder для разовых посещений: ребёнок добавлен через «+ Добавить ученика»
+  // с чекбоксом «Разовое», но реальной отметки ещё нет. attendance_type_id здесь —
+  // заглушка ('present'), charge_amount/instructor_pay_amount = 0, marked_at = null.
+  // При первой настоящей отметке («Был» и т.п.) флаг сбрасывается, тип и суммы пересчитываются.
+  isPending            Boolean   @default(false) @map("is_pending")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -774,6 +779,7 @@ model Attendance {
 
   @@unique([tenantId, lessonId, subscriptionId])
   @@index([tenantId, lessonId])
+  @@index([tenantId, lessonId, isPending])
   @@index([tenantId, makeupOfLessonId])
   @@index([tenantId, scheduledMakeupLessonId])
   @@map("attendances")

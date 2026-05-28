@@ -435,6 +435,33 @@ export default async function LessonCardPage({
     }),
   ]
 
+  // Разовые ученики — Attendance без активного GroupEnrollment, не trial и
+  // не makeup. Включают и placeholder (isPending=true, «Не отмечен»), и реально
+  // отмеченные разовые посещения.
+  const enrollmentKeys = new Set(
+    enrollments.map((e) => `${e.clientId}:${e.wardId || ""}`),
+  )
+  const oneTimeAttendances = lesson.attendances.filter((a) => {
+    if (a.isMakeup || a.isTrial) return false
+    return !enrollmentKeys.has(`${a.clientId}:${a.wardId || ""}`)
+  })
+  const oneTimeClientIds = [...new Set(oneTimeAttendances.map((a) => a.clientId))]
+  const oneTimeClients = oneTimeClientIds.length
+    ? await db.client.findMany({
+        where: { id: { in: oneTimeClientIds }, tenantId },
+        select: { id: true, firstName: true, lastName: true, phone: true },
+      })
+    : []
+  const oneTimeWardIds = oneTimeAttendances
+    .map((a) => a.wardId)
+    .filter((x): x is string => !!x)
+  const oneTimeWards = oneTimeWardIds.length
+    ? await db.ward.findMany({
+        where: { id: { in: oneTimeWardIds } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : []
+
   // Build serialized data for client component
   const students = enrollments.map((enrollment) => {
     const attendance = lesson.attendances.find(
@@ -509,6 +536,47 @@ export default async function LessonCardPage({
         : null,
     }
   })
+
+  const oneTimeStudents = oneTimeAttendances.map((a) => {
+    const client = oneTimeClients.find((c) => c.id === a.clientId)
+    const ward = a.wardId ? oneTimeWards.find((w) => w.id === a.wardId) : null
+    const lessonPrice = a.subscription
+      ? Number(a.subscription.lessonPrice)
+      : Number(
+          lesson.group.direction.singleVisitPrice ?? lesson.group.direction.lessonPrice,
+        )
+    return {
+      enrollmentId: `onetime-${a.id}`,
+      clientId: a.clientId,
+      clientName: client
+        ? [client.lastName, client.firstName].filter(Boolean).join(" ") || "Без имени"
+        : "Без имени",
+      clientPhone: maskPhone(client?.phone || null, currentRole),
+      wardId: a.wardId,
+      wardName: ward
+        ? [ward.lastName, ward.firstName].filter(Boolean).join(" ")
+        : null,
+      subscriptionId: a.subscriptionId,
+      lessonPrice,
+      isOneTime: true as const,
+      // Placeholder (isPending=true) рендерим как «Не отмечен» — attendance=null.
+      attendance: a.isPending
+        ? null
+        : {
+            id: a.id,
+            attendanceTypeId: a.attendanceTypeId,
+            attendanceTypeName: a.attendanceType.name,
+            attendanceTypeCode: a.attendanceType.code,
+            chargeAmount: Number(a.chargeAmount),
+            instructorPayAmount: Number(a.instructorPayAmount),
+            instructorPayEnabled: a.instructorPayEnabled,
+            absenceReasonId: a.absenceReasonId,
+            scheduledMakeupLessonId: a.scheduledMakeupLessonId,
+          },
+    }
+  })
+
+  const allStudents = [...students, ...oneTimeStudents]
 
   const attendanceTypesData = attendanceTypes.map((t) => ({
     id: t.id,
@@ -629,7 +697,7 @@ export default async function LessonCardPage({
             <BookOpen className="size-5 text-muted-foreground" />
             <div>
               <div className="text-xs text-muted-foreground">Учеников</div>
-              <div className="text-sm font-medium">{enrollments.length}</div>
+              <div className="text-sm font-medium">{allStudents.length}</div>
             </div>
           </CardContent>
         </Card>
@@ -642,7 +710,7 @@ export default async function LessonCardPage({
         groupId={lesson.groupId}
         topic={lesson.topic}
         homework={lesson.homework}
-        students={students}
+        students={allStudents}
         makeupStudents={makeupStudents}
         trialStudents={trialStudents}
         attendanceTypes={attendanceTypesData}
@@ -653,11 +721,7 @@ export default async function LessonCardPage({
         substituteInstructorName={substituteInstructorName}
         instructors={instructorsData}
         currentUserRole={currentUserRole}
-        singleVisitPrice={
-          lesson.group.direction.singleVisitPrice
-            ? Number(lesson.group.direction.singleVisitPrice)
-            : Number(lesson.group.direction.lessonPrice)
-        }
+        groupIsOneTime={lesson.group.isOneTime}
       />
     </div>
   )

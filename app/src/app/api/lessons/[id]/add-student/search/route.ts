@@ -77,14 +77,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     take: 30,
   })
 
-  // Уже на занятии — исключаем
-  const existingAttendances = await db.attendance.findMany({
-    where: { lessonId, tenantId },
-    select: { clientId: true, wardId: true },
-  })
-  const attendingKeys = new Set(
-    existingAttendances.map((a) => `${a.clientId}:${a.wardId || ""}`),
-  )
+  // Исключаем тех, кто уже на занятии (attendance любого статуса, включая
+  // pending-placeholder) или активно зачислен в группу.
+  const [existingAttendances, existingEnrollments] = await Promise.all([
+    db.attendance.findMany({
+      where: { lessonId, tenantId },
+      select: { clientId: true, wardId: true },
+    }),
+    db.groupEnrollment.findMany({
+      where: { groupId: lesson.groupId, tenantId, isActive: true, deletedAt: null },
+      select: { clientId: true, wardId: true },
+    }),
+  ])
+  const attendingKeys = new Set([
+    ...existingAttendances.map((a) => `${a.clientId}:${a.wardId || ""}`),
+    ...existingEnrollments.map((e) => `${e.clientId}:${e.wardId || ""}`),
+  ])
 
   const results: Array<{
     clientId: string

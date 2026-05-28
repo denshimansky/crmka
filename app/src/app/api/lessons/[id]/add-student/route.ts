@@ -3,34 +3,30 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
-import { applyBalanceDelta } from "@/lib/balance/transactions"
-import { resolveRate } from "@/lib/salary/resolve-rate"
-import { calcPay } from "@/lib/salary/calc-pay"
 import { logAudit } from "@/lib/audit"
 import { z } from "zod"
-import { Prisma } from "@prisma/client"
 
 const schema = z.object({
   clientId: z.string().uuid("Некорректный ID клиента"),
   // На занятие добавляется ребёнок-подопечный, не родитель. wardId обязателен.
   wardId: z.string().uuid("Подопечный обязателен"),
-  source: z.enum(["subscription", "balance"]),
-  subscriptionId: z.string().uuid().optional(),
-  // Стоимость списания с баланса родителя (для source=balance).
-  // Если не передано — берётся Direction.singleVisitPrice; если и его нет — Direction.lessonPrice.
-  amount: z.number().nonnegative().optional(),
-  // Разовое посещение — НЕ создавать GroupEnrollment.
+  // Разовое посещение: не создаём GroupEnrollment, создаём placeholder Attendance
+  // (isPending=true, без списаний). Списание произойдёт при отметке «Был».
+  // Для занятий в скрытой Group(isOneTime=true) клиент всегда присылает true.
   isOneTime: z.boolean().default(false),
 })
 
 /**
  * POST /api/lessons/[id]/add-student
  *
- * Добавляет ребёнка на занятие — Ф4.2.
- *  - source="subscription": списываем с активного абонемента на этой группе.
- *  - source="balance": списываем с clientBalance родителя по цене разового посещения.
- *  - isOneTime=false: дополнительно создаём GroupEnrollment, ребёнок становится
- *    постоянным участником группы.
+ * Добавляет ребёнка на занятие. Без списаний — статус «Не отмечен».
+ *  - isOneTime=false: создаём GroupEnrollment (постоянный участник группы).
+ *  - isOneTime=true: создаём placeholder Attendance с isPending=true (разовое
+ *    посещение без зачисления). attendance_type_id ставим «present» как заглушку,
+ *    charge_amount=0; реальная отметка через /attendance перепишет тип и сумму.
+ *
+ * Списание (с абонемента или баланса) происходит в обоих случаях позже —
+ * через POST /api/lessons/[id]/attendance, когда оператор отмечает «Был».
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
@@ -53,14 +49,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       { status: 400 },
     )
   }
-  const data = parsed.data
-  const wardId = data.wardId
+  const { clientId, wardId, isOneTime } = parsed.data
 
   const lesson = await db.lesson.findFirst({
     where: { id: lessonId, tenantId },
-    include: {
-      group: { include: { direction: true } },
-      attendances: { select: { id: true, clientId: true, wardId: true } },
+    select: {
+      id: true,
+      date: true,
+      groupId: true,
+      group: { select: { maxStudents: true, isOneTime: true } },
     },
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
@@ -72,212 +69,111 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     )
   }
 
-  // Ребёнок принадлежит клиенту?
   const ward = await db.ward.findFirst({
-    where: { id: wardId, clientId: data.clientId, tenantId },
+    where: { id: wardId, clientId, tenantId },
     select: { id: true },
   })
   if (!ward) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
 
-  // Уже отмечен на этом занятии?
-  if (lesson.attendances.some((a) => a.clientId === data.clientId && a.wardId === wardId)) {
+  // Уже на занятии или зачислен в группу — исключаем
+  const existingAttendance = await db.attendance.findFirst({
+    where: { tenantId, lessonId, clientId, wardId },
+    select: { id: true },
+  })
+  if (existingAttendance) {
     return NextResponse.json({ error: "Ученик уже на этом занятии" }, { status: 409 })
   }
+  const existingEnrollment = await db.groupEnrollment.findFirst({
+    where: { tenantId, groupId: lesson.groupId, clientId, wardId, deletedAt: null },
+    select: { id: true, isActive: true },
+  })
+  if (existingEnrollment?.isActive && !isOneTime) {
+    return NextResponse.json({ error: "Ученик уже зачислен в эту группу" }, { status: 409 })
+  }
 
-  // Переполнение группы
-  const enrollmentCount = await db.groupEnrollment.count({
+  const activeEnrollmentCount = await db.groupEnrollment.count({
     where: { groupId: lesson.groupId, tenantId, isActive: true, deletedAt: null },
   })
-  if (lesson.attendances.length >= lesson.group.maxStudents && enrollmentCount >= lesson.group.maxStudents) {
-    return NextResponse.json({ error: "Занятие заполнено (максимум учеников)" }, { status: 409 })
+  if (!isOneTime && activeEnrollmentCount >= lesson.group.maxStudents) {
+    return NextResponse.json({ error: "Группа заполнена (максимум учеников)" }, { status: 409 })
   }
 
-  // Резолв источника списания
-  let subscription: {
-    id: string
-    lessonPrice: Prisma.Decimal
-    balance: Prisma.Decimal
-  } | null = null
-  let chargeFromBalanceAmount: Prisma.Decimal | null = null
-
-  if (data.source === "subscription") {
-    const lessonDate = new Date(lesson.date)
-    subscription = await db.subscription.findFirst({
-      where: {
-        tenantId,
-        clientId: data.clientId,
-        wardId,
-        groupId: lesson.groupId,
-        deletedAt: null,
-        status: { in: ["active", "pending"] },
-        periodYear: lessonDate.getFullYear(),
-        periodMonth: lessonDate.getMonth() + 1,
-        ...(data.subscriptionId ? { id: data.subscriptionId } : {}),
-      },
-      select: { id: true, lessonPrice: true, balance: true },
-      orderBy: { startDate: "desc" },
+  if (isOneTime) {
+    // Placeholder Attendance — заглушка типа 'present', без списаний.
+    const presentType = await db.attendanceType.findFirst({
+      where: { code: "present", OR: [{ tenantId: null }, { tenantId }], isActive: true },
+      select: { id: true },
     })
-    if (!subscription) {
-      return NextResponse.json(
-        { error: "У ребёнка нет активного абонемента на эту группу/период" },
-        { status: 400 },
-      )
-    }
-    if (Number(subscription.balance) <= 0) {
-      return NextResponse.json(
-        { error: "На абонементе нет остатка занятий" },
-        { status: 400 },
-      )
-    }
-  } else {
-    const fallback =
-      lesson.group.direction.singleVisitPrice ?? lesson.group.direction.lessonPrice
-    const amount =
-      data.amount !== undefined ? new Prisma.Decimal(data.amount) : new Prisma.Decimal(fallback)
-    if (amount.lt(0)) {
-      return NextResponse.json({ error: "Стоимость не может быть отрицательной" }, { status: 400 })
-    }
-    chargeFromBalanceAmount = amount
-  }
-
-  // Тип «Был» (системный)
-  const presentType = await db.attendanceType.findFirst({
-    where: { code: "present", OR: [{ tenantId: null }, { tenantId }], isActive: true },
-    select: { id: true, paysInstructor: true },
-  })
-  if (!presentType) {
-    return NextResponse.json({ error: "Тип посещения «Был» не найден" }, { status: 500 })
-  }
-
-  // Ставка ЗП
-  const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
-  const resolvedRate = await resolveRate(db, {
-    tenantId,
-    groupId: lesson.groupId,
-    employeeId: effectiveInstructorId,
-    directionId: lesson.group.directionId,
-  })
-
-  const chargeAmount = subscription ? subscription.lessonPrice : chargeFromBalanceAmount!
-
-  const result = await db.$transaction(async (tx) => {
-    // 1. Enrollment (если не разовое)
-    if (!data.isOneTime) {
-      const existingEnrollment = await tx.groupEnrollment.findFirst({
-        where: {
-          tenantId,
-          groupId: lesson.groupId,
-          clientId: data.clientId,
-          wardId,
-          deletedAt: null,
-        },
-      })
-      if (existingEnrollment) {
-        if (!existingEnrollment.isActive) {
-          await tx.groupEnrollment.update({
-            where: { id: existingEnrollment.id },
-            data: { isActive: true, withdrawnAt: null },
-          })
-        }
-      } else {
-        await tx.groupEnrollment.create({
-          data: {
-            tenantId,
-            groupId: lesson.groupId,
-            clientId: data.clientId,
-            wardId,
-            enrolledAt: new Date(lesson.date),
-            isActive: true,
-          },
-        })
-      }
+    if (!presentType) {
+      return NextResponse.json({ error: "Системный тип «Был» не найден" }, { status: 500 })
     }
 
-    // 2. ЗП инструктору
-    let instructorPayAmount = new Prisma.Decimal(0)
-    if (presentType.paysInstructor && resolvedRate) {
-      instructorPayAmount = await calcPay(tx, {
-        rate: resolvedRate,
-        lessonId,
-        tenantId,
-        currentClientId: data.clientId,
-        currentChargeAmount: chargeAmount,
-      })
-    }
-
-    // 3. Attendance
-    const att = await tx.attendance.create({
+    const att = await db.attendance.create({
       data: {
         tenantId,
         lessonId,
-        subscriptionId: subscription?.id ?? null,
-        clientId: data.clientId,
+        clientId,
         wardId,
         attendanceTypeId: presentType.id,
-        chargeAmount,
-        instructorPayAmount,
+        chargeAmount: 0,
+        instructorPayAmount: 0,
         instructorPayEnabled: true,
-        markedBy: employeeId,
-        markedAt: new Date(),
+        isPending: true,
+        markedBy: null,
+        markedAt: null,
       },
     })
 
-    // 4. Списание
-    if (subscription) {
-      await tx.subscription.update({
-        where: { id: subscription.id },
+    logAudit({
+      tenantId,
+      employeeId,
+      action: "create",
+      entityType: "Attendance",
+      entityId: att.id,
+      changes: {
+        lessonId: { new: lessonId },
+        clientId: { new: clientId },
+        wardId: { new: wardId },
+        isPending: { new: true },
+        isOneTime: { new: true },
+      },
+      req,
+    })
+
+    return NextResponse.json({ attendanceId: att.id, clientId, wardId, isPending: true })
+  }
+
+  // Постоянное зачисление: создаём (или реактивируем) GroupEnrollment.
+  const enrollment = existingEnrollment
+    ? await db.groupEnrollment.update({
+        where: { id: existingEnrollment.id },
+        data: { isActive: true, withdrawnAt: null },
+      })
+    : await db.groupEnrollment.create({
         data: {
-          balance: { decrement: chargeAmount },
-          chargedAmount: { increment: chargeAmount },
+          tenantId,
+          groupId: lesson.groupId,
+          clientId,
+          wardId,
+          enrolledAt: new Date(lesson.date),
+          isActive: true,
         },
       })
-    } else if (chargeFromBalanceAmount && chargeFromBalanceAmount.gt(0)) {
-      await applyBalanceDelta(tx, {
-        tenantId,
-        clientId: data.clientId,
-        delta: chargeFromBalanceAmount.negated(),
-        type: "personal_lesson_charge",
-        refs: {
-          lessonId,
-          attendanceId: att.id,
-          directionId: lesson.group.directionId,
-        },
-        createdBy: employeeId,
-        comment: data.isOneTime ? "Разовое посещение" : "Списание с баланса родителя",
-      })
-    }
-
-    // 5. Lead → Client конверсия (как в обычной отметке) — только если списано платно
-    if (Number(chargeAmount) > 0) {
-      const client = await tx.client.findUnique({ where: { id: data.clientId } })
-      if (client && client.funnelStatus !== "active_client" && client.clientStatus !== "active") {
-        await tx.client.update({
-          where: { id: data.clientId },
-          data: { funnelStatus: "active_client", clientStatus: "active" },
-        })
-      }
-    }
-
-    return att
-  })
 
   logAudit({
     tenantId,
     employeeId,
     action: "create",
-    entityType: "Attendance",
-    entityId: result.id,
+    entityType: "GroupEnrollment",
+    entityId: enrollment.id,
     changes: {
       lessonId: { new: lessonId },
-      clientId: { new: data.clientId },
+      groupId: { new: lesson.groupId },
+      clientId: { new: clientId },
       wardId: { new: wardId },
-      source: { new: data.source },
-      isOneTime: { new: data.isOneTime },
-      subscriptionId: { new: subscription?.id ?? null },
-      chargeAmount: { new: Number(chargeAmount) },
     },
     req,
   })
 
-  return NextResponse.json(result)
+  return NextResponse.json({ enrollmentId: enrollment.id, clientId, wardId })
 }

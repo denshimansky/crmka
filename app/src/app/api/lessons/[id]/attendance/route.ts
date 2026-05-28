@@ -448,7 +448,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         }
       }
     } else {
-      // No subscription
+      // No subscription — разовое посещение (или нет подходящего абонемента).
+      // Для типов с chargesSubscription=true списываем стоимость разового
+      // посещения с баланса родителя; placeholder (isPending=true) переводим
+      // в реальную отметку.
       const existing = await tx.attendance.findFirst({
         where: {
           lessonId,
@@ -458,17 +461,41 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         },
       })
 
+      // Откат предыдущего списания с баланса (если уже была реальная отметка).
+      if (existing && !existing.isPending && Number(existing.chargeAmount) > 0) {
+        await applyBalanceDelta(tx, {
+          tenantId,
+          clientId: data.clientId,
+          delta: existing.chargeAmount,
+          type: "attendance_revert",
+          refs: {
+            lessonId,
+            attendanceId: existing.id,
+            directionId: lesson.group.directionId,
+          },
+          createdBy: employeeId,
+        })
+      }
+
+      let newChargeAmount = new Prisma.Decimal(0)
+      if (attendanceType.chargesSubscription) {
+        const direction = lesson.group.direction
+        const fallback = direction.singleVisitPrice ?? direction.lessonPrice
+        newChargeAmount = new Prisma.Decimal(fallback)
+      }
+
       if (existing) {
         att = await tx.attendance.update({
           where: { id: existing.id },
           data: {
             attendanceTypeId: data.attendanceTypeId,
-            chargeAmount: 0,
+            chargeAmount: newChargeAmount,
             instructorPayAmount,
             instructorPayEnabled: data.instructorPayEnabled,
             scheduledMakeupLessonId,
             isMakeup: isMakeupArrival,
             makeupOfLessonId: sourceMakeupLessonId,
+            isPending: false,
             markedBy: employeeId,
             markedAt: new Date(),
           },
@@ -482,16 +509,43 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             clientId: data.clientId,
             wardId: data.wardId,
             attendanceTypeId: data.attendanceTypeId,
-            chargeAmount: 0,
+            chargeAmount: newChargeAmount,
             instructorPayAmount,
             instructorPayEnabled: data.instructorPayEnabled,
             scheduledMakeupLessonId,
             isMakeup: isMakeupArrival,
             makeupOfLessonId: sourceMakeupLessonId,
+            isPending: false,
             markedBy: employeeId,
             markedAt: new Date(),
           },
         })
+      }
+
+      // Списание со счёта родителя.
+      if (newChargeAmount.gt(0)) {
+        await applyBalanceDelta(tx, {
+          tenantId,
+          clientId: data.clientId,
+          delta: newChargeAmount.negated(),
+          type: "personal_lesson_charge",
+          refs: {
+            lessonId,
+            attendanceId: att.id,
+            directionId: lesson.group.directionId,
+          },
+          createdBy: employeeId,
+          comment: "Разовое посещение",
+        })
+
+        // Lead→Client конверсия как и в обычной отметке.
+        const client = await tx.client.findUnique({ where: { id: data.clientId } })
+        if (client && client.funnelStatus !== "active_client" && client.clientStatus !== "active") {
+          await tx.client.update({
+            where: { id: data.clientId },
+            data: { funnelStatus: "active_client", clientStatus: "active" },
+          })
+        }
       }
     }
 
@@ -862,10 +916,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 // DELETE: Сбросить отметку — вернуть строку в состояние «Не отмечен».
 // Удаляет Attendance, откатывает списание с абонемента (если было).
 // Принимает либо attendanceId, либо (clientId + wardId) — для поиска по ученику.
+//
+// purge=true — полное удаление attendance без возврата в placeholder. Используется
+// для разовых учеников: оператор хочет совсем убрать ребёнка с занятия.
 const deleteSchema = z.object({
   attendanceId: z.string().uuid().optional(),
   clientId: z.string().uuid().optional(),
   wardId: z.string().uuid().nullable().optional(),
+  purge: z.boolean().optional(),
 }).refine((d) => d.attendanceId || d.clientId, {
   message: "Нужен attendanceId или clientId",
 })
@@ -888,7 +946,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   const lesson = await db.lesson.findFirst({
     where: { id: lessonId, tenantId },
-    select: { id: true, date: true, instructorId: true, substituteInstructorId: true },
+    select: { id: true, date: true, groupId: true, instructorId: true, substituteInstructorId: true },
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
 
@@ -940,6 +998,27 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     )
   }
 
+  // Если у ребёнка есть active enrollment в группе — DELETE удаляет attendance
+  // (вернёт строку в «Не отмечен» через enrollment). Если enrollment нет —
+  // это «разовый» ученик; без явного purge=true мы возвращаем attendance в
+  // placeholder (isPending=true), чтобы ребёнок остался в списке как «Не отмечен».
+  // С purge=true — полное удаление (оператор передумал, убирает разового).
+  const hasActiveEnrollment = !!(await db.groupEnrollment.findFirst({
+    where: {
+      tenantId,
+      groupId: lesson.groupId,
+      clientId: existing.clientId,
+      wardId: existing.wardId,
+      isActive: true,
+      deletedAt: null,
+    },
+    select: { id: true },
+  }))
+
+  const shouldDelete = data.purge === true || hasActiveEnrollment || existing.isPending
+  // existing.isPending — placeholder без enrollment: «сброс отметки» уже стоит
+  // как «Не отмечен», смысла оставлять заглушку нет → удаляем по умолчанию.
+
   await db.$transaction(async (tx) => {
     // Откат списания с абонемента
     if (existing.subscriptionId && Number(existing.chargeAmount) > 0) {
@@ -952,8 +1031,24 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       })
     }
 
+    // Откат списания с баланса родителя (для разовых без абонемента).
+    if (!existing.subscriptionId && !existing.isPending && Number(existing.chargeAmount) > 0) {
+      await applyBalanceDelta(tx, {
+        tenantId,
+        clientId: existing.clientId,
+        delta: existing.chargeAmount,
+        type: "attendance_revert",
+        refs: {
+          lessonId,
+          attendanceId: existing.id,
+          directionId: existing.lesson.group.directionId,
+        },
+        createdBy: employeeId,
+      })
+    }
+
     // Откат возврата (lesson_refund) на баланс клиента
-    if (Number(existing.chargeAmount) > 0) {
+    if (existing.subscriptionId && Number(existing.chargeAmount) > 0) {
       const refund = calcRefund(existing.chargeAmount, existing.attendanceType.chargePercent)
       if (refund.gt(0)) {
         await applyBalanceDelta(tx, {
@@ -986,7 +1081,30 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       })
     }
 
-    await tx.attendance.delete({ where: { id: existing.id } })
+    if (shouldDelete) {
+      await tx.attendance.delete({ where: { id: existing.id } })
+    } else {
+      // Разовый ученик без enrollment — оставляем placeholder. Тип-заглушка
+      // «present», все суммы и метки обнуляем; isPending=true.
+      const presentType = await tx.attendanceType.findFirst({
+        where: { code: "present", OR: [{ tenantId: null }, { tenantId }], isActive: true },
+        select: { id: true },
+      })
+      await tx.attendance.update({
+        where: { id: existing.id },
+        data: {
+          attendanceTypeId: presentType?.id ?? existing.attendanceTypeId,
+          chargeAmount: 0,
+          instructorPayAmount: 0,
+          subscriptionId: null,
+          absenceReasonId: null,
+          scheduledMakeupLessonId: null,
+          isPending: true,
+          markedBy: null,
+          markedAt: null,
+        },
+      })
+    }
   })
 
   logAudit({

@@ -13,9 +13,8 @@ import {
   DialogClose,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { UserPlus, Loader2, ArrowLeft, AlertCircle, Wallet, BookOpen } from "lucide-react"
+import { UserPlus, Loader2, AlertCircle, Wallet, BookOpen } from "lucide-react"
 
 type StudentResult = {
   clientId: string
@@ -29,45 +28,37 @@ type StudentResult = {
 
 interface AddStudentDialogProps {
   lessonId: string
-  /** Стоимость разового посещения для направления группы (₽). */
-  singleVisitPrice: number
+  /** Группа занятия — скрытая разовая (isOneTime=true) или обычная.
+   *  Для разовой группы чекбокс «Разовое посещение» зафиксирован в ON и скрыт. */
+  groupIsOneTime?: boolean
 }
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
 }
 
-export function AddStudentDialog({ lessonId, singleVisitPrice }: AddStudentDialogProps) {
+export function AddStudentDialog({ lessonId, groupIsOneTime = false }: AddStudentDialogProps) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
-  const [step, setStep] = useState<"search" | "source">("search")
 
   const [search, setSearch] = useState("")
   const [searching, setSearching] = useState(false)
   const [results, setResults] = useState<StudentResult[]>([])
-  const [selected, setSelected] = useState<StudentResult | null>(null)
 
-  const [source, setSource] = useState<"subscription" | "balance">("subscription")
-  const [amount, setAmount] = useState<string>(String(singleVisitPrice || 0))
-  const [isOneTime, setIsOneTime] = useState(false)
-
-  const [submitting, setSubmitting] = useState(false)
+  const [isOneTime, setIsOneTime] = useState(groupIsOneTime)
+  const [addingKey, setAddingKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   function reset() {
-    setStep("search")
     setSearch("")
     setResults([])
-    setSelected(null)
-    setSource("subscription")
-    setAmount(String(singleVisitPrice || 0))
-    setIsOneTime(false)
+    setIsOneTime(groupIsOneTime)
     setError(null)
   }
 
   // Поиск
   useEffect(() => {
-    if (step !== "search") return
+    if (!open) return
     const q = search.trim()
     if (q.length < 2) {
       setResults([])
@@ -93,47 +84,21 @@ export function AddStudentDialog({ lessonId, singleVisitPrice }: AddStudentDialo
       cancelled = true
       clearTimeout(t)
     }
-  }, [search, step, lessonId])
+  }, [search, open, lessonId])
 
-  // При выборе ученика: если есть активный абонемент — по умолчанию source=subscription;
-  // если нет — переключаемся на balance (subscription становится недоступным).
-  function pickStudent(s: StudentResult) {
-    setSelected(s)
-    if (s.subscription) {
-      setSource("subscription")
-    } else {
-      setSource("balance")
-    }
-    setStep("source")
-  }
-
-  async function submit() {
-    if (!selected) return
-    setSubmitting(true)
+  async function add(student: StudentResult) {
+    const key = `${student.clientId}:${student.wardId}`
+    setAddingKey(key)
     setError(null)
     try {
-      const body: Record<string, unknown> = {
-        clientId: selected.clientId,
-        wardId: selected.wardId,
-        source,
-        isOneTime,
-      }
-      if (source === "subscription" && selected.subscription) {
-        body.subscriptionId = selected.subscription.id
-      }
-      if (source === "balance") {
-        const n = Number(amount)
-        if (!isFinite(n) || n < 0) {
-          setError("Некорректная стоимость")
-          setSubmitting(false)
-          return
-        }
-        body.amount = n
-      }
       const res = await fetch(`/api/lessons/${lessonId}/add-student`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          clientId: student.clientId,
+          wardId: student.wardId,
+          isOneTime,
+        }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
@@ -146,15 +111,9 @@ export function AddStudentDialog({ lessonId, singleVisitPrice }: AddStudentDialo
     } catch {
       setError("Ошибка сети")
     } finally {
-      setSubmitting(false)
+      setAddingKey(null)
     }
   }
-
-  const canSubmitSource =
-    !!selected &&
-    (source === "subscription"
-      ? !!selected.subscription && selected.subscription.balance > 0
-      : amount !== "" && Number(amount) >= 0)
 
   return (
     <Dialog
@@ -170,9 +129,7 @@ export function AddStudentDialog({ lessonId, singleVisitPrice }: AddStudentDialo
       </DialogTrigger>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>
-            {step === "search" ? "Выберите ученика" : "Источник списания"}
-          </DialogTitle>
+          <DialogTitle>Добавить ученика</DialogTitle>
         </DialogHeader>
 
         {error && (
@@ -182,41 +139,67 @@ export function AddStudentDialog({ lessonId, singleVisitPrice }: AddStudentDialo
           </div>
         )}
 
-        {step === "search" && (
-          <div className="space-y-3">
-            <Input
-              placeholder="Поиск по ФИО ребёнка или родителя, телефону..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              autoFocus
-            />
-            {searching && (
-              <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Поиск...
+        <div className="space-y-3">
+          <Input
+            placeholder="Поиск по ФИО ребёнка или родителя, телефону..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoFocus
+          />
+
+          {/* Чекбокс «Разовое» доступен только для обычных групп — у разовой
+              группы он зафиксирован в ON и не показывается (всё равно разовое). */}
+          {!groupIsOneTime && (
+            <label className="flex items-start gap-2 cursor-pointer rounded-md border p-3">
+              <Checkbox
+                checked={isOneTime}
+                onCheckedChange={(v) => setIsOneTime(v === true)}
+                className="mt-0.5"
+              />
+              <div>
+                <div className="text-sm font-medium">Разовое посещение</div>
+                <div className="text-xs text-muted-foreground">
+                  Без зачисления в группу. Если выключено — ребёнок добавится в
+                  группу как постоянный участник.
+                </div>
               </div>
-            )}
-            {!searching && search.length >= 2 && results.length === 0 && (
-              <div className="py-4 text-center text-sm text-muted-foreground">
-                Ничего не найдено
-              </div>
-            )}
-            {results.length > 0 && (
-              <div className="max-h-[320px] space-y-2 overflow-y-auto">
-                {results.map((r) => (
+            </label>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Ученик появится в списке как «Не отмечен». Списание происходит позже,
+            при отметке «Был».
+          </p>
+
+          {searching && (
+            <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Поиск...
+            </div>
+          )}
+          {!searching && search.length >= 2 && results.length === 0 && (
+            <div className="py-4 text-center text-sm text-muted-foreground">
+              Ничего не найдено
+            </div>
+          )}
+          {results.length > 0 && (
+            <div className="max-h-[320px] space-y-2 overflow-y-auto">
+              {results.map((r) => {
+                const key = `${r.clientId}:${r.wardId}`
+                const loading = addingKey === key
+                return (
                   <button
-                    key={`${r.clientId}-${r.wardId || ""}`}
+                    key={key}
                     type="button"
-                    onClick={() => pickStudent(r)}
-                    className="flex w-full items-start justify-between rounded-lg border p-3 text-left hover:bg-accent"
+                    onClick={() => add(r)}
+                    disabled={loading || !!addingKey}
+                    className="flex w-full items-start justify-between rounded-lg border p-3 text-left hover:bg-accent disabled:opacity-60"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium">{r.wardName}</div>
-                      {r.wardName !== r.clientName && (
-                        <div className="text-xs text-muted-foreground">
-                          Родитель: {r.clientName}
-                        </div>
-                      )}
+                      <div className="text-xs text-muted-foreground">
+                        Родитель: {r.clientName}
+                      </div>
                       <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1">
                           <Wallet className="size-3" />
@@ -232,148 +215,27 @@ export function AddStudentDialog({ lessonId, singleVisitPrice }: AddStudentDialo
                         )}
                       </div>
                     </div>
-                    <span className="ml-2 text-xs text-primary shrink-0">Выбрать →</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {step === "source" && selected && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-sm">
-              <div>
-                <div className="font-medium">{selected.wardName}</div>
-                {selected.wardName !== selected.clientName && (
-                  <div className="text-xs text-muted-foreground">
-                    Родитель: {selected.clientName}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setStep("search")
-                  setSelected(null)
-                  setError(null)
-                }}
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <ArrowLeft className="size-3" />
-                Другой
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Источник списания</Label>
-              <div className="space-y-2">
-                <label
-                  className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 ${
-                    source === "subscription" ? "border-primary bg-primary/5" : ""
-                  } ${!selected.subscription ? "opacity-50 cursor-not-allowed" : ""}`}
-                >
-                  <input
-                    type="radio"
-                    name="source"
-                    className="mt-1"
-                    checked={source === "subscription"}
-                    disabled={!selected.subscription}
-                    onChange={() => setSource("subscription")}
-                  />
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">Абонемент</div>
-                    {selected.subscription ? (
-                      <div className="text-xs text-muted-foreground">
-                        Остаток: {formatMoney(selected.subscription.balance)} • Цена занятия:{" "}
-                        {formatMoney(selected.subscription.lessonPrice)}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-muted-foreground">
-                        Нет активного абонемента на эту группу/период
-                      </div>
-                    )}
-                  </div>
-                </label>
-
-                <label
-                  className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 ${
-                    source === "balance" ? "border-primary bg-primary/5" : ""
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="source"
-                    className="mt-1"
-                    checked={source === "balance"}
-                    onChange={() => setSource("balance")}
-                  />
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">Баланс родителя</div>
-                    <div className="text-xs text-muted-foreground">
-                      Текущий баланс: {formatMoney(selected.clientBalance)}
-                      {Number(amount) > selected.clientBalance && (
-                        <span className="ml-2 text-amber-600">
-                          (уйдёт в минус на{" "}
-                          {formatMoney(Number(amount) - selected.clientBalance)})
-                        </span>
+                    <span className="ml-2 inline-flex items-center text-xs text-primary shrink-0">
+                      {loading ? (
+                        <>
+                          <Loader2 className="mr-1 size-3 animate-spin" />
+                          Добавление...
+                        </>
+                      ) : (
+                        "Добавить →"
                       )}
-                    </div>
-                  </div>
-                </label>
-              </div>
+                    </span>
+                  </button>
+                )
+              })}
             </div>
-
-            {source === "balance" && (
-              <div className="space-y-1.5">
-                <Label htmlFor="add-amount">Стоимость, ₽</Label>
-                <Input
-                  id="add-amount"
-                  type="number"
-                  min={0}
-                  step={50}
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-                <div className="text-xs text-muted-foreground">
-                  По умолчанию — цена разового посещения направления.
-                </div>
-              </div>
-            )}
-
-            <label className="flex items-start gap-2 cursor-pointer">
-              <Checkbox
-                checked={isOneTime}
-                onCheckedChange={(v) => setIsOneTime(v === true)}
-                className="mt-0.5"
-              />
-              <div>
-                <div className="text-sm font-medium">Разовое посещение</div>
-                <div className="text-xs text-muted-foreground">
-                  Без зачисления в группу. Если выключено — ребёнок добавится в группу как
-                  постоянный участник.
-                </div>
-              </div>
-            </label>
-          </div>
-        )}
+          )}
+        </div>
 
         <DialogFooter>
           <DialogClose render={<Button variant="outline" type="button" />}>
-            Отмена
+            Закрыть
           </DialogClose>
-          {step === "source" && (
-            <Button onClick={submit} disabled={submitting || !canSubmitSource}>
-              {submitting ? (
-                <>
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                  Добавление...
-                </>
-              ) : (
-                "Добавить"
-              )}
-            </Button>
-          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
