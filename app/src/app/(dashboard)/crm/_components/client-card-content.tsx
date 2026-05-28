@@ -11,6 +11,7 @@ import { EditClientDialog } from "../clients/[id]/edit-client-dialog"
 import { UnprolongedCommentsSection } from "../clients/[id]/unprolonged-comments"
 import { LeadStatusActions } from "./lead-status-actions"
 import { ApplicationsSection } from "./applications-section"
+import { PortalLinkButton } from "./portal-link-button"
 
 const SEGMENT_LABELS: Record<string, string> = {
   new_client: "Новый",
@@ -217,6 +218,7 @@ export async function ClientCardContent({
               <FileText className="mr-2 size-4" />
               Абонемент
             </Button>
+            <PortalLinkButton clientId={client.id} />
           </>
         )}
         <LeadStatusActions
