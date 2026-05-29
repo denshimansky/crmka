@@ -24,12 +24,12 @@ const TAB_LABELS: Record<ContactsTabKey, string> = {
 
 const TAB_ORDER: ContactsTabKey[] = [
   "leads",
-  "potential",
-  "nontarget",
   "active",
   "churned",
+  "potential",
   "archived",
   "blacklist",
+  "nontarget",
   "all",
 ]
 
