@@ -168,7 +168,7 @@ export default function BillingPage() {
       </div>
 
       {/* Карточки-метрики */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -247,7 +247,7 @@ export default function BillingPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {PERIOD_OPTIONS.map((opt) => (
                 <button
                   key={opt.months}
@@ -298,7 +298,7 @@ export default function BillingPage() {
       )}
 
       {/* Детали подписки */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -388,6 +388,7 @@ export default function BillingPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -428,6 +429,7 @@ export default function BillingPage() {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 

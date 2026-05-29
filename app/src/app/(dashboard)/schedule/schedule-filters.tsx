@@ -163,43 +163,12 @@ export function ScheduleFilterableGrid({
     })
   }, [lessons, roomFilter, directionFilter, instructorFilter])
 
-  // Group key picker per view
-  function getRowKey(lesson: LessonData): string {
-    if (view === "instructors") return lesson.instructorId
-    if (view === "directions") return lesson.group.directionId
-    return lesson.group.room.id // rooms (default)
-  }
-
   type Row = { id: string; label: string }
 
   const visibleRows: Row[] = useMemo(() => {
-    if (view === "list") return []
-    const ids = new Set(filteredLessons.map(getRowKey))
-    if (view === "instructors") {
-      return instructors
-        .filter((i) => ids.has(i.id))
-        .map((i) => ({
-          id: i.id,
-          label: `${i.lastName} ${i.firstName?.[0] || ""}.`.trim(),
-        }))
-    }
-    if (view === "directions") {
-      return directions
-        .filter((d) => ids.has(d.id))
-        .map((d) => ({ id: d.id, label: d.name }))
-    }
+    const ids = new Set(filteredLessons.map((l) => l.group.room.id))
     return rooms.filter((r) => ids.has(r.id)).map((r) => ({ id: r.id, label: r.name }))
-  }, [filteredLessons, view, rooms, instructors, directions])
-
-  const sortedListLessons = useMemo(() => {
-    if (view !== "list") return []
-    return [...filteredLessons].sort((a, b) => {
-      if (a.date !== b.date) return a.date.localeCompare(b.date)
-      return a.startTime.localeCompare(b.startTime)
-    })
-  }, [filteredLessons, view])
-
-  const rowHeaderLabel = view === "instructors" ? "Педагог" : view === "directions" ? "Направление" : "Кабинет"
+  }, [filteredLessons, rooms])
 
   function clearFilters() {
     setRoomFilter("")
@@ -429,50 +398,6 @@ export function ScheduleFilterableGrid({
             </Link>
           )}
         </div>
-      ) : view === "list" ? (
-        <div className="space-y-2">
-          {sortedListLessons.map((lesson) => {
-            const colorClass = directionColorMap[lesson.group.directionId] || ""
-            const enrolled = lesson.group._count.enrollments
-            const max = lesson.group.maxStudents
-            const occupancy = getOccupancyStyle(enrolled, max)
-            const instructorName = [
-              lesson.instructor.lastName,
-              lesson.instructor.firstName?.[0] ? lesson.instructor.firstName[0] + "." : "",
-            ]
-              .filter(Boolean)
-              .join(" ")
-            const dayIdx = weekDays.indexOf(lesson.date)
-            const dayLabel = dayIdx >= 0 ? `${dayNames[dayIdx]} ${formatDateShort(lesson.date)}` : lesson.date
-            return (
-              <Link key={lesson.id} href={lesson.href || `/schedule/lessons/${lesson.id}`}>
-                <Card
-                  className={`flex flex-wrap items-center gap-3 cursor-pointer border p-3 text-sm ${colorClass} ${occupancy.className} hover:opacity-80`}
-                  title={occupancy.label}
-                >
-                  <div className="font-bold w-20 shrink-0">{dayLabel}</div>
-                  <div className="font-bold w-14 shrink-0">{lesson.startTime}</div>
-                  <div className="font-medium flex-1 min-w-[150px] flex items-center gap-1.5">
-                    {lesson.group.name}
-                    {lesson.isTrial && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-300 text-blue-700 dark:text-blue-400">
-                        пробное
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="opacity-70 w-32 shrink-0">{instructorName}</div>
-                  <div className="opacity-70 w-28 shrink-0">{lesson.group.room.name}</div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold">{enrolled}/{max}</span>
-                    {max > 0 && enrolled / max > 0.9 && (
-                      <Badge variant="destructive" className="h-4 px-1 text-[10px]">!</Badge>
-                    )}
-                  </div>
-                </Card>
-              </Link>
-            )
-          })}
-        </div>
       ) : (
         <div className="overflow-x-auto">
           <div className="min-w-[900px]">
@@ -482,7 +407,7 @@ export function ScheduleFilterableGrid({
             >
               {/* Header */}
               <div className="bg-background p-2 text-xs font-medium text-muted-foreground">
-                {rowHeaderLabel}
+                Кабинет
               </div>
               {weekDays.map((day, i) => (
                 <div key={i} className="bg-background p-2 text-center text-sm font-medium">
@@ -490,7 +415,7 @@ export function ScheduleFilterableGrid({
                 </div>
               ))}
 
-              {/* Rows by selected dimension */}
+              {/* Rows by room */}
               {visibleRows.map((row) => (
                 <div key={row.id} className="contents">
                   <div className="bg-background p-2 text-sm font-medium text-muted-foreground">
@@ -498,7 +423,7 @@ export function ScheduleFilterableGrid({
                   </div>
                   {weekDays.map((dayStr, di) => {
                     const dayLessons = filteredLessons.filter(
-                      (l) => getRowKey(l) === row.id && l.date === dayStr
+                      (l) => l.group.room.id === row.id && l.date === dayStr
                     )
                     return (
                       <div
@@ -532,9 +457,7 @@ export function ScheduleFilterableGrid({
                                   )}
                                 </div>
                                 <div className="font-medium">{lesson.group.name}</div>
-                                <div className="opacity-70">
-                                  {view === "instructors" ? lesson.group.room.name : instructorName}
-                                </div>
+                                <div className="opacity-70">{instructorName}</div>
                                 <div className="mt-1 flex items-center justify-between">
                                   <span className="font-semibold">
                                     {enrolled}/{max}
@@ -568,10 +491,14 @@ export function ScheduleFilterableGrid({
 // ─── Вид «По неделе» ───
 // Строки = часы от hourStart до hourEnd (объединение working hours филиалов),
 // столбцы = (день недели) × (кабинеты выбранного филиала).
+// Колонка времени физически вынесена в отдельный flex-блок слева — не зависит
+// от horizontal scroll правой сетки, поэтому никогда не уезжает.
 // Карточка занятия позиционируется абсолютно внутри столбца «день-кабинет»:
 //   top    = (часы от hourStart) * CELL_HEIGHT + (минуты начала / 60) * CELL_HEIGHT
 //   height = (длительность / 60) * CELL_HEIGHT  (45 мин = 3/4 ячейки, 30 мин = 1/2)
 const CELL_HEIGHT = 64
+const HEADER_DAY_H = 36
+const HEADER_ROOM_H = 28
 
 interface WeekRoomsViewProps {
   lessons: LessonData[]
@@ -634,87 +561,82 @@ function WeekRoomsView({
   const colCount = weekDays.length * roomsCount
 
   return (
-    <div className="overflow-x-auto">
-      <div
-        className="grid border-l border-t bg-background"
-        style={{
-          gridTemplateColumns: `60px repeat(${colCount}, minmax(120px, 1fr))`,
-          gridTemplateRows: `auto auto repeat(${HOURS.length}, ${CELL_HEIGHT}px)`,
-        }}
-      >
-        {/* Угол: пусто над колонкой времени, ряд 1 (sticky-left вместе со всей колонкой времени) */}
-        <div
-          className="sticky left-0 z-20 border-r border-b bg-muted/30"
-          style={{ gridColumn: 1, gridRow: 1 }}
-        />
-        {/* Заголовки дней — правая граница утолщённая, она же разделитель дней */}
-        {weekDays.map((day, di) => (
-          <div
-            key={`day-${day}`}
-            className="border-r-2 border-r-border border-b bg-muted/30 p-2 text-center text-sm font-semibold"
-            style={{
-              gridColumn: `${2 + di * roomsCount} / span ${roomsCount}`,
-              gridRow: 1,
-            }}
-          >
-            {dayNames[di]} {formatDateShort(day)}
-          </div>
-        ))}
-
-        {/* Угол: пусто над колонкой времени, ряд 2 */}
-        <div
-          className="sticky left-0 z-20 border-r border-b bg-muted/20"
-          style={{ gridColumn: 1, gridRow: 2 }}
-        />
-        {/* Заголовки кабинетов — последний в дне получает утолщённую правую границу */}
-        {weekDays.flatMap((day, di) =>
-          branchRooms.map((room, ri) => {
-            const isDayEdge = ri === roomsCount - 1
-            return (
-              <div
-                key={`room-${day}-${room.id}`}
-                className={`${isDayEdge ? "border-r-2 border-r-border" : "border-r"} border-b bg-muted/20 px-1 py-1 text-center text-xs truncate`}
-                style={{
-                  gridColumn: 2 + di * roomsCount + ri,
-                  gridRow: 2,
-                }}
-                title={room.name}
-              >
-                {room.name}
-              </div>
-            )
-          })
-        )}
-
-        {/* Время — слева, sticky-left чтобы оставаться видимым при горизонтальном скролле.
-            z-20 перекрывает карточки занятий (z-10), которые проезжают под колонкой при скролле. */}
-        {HOURS.map((h, hi) => (
+    <div className="flex border-l border-t bg-background">
+      {/* Левая фиксированная колонка времени — физически вне горизонтального скролла. */}
+      <div className="flex-none border-r" style={{ width: 60 }}>
+        <div className="border-b bg-muted/30" style={{ height: HEADER_DAY_H }} />
+        <div className="border-b bg-muted/20" style={{ height: HEADER_ROOM_H }} />
+        {HOURS.map((h) => (
           <div
             key={`h-${h}`}
-            className="sticky left-0 z-20 border-r border-b bg-background px-1 pt-1 text-right text-xs text-muted-foreground"
-            style={{ gridColumn: 1, gridRow: 3 + hi }}
+            className="border-b bg-background px-1 pt-1 text-right text-xs text-muted-foreground"
+            style={{ height: CELL_HEIGHT }}
           >
             {String(h).padStart(2, "0")}:00
           </div>
         ))}
+      </div>
 
-        {/* Колонки день × кабинет (одна на каждую пару, занимает все часы по высоте) */}
-        {weekDays.flatMap((day, di) =>
-          branchRooms.map((room, ri) => {
-            const colIdx = 2 + di * roomsCount + ri
-            const isDayEdge = ri === roomsCount - 1
-            const cellLessons = lessons.filter(
-              (l) => l.date === day && l.group.room.id === room.id
-            )
-            return (
-              <div
-                key={`col-${day}-${room.id}`}
-                className={`relative ${isDayEdge ? "border-r-2 border-r-border" : "border-r"}`}
-                style={{
-                  gridColumn: colIdx,
-                  gridRow: `3 / span ${HOURS.length}`,
-                }}
-              >
+      {/* Правая прокручиваемая сетка: дни × кабинеты с карточками занятий. */}
+      <div className="flex-1 overflow-x-auto">
+        <div
+          className="grid bg-background"
+          style={{
+            gridTemplateColumns: `repeat(${colCount}, minmax(120px, 1fr))`,
+            gridTemplateRows: `${HEADER_DAY_H}px ${HEADER_ROOM_H}px repeat(${HOURS.length}, ${CELL_HEIGHT}px)`,
+          }}
+        >
+          {/* Заголовки дней — правая граница утолщённая, она же разделитель дней */}
+          {weekDays.map((day, di) => (
+            <div
+              key={`day-${day}`}
+              className="border-r-2 border-r-border border-b bg-muted/30 p-2 text-center text-sm font-semibold"
+              style={{
+                gridColumn: `${1 + di * roomsCount} / span ${roomsCount}`,
+                gridRow: 1,
+              }}
+            >
+              {dayNames[di]} {formatDateShort(day)}
+            </div>
+          ))}
+
+          {/* Заголовки кабинетов — последний в дне получает утолщённую правую границу */}
+          {weekDays.flatMap((day, di) =>
+            branchRooms.map((room, ri) => {
+              const isDayEdge = ri === roomsCount - 1
+              return (
+                <div
+                  key={`room-${day}-${room.id}`}
+                  className={`${isDayEdge ? "border-r-2 border-r-border" : "border-r"} border-b bg-muted/20 px-1 py-1 text-center text-xs truncate`}
+                  style={{
+                    gridColumn: 1 + di * roomsCount + ri,
+                    gridRow: 2,
+                  }}
+                  title={room.name}
+                >
+                  {room.name}
+                </div>
+              )
+            })
+          )}
+
+          {/* Колонки день × кабинет (одна на каждую пару, занимает все часы по высоте) */}
+          {weekDays.flatMap((day, di) =>
+            branchRooms.map((room, ri) => {
+              const colIdx = 1 + di * roomsCount + ri
+              const isDayEdge = ri === roomsCount - 1
+              const cellLessons = lessons.filter(
+                (l) => l.date === day && l.group.room.id === room.id
+              )
+              return (
+                <div
+                  key={`col-${day}-${room.id}`}
+                  className={`relative ${isDayEdge ? "border-r-2 border-r-border" : "border-r"}`}
+                  style={{
+                    gridColumn: colIdx,
+                    gridRow: `3 / span ${HOURS.length}`,
+                  }}
+                >
                 {/* Горизонтальные линии на границах часов */}
                 {HOURS.map((_, idx) => (
                   <div
@@ -795,7 +717,8 @@ function WeekRoomsView({
               </div>
             )
           })
-        )}
+          )}
+        </div>
       </div>
     </div>
   )

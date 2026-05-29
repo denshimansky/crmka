@@ -10,7 +10,6 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
-import { QuickLeadButton } from "@/components/quick-lead-button"
 import { OnboardingWizard } from "@/components/onboarding-wizard"
 import { DashboardGrid } from "@/components/dashboard-grid"
 import { DashboardSettingsButton } from "@/components/dashboard-settings"
@@ -312,8 +311,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           capacity: capacityWidget,
         }}
       />
-
-      <QuickLeadButton />
     </div>
   )
 }

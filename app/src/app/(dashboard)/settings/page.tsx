@@ -62,17 +62,19 @@ export default async function SettingsPage() {
       </div>
 
       <Tabs defaultValue="org">
-        <TabsList>
-          <TabsTrigger value="org">Организация</TabsTrigger>
-          <TabsTrigger value="branches">Филиалы</TabsTrigger>
-          <TabsTrigger value="directions">Направления</TabsTrigger>
-          <TabsTrigger value="admin-bonus">Бонусы админов</TabsTrigger>
-          <TabsTrigger value="refs">Справочники</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto">
+          <TabsList>
+            <TabsTrigger value="org">Организация</TabsTrigger>
+            <TabsTrigger value="branches">Филиалы</TabsTrigger>
+            <TabsTrigger value="directions">Направления</TabsTrigger>
+            <TabsTrigger value="admin-bonus">Бонусы админов</TabsTrigger>
+            <TabsTrigger value="refs">Справочники</TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Организация */}
         <TabsContent value="org">
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <Card>
               <CardContent className="p-6">
                 <h2 className="mb-4 text-lg font-semibold">Информация об организации</h2>
@@ -162,7 +164,7 @@ export default async function SettingsPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {org.branches.map((branch) => (
                   <Card key={branch.id}>
                     <CardContent className="relative p-5">
@@ -252,7 +254,7 @@ export default async function SettingsPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {org.directions.map((dir) => {
                   const DirIcon = getDirectionIcon(dir.icon)
                   return (
@@ -320,7 +322,7 @@ export default async function SettingsPage() {
 
         {/* Справочники */}
         <TabsContent value="refs">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             <Link href="/settings/channels" className="block">
               <Card className="hover:border-primary/50 transition-colors cursor-pointer">
                 <CardContent className="flex items-start gap-3 p-5">

@@ -11,7 +11,7 @@ import { CopyMonthDialog } from "./copy-month-dialog"
 import { PageHelp } from "@/components/page-help"
 import { ScheduleFilterableGrid } from "./schedule-filters"
 
-const ALLOWED_VIEWS = new Set<ScheduleView>(["week", "rooms", "instructors", "directions", "list"])
+const ALLOWED_VIEWS = new Set<ScheduleView>(["week", "rooms"])
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -51,6 +51,11 @@ function formatWeekLabel(monday: Date, sunday: Date): string {
     return `${mDay}–${sDay} ${mMonth} ${year}`
   }
   return `${mDay} ${mMonth} – ${sDay} ${sMonth} ${year}`
+}
+
+function formatWeekLabelCompact(monday: Date, sunday: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${pad(monday.getDate())}.${pad(monday.getMonth() + 1)} – ${pad(sunday.getDate())}.${pad(sunday.getMonth() + 1)}`
 }
 
 export default async function SchedulePage({
@@ -231,6 +236,7 @@ export default async function SchedulePage({
   })
 
   const weekLabel = formatWeekLabel(monday, sunday)
+  const weekLabelCompact = formatWeekLabelCompact(monday, sunday)
   const hasLessons = lessons.length > 0 || individualTrials.length > 0
   const defaultDate = monday.toISOString().slice(0, 10)
 
@@ -333,7 +339,7 @@ export default async function SchedulePage({
 
       <div className="flex items-center gap-2">
         <div className="flex-1">
-          <ScheduleWeekNav weekOffset={weekOffset} weekLabel={weekLabel} view={view} />
+          <ScheduleWeekNav weekOffset={weekOffset} weekLabel={weekLabel} weekLabelCompact={weekLabelCompact} view={view} />
         </div>
         <CopyMonthDialog />
         <CancelDayDialog defaultDate={defaultDate} branches={branches} />

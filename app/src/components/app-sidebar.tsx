@@ -14,7 +14,7 @@ import { NotificationBell } from "@/components/notification-bell"
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel,
   SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton,
-  SidebarHeader, SidebarFooter, SidebarSeparator,
+  SidebarHeader, SidebarFooter, SidebarSeparator, useSidebar,
 } from "@/components/ui/sidebar"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -83,6 +83,7 @@ function getShortName(name: string | null | undefined): string {
 export function AppSidebar() {
   const pathname = usePathname()
   const { data: session, status } = useSession()
+  const { isMobile, setOpenMobile } = useSidebar()
 
   const user = session?.user as
     | { name?: string | null; role?: Role; orgName?: string }
@@ -93,10 +94,14 @@ export function AppSidebar() {
     return pathname.startsWith(href)
   }
 
+  const handleNavClick = () => {
+    if (isMobile) setOpenMobile(false)
+  }
+
   const renderItems = (items: typeof navItems) =>
     items.map((item) => (
       <SidebarMenuItem key={item.href}>
-        <SidebarMenuButton render={<Link href={item.href} />} isActive={isActive(item.href)}>
+        <SidebarMenuButton render={<Link href={item.href} onClick={handleNavClick} />} isActive={isActive(item.href)}>
           <item.icon className="size-4" />
           <span>{item.title}</span>
         </SidebarMenuButton>
@@ -127,7 +132,7 @@ export function AppSidebar() {
         </button>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="overflow-x-hidden overscroll-contain touch-pan-y">
         <SidebarGroup>
           <SidebarMenu>{renderItems(navItems)}</SidebarMenu>
         </SidebarGroup>
@@ -155,7 +160,7 @@ export function AppSidebar() {
               <>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton render={<Link href="/billing" />} isActive={isActive("/billing")}>
+                    <SidebarMenuButton render={<Link href="/billing" onClick={handleNavClick} />} isActive={isActive("/billing")}>
                       <Crown className="size-4" />
                       <span>Подписка</span>
                     </SidebarMenuButton>
