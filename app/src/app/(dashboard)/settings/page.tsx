@@ -15,11 +15,18 @@ import { EditBranchDialog } from "./edit-branch-dialog"
 import { EditRoomDialog } from "./edit-room-dialog"
 import { RoleDisplayNamesForm } from "./role-display-names-form"
 import { AdminBonusContent } from "./admin-bonus/admin-bonus-content"
+import { ProcessLeadsButton } from "./leads-import/process-button"
+import { SyncBalanceButton } from "./leads-import/sync-button"
+import { WipeDatabaseButton } from "./leads-import/wipe-button"
+import { isWipeAvailable } from "@/lib/leads-import/sync-leads"
 
 export default async function SettingsPage() {
   const session = await getSession()
   const tenantId = session.user.tenantId
   const isOwner = session.user.role === "owner"
+  const impersonatedBy = (session.user as unknown as { impersonatedBy?: string }).impersonatedBy
+  const isImpersonatedOwner = isOwner && Boolean(impersonatedBy)
+  const wipeGate = isImpersonatedOwner ? await isWipeAvailable(tenantId) : null
 
   const org = await db.organization.findUnique({
     where: { id: tenantId },
@@ -321,7 +328,40 @@ export default async function SettingsPage() {
         </TabsContent>
 
         {/* Справочники */}
-        <TabsContent value="refs">
+        <TabsContent value="refs" className="space-y-6">
+          {isOwner && (
+            <Card>
+              <CardContent className="p-5 space-y-3">
+                <div>
+                  <h3 className="font-medium">Импорт из 1С</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Двухэтапная миграция базы: сначала обработка выгрузки лидов, затем синхронизация
+                    балансов и заливка контактов в CRM. Доступно только владельцу.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <ProcessLeadsButton />
+                  <SyncBalanceButton />
+                  {wipeGate?.available && wipeGate.expiresAt && (
+                    <WipeDatabaseButton
+                      orgName={org.name}
+                      expiresAt={wipeGate.expiresAt.toISOString()}
+                    />
+                  )}
+                </div>
+                {isImpersonatedOwner && wipeGate && !wipeGate.available && (
+                  <p className="text-xs text-muted-foreground">
+                    Кнопка «Очистить всю базу» появится после первого успешного импорта и
+                    доступна 7 дней после него. Сейчас окно недоступно
+                    {wipeGate.expiresAt
+                      ? ` (истекло ${wipeGate.expiresAt.toLocaleString("ru-RU")})`
+                      : " (импортов ещё не было)"}.
+                    Для очистки после окончания окна — обратитесь в техподдержку.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             <Link href="/settings/channels" className="block">
               <Card className="hover:border-primary/50 transition-colors cursor-pointer">

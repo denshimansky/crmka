@@ -18,6 +18,8 @@ app/playwright-report/
 CLAUDE.md
 tilda/
 meetings/*.txt
+Import/*.xlsx
+.claude/
 
 # SSL certs (generated on server)
 nginx/certbot/
