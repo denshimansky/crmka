@@ -175,9 +175,15 @@ export function SyncBalanceButton() {
             )}
 
             <DialogFooter>
-              <Button type="submit" disabled={loading || !leadsFile}>
-                {loading ? "Синхронизация…" : "Запустить синхронизацию"}
-              </Button>
+              {report ? (
+                <Button type="button" onClick={() => setOpen(false)}>
+                  Закрыть
+                </Button>
+              ) : (
+                <Button type="submit" disabled={loading || !leadsFile}>
+                  {loading ? "Синхронизация…" : "Запустить синхронизацию"}
+                </Button>
+              )}
             </DialogFooter>
           </form>
         </DialogContent>

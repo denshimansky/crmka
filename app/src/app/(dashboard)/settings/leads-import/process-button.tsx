@@ -159,9 +159,15 @@ export function ProcessLeadsButton() {
             )}
 
             <DialogFooter>
-              <Button type="submit" disabled={loading || !file}>
-                {loading ? "Обработка…" : "Обработать и скачать"}
-              </Button>
+              {success ? (
+                <Button type="button" onClick={() => setOpen(false)}>
+                  Закрыть
+                </Button>
+              ) : (
+                <Button type="submit" disabled={loading || !file}>
+                  {loading ? "Обработка…" : "Обработать и скачать"}
+                </Button>
+              )}
             </DialogFooter>
           </form>
         </DialogContent>
