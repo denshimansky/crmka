@@ -1,5 +1,6 @@
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -45,7 +46,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       id: i.id,
       clientId: i.clientId,
       clientName: name,
-      phone: i.client.phone || "—",
+      phone: maskPhone(i.client.phone, session.user.role) || "—",
       wardInfo,
       status: i.status,
       comment: i.comment,

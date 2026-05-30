@@ -12,6 +12,8 @@ import { type Role } from "@prisma/client"
 
 export const PERMISSIONS = [
   // Клиенты / Лиды
+  // Телефоны инструктора всегда маскируются (см. lib/permissions/phone-visibility.ts) —
+  // PRD §5.4: жёсткая политика, не настраивается через матрицу.
   { key: "clients.view", label: "Просмотр клиентов и лидов", group: "Клиенты" },
   { key: "clients.edit", label: "Создание и редактирование клиентов", group: "Клиенты" },
   { key: "clients.delete", label: "Удаление клиентов", group: "Клиенты" },

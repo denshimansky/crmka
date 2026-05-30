@@ -1,5 +1,6 @@
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -69,6 +70,11 @@ export async function ClientCardContent({
   })
 
   if (!client) notFound()
+
+  // Маскируем телефоны для инструктора (PRD §5.4)
+  const role = session.user.role
+  const visiblePhone = maskPhone(client.phone, role)
+  const visiblePhone2 = maskPhone(client.phone2, role)
 
   // Активные абонементы — то, чем ребёнок занимается прямо сейчас:
   // не отчислены админом (withdrawalDate IS NULL, status != withdrawn|closed)
@@ -189,7 +195,7 @@ export async function ClientCardContent({
               )}
           </div>
           <p className="text-sm text-muted-foreground">
-            {client.phone || "—"} · {client.email || "—"}
+            {visiblePhone || "—"} · {client.email || "—"}
           </p>
         </div>
         <div className="text-right">
@@ -377,8 +383,8 @@ export async function ClientCardContent({
                     firstName: client.firstName,
                     lastName: client.lastName,
                     patronymic: client.patronymic,
-                    phone: client.phone,
-                    phone2: client.phone2,
+                    phone: visiblePhone,
+                    phone2: visiblePhone2,
                     email: client.email,
                     socialLink: client.socialLink,
                     branchId: client.branchId,
@@ -401,10 +407,10 @@ export async function ClientCardContent({
                 <span className="text-muted-foreground">Канал привлечения</span>
                 <span>{client.channel?.name || "—"}</span>
               </div>
-              {client.phone2 && (
+              {visiblePhone2 && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Телефон 2</span>
-                  <span>{client.phone2}</span>
+                  <span>{visiblePhone2}</span>
                 </div>
               )}
               {client.email && (

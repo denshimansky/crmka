@@ -2,6 +2,7 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { PageHelp } from "@/components/page-help"
+import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { CreateClientDialog } from "../clients/create-client-dialog"
 import { SalesTabs, type SalesTab } from "./sales-tabs"
 import { SalesTable, type SalesRow, type SalesTabKey } from "./sales-table"
@@ -48,6 +49,7 @@ export default async function SalesPage({
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const role = session.user.role
   const { tab: rawTab } = await searchParams
   const tab: SalesTabKey = TAB_ORDER.includes(rawTab as SalesTabKey)
     ? (rawTab as SalesTabKey)
@@ -119,7 +121,7 @@ export default async function SalesPage({
       state: a.client._count.payments > 0 ? "client" : "lead",
       firstName: a.client.firstName,
       lastName: a.client.lastName,
-      phone: a.client.phone,
+      phone: maskPhone(a.client.phone, role),
       socialLink: a.client.socialLink,
       channelName: a.client.channel?.name ?? null,
       ward: a.ward,
@@ -174,7 +176,7 @@ export default async function SalesPage({
       state: t.client._count.payments > 0 ? "client" : "lead",
       firstName: t.client.firstName,
       lastName: t.client.lastName,
-      phone: t.client.phone,
+      phone: maskPhone(t.client.phone, role),
       socialLink: t.client.socialLink,
       channelName: t.client.channel?.name ?? null,
       ward: t.ward!,
@@ -238,7 +240,7 @@ export default async function SalesPage({
         state: c._count.payments > 0 ? "client" : "lead",
         firstName: c.firstName,
         lastName: c.lastName,
-        phone: c.phone,
+        phone: maskPhone(c.phone, role),
         socialLink: c.socialLink,
         channelName: c.channel?.name ?? null,
         ward: trialWard,

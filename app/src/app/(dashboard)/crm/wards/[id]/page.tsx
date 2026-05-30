@@ -2,6 +2,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -90,6 +91,7 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
   const parentName =
     [ward.client.lastName, ward.client.firstName, ward.client.patronymic].filter(Boolean).join(" ") || "Без имени"
   const wardName = [ward.firstName, ward.lastName].filter(Boolean).join(" ") || "Без имени"
+  const parentPhone = maskPhone(ward.client.phone, session.user.role)
 
   return (
     <div className="space-y-6">
@@ -115,7 +117,7 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
             <Link href={`/crm/clients/${ward.client.id}`} className="hover:underline">
               {parentName}
             </Link>
-            {ward.client.phone ? ` · ${ward.client.phone}` : ""}
+            {parentPhone ? ` · ${parentPhone}` : ""}
           </p>
         </div>
       </div>
