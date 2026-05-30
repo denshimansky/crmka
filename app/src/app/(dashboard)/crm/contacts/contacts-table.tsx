@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useRouter, useSearchParams, usePathname } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Search } from "lucide-react"
@@ -96,12 +97,36 @@ export function ContactsTable({
   tab,
   rows,
   employees,
+  initialQuery = "",
 }: {
   tab: ContactsTabKey
   rows: ContactRow[]
   employees: EmployeeOption[]
+  initialQuery?: string
 }) {
-  const [query, setQuery] = useState("")
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [query, setQuery] = useState(initialQuery)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Debounced sync ввода с URL ?q=… — серверный поиск по всей базе.
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      const params = new URLSearchParams(searchParams.toString())
+      const trimmed = query.trim()
+      if (trimmed) params.set("q", trimmed)
+      else params.delete("q")
+      const next = params.toString()
+      const current = searchParams.toString()
+      if (next !== current) router.replace(`${pathname}?${next}`, { scroll: false })
+    }, 350)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query])
 
   const employeeOptions = useMemo(
     () =>
@@ -112,17 +137,8 @@ export function ContactsTable({
     [employees],
   )
 
-  const visibleRows = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) => {
-      const parent = fullName(r).toLowerCase()
-      if (parent.includes(q)) return true
-      return r.wards.some((w) =>
-        [w.firstName, w.lastName].filter(Boolean).join(" ").toLowerCase().includes(q),
-      )
-    })
-  }, [rows, query])
+  // Сервер уже отфильтровал по q — клиентский filter не нужен.
+  const visibleRows = rows
 
   const searchBar = (
     <div className="relative">

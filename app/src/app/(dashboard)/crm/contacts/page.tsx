@@ -71,14 +71,15 @@ async function countTab(tab: ContactsTabKey, tenantId: string): Promise<number> 
 export default async function ContactsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>
+  searchParams: Promise<{ tab?: string; q?: string }>
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
-  const { tab: rawTab } = await searchParams
+  const { tab: rawTab, q: rawQ } = await searchParams
   const tab: ContactsTabKey = TAB_ORDER.includes(rawTab as ContactsTabKey)
     ? (rawTab as ContactsTabKey)
     : "leads"
+  const query = (rawQ ?? "").trim()
 
   const role = session.user.role
 
@@ -99,7 +100,27 @@ export default async function ContactsPage({
   const counts = new Map<ContactsTabKey, number>()
   TAB_ORDER.forEach((t, i) => counts.set(t, countsArr[i] as number))
 
-  const where = buildWhere(tab, tenantId)
+  const baseWhere = buildWhere(tab, tenantId)
+  let where: Prisma.ClientWhereInput = baseWhere
+  if (query) {
+    const digits = query.replace(/\D/g, "")
+    const orConds: Prisma.ClientWhereInput[] = [
+      { firstName: { contains: query, mode: "insensitive" } },
+      { lastName: { contains: query, mode: "insensitive" } },
+      {
+        wards: {
+          some: {
+            OR: [
+              { firstName: { contains: query, mode: "insensitive" } },
+              { lastName: { contains: query, mode: "insensitive" } },
+            ],
+          },
+        },
+      },
+    ]
+    if (digits) orConds.push({ phone: { contains: digits } })
+    where = { AND: [baseWhere, { OR: orConds }] }
+  }
   const clients = await db.client.findMany({
     where,
     include: {
@@ -189,7 +210,7 @@ export default async function ContactsPage({
 
       <ContactsTabs tabs={tabs} current={tab} />
 
-      <ContactsTable tab={tab} rows={rows} employees={employees} />
+      <ContactsTable tab={tab} rows={rows} employees={employees} initialQuery={query} />
 
       <QuickLeadButton />
     </div>
