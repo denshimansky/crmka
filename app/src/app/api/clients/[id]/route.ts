@@ -84,6 +84,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     )
   }
 
+  // Если воронка переводится в archived/blacklisted — снимаем clientStatus,
+  // чтобы устаревшая плашка («Выбывший» и т.п.) не висела на карточке.
+  const movingToArchived =
+    !!data.funnelStatus &&
+    (data.funnelStatus === "archived" || data.funnelStatus === "blacklisted") &&
+    data.clientStatus === undefined
+
   const client = await db.client.update({
     where: { id },
     data: {
@@ -95,7 +102,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(data.email !== undefined && { email: data.email }),
       ...(data.socialLink !== undefined && { socialLink: data.socialLink }),
       ...(data.funnelStatus && { funnelStatus: data.funnelStatus }),
-      ...(data.clientStatus !== undefined && { clientStatus: data.clientStatus }),
+      ...(movingToArchived
+        ? { clientStatus: null }
+        : data.clientStatus !== undefined && { clientStatus: data.clientStatus }),
       ...(data.branchId !== undefined && { branchId: data.branchId }),
       ...(data.assignedTo !== undefined && { assignedTo: data.assignedTo }),
       ...(data.comment !== undefined && { comment: data.comment }),

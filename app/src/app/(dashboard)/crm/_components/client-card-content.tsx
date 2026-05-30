@@ -172,19 +172,21 @@ export async function ClientCardContent({
             >
               {SEGMENT_LABELS[client.segment] || client.segment}
             </span>
-            {client.clientStatus && (
-              <Badge
-                variant={
-                  client.clientStatus === "churned"
-                    ? "destructive"
-                    : client.clientStatus === "active"
-                      ? "default"
-                      : "secondary"
-                }
-              >
-                {CLIENT_STATUS_LABELS[client.clientStatus] || client.clientStatus}
-              </Badge>
-            )}
+            {client.clientStatus &&
+              client.funnelStatus !== "archived" &&
+              client.funnelStatus !== "blacklisted" && (
+                <Badge
+                  variant={
+                    client.clientStatus === "churned"
+                      ? "destructive"
+                      : client.clientStatus === "active"
+                        ? "default"
+                        : "secondary"
+                  }
+                >
+                  {CLIENT_STATUS_LABELS[client.clientStatus] || client.clientStatus}
+                </Badge>
+              )}
           </div>
           <p className="text-sm text-muted-foreground">
             {client.phone || "—"} · {client.email || "—"}
@@ -224,7 +226,7 @@ export async function ClientCardContent({
         <LeadStatusActions
           clientId={client.id}
           currentStatus={client.funnelStatus}
-          isActiveClient={!!client.clientStatus}
+          isActiveClient={client.clientStatus === "active" || client.clientStatus === "upsell"}
           wards={client.wards.map((w) => ({
             id: w.id,
             firstName: w.firstName,
