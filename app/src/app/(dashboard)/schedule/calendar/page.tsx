@@ -260,20 +260,20 @@ export default function ProductionCalendarPage() {
                         const isHoliday = holiday && !holiday.isWorking
                         const isWorkingOverride = holiday?.isWorking
 
-                        let cellClass = "rounded-lg p-2 text-center text-sm cursor-pointer hover:bg-accent transition-colors min-h-[56px]"
+                        let cellClass = "rounded-md px-1 py-1 text-center text-xs cursor-pointer hover:bg-accent transition-colors min-h-[40px]"
                         if (isHoliday) cellClass += " bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300"
                         else if (isWorkingOverride) cellClass += " bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300"
                         else if (isWeekend) cellClass += " text-red-500"
 
                         return (
-                          <td key={di} className="p-1">
+                          <td key={di} className="p-0.5">
                             <div
                               className={cellClass}
                               onClick={() => holiday ? openEdit(holiday) : openCreate(dateStr)}
                             >
-                              <div className="font-medium">{day}</div>
+                              <div className="font-medium leading-none">{day}</div>
                               {holiday && (
-                                <div className="mt-0.5 truncate text-[10px] leading-tight">
+                                <div className="mt-0.5 truncate text-[9px] leading-none">
                                   {holiday.comment}
                                 </div>
                               )}

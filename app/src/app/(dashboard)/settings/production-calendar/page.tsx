@@ -275,14 +275,14 @@ export default function ProductionCalendarPage() {
                   key={i}
                   type="button"
                   onClick={() => openDay(d)}
-                  className={`flex aspect-square min-h-[60px] flex-col items-center justify-center rounded-md border text-sm transition-colors ${style} ${
+                  className={`flex min-h-[40px] flex-col items-center justify-center rounded-md border px-1 py-1 text-xs transition-colors ${style} ${
                     isToday ? "ring-2 ring-primary" : ""
                   }`}
                   title={item?.comment || ""}
                 >
-                  <span className="font-medium">{d.getDate()}</span>
+                  <span className="font-medium leading-none">{d.getDate()}</span>
                   {item?.comment && (
-                    <span className="mt-0.5 max-w-full truncate px-1 text-[10px] opacity-80">
+                    <span className="mt-0.5 max-w-full truncate text-[9px] leading-none opacity-80">
                       {item.comment}
                     </span>
                   )}
