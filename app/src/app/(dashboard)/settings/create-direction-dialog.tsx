@@ -14,9 +14,37 @@ import { Plus } from "lucide-react"
 import { DIRECTION_ICONS, DEFAULT_DIRECTION_ICON } from "@/lib/direction-icons"
 import { cn } from "@/lib/utils"
 
-export function CreateDirectionDialog() {
+export interface CreatedDirection {
+  id: string
+  name: string
+  lessonPrice: string | number
+  color?: string | null
+  icon?: string | null
+}
+
+interface Props {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  onSuccess?: (direction: CreatedDirection) => void
+  hideTrigger?: boolean
+  refreshOnSuccess?: boolean
+}
+
+export function CreateDirectionDialog({
+  open: openProp,
+  onOpenChange,
+  onSuccess,
+  hideTrigger,
+  refreshOnSuccess = true,
+}: Props = {}) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const [openInternal, setOpenInternal] = useState(false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp! : openInternal
+  const setOpen = (v: boolean) => {
+    if (!isControlled) setOpenInternal(v)
+    onOpenChange?.(v)
+  }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -71,9 +99,11 @@ export function CreateDirectionDialog() {
         return
       }
 
+      const direction = (await res.json()) as CreatedDirection
       setOpen(false)
       resetForm()
-      router.refresh()
+      onSuccess?.(direction)
+      if (refreshOnSuccess) router.refresh()
     } catch {
       setError("Ошибка сети")
     } finally {
@@ -83,10 +113,12 @@ export function CreateDirectionDialog() {
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm() }}>
-      <DialogTrigger render={<Button size="sm" />}>
-        <Plus className="size-4" />
-        Направление
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger render={<Button size="sm" />}>
+          <Plus className="size-4" />
+          Направление
+        </DialogTrigger>
+      )}
 
       <DialogContent className="sm:max-w-md">
         <form onSubmit={handleSubmit}>

@@ -10,7 +10,7 @@ async function getPortalLink(page: any): Promise<string> {
   await page.locator('input[id="password"]').fill("demo123")
   await page.waitForTimeout(200)
   await page.click('button[type="submit"]')
-  await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 15000, waitUntil: "domcontentloaded" })
+  await page.waitForURL((url: URL) => !url.pathname.includes("/login"), { timeout: 15000, waitUntil: "domcontentloaded" })
 
   // Получаем список клиентов и берём первого
   const res = await page.request.get("/api/clients")

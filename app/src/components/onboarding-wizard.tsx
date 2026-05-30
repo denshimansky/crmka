@@ -1,16 +1,33 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
 import {
-  Building2, MapPin, BookOpen, UserCog, Users, PartyPopper,
+  Building2, MapPin, BookOpen, UserCog, Wallet, PartyPopper,
   ChevronLeft, ChevronRight, SkipForward, Loader2, Check,
+  Plus, DoorOpen,
 } from "lucide-react"
+import {
+  CreateBranchDialog, type CreatedBranch,
+} from "@/app/(dashboard)/settings/create-branch-dialog"
+import {
+  CreateRoomDialog, type CreatedRoom,
+} from "@/app/(dashboard)/settings/create-room-dialog"
+import {
+  CreateDirectionDialog, type CreatedDirection,
+} from "@/app/(dashboard)/settings/create-direction-dialog"
+import {
+  CreateEmployeeDialog, type CreatedEmployee,
+} from "@/app/(dashboard)/staff/create-employee-dialog"
+import { SalaryRatesDialog } from "@/app/(dashboard)/staff/salary-rates-dialog"
+import {
+  AddAccountDialog, type CreatedAccount,
+} from "@/app/(dashboard)/finance/cash/add-account-dialog"
 
 interface OnboardingWizardProps {
   orgName: string
@@ -22,196 +39,136 @@ const STEPS = [
   { title: "Филиалы", icon: MapPin },
   { title: "Направления", icon: BookOpen },
   { title: "Сотрудники", icon: UserCog },
-  { title: "Группы", icon: Users },
+  { title: "Кассы", icon: Wallet },
   { title: "Готово!", icon: PartyPopper },
-]
+] as const
+
+interface BranchItem {
+  id: string
+  name: string
+  address?: string | null
+  workingHoursStart?: string | null
+  workingHoursEnd?: string | null
+  rooms: { id: string; name: string; capacity: number }[]
+}
+
+interface DirectionItem {
+  id: string
+  name: string
+  lessonPrice: number | string
+  color?: string | null
+  icon?: string | null
+}
+
+interface EmployeeItem {
+  id: string
+  firstName: string
+  lastName: string
+  middleName?: string | null
+  role: string
+  login: string
+  salaryRatesCount?: number
+}
+
+interface AccountItem {
+  id: string
+  name: string
+  type: string
+  branchId?: string | null
+  branch?: { id: string; name: string } | null
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  owner: "Владелец",
+  manager: "Управляющий",
+  admin: "Администратор",
+  instructor: "Инструктор",
+  readonly: "Только чтение",
+}
+
+const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  cash: "Касса",
+  bank_account: "Р/с",
+  acquiring: "Эквайринг",
+  online: "Онлайн",
+}
 
 export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
   const router = useRouter()
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
-
-  // Step 1: Organization
-  const [name, setName] = useState(orgName)
-  const [inn, setInn] = useState(orgInn || "")
-
-  // Step 2: Branch
-  const [branchName, setBranchName] = useState("")
-  const [roomName, setRoomName] = useState("Кабинет 1")
-  const [branchCreated, setBranchCreated] = useState(false)
-  const [createdBranchId, setCreatedBranchId] = useState("")
-
-  // Step 3: Direction
-  const [directionName, setDirectionName] = useState("")
-  const [lessonPrice, setLessonPrice] = useState("")
-  const [directionCreated, setDirectionCreated] = useState(false)
-  const [createdDirectionId, setCreatedDirectionId] = useState("")
-
-  // Step 4: Employee
-  const [empFirstName, setEmpFirstName] = useState("")
-  const [empLastName, setEmpLastName] = useState("")
-  const [empLogin, setEmpLogin] = useState("")
-  const [empPassword, setEmpPassword] = useState("")
-  const [employeeCreated, setEmployeeCreated] = useState(false)
-  const [createdEmployeeId, setCreatedEmployeeId] = useState("")
-
-  // Step 5: Group
-  const [groupName, setGroupName] = useState("")
-  const [groupCreated, setGroupCreated] = useState(false)
-
   const [error, setError] = useState("")
 
+  const [name, setName] = useState(orgName)
+  const [inn, setInn] = useState(orgInn ?? "")
+
+  const [branches, setBranches] = useState<BranchItem[]>([])
+  const [directions, setDirections] = useState<DirectionItem[]>([])
+  const [employees, setEmployees] = useState<EmployeeItem[]>([])
+  const [accounts, setAccounts] = useState<AccountItem[]>([])
+
+  const [branchDialogOpen, setBranchDialogOpen] = useState(false)
+  const [roomDialogFor, setRoomDialogFor] = useState<string | null>(null)
+  const [directionDialogOpen, setDirectionDialogOpen] = useState(false)
+  const [employeeDialogOpen, setEmployeeDialogOpen] = useState(false)
+  const [salaryDialogFor, setSalaryDialogFor] = useState<{ id: string; name: string } | null>(null)
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false)
+
+  const loadAll = useCallback(async () => {
+    try {
+      const [bRes, dRes, eRes, aRes] = await Promise.all([
+        fetch("/api/branches"),
+        fetch("/api/directions"),
+        fetch("/api/employees"),
+        fetch("/api/accounts"),
+      ])
+      if (bRes.ok) setBranches(await bRes.json())
+      if (dRes.ok) setDirections(await dRes.json())
+      if (eRes.ok) {
+        const data = await eRes.json()
+        setEmployees(
+          data.map((e: { id: string; firstName: string; lastName: string; middleName?: string | null; role: string; login: string; salaryRates?: unknown[] }) => ({
+            id: e.id,
+            firstName: e.firstName,
+            lastName: e.lastName,
+            middleName: e.middleName,
+            role: e.role,
+            login: e.login,
+            salaryRatesCount: Array.isArray(e.salaryRates) ? e.salaryRates.length : 0,
+          })),
+        )
+      }
+      if (aRes.ok) setAccounts(await aRes.json())
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    loadAll()
+  }, [loadAll])
+
   async function saveOrganization() {
+    if (!name.trim()) {
+      setError("Укажите название организации")
+      return
+    }
     setSaving(true)
     setError("")
     try {
       const res = await fetch("/api/organization", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, inn: inn || undefined }),
+        body: JSON.stringify({ name: name.trim(), inn: inn.trim() || undefined }),
       })
       if (!res.ok) {
-        const err = await res.json()
-        setError(err.error || "Ошибка сохранения")
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Не удалось сохранить")
         return
       }
       setStep(1)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function createBranch() {
-    if (!branchName.trim()) { setError("Укажите название филиала"); return }
-    setSaving(true)
-    setError("")
-    try {
-      const res = await fetch("/api/branches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: branchName }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        setError(err.error || "Ошибка создания филиала")
-        return
-      }
-      const branch = await res.json()
-      setCreatedBranchId(branch.id)
-
-      // Создаём кабинет
-      if (roomName.trim()) {
-        await fetch("/api/rooms", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: roomName, branchId: branch.id, capacity: 15 }),
-        })
-      }
-
-      setBranchCreated(true)
-      setStep(2)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function createDirection() {
-    if (!directionName.trim()) { setError("Укажите название направления"); return }
-    const price = Number(lessonPrice)
-    if (isNaN(price) || price < 0) { setError("Укажите корректную цену"); return }
-    setSaving(true)
-    setError("")
-    try {
-      const res = await fetch("/api/directions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: directionName, lessonPrice: price }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        setError(err.error || "Ошибка создания направления")
-        return
-      }
-      const dir = await res.json()
-      setCreatedDirectionId(dir.id)
-      setDirectionCreated(true)
-      setStep(3)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function createEmployee() {
-    if (!empFirstName.trim() || !empLastName.trim()) { setError("Укажите имя и фамилию"); return }
-    if (!empLogin.trim()) { setError("Укажите логин"); return }
-    if (!empPassword || empPassword.length < 6) { setError("Пароль минимум 6 символов"); return }
-    setSaving(true)
-    setError("")
-    try {
-      const res = await fetch("/api/employees", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          firstName: empFirstName,
-          lastName: empLastName,
-          login: empLogin,
-          password: empPassword,
-          role: "instructor",
-          branchIds: createdBranchId ? [createdBranchId] : [],
-        }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        setError(err.error || "Ошибка создания сотрудника")
-        return
-      }
-      const emp = await res.json()
-      setCreatedEmployeeId(emp.id)
-      setEmployeeCreated(true)
-      setStep(4)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function createGroup() {
-    if (!groupName.trim()) { setError("Укажите название группы"); return }
-    if (!createdBranchId || !createdDirectionId || !createdEmployeeId) {
-      setError("Сначала создайте филиал, направление и сотрудника")
-      return
-    }
-    setSaving(true)
-    setError("")
-    try {
-      // Нужен roomId — получим первый кабинет филиала
-      const roomsRes = await fetch("/api/rooms")
-      const rooms = await roomsRes.json()
-      const room = rooms.find((r: { branch: { id: string } }) => r.branch?.id === createdBranchId)
-
-      if (!room) {
-        setError("Кабинет не найден — создайте кабинет в настройках")
-        return
-      }
-
-      const res = await fetch("/api/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: groupName,
-          directionId: createdDirectionId,
-          branchId: createdBranchId,
-          roomId: room.id,
-          instructorId: createdEmployeeId,
-          maxStudents: 15,
-        }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        setError(err.error || "Ошибка создания группы")
-        return
-      }
-      setGroupCreated(true)
-      setStep(5)
+    } catch {
+      setError("Ошибка сети")
     } finally {
       setSaving(false)
     }
@@ -231,333 +188,499 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
     }
   }
 
-  const progressPercent = Math.round((step / (STEPS.length - 1)) * 100)
+  function handleBranchCreated(b: CreatedBranch) {
+    setBranches((prev) => [...prev, { ...b, rooms: [] }])
+  }
+
+  function handleRoomCreated(branchId: string, r: CreatedRoom) {
+    setBranches((prev) =>
+      prev.map((b) =>
+        b.id === branchId
+          ? { ...b, rooms: [...b.rooms, { id: r.id, name: r.name, capacity: r.capacity }] }
+          : b,
+      ),
+    )
+  }
+
+  function handleDirectionCreated(d: CreatedDirection) {
+    setDirections((prev) => [...prev, d])
+  }
+
+  function handleEmployeeCreated(e: CreatedEmployee) {
+    const fullName = [e.lastName, e.firstName].filter(Boolean).join(" ") || e.login
+    setEmployees((prev) => [...prev, { ...e, salaryRatesCount: 0 }])
+    setEmployeeDialogOpen(false)
+    if (e.role === "instructor") {
+      setSalaryDialogFor({ id: e.id, name: fullName })
+    }
+  }
+
+  function handleSalaryDialogChange(open: boolean) {
+    if (!open && salaryDialogFor) {
+      // обновим число ставок у этого сотрудника
+      const targetId = salaryDialogFor.id
+      fetch(`/api/employees/${targetId}/salary-rates`)
+        .then((res) => (res.ok ? res.json() : []))
+        .then((rates: unknown[]) => {
+          setEmployees((prev) =>
+            prev.map((emp) =>
+              emp.id === targetId ? { ...emp, salaryRatesCount: rates.length } : emp,
+            ),
+          )
+        })
+        .catch(() => { /* ignore */ })
+      setSalaryDialogFor(null)
+    }
+  }
+
+  function handleAccountCreated(a: CreatedAccount) {
+    setAccounts((prev) => [...prev, a])
+  }
+
+  const progress = Math.round((step / (STEPS.length - 1)) * 100)
+  const currentStep = STEPS[step]
+  const Icon = currentStep.icon
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      {/* Progress */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
+    <div className="mx-auto max-w-2xl">
+      {/* Прогресс */}
+      <div className="mb-6">
+        <div className="mb-2 flex items-center justify-between text-sm text-muted-foreground">
           <span>Шаг {step + 1} из {STEPS.length}</span>
-          <span>{progressPercent}%</span>
+          <span>{progress}%</span>
         </div>
-        <div className="h-2 rounded-full bg-muted">
+        <div className="h-2 overflow-hidden rounded-full bg-muted">
           <div
-            className="h-2 rounded-full bg-primary transition-all duration-300"
-            style={{ width: `${progressPercent}%` }}
+            className="h-full bg-primary transition-all duration-300"
+            style={{ width: `${progress}%` }}
           />
-        </div>
-        <div className="flex justify-between">
-          {STEPS.map((s, i) => (
-            <div
-              key={i}
-              className={`flex items-center gap-1 text-xs ${
-                i <= step ? "text-primary font-medium" : "text-muted-foreground"
-              }`}
-            >
-              {i < step ? (
-                <Check className="size-3" />
-              ) : (
-                <s.icon className="size-3" />
-              )}
-              <span className="hidden sm:inline">{s.title}</span>
-            </div>
-          ))}
         </div>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            {(() => { const Icon = STEPS[step].icon; return <Icon className="size-5" /> })()}
-            {STEPS[step].title}
+            <Icon className="size-5 text-primary" />
+            {currentStep.title}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
-            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
             </div>
           )}
 
-          {/* Step 0: Welcome */}
+          {/* Шаг 0: Организация */}
           {step === 0 && (
-            <>
+            <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Настроим вашу организацию за несколько шагов. Это займёт пару минут.
+                Давайте начнём с базовой информации о вашей организации. Эти данные
+                можно будет изменить позже в настройках.
               </p>
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="org-name">Название организации *</Label>
-                  <Input
-                    id="org-name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Детский центр «Радуга»"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="org-inn">ИНН (опционально)</Label>
-                  <Input
-                    id="org-inn"
-                    value={inn}
-                    onChange={(e) => setInn(e.target.value)}
-                    placeholder="1234567890"
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <Label>Название организации *</Label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Детский центр «Звёздочка»"
+                />
               </div>
-              <div className="flex justify-end">
-                <Button onClick={saveOrganization} disabled={saving || !name.trim()}>
-                  {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
-                  Далее
-                  <ChevronRight className="ml-1 size-4" />
-                </Button>
+              <div className="space-y-1.5">
+                <Label>ИНН (опционально)</Label>
+                <Input
+                  value={inn}
+                  onChange={(e) => setInn(e.target.value)}
+                  placeholder="1234567890"
+                />
               </div>
-            </>
+            </div>
           )}
 
-          {/* Step 1: Branch */}
+          {/* Шаг 1: Филиалы */}
           {step === 1 && (
-            <>
+            <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Создайте хотя бы один филиал и кабинет. Филиал — это физическая локация вашего центра.
+                Добавьте все ваши филиалы и кабинеты в них. Кабинеты используются
+                в расписании групп.
               </p>
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="branch-name">Название филиала *</Label>
-                  <Input
-                    id="branch-name"
-                    value={branchName}
-                    onChange={(e) => setBranchName(e.target.value)}
-                    placeholder="Основной филиал"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="room-name">Название кабинета</Label>
-                  <Input
-                    id="room-name"
-                    value={roomName}
-                    onChange={(e) => setRoomName(e.target.value)}
-                    placeholder="Кабинет 1"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setStep(0)}>
-                  <ChevronLeft className="mr-1 size-4" />
-                  Назад
-                </Button>
-                <div className="flex gap-2">
-                  <Button variant="ghost" onClick={() => setStep(2)}>
-                    <SkipForward className="mr-1 size-4" />
-                    Пропустить
-                  </Button>
-                  <Button onClick={createBranch} disabled={saving}>
-                    {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
-                    Далее
-                    <ChevronRight className="ml-1 size-4" />
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
 
-          {/* Step 2: Direction */}
-          {step === 2 && (
-            <>
-              <p className="text-sm text-muted-foreground">
-                Направление — это вид занятий в вашем центре (рисование, танцы, английский и т.д.).
-              </p>
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="dir-name">Название направления *</Label>
-                  <Input
-                    id="dir-name"
-                    value={directionName}
-                    onChange={(e) => setDirectionName(e.target.value)}
-                    placeholder="Рисование"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="lesson-price">Стоимость одного занятия (₽) *</Label>
-                  <Input
-                    id="lesson-price"
-                    type="number"
-                    value={lessonPrice}
-                    onChange={(e) => setLessonPrice(e.target.value)}
-                    placeholder="500"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setStep(1)}>
-                  <ChevronLeft className="mr-1 size-4" />
-                  Назад
-                </Button>
-                <div className="flex gap-2">
-                  <Button variant="ghost" onClick={() => setStep(3)}>
-                    <SkipForward className="mr-1 size-4" />
-                    Пропустить
-                  </Button>
-                  <Button onClick={createDirection} disabled={saving}>
-                    {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
-                    Далее
-                    <ChevronRight className="ml-1 size-4" />
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* Step 3: Employee */}
-          {step === 3 && (
-            <>
-              <p className="text-sm text-muted-foreground">
-                Добавьте инструктора — он будет вести занятия. Логин и пароль понадобятся для входа в систему.
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor="emp-fn">Имя *</Label>
-                  <Input
-                    id="emp-fn"
-                    value={empFirstName}
-                    onChange={(e) => setEmpFirstName(e.target.value)}
-                    placeholder="Анна"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="emp-ln">Фамилия *</Label>
-                  <Input
-                    id="emp-ln"
-                    value={empLastName}
-                    onChange={(e) => setEmpLastName(e.target.value)}
-                    placeholder="Иванова"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="emp-login">Логин (латиница) *</Label>
-                  <Input
-                    id="emp-login"
-                    value={empLogin}
-                    onChange={(e) => setEmpLogin(e.target.value)}
-                    placeholder="ivanova"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="emp-pass">Пароль *</Label>
-                  <PasswordInput
-                    id="emp-pass"
-                    value={empPassword}
-                    onChange={(e) => setEmpPassword(e.target.value)}
-                    placeholder="••••••"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setStep(2)}>
-                  <ChevronLeft className="mr-1 size-4" />
-                  Назад
-                </Button>
-                <div className="flex gap-2">
-                  <Button variant="ghost" onClick={() => setStep(4)}>
-                    <SkipForward className="mr-1 size-4" />
-                    Пропустить
-                  </Button>
-                  <Button onClick={createEmployee} disabled={saving}>
-                    {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
-                    Далее
-                    <ChevronRight className="ml-1 size-4" />
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* Step 4: Group */}
-          {step === 4 && (
-            <>
-              <p className="text-sm text-muted-foreground">
-                Группа объединяет направление, инструктора и кабинет. После создания группы можно будет сгенерировать расписание.
-              </p>
-              {!createdBranchId || !createdDirectionId || !createdEmployeeId ? (
-                <div className="rounded-md bg-yellow-50 p-3 text-sm text-yellow-800">
-                  Для создания группы нужны филиал, направление и инструктор. Вернитесь и создайте их или пропустите этот шаг.
+              {branches.length === 0 ? (
+                <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
+                  Пока нет ни одного филиала
                 </div>
               ) : (
-                <div>
-                  <Label htmlFor="group-name">Название группы *</Label>
-                  <Input
-                    id="group-name"
-                    value={groupName}
-                    onChange={(e) => setGroupName(e.target.value)}
-                    placeholder="Рисование Пн/Ср 10:00"
-                  />
+                <div className="space-y-3">
+                  {branches.map((b) => (
+                    <div key={b.id} className="rounded-md border p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <MapPin className="size-4 shrink-0 text-muted-foreground" />
+                            <span className="truncate font-medium">{b.name}</span>
+                          </div>
+                          {b.address && (
+                            <div className="ml-6 mt-0.5 text-xs text-muted-foreground">
+                              {b.address}
+                            </div>
+                          )}
+                          {(b.workingHoursStart || b.workingHoursEnd) && (
+                            <div className="ml-6 mt-0.5 text-xs text-muted-foreground">
+                              {b.workingHoursStart ?? "—"} — {b.workingHoursEnd ?? "—"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Кабинеты */}
+                      <div className="ml-6 mt-2 space-y-1">
+                        {b.rooms.length === 0 ? (
+                          <div className="text-xs text-muted-foreground">Нет кабинетов</div>
+                        ) : (
+                          b.rooms.map((r) => (
+                            <div key={r.id} className="flex items-center gap-2 text-xs">
+                              <DoorOpen className="size-3 text-muted-foreground" />
+                              <span>{r.name}</span>
+                              <span className="text-muted-foreground">· до {r.capacity} мест</span>
+                            </div>
+                          ))
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setRoomDialogFor(b.id)}
+                        >
+                          <Plus className="mr-1 size-3" />
+                          Добавить кабинет
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
-              <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setStep(3)}>
-                  <ChevronLeft className="mr-1 size-4" />
-                  Назад
-                </Button>
-                <div className="flex gap-2">
-                  <Button variant="ghost" onClick={() => setStep(5)}>
-                    <SkipForward className="mr-1 size-4" />
-                    Пропустить
-                  </Button>
-                  {createdBranchId && createdDirectionId && createdEmployeeId && (
-                    <Button onClick={createGroup} disabled={saving}>
-                      {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
-                      Далее
-                      <ChevronRight className="ml-1 size-4" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setBranchDialogOpen(true)}
+                className="w-full"
+              >
+                <Plus className="mr-1 size-4" />
+                Добавить филиал
+              </Button>
+
+              <CreateBranchDialog
+                open={branchDialogOpen}
+                onOpenChange={setBranchDialogOpen}
+                hideTrigger
+                refreshOnSuccess={false}
+                onSuccess={handleBranchCreated}
+              />
+              {roomDialogFor && (
+                <CreateRoomDialog
+                  branches={branches.map((b) => ({ id: b.id, name: b.name }))}
+                  fixedBranchId={roomDialogFor}
+                  open={!!roomDialogFor}
+                  onOpenChange={(open) => { if (!open) setRoomDialogFor(null) }}
+                  hideTrigger
+                  refreshOnSuccess={false}
+                  onSuccess={(r) => handleRoomCreated(roomDialogFor, r)}
+                />
+              )}
+            </div>
           )}
 
-          {/* Step 5: Done */}
-          {step === 5 && (
-            <>
-              <div className="flex flex-col items-center gap-4 py-6 text-center">
-                <PartyPopper className="size-12 text-primary" />
-                <h2 className="text-xl font-bold">Всё готово!</h2>
-                <p className="text-sm text-muted-foreground max-w-sm">
-                  Основная настройка завершена. Теперь можно работать с CRM: добавлять клиентов, вести расписание, принимать оплаты.
-                </p>
-                <div className="flex flex-col gap-2 text-sm text-left">
-                  {branchCreated && (
-                    <div className="flex items-center gap-2 text-green-600">
-                      <Check className="size-4" /> Филиал создан
-                    </div>
-                  )}
-                  {directionCreated && (
-                    <div className="flex items-center gap-2 text-green-600">
-                      <Check className="size-4" /> Направление создано
-                    </div>
-                  )}
-                  {employeeCreated && (
-                    <div className="flex items-center gap-2 text-green-600">
-                      <Check className="size-4" /> Инструктор добавлен
-                    </div>
-                  )}
-                  {groupCreated && (
-                    <div className="flex items-center gap-2 text-green-600">
-                      <Check className="size-4" /> Группа создана
-                    </div>
-                  )}
+          {/* Шаг 2: Направления */}
+          {step === 2 && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Направления — это услуги, которые вы предлагаете (например, «Развивайка
+                3-4», «Английский», «Танцы»). У каждого своя цена и длительность.
+              </p>
+
+              {directions.length === 0 ? (
+                <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
+                  Пока нет ни одного направления
                 </div>
+              ) : (
+                <div className="space-y-2">
+                  {directions.map((d) => (
+                    <div key={d.id} className="flex items-center gap-3 rounded-md border p-3">
+                      <div
+                        className="size-8 shrink-0 rounded-md"
+                        style={{ backgroundColor: d.color ?? "#3b82f6" }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium">{d.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {Number(d.lessonPrice)} ₽ за занятие
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDirectionDialogOpen(true)}
+                className="w-full"
+              >
+                <Plus className="mr-1 size-4" />
+                Добавить направление
+              </Button>
+
+              <CreateDirectionDialog
+                open={directionDialogOpen}
+                onOpenChange={setDirectionDialogOpen}
+                hideTrigger
+                refreshOnSuccess={false}
+                onSuccess={handleDirectionCreated}
+              />
+            </div>
+          )}
+
+          {/* Шаг 3: Сотрудники */}
+          {step === 3 && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Добавьте сотрудников: администраторов, инструкторов, управляющих.
+                После создания инструктора откроется окно для указания его ставок ЗП.
+              </p>
+
+              {employees.length === 0 ? (
+                <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
+                  Пока нет ни одного сотрудника
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {employees.map((e) => {
+                    const fullName = [e.lastName, e.firstName, e.middleName]
+                      .filter(Boolean)
+                      .join(" ")
+                    return (
+                      <div key={e.id} className="flex items-center gap-3 rounded-md border p-3">
+                        <UserCog className="size-4 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium">{fullName || e.login}</div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Badge variant="outline" className="text-[10px]">
+                              {ROLE_LABELS[e.role] || e.role}
+                            </Badge>
+                            {e.role === "instructor" && (
+                              <span>
+                                {e.salaryRatesCount ? `${e.salaryRatesCount} ставок ЗП` : "ставок ЗП не задано"}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {e.role === "instructor" && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => setSalaryDialogFor({ id: e.id, name: fullName || e.login })}
+                          >
+                            <Wallet className="mr-1 size-3" />
+                            Ставки
+                          </Button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEmployeeDialogOpen(true)}
+                className="w-full"
+                disabled={branches.length === 0}
+              >
+                <Plus className="mr-1 size-4" />
+                Добавить сотрудника
+              </Button>
+              {branches.length === 0 && (
+                <p className="text-center text-xs text-muted-foreground">
+                  Сначала добавьте хотя бы один филиал, чтобы привязать к нему сотрудника.
+                </p>
+              )}
+
+              <CreateEmployeeDialog
+                branches={branches.map((b) => ({ id: b.id, name: b.name }))}
+                open={employeeDialogOpen}
+                onOpenChange={setEmployeeDialogOpen}
+                hideTrigger
+                refreshOnSuccess={false}
+                onSuccess={handleEmployeeCreated}
+              />
+              {salaryDialogFor && (
+                <SalaryRatesDialog
+                  employeeId={salaryDialogFor.id}
+                  employeeName={salaryDialogFor.name}
+                  directions={directions.map((d) => ({ id: d.id, name: d.name }))}
+                  open
+                  onOpenChange={handleSalaryDialogChange}
+                  hideTrigger
+                  refreshOnSuccess={false}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Шаг 4: Кассы */}
+          {step === 4 && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Касса — это любое место, где появляются деньги: наличная касса в филиале,
+                расчётный счёт, эквайринг, онлайн-оплата. Без касс не получится принимать платежи.
+              </p>
+
+              {accounts.length === 0 ? (
+                <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
+                  Пока нет ни одной кассы
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {accounts.map((a) => (
+                    <div key={a.id} className="flex items-center gap-3 rounded-md border p-3">
+                      <Wallet className="size-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium">{a.name}</div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Badge variant="outline" className="text-[10px]">
+                            {ACCOUNT_TYPE_LABELS[a.type] || a.type}
+                          </Badge>
+                          {a.branch?.name && <span>· {a.branch.name}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAccountDialogOpen(true)}
+                className="w-full"
+              >
+                <Plus className="mr-1 size-4" />
+                Добавить кассу
+              </Button>
+
+              <AddAccountDialog
+                branches={branches.map((b) => ({ id: b.id, name: b.name }))}
+                open={accountDialogOpen}
+                onOpenChange={setAccountDialogOpen}
+                hideTrigger
+                refreshOnSuccess={false}
+                onSuccess={handleAccountCreated}
+              />
+            </div>
+          )}
+
+          {/* Шаг 5: Готово */}
+          {step === 5 && (
+            <div className="space-y-4 text-center">
+              <PartyPopper className="mx-auto size-12 text-primary" />
+              <div>
+                <h3 className="text-lg font-semibold">Всё готово!</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Базовая настройка завершена. Теперь можно завести клиентов, собрать
+                  группы и начать работу.
+                </p>
               </div>
-              <div className="flex justify-center">
-                <Button size="lg" onClick={finishOnboarding} disabled={saving}>
-                  {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
-                  Перейти к дашборду
-                </Button>
+
+              <div className="mx-auto max-w-sm space-y-2 text-left text-sm">
+                <SummaryLine
+                  done={branches.length > 0}
+                  text={`${branches.length} ${pl(branches.length, "филиал", "филиала", "филиалов")} (${branches.reduce((s, b) => s + b.rooms.length, 0)} ${pl(branches.reduce((s, b) => s + b.rooms.length, 0), "кабинет", "кабинета", "кабинетов")})`}
+                />
+                <SummaryLine
+                  done={directions.length > 0}
+                  text={`${directions.length} ${pl(directions.length, "направление", "направления", "направлений")}`}
+                />
+                <SummaryLine
+                  done={employees.length > 0}
+                  text={`${employees.length} ${pl(employees.length, "сотрудник", "сотрудника", "сотрудников")}`}
+                />
+                <SummaryLine
+                  done={accounts.length > 0}
+                  text={`${accounts.length} ${pl(accounts.length, "касса", "кассы", "касс")}`}
+                />
               </div>
-            </>
+
+              <Button onClick={finishOnboarding} disabled={saving} className="w-full">
+                {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                Перейти к дашборду
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Навигация */}
+      {step < STEPS.length - 1 && (
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setStep(step - 1)}
+            disabled={step === 0}
+          >
+            <ChevronLeft className="mr-1 size-4" />
+            Назад
+          </Button>
+
+          <div className="flex items-center gap-2">
+            {step > 0 && (
+              <Button type="button" variant="ghost" onClick={() => setStep(step + 1)}>
+                <SkipForward className="mr-1 size-4" />
+                Пропустить
+              </Button>
+            )}
+            <Button
+              type="button"
+              onClick={() => {
+                if (step === 0) {
+                  saveOrganization()
+                } else {
+                  setStep(step + 1)
+                }
+              }}
+              disabled={saving || (step === 0 && !name.trim())}
+            >
+              {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              Далее
+              <ChevronRight className="ml-1 size-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+function SummaryLine({ done, text }: { done: boolean; text: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Check className={done ? "size-4 text-primary" : "size-4 text-muted-foreground/30"} />
+      <span className={done ? "" : "text-muted-foreground"}>{text}</span>
+    </div>
+  )
+}
+
+function pl(n: number, one: string, few: string, many: string): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 14) return many
+  if (mod10 === 1) return one
+  if (mod10 >= 2 && mod10 <= 4) return few
+  return many
 }

@@ -59,7 +59,8 @@ function safeTest(name: string, fn: (page: Page) => Promise<void>, timeout = 300
 }
 
 // === SHARED STATE ===
-const state: Record<string, any> = {
+const state = {
+  orgId: "" as string,
   branchIds: [] as string[],
   roomIds: [] as string[], // [[branch0 rooms], [branch1 rooms], [branch2 rooms]]
   roomsByBranch: {} as Record<string, string[]>,

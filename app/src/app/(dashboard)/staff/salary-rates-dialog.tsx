@@ -64,17 +64,33 @@ function shortSummary(r: RateRow): string {
   return parts.join(" · ")
 }
 
+interface Props {
+  employeeId: string
+  employeeName: string
+  directions: DirectionOption[]
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  hideTrigger?: boolean
+  refreshOnSuccess?: boolean
+}
+
 export function SalaryRatesDialog({
   employeeId,
   employeeName,
   directions,
-}: {
-  employeeId: string
-  employeeName: string
-  directions: DirectionOption[]
-}) {
+  open: openProp,
+  onOpenChange,
+  hideTrigger,
+  refreshOnSuccess = true,
+}: Props) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const [openInternal, setOpenInternal] = useState(false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp! : openInternal
+  const setOpen = (v: boolean) => {
+    if (!isControlled) setOpenInternal(v)
+    onOpenChange?.(v)
+  }
   const [rates, setRates] = useState<RateRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -143,7 +159,7 @@ export function SalaryRatesDialog({
       }
       setEditing(null)
       load()
-      router.refresh()
+      if (refreshOnSuccess) router.refresh()
     } finally {
       setSaving(false)
     }
@@ -160,7 +176,7 @@ export function SalaryRatesDialog({
         return
       }
       load()
-      router.refresh()
+      if (refreshOnSuccess) router.refresh()
     } catch {
       /* ignore */
     }
@@ -173,11 +189,13 @@ export function SalaryRatesDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={
-        <Button variant="ghost" size="icon" className="size-8" title="Ставки ЗП">
-          <Wallet className="size-4 text-muted-foreground" />
-        </Button>
-      } />
+      {!hideTrigger && (
+        <DialogTrigger render={
+          <Button variant="ghost" size="icon" className="size-8" title="Ставки ЗП">
+            <Wallet className="size-4 text-muted-foreground" />
+          </Button>
+        } />
+      )}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Ставки ЗП — {employeeName}</DialogTitle>

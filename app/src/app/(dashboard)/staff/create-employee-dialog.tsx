@@ -28,9 +28,42 @@ interface Branch {
   name: string
 }
 
-export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
+export interface CreatedEmployee {
+  id: string
+  firstName: string
+  lastName: string
+  middleName?: string | null
+  role: string
+  login: string
+}
+
+interface Props {
+  branches: Branch[]
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  onSuccess?: (employee: CreatedEmployee) => void
+  hideTrigger?: boolean
+  defaultRole?: string
+  refreshOnSuccess?: boolean
+}
+
+export function CreateEmployeeDialog({
+  branches,
+  open: openProp,
+  onOpenChange,
+  onSuccess,
+  hideTrigger,
+  defaultRole = "admin",
+  refreshOnSuccess = true,
+}: Props) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const [openInternal, setOpenInternal] = useState(false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp! : openInternal
+  const setOpen = (v: boolean) => {
+    if (!isControlled) setOpenInternal(v)
+    onOpenChange?.(v)
+  }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -39,7 +72,7 @@ export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
   const [middleName, setMiddleName] = useState("")
   const [login, setLogin] = useState("")
   const [password, setPassword] = useState("")
-  const [role, setRole] = useState<string>("admin")
+  const [role, setRole] = useState<string>(defaultRole)
   const [selectedBranches, setSelectedBranches] = useState<string[]>([])
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
@@ -51,7 +84,7 @@ export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
     setMiddleName("")
     setLogin("")
     setPassword("")
-    setRole("admin")
+    setRole(defaultRole)
     setSelectedBranches([])
     setPhone("")
     setEmail("")
@@ -113,9 +146,11 @@ export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
         return
       }
 
+      const employee = (await res.json()) as CreatedEmployee
       setOpen(false)
       resetForm()
-      router.refresh()
+      onSuccess?.(employee)
+      if (refreshOnSuccess) router.refresh()
     } catch {
       setError("Ошибка сети")
     } finally {
@@ -131,10 +166,12 @@ export function CreateEmployeeDialog({ branches }: { branches: Branch[] }) {
         if (!nextOpen) resetForm()
       }}
     >
-      <DialogTrigger render={<Button size="sm" />}>
-        <Plus className="size-4" />
-        Сотрудник
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger render={<Button size="sm" />}>
+          <Plus className="size-4" />
+          Сотрудник
+        </DialogTrigger>
+      )}
 
       <DialogContent className="sm:max-w-md">
         <form onSubmit={handleSubmit}>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,17 +18,56 @@ interface Branch {
   name: string
 }
 
-export function CreateRoomDialog({ branches }: { branches: Branch[] }) {
+export interface CreatedRoom {
+  id: string
+  name: string
+  capacity: number
+  branchId: string
+}
+
+interface Props {
+  branches: Branch[]
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  onSuccess?: (room: CreatedRoom) => void
+  hideTrigger?: boolean
+  fixedBranchId?: string
+  refreshOnSuccess?: boolean
+}
+
+export function CreateRoomDialog({
+  branches,
+  open: openProp,
+  onOpenChange,
+  onSuccess,
+  hideTrigger,
+  fixedBranchId,
+  refreshOnSuccess = true,
+}: Props) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const [openInternal, setOpenInternal] = useState(false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp! : openInternal
+  const setOpen = (v: boolean) => {
+    if (!isControlled) setOpenInternal(v)
+    onOpenChange?.(v)
+  }
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState("")
-  const [branchId, setBranchId] = useState("")
+  const [branchId, setBranchId] = useState(fixedBranchId ?? "")
   const [capacity, setCapacity] = useState("15")
 
+  useEffect(() => {
+    if (fixedBranchId) setBranchId(fixedBranchId)
+  }, [fixedBranchId])
+
   function resetForm() {
-    setName(""); setBranchId(""); setCapacity("15"); setError(null)
+    setName("")
+    setBranchId(fixedBranchId ?? "")
+    setCapacity("15")
+    setError(null)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -53,9 +92,11 @@ export function CreateRoomDialog({ branches }: { branches: Branch[] }) {
         setError(data.error || "Ошибка создания")
         return
       }
+      const room = (await res.json()) as CreatedRoom
       setOpen(false)
       resetForm()
-      router.refresh()
+      onSuccess?.(room)
+      if (refreshOnSuccess) router.refresh()
     } catch {
       setError("Ошибка сети")
     } finally {
@@ -67,14 +108,16 @@ export function CreateRoomDialog({ branches }: { branches: Branch[] }) {
 
   return (
     <>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <Plus className="size-4" />
-        Кабинет
-      </Button>
+      {!hideTrigger && (
+        <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+          <Plus className="size-4" />
+          Кабинет
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Новый кабинет</DialogTitle>
+          <DialogTitle>Новый кабинет{fixedBranchId && selectedBranch ? ` — ${selectedBranch.name}` : ""}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
@@ -82,19 +125,21 @@ export function CreateRoomDialog({ branches }: { branches: Branch[] }) {
             <Label>Название *</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Зал 1" />
           </div>
-          <div className="space-y-1.5">
-            <Label>Филиал *</Label>
-            <Select value={branchId} onValueChange={(v) => { if (v) setBranchId(v) }}>
-              <SelectTrigger className="w-full">
-                {selectedBranch ? selectedBranch.name : <span className="text-muted-foreground">Выберите филиал</span>}
-              </SelectTrigger>
-              <SelectContent>
-                {branches.map(b => (
-                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!fixedBranchId && (
+            <div className="space-y-1.5">
+              <Label>Филиал *</Label>
+              <Select value={branchId} onValueChange={(v) => { if (v) setBranchId(v) }}>
+                <SelectTrigger className="w-full">
+                  {selectedBranch ? selectedBranch.name : <span className="text-muted-foreground">Выберите филиал</span>}
+                </SelectTrigger>
+                <SelectContent>
+                  {branches.map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>Вместимость</Label>
             <Input type="number" min={1} value={capacity} onChange={(e) => setCapacity(e.target.value)} />

@@ -10,9 +10,38 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Plus } from "lucide-react"
 
-export function CreateBranchDialog() {
+export interface CreatedBranch {
+  id: string
+  name: string
+  address?: string | null
+  workingHoursStart?: string | null
+  workingHoursEnd?: string | null
+}
+
+interface Props {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  onSuccess?: (branch: CreatedBranch) => void
+  hideTrigger?: boolean
+  refreshOnSuccess?: boolean
+}
+
+export function CreateBranchDialog({
+  open: openProp,
+  onOpenChange,
+  onSuccess,
+  hideTrigger,
+  refreshOnSuccess = true,
+}: Props = {}) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const [openInternal, setOpenInternal] = useState(false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp! : openInternal
+  const setOpen = (v: boolean) => {
+    if (!isControlled) setOpenInternal(v)
+    onOpenChange?.(v)
+  }
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState("")
@@ -46,9 +75,11 @@ export function CreateBranchDialog() {
         setError(data.error || "Ошибка создания")
         return
       }
+      const branch = (await res.json()) as CreatedBranch
       setOpen(false)
       resetForm()
-      router.refresh()
+      onSuccess?.(branch)
+      if (refreshOnSuccess) router.refresh()
     } catch {
       setError("Ошибка сети")
     } finally {
@@ -58,10 +89,12 @@ export function CreateBranchDialog() {
 
   return (
     <>
-      <Button size="sm" onClick={() => setOpen(true)}>
-        <Plus className="size-4" />
-        Филиал
-      </Button>
+      {!hideTrigger && (
+        <Button size="sm" onClick={() => setOpen(true)}>
+          <Plus className="size-4" />
+          Филиал
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm() }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>

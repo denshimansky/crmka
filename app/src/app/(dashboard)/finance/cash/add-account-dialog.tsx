@@ -11,7 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import {
   Select,
@@ -33,9 +32,39 @@ const TYPE_OPTIONS = [
   { value: "online", label: "Онлайн-оплата" },
 ]
 
-export function AddAccountDialog({ branches }: { branches: BranchOption[] }) {
+export interface CreatedAccount {
+  id: string
+  name: string
+  type: string
+  branchId?: string | null
+  branch?: { id: string; name: string } | null
+}
+
+interface Props {
+  branches: BranchOption[]
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  onSuccess?: (account: CreatedAccount) => void
+  hideTrigger?: boolean
+  refreshOnSuccess?: boolean
+}
+
+export function AddAccountDialog({
+  branches,
+  open: openProp,
+  onOpenChange,
+  onSuccess,
+  hideTrigger,
+  refreshOnSuccess = true,
+}: Props) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const [openInternal, setOpenInternal] = useState(false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp! : openInternal
+  const setOpen = (v: boolean) => {
+    if (!isControlled) setOpenInternal(v)
+    onOpenChange?.(v)
+  }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -75,9 +104,11 @@ export function AddAccountDialog({ branches }: { branches: BranchOption[] }) {
         return
       }
 
+      const account = (await res.json()) as CreatedAccount
       reset()
       setOpen(false)
-      router.refresh()
+      onSuccess?.(account)
+      if (refreshOnSuccess) router.refresh()
     } catch {
       setError("Ошибка сети")
     } finally {
@@ -90,10 +121,12 @@ export function AddAccountDialog({ branches }: { branches: BranchOption[] }) {
 
   return (
     <>
-    <Button onClick={() => setOpen(true)}>
-      <Plus className="mr-2 size-4" />
-      Счёт
-    </Button>
+    {!hideTrigger && (
+      <Button onClick={() => setOpen(true)}>
+        <Plus className="mr-2 size-4" />
+        Счёт
+      </Button>
+    )}
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
