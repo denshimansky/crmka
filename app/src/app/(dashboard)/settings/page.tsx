@@ -3,7 +3,7 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Building2, MapPin, Megaphone, Palette, Shield, UserX, CalendarDays, ListChecks, Bell } from "lucide-react"
+import { Building2, MapPin, Megaphone, Palette, Shield, UserX, CalendarDays, ListChecks, Bell, UserCog, Landmark } from "lucide-react"
 import { getDirectionIcon } from "@/lib/direction-icons"
 import Link from "next/link"
 import { CreateDirectionDialog } from "./create-direction-dialog"
@@ -463,6 +463,36 @@ export default async function SettingsPage() {
                     <h3 className="font-medium">Автотриггеры задач</h3>
                     <p className="text-xs text-muted-foreground mt-1">
                       Включение/выключение автоматических задач и старт «с N числа»
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href="/staff" className="block">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="flex items-start gap-3 p-5">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <UserCog className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Сотрудники</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Учётные записи, роли, ставки ЗП, филиалы и контакты сотрудников
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href="/finance/cash" className="block">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="flex items-start gap-3 p-5">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Landmark className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">Касса</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Счета: наличные, расчётный, эквайринг, онлайн — балансы и операции
                     </p>
                   </div>
                 </CardContent>

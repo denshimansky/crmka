@@ -6,9 +6,9 @@ import { useSession } from "next-auth/react"
 import { signOut } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
-  Landmark, ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
-  UserCog, Settings, Sparkles, ChevronDown, LogOut, Crown,
-  CalendarDays, Tag, Target, Plug, Baby,
+  ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
+  Settings, Sparkles, ChevronDown, LogOut, Crown,
+  Target, Plug, Baby,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import {
@@ -44,21 +44,17 @@ const financeItems = [
   { title: "Оплаты", href: "/finance/payments", icon: CreditCard },
   { title: "Расходы", href: "/finance/expenses", icon: Receipt },
   { title: "Плановые расходы", href: "/finance/planned-expenses", icon: Target },
-  { title: "Касса", href: "/finance/cash", icon: Landmark },
   { title: "ДДС", href: "/finance/dds", icon: ArrowDownUp },
   { title: "Должники", href: "/finance/debtors", icon: AlertTriangle },
 ]
 
 const otherItems = [
   { title: "Расписание", href: "/schedule", icon: Calendar },
-  { title: "Произв. календарь", href: "/schedule/calendar", icon: CalendarDays },
   { title: "Зарплата", href: "/salary", icon: Wallet },
   { title: "Склад", href: "/stock", icon: Package },
   { title: "Задачи", href: "/tasks", icon: ClipboardList },
   { title: "Отчёты", href: "/reports", icon: BarChart3 },
-  { title: "Сотрудники", href: "/staff", icon: UserCog },
   { title: "Настройки", href: "/settings", icon: Settings },
-  { title: "Шаблоны скидок", href: "/settings/discount-templates", icon: Tag },
   { title: "Интеграции", href: "/settings/integrations", icon: Plug },
 ]
 
