@@ -296,62 +296,6 @@ function EditSubscriptionDialog({
   )
 }
 
-// ===== Change Subscription Status =====
-
-function ChangeStatusButton({
-  subscription,
-  targetStatus,
-  label,
-  variant = "outline",
-  icon: Icon,
-  onSuccess,
-}: {
-  subscription: Subscription
-  targetStatus: "closed" | "withdrawn"
-  label: string
-  variant?: "outline" | "destructive"
-  icon: typeof X
-  onSuccess: () => void
-}) {
-  const [loading, setLoading] = useState(false)
-
-  async function handleClick() {
-    if (!confirm(`${label} абонемент "${subscription.direction.name}" (${MONTH_NAMES[subscription.periodMonth]} ${subscription.periodYear})?`)) {
-      return
-    }
-
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: targetStatus }),
-      })
-
-      if (res.ok) {
-        onSuccess()
-      }
-    } catch {
-      /* ignore */
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <Button
-      variant={variant === "destructive" ? "ghost" : "ghost"}
-      size="icon"
-      className="size-7"
-      onClick={handleClick}
-      disabled={loading}
-      title={label}
-    >
-      <Icon className={`size-3.5 ${variant === "destructive" ? "text-red-500" : "text-muted-foreground"}`} />
-    </Button>
-  )
-}
-
 // ===== Refund Subscription Dialog =====
 
 interface RefundPreview {
@@ -527,6 +471,312 @@ function RefundSubscriptionDialog({
                 {loading ? "Обработка..." : `Вернуть ${formatMoney(preview.refundAmount)}`}
               </Button>
             </DialogFooter>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ===== Close Subscription Dialog =====
+
+function CloseSubscriptionDialog({
+  subscription,
+  onSuccess,
+}: {
+  subscription: Subscription
+  onSuccess: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function handleOpen(v: boolean) {
+    setOpen(v)
+    if (!v) setError(null)
+  }
+
+  async function handleClose() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "closed" }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Ошибка при закрытии")
+        return
+      }
+      setOpen(false)
+      onSuccess()
+    } catch {
+      setError("Ошибка сети")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const balance = Number(subscription.balance)
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger
+        render={
+          <Button variant="ghost" size="icon" className="size-7" title="Закрыть">
+            <X className="size-3.5 text-muted-foreground" />
+          </Button>
+        }
+      />
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Закрыть абонемент</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {error && (
+            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+
+          <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Направление:</span>
+              <span className="font-medium">{subscription.direction.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Группа:</span>
+              <span>{subscription.group.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Период:</span>
+              <span>
+                {MONTH_NAMES[subscription.periodMonth]} {subscription.periodYear}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Всего занятий:</span>
+              <span>{subscription.totalLessons}</span>
+            </div>
+            {balance !== 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Остаток по абонементу:</span>
+                <span
+                  className={balance > 0 ? "text-orange-600 font-medium" : "text-muted-foreground"}
+                >
+                  {formatMoney(balance)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200 space-y-1.5">
+            <p>
+              Абонемент будет помечен как <b>завершённый</b>. Используйте, когда период
+              абонемента отходил штатно — все занятия проведены.
+            </p>
+            <p className="text-xs">
+              Деньги <b>не возвращаются</b>, ребёнок <b>остаётся в группе</b>. Если нужно
+              вернуть остаток и отчислить — используйте «Возврат» или «Отчислить».
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>
+              Отмена
+            </Button>
+            <Button onClick={handleClose} disabled={loading}>
+              {loading ? "Закрытие…" : "Закрыть абонемент"}
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ===== Withdraw (Отчислить) Dialog =====
+
+interface WithdrawPreview {
+  totalLessons: number
+  attendedLessons: number
+  remainingLessons: number
+  lessonPrice: number
+  refundAmount: number
+  canRefund: boolean
+}
+
+function WithdrawSubscriptionDialog({
+  subscription,
+  onSuccess,
+}: {
+  subscription: Subscription
+  onSuccess: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [loadingPreview, setLoadingPreview] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [preview, setPreview] = useState<WithdrawPreview | null>(null)
+
+  async function loadPreview() {
+    setLoadingPreview(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/subscriptions/${subscription.id}/refund`)
+      if (res.ok) {
+        const data = await res.json()
+        setPreview(data)
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Ошибка загрузки данных")
+      }
+    } catch {
+      setError("Ошибка сети")
+    } finally {
+      setLoadingPreview(false)
+    }
+  }
+
+  function handleOpen(v: boolean) {
+    setOpen(v)
+    if (v) loadPreview()
+    else {
+      setPreview(null)
+      setError(null)
+    }
+  }
+
+  async function handleWithdraw() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "withdrawn" }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Ошибка при отчислении")
+        return
+      }
+      setOpen(false)
+      onSuccess()
+    } catch {
+      setError("Ошибка сети")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger
+        render={
+          <Button variant="ghost" size="icon" className="size-7" title="Отчислить">
+            <Ban className="size-3.5 text-red-500" />
+          </Button>
+        }
+      />
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Отчислить ученика</DialogTitle>
+        </DialogHeader>
+
+        {loadingPreview ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">Расчёт…</p>
+        ) : preview ? (
+          <div className="space-y-4">
+            {error && (
+              <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+
+            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Направление:</span>
+                <span className="font-medium">{subscription.direction.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Группа:</span>
+                <span>{subscription.group.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Период:</span>
+                <span>
+                  {MONTH_NAMES[subscription.periodMonth]} {subscription.periodYear}
+                </span>
+              </div>
+            </div>
+
+            <div className="rounded-md border border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950/30 p-3 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Всего занятий:</span>
+                <span>{preview.totalLessons}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Посещено:</span>
+                <span>{preview.attendedLessons}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Остаток занятий:</span>
+                <span className="font-medium">{preview.remainingLessons}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Цена занятия:</span>
+                <span>{formatMoney(preview.lessonPrice)}</span>
+              </div>
+              <hr className="my-1 border-orange-200 dark:border-orange-800" />
+              <div className="flex justify-between font-bold text-base">
+                <span>На баланс клиента:</span>
+                <span className="text-orange-600">
+                  {preview.refundAmount > 0
+                    ? `+${formatMoney(preview.refundAmount)}`
+                    : "0 ₽"}
+                </span>
+              </div>
+            </div>
+
+            <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200 space-y-1.5">
+              <p>
+                Ребёнок будет <b>отчислен из группы</b> и пропадёт из расписания этой
+                группы (прошедшие посещения сохранятся).
+              </p>
+              {preview.refundAmount > 0 ? (
+                <p>
+                  Остаток <b>{formatMoney(preview.refundAmount)}</b> вернётся на баланс
+                  родителя — он сможет потратить его на следующий абонемент. Если нужно
+                  выдать наличными — отдельной операцией возврата платежа.
+                </p>
+              ) : (
+                <p className="text-xs">
+                  Возврата на баланс не будет — все занятия уже использованы. Абонемент
+                  просто помечается «withdrawn» с сегодняшней датой отчисления.
+                </p>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>
+                Отмена
+              </Button>
+              <Button variant="destructive" onClick={handleWithdraw} disabled={loading}>
+                {loading
+                  ? "Обработка…"
+                  : preview.refundAmount > 0
+                    ? `Отчислить и вернуть ${formatMoney(preview.refundAmount)}`
+                    : "Отчислить"}
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : error ? (
+          <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
           </div>
         ) : null}
       </DialogContent>
@@ -878,21 +1128,8 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                           <EditSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                           <TransferBalanceDialog subscription={s} onSuccess={handleSubUpdated} />
                           <RefundSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
-                          <ChangeStatusButton
-                            subscription={s}
-                            targetStatus="closed"
-                            label="Закрыть"
-                            icon={X}
-                            onSuccess={handleSubUpdated}
-                          />
-                          <ChangeStatusButton
-                            subscription={s}
-                            targetStatus="withdrawn"
-                            label="Отчислить"
-                            variant="destructive"
-                            icon={Ban}
-                            onSuccess={handleSubUpdated}
-                          />
+                          <CloseSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
+                          <WithdrawSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                         </div>
                       )}
                     </TableCell>
