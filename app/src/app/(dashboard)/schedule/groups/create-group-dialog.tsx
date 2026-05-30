@@ -10,7 +10,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select"
 import {
   Dialog,
@@ -299,10 +298,10 @@ export function CreateGroupDialog({
               <div key={i} className="flex items-center gap-2">
                 <Select
                   value={String(t.dayOfWeek)}
-                  onValueChange={(v) => { if (v) updateTemplate(i, "dayOfWeek", parseInt(v)) }}
+                  onValueChange={(v) => { if (v !== null && v !== undefined && v !== "") updateTemplate(i, "dayOfWeek", parseInt(v)) }}
                 >
                   <SelectTrigger className="w-[140px]">
-                    <SelectValue />
+                    {DAY_OPTIONS.find((d) => d.value === t.dayOfWeek)?.label ?? "День недели"}
                   </SelectTrigger>
                   <SelectContent>
                     {DAY_OPTIONS.map((d) => (
