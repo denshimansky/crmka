@@ -1524,27 +1524,24 @@ function AddSubscriptionDialog({
     if (dir) setLessonPrice(String(Number(dir.lessonPrice)))
   }
 
-  // При выборе группы — посчитать кол-во занятий в месяце
-  function handleGroupChange(id: string) {
-    setGroupId(id)
-    const group = groups.find(g => g.id === id)
-    if (group && periodYear && periodMonth) {
-      const year = Number(periodYear)
-      const month = Number(periodMonth)
-      const scheduleDays = group.templates.map(t => t.dayOfWeek)
-      // Считаем сколько раз каждый день недели встречается в месяце
-      let count = 0
-      const daysInMonth = new Date(year, month, 0).getDate()
-      for (let day = 1; day <= daysInMonth; day++) {
-        const dow = new Date(year, month - 1, day).getDay()
-        // В schema dayOfWeek: 0=пн, 1=вт... JS: 0=вс, 1=пн...
-        // Конвертируем JS dow в наш формат: 0(вс)->6, 1(пн)->0, 2(вт)->1...
-        const ourDow = dow === 0 ? 6 : dow - 1
-        if (scheduleDays.includes(ourDow)) count++
-      }
-      setTotalLessons(String(count || 1))
+  // Авто-подсчёт количества занятий: пересчитывается при смене группы, месяца или года
+  useEffect(() => {
+    if (!groupId || !periodYear || !periodMonth) return
+    const group = groups.find(g => g.id === groupId)
+    if (!group) return
+    const year = Number(periodYear)
+    const month = Number(periodMonth)
+    const scheduleDays = group.templates.map(t => t.dayOfWeek)
+    let count = 0
+    const daysInMonth = new Date(year, month, 0).getDate()
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dow = new Date(year, month - 1, day).getDay()
+      // В schema dayOfWeek: 0=пн, 1=вт... JS: 0=вс, 1=пн...
+      const ourDow = dow === 0 ? 6 : dow - 1
+      if (scheduleDays.includes(ourDow)) count++
     }
-  }
+    setTotalLessons(String(count || 1))
+  }, [groupId, periodYear, periodMonth, groups])
 
   function reset() {
     setDirectionId("")
@@ -1657,7 +1654,7 @@ function AddSubscriptionDialog({
 
           <div className="space-y-1.5">
             <Label>Группа *</Label>
-            <Select value={groupId} onValueChange={(v) => { if (v) handleGroupChange(v) }} disabled={!directionId}>
+            <Select value={groupId} onValueChange={(v) => { if (v) setGroupId(v) }} disabled={!directionId}>
               <SelectTrigger className="w-full">
                 {selectedGroup ? selectedGroup.name : directionId ? "Выберите группу" : "Сначала выберите направление"}
               </SelectTrigger>
