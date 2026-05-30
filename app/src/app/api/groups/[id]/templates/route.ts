@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import {
+  getGenerationRange,
+  regenerateGroupSchedule,
+} from "@/lib/schedule/generate-group-lessons"
 
 const templateItemSchema = z.object({
   dayOfWeek: z
@@ -23,7 +27,8 @@ const putSchema = z.object({
   templates: z.array(templateItemSchema).min(0),
 })
 
-// PUT /api/groups/[id]/templates — перезаписать шаблоны расписания
+// PUT /api/groups/[id]/templates — перезаписать шаблоны расписания.
+// После записи перегенерируем будущие занятия (прошлое не трогаем).
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -50,6 +55,12 @@ export async function PUT(
   // Проверяем что группа принадлежит организации
   const group = await db.group.findFirst({
     where: { id, tenantId, deletedAt: null },
+    select: {
+      id: true,
+      instructorId: true,
+      startDate: true,
+      endDate: true,
+    },
   })
 
   if (!group) {
@@ -71,7 +82,7 @@ export async function PUT(
         tenantId,
         groupId: id,
         dayOfWeek: t.dayOfWeek,
-        startTime: t.startTime,
+        startTime: t.startTime!,
         durationMinutes: t.durationMinutes,
         effectiveFrom: new Date(),
       })),
@@ -83,5 +94,28 @@ export async function PUT(
     })
   })
 
-  return NextResponse.json({ templates })
+  // Перегенерация будущих занятий: «прошлое не трогаем» — занятия с date < today
+  // остаются. Будущие, не попадающие под новые шаблоны и без посещений, удаляются.
+  // Недостающие — добавляются.
+  const { rangeStart, rangeEnd } = getGenerationRange(
+    group.startDate,
+    group.endDate
+  )
+  const regenResult =
+    parsed.data.templates.length > 0
+      ? await regenerateGroupSchedule({
+          tenantId,
+          groupId: id,
+          instructorId: group.instructorId,
+          templates: parsed.data.templates.map((t) => ({
+            dayOfWeek: t.dayOfWeek,
+            startTime: t.startTime!,
+            durationMinutes: t.durationMinutes,
+          })),
+          rangeStart,
+          rangeEnd,
+        })
+      : { created: 0, deleted: 0, skippedNonWorking: 0, skippedDates: [] }
+
+  return NextResponse.json({ templates, regen: regenResult })
 }

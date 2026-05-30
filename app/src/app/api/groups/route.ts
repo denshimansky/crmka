@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import {
+  generateGroupLessons,
+  getGenerationRange,
+} from "@/lib/schedule/generate-group-lessons"
+import { bracketSchema, validateForScheme } from "@/lib/salary/rate-schema"
 
 // GET /api/groups — список групп организации
 export async function GET() {
@@ -36,6 +41,26 @@ const templateSchema = z.object({
   durationMinutes: z.number().min(1, "Длительность должна быть больше 0"),
 })
 
+const salaryRateInputSchema = z.object({
+  scheme: z.enum([
+    "per_student",
+    "per_lesson",
+    "fixed_plus_per_student",
+    "percent_of_payments",
+    "floating_by_students",
+  ]),
+  ratePerStudent: z.number().min(0).nullable().optional(),
+  ratePerLesson: z.number().min(0).nullable().optional(),
+  fixedPerShift: z.number().min(0).nullable().optional(),
+  percentOfPayments: z.number().min(0).max(100).nullable().optional(),
+  brackets: z.array(bracketSchema).optional(),
+})
+
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}/, "Формат даты: YYYY-MM-DD")
+  .transform((v) => new Date(v))
+
 const createGroupSchema = z.object({
   name: z
     .string()
@@ -59,6 +84,9 @@ const createGroupSchema = z.object({
     .pipe(z.string().min(1, "Выберите инструктора")),
   maxStudents: z.number().min(1, "Минимум 1 ученик").default(15),
   templates: z.array(templateSchema).optional(),
+  startDate: isoDate.optional(),
+  endDate: isoDate.optional(),
+  salaryRate: salaryRateInputSchema.optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -75,12 +103,32 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { templates, ...data } = parsed.data
+  const {
+    templates,
+    startDate: rawStartDate,
+    endDate: rawEndDate,
+    salaryRate,
+    ...data
+  } = parsed.data
+
+  // Если дату старта не указали — берём сегодня. Если endDate не указали —
+  // год вперёд от startDate (логика в getGenerationRange).
+  const startDate = rawStartDate ?? new Date()
+
+  // Если задана ставка — валидируем под её схему до записи в БД
+  if (salaryRate) {
+    const validationError = validateForScheme(salaryRate)
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 })
+    }
+  }
 
   const group = await db.group.create({
     data: {
       ...data,
       tenantId,
+      startDate,
+      endDate: rawEndDate ?? null,
       templates: templates?.length
         ? {
             create: templates.map((t) => ({
@@ -88,7 +136,7 @@ export async function POST(request: NextRequest) {
               dayOfWeek: t.dayOfWeek,
               startTime: t.startTime,
               durationMinutes: t.durationMinutes,
-              effectiveFrom: new Date(),
+              effectiveFrom: startDate,
             })),
           }
         : undefined,
@@ -103,5 +151,48 @@ export async function POST(request: NextRequest) {
     },
   })
 
-  return NextResponse.json(group, { status: 201 })
+  // Опциональная ставка группы
+  if (salaryRate) {
+    const rate = await db.groupSalaryRate.create({
+      data: {
+        tenantId,
+        groupId: group.id,
+        scheme: salaryRate.scheme,
+        ratePerStudent: salaryRate.ratePerStudent ?? null,
+        ratePerLesson: salaryRate.ratePerLesson ?? null,
+        fixedPerShift: salaryRate.fixedPerShift ?? null,
+        percentOfPayments: salaryRate.percentOfPayments ?? null,
+      },
+    })
+    if (salaryRate.brackets && salaryRate.brackets.length > 0) {
+      await db.salaryBracket.createMany({
+        data: salaryRate.brackets.map((b) => ({
+          tenantId,
+          groupSalaryRateId: rate.id,
+          minStudents: b.minStudents,
+          ratePerLesson: b.ratePerLesson,
+        })),
+      })
+    }
+  }
+
+  // Автогенерация расписания: год вперёд от startDate, либо до endDate если задан.
+  let generation: { created: number; skippedNonWorking: number } | null = null
+  if (templates && templates.length > 0) {
+    const { rangeStart, rangeEnd } = getGenerationRange(
+      startDate,
+      rawEndDate ?? null
+    )
+    const res = await generateGroupLessons({
+      tenantId,
+      groupId: group.id,
+      instructorId: group.instructorId,
+      templates,
+      rangeStart,
+      rangeEnd,
+    })
+    generation = { created: res.created, skippedNonWorking: res.skippedNonWorking }
+  }
+
+  return NextResponse.json({ ...group, generation }, { status: 201 })
 }

@@ -366,6 +366,12 @@ model Group {
   instructorId String    @map("instructor_id") @db.Uuid
   maxStudents  Int       @default(15) @map("max_students")
   isActive     Boolean   @default(true) @map("is_active")
+  // Период действия группы. startDate — с какой даты группа начала работу
+  // (для уже существующих/исторических групп — null). endDate — до какой даты
+  // группа работает (null = бессрочная). Используется при автогенерации
+  // расписания: занятия создаются только внутри этого периода.
+  startDate    DateTime? @map("start_date")
+  endDate      DateTime? @map("end_date")
   // Технический флаг: группа создана под одно разовое занятие (Lesson вне
   // расписания группы). Такие группы скрываются из списка групп и из отчётов
   // с группировкой по группам — в UI пользователь их не видит.

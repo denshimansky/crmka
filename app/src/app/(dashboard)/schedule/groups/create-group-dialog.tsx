@@ -21,8 +21,14 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2, Wallet } from "lucide-react"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
+import {
+  SalaryRateForm,
+  SCHEME_LABELS,
+  emptyRate,
+  type RateFormValue,
+} from "@/components/salary/salary-rate-form"
 
 interface DirectionOption {
   id: string
@@ -58,6 +64,14 @@ const DAY_OPTIONS = [
   { value: 6, label: "Воскресенье" },
 ]
 
+function todayYmd(): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
 export function CreateGroupDialog({
   directions,
   branches,
@@ -79,6 +93,11 @@ export function CreateGroupDialog({
   const [instructorId, setInstructorId] = useState("")
   const [maxStudents, setMaxStudents] = useState(15)
   const [templates, setTemplates] = useState<ScheduleRow[]>([])
+  const [startDate, setStartDate] = useState<string>(todayYmd())
+  const [endDate, setEndDate] = useState<string>("")
+  const [rate, setRate] = useState<RateFormValue | null>(null)
+  const [rateDialogOpen, setRateDialogOpen] = useState(false)
+  const [rateDraft, setRateDraft] = useState<RateFormValue>(emptyRate())
 
   const selectedBranch = branches.find((b) => b.id === branchId)
   const selectedDirection = directions.find((d) => d.id === directionId)
@@ -113,7 +132,27 @@ export function CreateGroupDialog({
     setInstructorId("")
     setMaxStudents(15)
     setTemplates([])
+    setStartDate(todayYmd())
+    setEndDate("")
+    setRate(null)
+    setRateDialogOpen(false)
+    setRateDraft(emptyRate())
     setError(null)
+  }
+
+  function openRateDialog() {
+    setRateDraft(rate ?? emptyRate())
+    setRateDialogOpen(true)
+  }
+
+  function applyRate() {
+    setRate(rateDraft)
+    setRateDialogOpen(false)
+  }
+
+  function clearRate() {
+    setRate(null)
+    setRateDialogOpen(false)
   }
 
   async function handleSubmit() {
@@ -132,6 +171,18 @@ export function CreateGroupDialog({
           instructorId,
           maxStudents,
           templates: templates.length > 0 ? templates : undefined,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          salaryRate: rate
+            ? {
+                scheme: rate.scheme,
+                ratePerStudent: rate.ratePerStudent,
+                ratePerLesson: rate.ratePerLesson,
+                fixedPerShift: rate.fixedPerShift,
+                percentOfPayments: rate.percentOfPayments,
+                brackets: rate.brackets,
+              }
+            : undefined,
         }),
       })
 
@@ -278,6 +329,48 @@ export function CreateGroupDialog({
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Дата старта</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Пусто = сегодня. Расписание сгенерируется на год вперёд.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Дата окончания</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                min={startDate || undefined}
+              />
+              <p className="text-xs text-muted-foreground">
+                Пусто = год от старта. Указывайте для временных групп.
+              </p>
+            </div>
+          </div>
+
+          {/* Ставка группы */}
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div className="flex items-center gap-2">
+              <Wallet className="size-4 text-muted-foreground" />
+              <div>
+                <div className="text-sm font-medium">Ставка группы</div>
+                <div className="text-xs text-muted-foreground">
+                  {rate ? SCHEME_LABELS[rate.scheme] : "Стандартная (по личным ставкам педагогов)"}
+                </div>
+              </div>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={openRateDialog}>
+              Изменить
+            </Button>
+          </div>
+
           {/* Шаблоны расписания */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -357,6 +450,32 @@ export function CreateGroupDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Вложенная модалка «Ставка группы» */}
+      <Dialog open={rateDialogOpen} onOpenChange={setRateDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Ставка группы</DialogTitle>
+            <DialogDescription>
+              Если задана, перекрывает личные ставки педагогов на занятиях этой группы.
+            </DialogDescription>
+          </DialogHeader>
+
+          <SalaryRateForm value={rateDraft} onChange={setRateDraft} />
+
+          <DialogFooter className="gap-2">
+            {rate && (
+              <Button variant="ghost" onClick={clearRate} className="text-destructive">
+                Снять ставку
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setRateDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button onClick={applyRate}>Применить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   )
 }
