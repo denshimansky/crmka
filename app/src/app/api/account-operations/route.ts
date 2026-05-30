@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { logAudit } from "@/lib/audit"
+import { requirePermission } from "@/lib/api-permissions"
 
 const createSchema = z.object({
   type: z.enum(["owner_withdrawal", "encashment", "transfer"], {
@@ -17,8 +18,9 @@ const createSchema = z.object({
 })
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const guard = await requirePermission("finance.view")
+  if (!guard.ok) return guard.response
+  const session = guard.session
 
   const { searchParams } = new URL(req.url)
   const dateFrom = searchParams.get("dateFrom")

@@ -6,6 +6,7 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { requirePermission } from "@/lib/api-permissions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -22,8 +23,9 @@ const createSchema = z.object({
 })
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const guard = await requirePermission("finance.view")
+  if (!guard.ok) return guard.response
+  const session = guard.session
 
   const { searchParams } = new URL(req.url)
   const clientId = searchParams.get("clientId")

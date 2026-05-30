@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
+import { requirePermission } from "@/lib/api-permissions"
 
 const createSchema = z.object({
   login: z.string({ required_error: "Логин обязателен" }).min(2, "Логин минимум 2 символа").regex(/^[a-zA-Z0-9._-]+$/, "Только латиница, цифры, точка, дефис, подчёркивание"),
@@ -19,8 +20,9 @@ const createSchema = z.object({
 })
 
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const guard = await requirePermission("staff.view")
+  if (!guard.ok) return guard.response
+  const session = guard.session
 
   const employees = await db.employee.findMany({
     where: { tenantId: session.user.tenantId, deletedAt: null },

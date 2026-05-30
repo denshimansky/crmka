@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { requirePermission } from "@/lib/api-permissions"
 
 const createSchema = z.object({
   name: z.string().min(1, "Название обязательно"),
@@ -12,9 +13,10 @@ const createSchema = z.object({
   branchId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
 })
 
-export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+export async function GET(_req: NextRequest) {
+  const guard = await requirePermission("finance.view")
+  if (!guard.ok) return guard.response
+  const session = guard.session
 
   const accounts = await db.financialAccount.findMany({
     where: {

@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { z } from "zod"
 import { logAudit } from "@/lib/audit"
+import { requirePermission } from "@/lib/api-permissions"
 
 const createSchema = z.object({
   employeeId: z.string().uuid("Выберите сотрудника"),
@@ -21,8 +22,9 @@ const createSchema = z.object({
 })
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const guard = await requirePermission("finance.salary")
+  if (!guard.ok) return guard.response
+  const session = guard.session
 
   const { searchParams } = new URL(req.url)
   const periodYear = Number(searchParams.get("periodYear")) || new Date().getFullYear()
