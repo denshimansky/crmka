@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,6 +22,28 @@ const ROLES = [
   { value: "instructor", label: "Инструктор" },
   { value: "readonly", label: "Только чтение" },
 ] as const
+
+const CYR_TO_LAT: Record<string, string> = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z",
+  и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r",
+  с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh",
+  щ: "shch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+}
+
+function transliterate(input: string): string {
+  return input
+    .toLowerCase()
+    .split("")
+    .map((ch) => CYR_TO_LAT[ch] ?? ch)
+    .join("")
+    .replace(/[^a-z0-9]/g, "")
+}
+
+function randomDigits(n: number): string {
+  let s = ""
+  for (let i = 0; i < n; i++) s += Math.floor(Math.random() * 10).toString()
+  return s
+}
 
 interface Branch {
   id: string
@@ -72,11 +94,19 @@ export function CreateEmployeeDialog({
   const [middleName, setMiddleName] = useState("")
   const [login, setLogin] = useState("")
   const [password, setPassword] = useState("")
+  const [passwordTouched, setPasswordTouched] = useState(false)
+  const [passwordSuffix, setPasswordSuffix] = useState(() => randomDigits(4))
   const [role, setRole] = useState<string>(defaultRole)
   const [selectedBranches, setSelectedBranches] = useState<string[]>([])
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
   const [birthDate, setBirthDate] = useState("")
+
+  useEffect(() => {
+    if (passwordTouched) return
+    const prefix = transliterate(lastName.trim())
+    setPassword(prefix ? prefix + passwordSuffix : "")
+  }, [lastName, passwordSuffix, passwordTouched])
 
   function resetForm() {
     setLastName("")
@@ -84,6 +114,8 @@ export function CreateEmployeeDialog({
     setMiddleName("")
     setLogin("")
     setPassword("")
+    setPasswordTouched(false)
+    setPasswordSuffix(randomDigits(4))
     setRole(defaultRole)
     setSelectedBranches([])
     setPhone("")
@@ -237,10 +269,18 @@ export function CreateEmployeeDialog({
                 <PasswordInput
                   id="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    setPasswordTouched(true)
+                  }}
                   placeholder="Мин. 6 символов"
                   autoComplete="new-password"
                 />
+                {!passwordTouched && password && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Сгенерирован по фамилии — можно изменить
+                  </p>
+                )}
               </div>
             </div>
 

@@ -271,6 +271,10 @@ export function SalaryRatesDialog({
                   <Plus className="mr-1 size-3" />
                   {defaultRate ? "Добавить исключение" : "Добавить ставку"}
                 </Button>
+
+                <DialogFooter>
+                  <Button onClick={() => setOpen(false)}>Готово</Button>
+                </DialogFooter>
               </>
             )}
           </div>
