@@ -17,6 +17,8 @@ interface NeedsReview {
 }
 
 interface SyncReport {
+  leadsParsed: number
+  moneyParsed: number
   clientsCreated: number
   clientsMerged: number
   wardsCreated: number
@@ -32,25 +34,26 @@ export function SyncBalanceButton() {
   const [moneyFile, setMoneyFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [detectedHeaders, setDetectedHeaders] = useState<string[] | null>(null)
   const [needsReview, setNeedsReview] = useState<NeedsReview[] | null>(null)
   const [report, setReport] = useState<SyncReport | null>(null)
 
   function reset() {
     setLeadsFile(null); setMoneyFile(null)
-    setError(null); setNeedsReview(null); setReport(null)
+    setError(null); setDetectedHeaders(null); setNeedsReview(null); setReport(null)
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!leadsFile || !moneyFile) {
-      setError("Выберите оба файла"); return
+    if (!leadsFile) {
+      setError("Выберите файл «Список лидов — для импорта.xlsx»"); return
     }
-    setLoading(true); setError(null); setNeedsReview(null); setReport(null)
+    setLoading(true); setError(null); setDetectedHeaders(null); setNeedsReview(null); setReport(null)
 
     try {
       const fd = new FormData()
       fd.append("leadsFile", leadsFile)
-      fd.append("moneyFile", moneyFile)
+      if (moneyFile) fd.append("moneyFile", moneyFile)
       const res = await fetch("/api/leads-import/sync", { method: "POST", body: fd })
 
       if (res.status === 422) {
@@ -62,6 +65,7 @@ export function SyncBalanceButton() {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setError(data.error ?? `Ошибка ${res.status}`)
+        if (Array.isArray(data.detectedHeaders)) setDetectedHeaders(data.detectedHeaders)
         return
       }
 
@@ -86,14 +90,15 @@ export function SyncBalanceButton() {
           <DialogHeader>
             <DialogTitle>Этап 2. Загрузка контактов в CRM</DialogTitle>
             <DialogDescription>
-              Загрузите вычитанный <code>Список лидов — для импорта.xlsx</code> и
-              <code> деньги.xlsx</code>. Дети одного телефона станут подопечными одного клиента
-              (родителя), балансы суммируются.
+              Загрузите вычитанный <code>Список лидов — для импорта.xlsx</code>.
+              Файл <code>деньги.xlsx</code> опционален: если не приложить — все клиенты
+              импортируются с нулевым балансом. Дети одного телефона станут подопечными
+              одного клиента (родителя), балансы суммируются.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Список лидов — для импорта.xlsx</Label>
+              <Label>Список лидов — для импорта.xlsx <span className="text-destructive">*</span></Label>
               <Input
                 type="file"
                 accept=".xlsx"
@@ -101,7 +106,7 @@ export function SyncBalanceButton() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>деньги.xlsx</Label>
+              <Label>деньги.xlsx <span className="text-muted-foreground text-xs">(необязательно)</span></Label>
               <Input
                 type="file"
                 accept=".xlsx"
@@ -112,7 +117,14 @@ export function SyncBalanceButton() {
             {error && (
               <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive flex items-start gap-2">
                 <AlertCircle className="size-4 mt-0.5 shrink-0" />
-                <span>{error}</span>
+                <div className="space-y-1">
+                  <div>{error}</div>
+                  {detectedHeaders && detectedHeaders.length > 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      Распознанные заголовки: {detectedHeaders.map((h) => `«${h}»`).join(", ")}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -138,6 +150,12 @@ export function SyncBalanceButton() {
                   Импорт завершён
                 </div>
                 <div className="text-xs text-muted-foreground">
+                  Прочитано строк из «Список лидов»: {report.leadsParsed}
+                  {report.moneyParsed > 0
+                    ? ` · из «Деньги»: ${report.moneyParsed}`
+                    : " · файл «Деньги» не загружен"}
+                </div>
+                <div className="text-xs text-muted-foreground">
                   Создано клиентов: {report.clientsCreated} · объединено: {report.clientsMerged} ·
                   подопечных: {report.wardsCreated}
                 </div>
@@ -157,7 +175,7 @@ export function SyncBalanceButton() {
             )}
 
             <DialogFooter>
-              <Button type="submit" disabled={loading || !leadsFile || !moneyFile}>
+              <Button type="submit" disabled={loading || !leadsFile}>
                 {loading ? "Синхронизация…" : "Запустить синхронизацию"}
               </Button>
             </DialogFooter>

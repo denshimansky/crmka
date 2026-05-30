@@ -22,12 +22,9 @@ export async function POST(req: NextRequest) {
   if (!leadsFile) {
     return NextResponse.json({ error: "Не выбран файл «Список лидов — для импорта.xlsx»" }, { status: 400 })
   }
-  if (!moneyFile) {
-    return NextResponse.json({ error: "Не выбран файл «деньги.xlsx»" }, { status: 400 })
-  }
 
   const leadsBuffer = Buffer.from(await leadsFile.arrayBuffer())
-  const moneyBuffer = Buffer.from(await moneyFile.arrayBuffer())
+  const moneyBuffer = moneyFile ? Buffer.from(await moneyFile.arrayBuffer()) : null
 
   let result
   try {
@@ -42,6 +39,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 
+  if (!result.ok && result.reason === "empty_leads") {
+    return NextResponse.json(
+      {
+        error:
+          "В файле «Список лидов — для импорта.xlsx» не найдено ни одной строки с заполненным ребёнком. " +
+          "Проверьте, что шапка содержит колонку «Ребёнок» и есть строки данных.",
+        detectedHeaders: result.detectedHeaders,
+      },
+      { status: 400 },
+    )
+  }
   if (!result.ok) {
     return NextResponse.json(
       {
@@ -55,6 +63,8 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({
+    leadsParsed: result.leadsParsed,
+    moneyParsed: result.moneyParsed,
     clientsCreated: result.clientsCreated,
     clientsMerged: result.clientsMerged,
     wardsCreated: result.wardsCreated,

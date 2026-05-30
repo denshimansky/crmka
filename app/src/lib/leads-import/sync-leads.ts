@@ -31,6 +31,8 @@ export interface NeedsReview {
 
 export interface SyncReport {
   ok: true
+  leadsParsed: number
+  moneyParsed: number
   clientsCreated: number
   clientsMerged: number
   wardsCreated: number
@@ -39,30 +41,63 @@ export interface SyncReport {
   warnings: string[]
 }
 
+export interface SyncEmpty {
+  ok: false
+  reason: "empty_leads"
+  detectedHeaders: string[]
+}
+
 export interface SyncBlocked {
   ok: false
   reason: "needs_review"
   rows: NeedsReview[]
 }
 
-function loadLeadsFile(buffer: Buffer): LeadFileRow[] {
+// Нормализация ключа колонки: lower-case, ё→е, _→пробел, схлопывание пробелов.
+function normColKey(s: string): string {
+  return s.trim().toLowerCase().replace(/ё/g, "е").replace(/_/g, " ").replace(/\s+/g, " ")
+}
+
+function pickValue(
+  row: Record<string, unknown>,
+  normMap: Map<string, string>,
+  ...aliases: string[]
+): unknown {
+  for (const alias of aliases) {
+    const realKey = normMap.get(normColKey(alias))
+    if (realKey !== undefined) {
+      const v = row[realKey]
+      if (v !== null && v !== undefined && v !== "") return v
+    }
+  }
+  return null
+}
+
+function loadLeadsFile(buffer: Buffer): { rows: LeadFileRow[]; headers: string[] } {
   // Шапка на первой строке (этап 1 пишет в этом формате).
   const sheet = readSheet(buffer, { headerRow: 0 })
+  if (sheet.length === 0) return { rows: [], headers: [] }
+  const headers = Object.keys(sheet[0])
+  const normMap = new Map<string, string>()
+  for (const h of headers) normMap.set(normColKey(h), h)
+
   const out: LeadFileRow[] = []
   sheet.forEach((row, idx) => {
-    const parent = String(row["Фамилия Имя родителя"] ?? "").trim()
-    const phone = normPhone(row["Номер_телефона"] as string | null)
-    const child = String(row["Ребёнок"] ?? "").trim()
+    const parent = String(pickValue(row, normMap, "Фамилия Имя родителя") ?? "").trim()
+    const phoneRaw = pickValue(row, normMap, "Номер_телефона", "Номер телефона", "Телефон")
+    const phone = normPhone(phoneRaw === null ? null : String(phoneRaw))
+    const child = String(pickValue(row, normMap, "Ребёнок", "Ребенок", "ФИО") ?? "").trim()
     if (!child) return
-    const socials = String(row["Соцсети"] ?? "").trim()
-    const birthDate = String(row["Дата_рождения"] ?? "").trim()
-    const status = parseStatus(String(row["Статус"] ?? ""))
-    const balanceRaw = row["Баланс"]
+    const socials = String(pickValue(row, normMap, "Соцсети") ?? "").trim()
+    const birthDate = String(pickValue(row, normMap, "Дата_рождения", "Дата рождения") ?? "").trim()
+    const status = parseStatus(String(pickValue(row, normMap, "Статус", "Состояние лида") ?? ""))
+    const balanceRaw = pickValue(row, normMap, "Баланс")
     const balance =
       balanceRaw === "" || balanceRaw === null || balanceRaw === undefined
         ? 0
         : Number(balanceRaw)
-    const review = String(row["Проверить"] ?? "").trim().toLowerCase()
+    const reviewRaw = pickValue(row, normMap, "Проверить")
+    const review = (reviewRaw === null ? "" : String(reviewRaw)).trim().toLowerCase()
     out.push({
       parent,
       phone,
@@ -75,22 +110,29 @@ function loadLeadsFile(buffer: Buffer): LeadFileRow[] {
       rowIdx: idx + 2, // +1 за заголовок, +1 для 1-based
     })
   })
-  return out
+  return { rows: out, headers }
 }
 
-function loadMoneyFile(buffer: Buffer): Map<string, number> {
+function loadMoneyFile(buffer: Buffer): { balances: Map<string, number>; rowsParsed: number } {
   const sheet = readSheet(buffer, { headerRow: 0 })
+  if (sheet.length === 0) return { balances: new Map(), rowsParsed: 0 }
+  const headers = Object.keys(sheet[0])
+  const normMap = new Map<string, string>()
+  for (const h of headers) normMap.set(normColKey(h), h)
+
   const out = new Map<string, number>()
+  let rowsParsed = 0
   for (const row of sheet) {
-    const contractor = String(row["Контрагент"] ?? "").trim()
+    const contractor = String(pickValue(row, normMap, "Контрагент", "ФИО", "Ребёнок", "Ребенок") ?? "").trim()
     if (!contractor || contractor.toLowerCase() === "итого") continue
-    const balRaw = row["Баланс на сегодня"]
+    const balRaw = pickValue(row, normMap, "Баланс на сегодня", "Баланс")
     const bal = Number(balRaw)
     if (!Number.isFinite(bal)) continue
     const key = normName(contractor)
     out.set(key, (out.get(key) ?? 0) + bal)
+    rowsParsed++
   }
-  return out
+  return { balances: out, rowsParsed }
 }
 
 function parseDob(raw: string): Date | null {
@@ -137,13 +179,17 @@ function splitParent(parent: string): { firstName: string; lastName: string } {
 
 export interface SyncOptions {
   leadsBuffer: Buffer
-  moneyBuffer: Buffer
+  moneyBuffer: Buffer | null
   tenantId: string
   createdBy: string | null
 }
 
-export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlocked> {
-  const leads = loadLeadsFile(opts.leadsBuffer)
+export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlocked | SyncEmpty> {
+  const parsedLeads = loadLeadsFile(opts.leadsBuffer)
+  const leads = parsedLeads.rows
+  if (leads.length === 0) {
+    return { ok: false, reason: "empty_leads", detectedHeaders: parsedLeads.headers }
+  }
   const reviewBlocked = leads.filter((r) => r.needsReview)
   if (reviewBlocked.length > 0) {
     return {
@@ -154,7 +200,9 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
   }
 
   // Подмержим балансы из деньги.xlsx по нормализованному ФИО ребёнка.
-  const balances = loadMoneyFile(opts.moneyBuffer)
+  // Если файл деньги не передан — все балансы = 0.
+  const moneyParsed = opts.moneyBuffer ? loadMoneyFile(opts.moneyBuffer) : { balances: new Map(), rowsParsed: 0 }
+  const balances = moneyParsed.balances
   let balanceMissing = 0
   for (const r of leads) {
     const fromMoney = balances.get(normName(r.child))
@@ -308,6 +356,8 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
 
   return {
     ok: true,
+    leadsParsed: leads.length,
+    moneyParsed: moneyParsed.rowsParsed,
     clientsCreated,
     clientsMerged,
     wardsCreated,
