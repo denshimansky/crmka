@@ -677,10 +677,10 @@ export default async function LessonCardPage({
           <CardContent className="flex items-center gap-3 p-4">
             <MapPin className="size-5 text-muted-foreground" />
             <div>
-              <div className="text-xs text-muted-foreground">Кабинет</div>
               {lesson.group.branch && (
-                <div className="text-xs text-muted-foreground">{lesson.group.branch.name}</div>
+                <div className="text-sm font-medium">{lesson.group.branch.name}</div>
               )}
+              <div className="text-xs text-muted-foreground">Кабинет</div>
               <div className="text-sm font-medium">{lesson.group.room.name}</div>
             </div>
           </CardContent>
