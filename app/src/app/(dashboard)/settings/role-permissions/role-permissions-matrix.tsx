@@ -181,9 +181,9 @@ export function RolePermissionsMatrix({ isOwner }: Props) {
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full border-collapse text-sm [&_td]:border [&_th]:border [&_td]:border-border [&_th]:border-border">
               <thead>
-                <tr className="border-b bg-muted/50">
+                <tr className="bg-muted/50">
                   <th className="p-3 text-left font-medium min-w-[250px]">
                     Разрешение
                   </th>
@@ -203,7 +203,7 @@ export function RolePermissionsMatrix({ isOwner }: Props) {
               <tbody>
                 {groups.map((group) => (
                   <>
-                    <tr key={`group-${group.name}`} className="bg-muted/30">
+                    <tr key={`group-${group.name}`} className="bg-muted/40">
                       <td
                         colSpan={2 + EDITABLE_ROLES.length}
                         className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
@@ -214,7 +214,7 @@ export function RolePermissionsMatrix({ isOwner }: Props) {
                     {group.perms.map((perm) => (
                       <tr
                         key={perm.key}
-                        className="border-b last:border-0 hover:bg-muted/20 transition-colors"
+                        className="hover:bg-muted/20 transition-colors"
                       >
                         <td className="p-3 text-muted-foreground">
                           {perm.label}

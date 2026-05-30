@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Plus, Pencil, Trash2, ListChecks } from "lucide-react"
+import { Plus, Pencil, Trash2, ListChecks, Check } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
 
 interface AttendanceType {
@@ -317,17 +317,31 @@ export default function AttendanceMatrixPage() {
                   <TableRow key={t.id} className={!t.isActive ? "opacity-50" : ""}>
                     <TableCell className="font-medium">{t.name}</TableCell>
                     {FLAG_COLUMNS.map((c) => {
-                      const disabled =
-                        savingId === t.id || (t.isFlagsLocked && !LOCKED_ALLOWED.has(c.key))
+                      const locked = t.isFlagsLocked && !LOCKED_ALLOWED.has(c.key)
+                      const disabled = savingId === t.id || locked
+                      const value = t[c.key]
                       return (
                         <TableCell key={c.key} className="text-center">
-                          <input
-                            type="checkbox"
-                            checked={t[c.key]}
-                            disabled={disabled}
-                            onChange={() => toggleFlag(t, c.key)}
-                            className="size-4 rounded border cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                          />
+                          {locked ? (
+                            <span
+                              className={`inline-flex size-5 items-center justify-center rounded border ${
+                                value
+                                  ? "border-foreground/40 bg-foreground/10 text-foreground"
+                                  : "border-muted-foreground/30 bg-transparent"
+                              }`}
+                              title="Системный — менять нельзя"
+                            >
+                              {value && <Check className="size-3.5" strokeWidth={3} />}
+                            </span>
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={value}
+                              disabled={disabled}
+                              onChange={() => toggleFlag(t, c.key)}
+                              className="size-4 rounded border cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-60"
+                            />
+                          )}
                         </TableCell>
                       )
                     })}
