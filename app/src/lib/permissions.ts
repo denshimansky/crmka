@@ -24,7 +24,9 @@ export const PERMISSIONS = [
   // Финансы
   { key: "finance.view", label: "Просмотр финансов (оплаты, расходы)", group: "Финансы" },
   { key: "finance.edit", label: "Создание оплат и расходов", group: "Финансы" },
-  { key: "finance.salary", label: "Зарплатная ведомость и выплаты", group: "Финансы" },
+  { key: "finance.result", label: "Финансовый результат (ДДС, P&L, маржа)", group: "Финансы" },
+  { key: "finance.salary", label: "Зарплатная ведомость и выплаты всех", group: "Финансы" },
+  { key: "salary.own", label: "Просмотр своей зарплаты", group: "Финансы" },
   { key: "finance.refund", label: "Возвраты средств", group: "Финансы" },
 
   // Абонементы
@@ -85,7 +87,9 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
     "attendance.mark": true,
     "finance.view": true,
     "finance.edit": true,
+    "finance.result": false, // PRD §5.3: админ по умолчанию не видит финрез (ДДС/P&L)
     "finance.salary": false,
+    "salary.own": false,
     "finance.refund": false,
     "subscriptions.view": true,
     "subscriptions.edit": true,
@@ -101,12 +105,14 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
     "schedule.view": true,
     "attendance.mark": true,
     "subscriptions.view": true,
+    "salary.own": true, // PRD §5.4: инструктор видит свою ЗП
   },
   readonly: {
     ...ALL_FALSE,
     "clients.view": true,
     "schedule.view": true,
     "finance.view": true,
+    "finance.result": true,
     "subscriptions.view": true,
     "reports.view": true,
     "staff.view": true,

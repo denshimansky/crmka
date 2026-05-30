@@ -21,9 +21,12 @@ const PATH_PERMISSIONS: Array<{ prefix: string; permission: PermissionKey }> = [
 
   // Финансы
   { prefix: "/salary", permission: "finance.salary" },
+  { prefix: "/finance/dds", permission: "finance.result" },
   { prefix: "/finance", permission: "finance.view" },
 
   // Отчёты
+  { prefix: "/reports/finance", permission: "finance.result" },
+  { prefix: "/reports/salary", permission: "finance.salary" },
   { prefix: "/reports", permission: "reports.view" },
 
   // Персонал
