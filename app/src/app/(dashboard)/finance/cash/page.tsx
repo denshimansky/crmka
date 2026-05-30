@@ -27,15 +27,6 @@ const TYPE_ICONS: Record<string, { icon: typeof Banknote; color: string; bg: str
   online: { icon: Globe, color: "text-orange-600", bg: "bg-orange-50" },
 }
 
-const METHOD_LABELS: Record<string, string> = {
-  cash: "Наличные",
-  bank_transfer: "Безнал",
-  acquiring: "Эквайринг",
-  online_yukassa: "ЮKassa",
-  online_robokassa: "Робокасса",
-  sbp_qr: "СБП",
-}
-
 const OP_TYPE_LABELS: Record<string, string> = {
   owner_withdrawal: "Выемка",
   encashment: "Инкассация",
@@ -45,10 +36,11 @@ const OP_TYPE_LABELS: Record<string, string> = {
 export default async function CashPage({ searchParams }: { searchParams: Promise<{ year?: string; month?: string }> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const userRole = session.user.role
   const params = await searchParams
 
   const accounts = await db.financialAccount.findMany({
-    where: { tenantId, deletedAt: null },
+    where: { tenantId, deletedAt: null, isActive: true },
     include: { branch: { select: { id: true, name: true } } },
     orderBy: { createdAt: "asc" },
   })
@@ -61,22 +53,14 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
   const monthStart = new Date(Date.UTC(filterYear, filterMonth - 1, 1))
   const monthEnd = new Date(Date.UTC(filterYear, filterMonth, 0, 23, 59, 59, 999))
 
-  // Payments for selected month
-  const payments = await db.payment.findMany({
+  // Account-level totals for the month (used in account cards)
+  const paymentSums = await db.payment.findMany({
     where: {
       tenantId,
       deletedAt: null,
       date: { gte: monthStart, lte: monthEnd },
     },
-    include: {
-      client: { select: { firstName: true, lastName: true } },
-      account: { select: { id: true, name: true } },
-      subscription: {
-        select: { direction: { select: { name: true } } },
-      },
-    },
-    orderBy: { date: "desc" },
-    take: 100,
+    select: { accountId: true, type: true, amount: true },
   })
 
   // Account operations for selected month
@@ -105,7 +89,7 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
   for (const a of accounts) {
     monthTotals[a.id] = { incoming: 0, outgoing: 0 }
   }
-  for (const p of payments) {
+  for (const p of paymentSums) {
     if (!monthTotals[p.accountId]) continue
     if (p.type === "incoming" || p.type === "transfer_in") {
       monthTotals[p.accountId].incoming += Number(p.amount)
@@ -114,7 +98,8 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
     }
   }
 
-  const monthLabel = new Date(filterYear, filterMonth - 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const cashAccounts = accounts.filter((a) => a.type === "cash")
+  const cashlessAccounts = accounts.filter((a) => a.type !== "cash")
 
   return (
     <div className="space-y-6">
@@ -138,102 +123,22 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
         </Card>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {accounts.map((a) => {
-              const typeInfo = TYPE_ICONS[a.type] || TYPE_ICONS.cash
-              const Icon = typeInfo.icon
-              const balance = Number(a.balance)
-              const mt = monthTotals[a.id]
-              return (
-                <Card key={a.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
-                      <div className={`flex size-10 items-center justify-center rounded-lg ${typeInfo.bg}`}>
-                        <Icon className={`size-5 ${typeInfo.color}`} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs text-muted-foreground truncate">
-                          {a.name}
-                          {a.branch ? ` · ${a.branch.name}` : ""}
-                        </p>
-                        <p className={`text-lg font-bold ${balance >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {formatMoney(balance)}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Badge variant="outline" className="shrink-0">{TYPE_LABELS[a.type]}</Badge>
-                        <EditAccountDialog
-                          account={{ id: a.id, name: a.name, type: a.type, branchId: a.branchId }}
-                          branches={branches}
-                        />
-                      </div>
-                    </div>
-                    {mt && (mt.incoming > 0 || mt.outgoing > 0) && (
-                      <div className="mt-2 flex gap-3 text-xs">
-                        {mt.incoming > 0 && <span className="text-green-600">+{formatMoney(mt.incoming)}</span>}
-                        {mt.outgoing > 0 && <span className="text-red-600">−{formatMoney(mt.outgoing)}</span>}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )
-            })}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <AccountColumn
+              title="Нал"
+              accounts={cashAccounts}
+              monthTotals={monthTotals}
+              branches={branches}
+              userRole={userRole}
+            />
+            <AccountColumn
+              title="Безнал"
+              accounts={cashlessAccounts}
+              monthTotals={monthTotals}
+              branches={branches}
+              userRole={userRole}
+            />
           </div>
-
-          {/* Payments */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                Оплаты за {monthLabel}
-                {payments.length > 0 && (
-                  <Badge variant="secondary" className="ml-2">{payments.length}</Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {payments.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  Нет оплат за {monthLabel}
-                </p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Дата</TableHead>
-                      <TableHead>Клиент</TableHead>
-                      <TableHead>Назначение</TableHead>
-                      <TableHead className="text-right">Сумма</TableHead>
-                      <TableHead>Способ</TableHead>
-                      <TableHead>Счёт</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {payments.map((p) => {
-                      const clientName = [p.client.lastName, p.client.firstName].filter(Boolean).join(" ") || "—"
-                      const dateStr = p.date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })
-                      const isPositive = p.type === "incoming" || p.type === "transfer_in"
-                      return (
-                        <TableRow key={p.id}>
-                          <TableCell className="text-muted-foreground">{dateStr}</TableCell>
-                          <TableCell className="font-medium">{clientName}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {p.subscription?.direction?.name || p.comment || "Оплата"}
-                          </TableCell>
-                          <TableCell className={`text-right font-medium ${isPositive ? "text-green-600" : "text-red-600"}`}>
-                            {isPositive ? "+" : "−"}{formatMoney(Number(p.amount))}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{METHOD_LABELS[p.method] || p.method}</Badge>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">{p.account.name}</TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
 
           {/* Account operations */}
           {operations.length > 0 && (
@@ -280,6 +185,87 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
             </Card>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+interface AccountRow {
+  id: string
+  name: string
+  type: string
+  branchId: string | null
+  balance: import("@prisma/client").Prisma.Decimal
+  branch: { id: string; name: string } | null
+}
+
+interface AccountColumnProps {
+  title: string
+  accounts: AccountRow[]
+  monthTotals: Record<string, { incoming: number; outgoing: number }>
+  branches: { id: string; name: string }[]
+  userRole: string
+}
+
+function AccountColumn({ title, accounts, monthTotals, branches, userRole }: AccountColumnProps) {
+  return (
+    <div className="space-y-2">
+      <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
+      {accounts.length === 0 ? (
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground">
+            Нет счетов
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {accounts.map((a) => {
+            const typeInfo = TYPE_ICONS[a.type] || TYPE_ICONS.cash
+            const Icon = typeInfo.icon
+            const balance = Number(a.balance)
+            const mt = monthTotals[a.id]
+            return (
+              <Card key={a.id}>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-4">
+                    <div className={`flex size-10 items-center justify-center rounded-lg ${typeInfo.bg}`}>
+                      <Icon className={`size-5 ${typeInfo.color}`} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-muted-foreground truncate">
+                        {a.name}
+                        {a.branch ? ` · ${a.branch.name}` : ""}
+                      </p>
+                      <p className={`text-lg font-bold ${balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {formatMoney(balance)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Badge variant="outline" className="shrink-0">{TYPE_LABELS[a.type]}</Badge>
+                      <EditAccountDialog
+                        account={{
+                          id: a.id,
+                          name: a.name,
+                          type: a.type,
+                          branchId: a.branchId,
+                          balance,
+                        }}
+                        branches={branches}
+                        userRole={userRole}
+                      />
+                    </div>
+                  </div>
+                  {mt && (mt.incoming > 0 || mt.outgoing > 0) && (
+                    <div className="mt-2 flex gap-3 text-xs">
+                      {mt.incoming > 0 && <span className="text-green-600">+{formatMoney(mt.incoming)}</span>}
+                      {mt.outgoing > 0 && <span className="text-red-600">−{formatMoney(mt.outgoing)}</span>}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       )}
     </div>
   )

@@ -19,7 +19,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
-import { Pencil } from "lucide-react"
+import { Archive, Pencil } from "lucide-react"
 
 interface BranchOption {
   id: string
@@ -31,6 +31,7 @@ interface AccountData {
   name: string
   type: string
   branchId: string | null
+  balance: number
 }
 
 const TYPE_OPTIONS = [
@@ -43,24 +44,54 @@ const TYPE_OPTIONS = [
 export function EditAccountDialog({
   account,
   branches,
+  userRole,
 }: {
   account: AccountData
   branches: BranchOption[]
+  userRole: string
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [archiving, setArchiving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [name, setName] = useState(account.name)
   const [type, setType] = useState(account.type)
   const [branchId, setBranchId] = useState(account.branchId || "")
 
+  const canArchive = userRole === "owner"
+  const balanceIsZero = Math.abs(account.balance) < 0.005
+
   function reset() {
     setName(account.name)
     setType(account.type)
     setBranchId(account.branchId || "")
     setError(null)
+  }
+
+  async function handleArchive() {
+    setError(null)
+    if (!confirm(`Архивировать счёт «${account.name}»? История операций сохранится, но счёт исчезнет из активного списка.`)) {
+      return
+    }
+    setArchiving(true)
+    try {
+      const res = await fetch(`/api/accounts/${account.id}/archive`, {
+        method: "POST",
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Не удалось архивировать счёт")
+        return
+      }
+      setOpen(false)
+      router.refresh()
+    } catch {
+      setError("Ошибка сети")
+    } finally {
+      setArchiving(false)
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -186,8 +217,23 @@ export function EditAccountDialog({
             </div>
           )}
 
-          <DialogFooter>
-            <Button type="submit" disabled={loading}>
+          <DialogFooter className="flex items-center justify-between gap-2 sm:justify-between">
+            <div>
+              {canArchive && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  onClick={handleArchive}
+                  disabled={archiving || loading || !balanceIsZero}
+                  title={balanceIsZero ? "Архивировать счёт" : "Архивировать можно только при нулевом балансе"}
+                >
+                  <Archive className="mr-1 size-4" />
+                  {archiving ? "Архивация..." : "Архивировать"}
+                </Button>
+              )}
+            </div>
+            <Button type="submit" disabled={loading || archiving}>
               {loading ? "Сохранение..." : "Сохранить"}
             </Button>
           </DialogFooter>

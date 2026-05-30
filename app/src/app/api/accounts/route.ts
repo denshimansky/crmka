@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
     where: {
       tenantId: session.user.tenantId,
       deletedAt: null,
+      isActive: true,
     },
     include: {
       branch: { select: { id: true, name: true } },
