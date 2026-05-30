@@ -7,11 +7,19 @@ const ALLOWED_FOR_BLOCKED = ["/billing", "/api/billing", "/api/auth"]
 export default withAuth(
   function middleware(req) {
     const token = req.nextauth.token
-    if (!token) return NextResponse.next()
+    const { pathname } = req.nextUrl
+
+    // Прокидываем pathname в request headers, чтобы layout серверного компонента
+    // мог прочитать его через next/headers и применить permission-гард.
+    const requestHeaders = new Headers(req.headers)
+    requestHeaders.set("x-pathname", pathname)
+
+    if (!token) {
+      return NextResponse.next({ request: { headers: requestHeaders } })
+    }
 
     // Проверяем billingStatus из JWT-токена
     const billingStatus = token.billingStatus as string | undefined
-    const { pathname } = req.nextUrl
 
     if (billingStatus === "blocked") {
       const isAllowed = ALLOWED_FOR_BLOCKED.some((prefix) =>
@@ -30,7 +38,7 @@ export default withAuth(
       }
     }
 
-    return NextResponse.next()
+    return NextResponse.next({ request: { headers: requestHeaders } })
   },
   {
     pages: {

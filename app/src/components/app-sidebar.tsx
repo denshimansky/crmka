@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { Role } from "@prisma/client"
+import type { PermissionKey } from "@/lib/permissions"
 
 const ROLE_LABELS: Record<Role, string> = {
   owner: "Владелец",
@@ -29,33 +30,40 @@ const ROLE_LABELS: Record<Role, string> = {
   readonly: "Только чтение",
 }
 
-const navItems = [
+interface NavItem {
+  title: string
+  href: string
+  icon: typeof LayoutDashboard
+  permission?: PermissionKey
+}
+
+const navItems: NavItem[] = [
   { title: "Главная", href: "/", icon: LayoutDashboard },
 ]
 
-const crmItems = [
-  { title: "Контакты", href: "/crm/contacts", icon: Users },
-  { title: "Продажи", href: "/crm/sales", icon: Filter },
-  { title: "Дети", href: "/crm/children", icon: Baby },
-  { title: "Обзвон", href: "/crm/calls", icon: Phone },
+const crmItems: NavItem[] = [
+  { title: "Контакты", href: "/crm/contacts", icon: Users, permission: "clients.view" },
+  { title: "Продажи", href: "/crm/sales", icon: Filter, permission: "clients.view" },
+  { title: "Дети", href: "/crm/children", icon: Baby, permission: "clients.view" },
+  { title: "Обзвон", href: "/crm/calls", icon: Phone, permission: "clients.view" },
 ]
 
-const financeItems = [
-  { title: "Оплаты", href: "/finance/payments", icon: CreditCard },
-  { title: "Расходы", href: "/finance/expenses", icon: Receipt },
-  { title: "Плановые расходы", href: "/finance/planned-expenses", icon: Target },
-  { title: "ДДС", href: "/finance/dds", icon: ArrowDownUp },
-  { title: "Должники", href: "/finance/debtors", icon: AlertTriangle },
+const financeItems: NavItem[] = [
+  { title: "Оплаты", href: "/finance/payments", icon: CreditCard, permission: "finance.view" },
+  { title: "Расходы", href: "/finance/expenses", icon: Receipt, permission: "finance.view" },
+  { title: "Плановые расходы", href: "/finance/planned-expenses", icon: Target, permission: "finance.view" },
+  { title: "ДДС", href: "/finance/dds", icon: ArrowDownUp, permission: "finance.view" },
+  { title: "Должники", href: "/finance/debtors", icon: AlertTriangle, permission: "finance.view" },
 ]
 
-const otherItems = [
-  { title: "Расписание", href: "/schedule", icon: Calendar },
-  { title: "Зарплата", href: "/salary", icon: Wallet },
-  { title: "Склад", href: "/stock", icon: Package },
-  { title: "Задачи", href: "/tasks", icon: ClipboardList },
-  { title: "Отчёты", href: "/reports", icon: BarChart3 },
-  { title: "Настройки", href: "/settings", icon: Settings },
-  { title: "Интеграции", href: "/settings/integrations", icon: Plug },
+const otherItems: NavItem[] = [
+  { title: "Расписание", href: "/schedule", icon: Calendar, permission: "schedule.view" },
+  { title: "Зарплата", href: "/salary", icon: Wallet, permission: "finance.salary" },
+  { title: "Склад", href: "/stock", icon: Package, permission: "schedule.view" },
+  { title: "Задачи", href: "/tasks", icon: ClipboardList, permission: "clients.view" },
+  { title: "Отчёты", href: "/reports", icon: BarChart3, permission: "reports.view" },
+  { title: "Настройки", href: "/settings", icon: Settings, permission: "settings.view" },
+  { title: "Интеграции", href: "/settings/integrations", icon: Plug, permission: "settings.view" },
 ]
 
 function getInitials(name: string | null | undefined): string {
@@ -76,7 +84,11 @@ function getShortName(name: string | null | undefined): string {
   return name
 }
 
-export function AppSidebar() {
+export function AppSidebar({
+  permissions,
+}: {
+  permissions: Record<PermissionKey, boolean>
+}) {
   const pathname = usePathname()
   const { data: session, status } = useSession()
   const { isMobile, setOpenMobile } = useSidebar()
@@ -94,7 +106,15 @@ export function AppSidebar() {
     if (isMobile) setOpenMobile(false)
   }
 
-  const renderItems = (items: typeof navItems) =>
+  const filterByPerm = (items: NavItem[]) =>
+    items.filter((i) => !i.permission || permissions[i.permission])
+
+  const visibleNavItems = filterByPerm(navItems)
+  const visibleCrmItems = filterByPerm(crmItems)
+  const visibleFinanceItems = filterByPerm(financeItems)
+  const visibleOtherItems = filterByPerm(otherItems)
+
+  const renderItems = (items: NavItem[]) =>
     items.map((item) => (
       <SidebarMenuItem key={item.href}>
         <SidebarMenuButton render={<Link href={item.href} onClick={handleNavClick} />} isActive={isActive(item.href)}>
@@ -130,28 +150,32 @@ export function AppSidebar() {
 
       <SidebarContent className="overflow-x-hidden overscroll-contain touch-pan-y">
         <SidebarGroup>
-          <SidebarMenu>{renderItems(navItems)}</SidebarMenu>
+          <SidebarMenu>{renderItems(visibleNavItems)}</SidebarMenu>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>CRM</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>{renderItems(crmItems)}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {visibleCrmItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>CRM</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>{renderItems(visibleCrmItems)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Финансы</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>{renderItems(financeItems)}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {visibleFinanceItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Финансы</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>{renderItems(visibleFinanceItems)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         <SidebarSeparator />
 
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu>{renderItems(otherItems)}</SidebarMenu>
+            <SidebarMenu>{renderItems(visibleOtherItems)}</SidebarMenu>
             {(user?.role === "owner" || user?.role === "manager") && (
               <>
                 <SidebarMenu>
