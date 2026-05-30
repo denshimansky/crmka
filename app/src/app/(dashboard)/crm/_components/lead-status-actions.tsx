@@ -75,6 +75,14 @@ function wardName(w: WardLite): string {
   return [w.firstName, w.lastName].filter(Boolean).join(" ") || "Без имени"
 }
 
+// Доступные переходы для активного клиента (есть активный абонемент).
+// Перевести в Лиды/Потенциал/etc. нельзя — клиент уже «прошёл» воронку.
+const ACTIVE_TRANSITIONS: { value: string; label: string }[] = [
+  { value: "churned", label: "В Выбывшие" },
+  { value: "archived", label: "В Архив" },
+  { value: "blacklisted", label: "В Чёрный список" },
+]
+
 export function LeadStatusActions({
   clientId,
   currentStatus,
@@ -84,7 +92,8 @@ export function LeadStatusActions({
   clientId: string
   currentStatus: string
   wards: WardLite[]
-  // Активный клиент — селектор воронки скрываем, остаётся только запись на пробное (новое направление)
+  // Активный клиент — селектор воронки заменяем на ограниченный набор
+  // переходов (Выбывшие/Архив/ЧС); запись на пробное по-прежнему доступна
   isActiveClient?: boolean
 }) {
   const router = useRouter()
@@ -95,6 +104,32 @@ export function LeadStatusActions({
   useEffect(() => {
     setStatusValue(currentStatus)
   }, [currentStatus])
+
+  async function handleActiveTransition(value: string | null) {
+    if (!value) return
+    setStatusLoading(true)
+    try {
+      const body =
+        value === "churned"
+          ? { clientStatus: "churned" }
+          : { funnelStatus: value }
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (res.ok) {
+        router.refresh()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || "Не удалось сменить статус")
+      }
+    } catch {
+      alert("Ошибка сети")
+    } finally {
+      setStatusLoading(false)
+    }
+  }
 
   // ----- Trial dialog state -----
   const [trialOpen, setTrialOpen] = useState(false)
@@ -260,7 +295,23 @@ export function LeadStatusActions({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {!isActiveClient && (
+      {isActiveClient ? (
+        <Select value="" onValueChange={handleActiveTransition}>
+          <SelectTrigger
+            className="h-7 min-w-[170px] text-xs"
+            disabled={statusLoading}
+          >
+            <span className="text-muted-foreground">Сменить статус…</span>
+          </SelectTrigger>
+          <SelectContent>
+            {ACTIVE_TRANSITIONS.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
         <Select value={statusValue} onValueChange={handleStatusChange}>
           <SelectTrigger
             className="h-7 min-w-[170px] text-xs"

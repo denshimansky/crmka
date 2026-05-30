@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { recalcLinkedDiscounts } from "@/lib/linked-discount"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -80,13 +81,59 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       balance,
     }
 
+    // «Отчислить» = withdrawn → дополнительно:
+    //   1) посчитать остаток занятий и вернуть деньги на client.clientBalance,
+    //   2) деактивировать GroupEnrollment (ребёнок уходит из группы и расписания),
+    //   3) обнулить subscription.balance, потому что мы его уже вернули.
+    let refundedAmount = 0
+    if (data.status === "withdrawn" && existing.status !== "withdrawn") {
+      const attendedCount = await tx.attendance.count({
+        where: {
+          tenantId: session.user.tenantId,
+          subscriptionId: id,
+          chargeAmount: { gt: 0 },
+        },
+      })
+      const remainingLessons = Math.max(0, existing.totalLessons - attendedCount)
+      refundedAmount = remainingLessons * Number(existing.lessonPrice)
+
+      if (refundedAmount > 0) {
+        await applyBalanceDelta(tx, {
+          tenantId: session.user.tenantId,
+          clientId: existing.clientId,
+          delta: refundedAmount,
+          type: "subscription_closed_refund",
+          refs: { subscriptionId: id, directionId: existing.directionId },
+          comment: `Отчисление: возврат за ${remainingLessons} занятий`,
+          createdBy: session.user.employeeId,
+        })
+        updateData.balance = 0
+      }
+
+      // ребёнок уходит из группы → исчезает из расписания (Lessons продолжают
+      // существовать как объекты, но без зачисления = без посещения).
+      const wardScope = existing.wardId ? { wardId: existing.wardId } : { clientId: existing.clientId }
+      await tx.groupEnrollment.updateMany({
+        where: {
+          tenantId: session.user.tenantId,
+          groupId: existing.groupId,
+          isActive: true,
+          deletedAt: null,
+          ...wardScope,
+        },
+        data: { isActive: false, withdrawnAt: new Date() },
+      })
+    }
+
     if (data.status) {
       updateData.status = data.status
       if (data.status === "active" && !existing.activatedAt) {
         updateData.activatedAt = new Date()
       }
-      if (data.status === "withdrawn" && data.withdrawalDate) {
-        updateData.withdrawalDate = new Date(data.withdrawalDate)
+      if (data.status === "withdrawn") {
+        updateData.withdrawalDate = data.withdrawalDate
+          ? new Date(data.withdrawalDate)
+          : new Date()
       }
     }
 
@@ -115,7 +162,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       )
     }
 
-    return { subscription, linkedDiscountChanges }
+    return { subscription, linkedDiscountChanges, refundedAmount }
   })
 
   if (!result) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
@@ -126,6 +173,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       message: `Связанная скидка снята с ${result.linkedDiscountChanges.length} абонемент(ов), т.к. активных абонементов стало меньше 2`,
       affected: result.linkedDiscountChanges,
     }
+  }
+  if (result.refundedAmount > 0) {
+    response._refunded = result.refundedAmount
   }
 
   return NextResponse.json(response)

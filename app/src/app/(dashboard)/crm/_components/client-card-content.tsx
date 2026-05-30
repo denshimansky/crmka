@@ -226,7 +226,11 @@ export async function ClientCardContent({
         <LeadStatusActions
           clientId={client.id}
           currentStatus={client.funnelStatus}
-          isActiveClient={client.clientStatus === "active" || client.clientStatus === "upsell"}
+          isActiveClient={
+            activeSubscriptions.length > 0 ||
+            client.clientStatus === "active" ||
+            client.clientStatus === "upsell"
+          }
           wards={client.wards.map((w) => ({
             id: w.id,
             firstName: w.firstName,

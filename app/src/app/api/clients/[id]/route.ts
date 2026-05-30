@@ -84,6 +84,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     )
   }
 
+  // Перевод в «Выбывшие» (clientStatus=churned) — только если у клиента
+  // не осталось активных абонементов ни у одного из подопечных.
+  if (data.clientStatus === "churned" && existing.clientStatus !== "churned") {
+    const activeSubs = await db.subscription.count({
+      where: {
+        tenantId: session.user.tenantId,
+        clientId: id,
+        status: "active",
+        deletedAt: null,
+      },
+    })
+    if (activeSubs > 0) {
+      return NextResponse.json(
+        {
+          error:
+            `Нельзя перевести в «Выбывшие»: у клиента есть ${activeSubs} активный абонемент(ов). ` +
+            "Сначала закройте или отчислите их.",
+          activeSubscriptions: activeSubs,
+        },
+        { status: 422 },
+      )
+    }
+  }
+
   // Если воронка переводится в archived/blacklisted — снимаем clientStatus,
   // чтобы устаревшая плашка («Выбывший» и т.п.) не висела на карточке.
   const movingToArchived =
