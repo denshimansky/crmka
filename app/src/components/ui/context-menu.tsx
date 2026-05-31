@@ -13,7 +13,7 @@ interface ContextMenuContextValue {
   open: boolean
   setOpen: (v: boolean) => void
   anchor: { getBoundingClientRect: () => DOMRect } | null
-  setAnchor: (a: { getBoundingClientRect: () => DOMRect } | null) => void
+  openAt: (x: number, y: number) => void
 }
 
 const Ctx = React.createContext<ContextMenuContextValue | null>(null)
@@ -25,10 +25,36 @@ function useCtx() {
 }
 
 export function ContextMenu({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = React.useState(false)
+  const [open, setOpenState] = React.useState(false)
   const [anchor, setAnchor] = React.useState<ContextMenuContextValue["anchor"]>(null)
+  // После открытия base-ui ловит следующий mouseup/mousedown как outside-press
+  // и сразу закрывает меню. Заглушаем первые ~250мс попыток закрытия после
+  // программного открытия. Эту же защёлку используем при правом клике по другой
+  // строке (контекстное меню должно «перепрыгнуть» без короткого закрытия).
+  const justOpenedAt = React.useRef(0)
+
+  const setOpen = React.useCallback((v: boolean) => {
+    if (!v && Date.now() - justOpenedAt.current < 250) return
+    setOpenState(v)
+  }, [])
+
+  const openAt = React.useCallback((x: number, y: number) => {
+    setAnchor({
+      getBoundingClientRect: () => ({
+        x, y, top: y, left: x, right: x, bottom: y,
+        width: 0, height: 0,
+        toJSON: () => ({}),
+      } as DOMRect),
+    })
+    justOpenedAt.current = Date.now()
+    // Открываем на следующий тик, чтобы текущий contextmenu-цикл (включая
+    // последующий mouseup) полностью завершился до того, как base-ui навесит
+    // слушатели outside-press.
+    setTimeout(() => setOpenState(true), 0)
+  }, [])
+
   return (
-    <Ctx.Provider value={{ open, setOpen, anchor, setAnchor }}>
+    <Ctx.Provider value={{ open, setOpen, anchor, openAt }}>
       <MenuPrimitive.Root open={open} onOpenChange={setOpen} modal={false}>
         {children}
       </MenuPrimitive.Root>
@@ -45,20 +71,11 @@ export function ContextMenuTrigger({
   children: React.ReactElement
   asChild?: boolean
 }) {
-  const { setOpen, setAnchor } = useCtx()
+  const { openAt } = useCtx()
   const original = (children.props as { onContextMenu?: (e: React.MouseEvent) => void }).onContextMenu
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
-    const x = e.clientX
-    const y = e.clientY
-    setAnchor({
-      getBoundingClientRect: () => ({
-        x, y, top: y, left: x, right: x, bottom: y,
-        width: 0, height: 0,
-        toJSON: () => ({}),
-      } as DOMRect),
-    })
-    setOpen(true)
+    openAt(e.clientX, e.clientY)
     original?.(e)
   }
   if (asChild) {
