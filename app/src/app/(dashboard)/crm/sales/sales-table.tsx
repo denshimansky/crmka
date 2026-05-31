@@ -352,14 +352,16 @@ export function SalesTable({
                 </TableCell>
                 {tab === "application" && (
                   <TableCell>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      title="Обработать заявку"
-                      onClick={() => setProcessing(r)}
-                    >
-                      <Settings2 className="size-4" />
-                    </Button>
+                    {r.applicationId ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Обработать заявку"
+                        onClick={() => setProcessing(r)}
+                      >
+                        <Settings2 className="size-4" />
+                      </Button>
+                    ) : null}
                   </TableCell>
                 )}
                 <TableCell>

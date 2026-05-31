@@ -52,21 +52,28 @@ export async function GET(req: NextRequest) {
   } as const
 
   if (tab === "application") {
-    const rows = await db.application.findMany({
+    // Источник — Ward.salesStage='application' (как у остальных вкладок).
+    // Active Application подтягивается как опциональная связь — без неё ребёнок
+    // всё равно отображается в «Заявке».
+    const rows = await db.ward.findMany({
       where: {
         tenantId,
-        status: "active",
-        deletedAt: null,
-        client: notArchivedClient(),
-        ...(branchId ? { branchId } : {}),
+        salesStage: "application",
+        client: notArchivedClient(branchId),
       },
       include: {
-        client: { select: clientInclude },
-        ward: { select: { id: true, firstName: true, lastName: true, salesStage: true } },
-        branch: { select: { id: true, name: true } },
-        direction: { select: { id: true, name: true, color: true } },
+        client: { select: { ...clientInclude, branch: { select: { id: true, name: true } } } },
+        applications: {
+          where: { status: "active", deletedAt: null },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: {
+            branch: { select: { id: true, name: true } },
+            direction: { select: { id: true, name: true, color: true } },
+          },
+        },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { salesStageAt: "desc" },
     })
     return NextResponse.json(rows)
   }

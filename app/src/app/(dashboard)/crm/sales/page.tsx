@@ -31,15 +31,6 @@ function notArchivedClient(): Prisma.ClientWhereInput {
   }
 }
 
-function applicationWhere(tenantId: string): Prisma.ApplicationWhereInput {
-  return {
-    tenantId,
-    status: "active",
-    deletedAt: null,
-    client: notArchivedClient(),
-  }
-}
-
 function wardSalesWhere(tenantId: string, stage: WardSalesStage): Prisma.WardWhereInput {
   return {
     tenantId,
@@ -83,7 +74,7 @@ export default async function SalesPage({
       select: { id: true, firstName: true, lastName: true },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
-    db.application.count({ where: applicationWhere(tenantId) }),
+    db.ward.count({ where: wardSalesWhere(tenantId, "application") }),
     db.ward.count({ where: wardSalesWhere(tenantId, "trial_scheduled") }),
     db.ward.count({ where: wardSalesWhere(tenantId, "trial_attended") }),
     db.ward.count({ where: wardSalesWhere(tenantId, "awaiting_payment") }),
@@ -99,8 +90,13 @@ export default async function SalesPage({
   let rows: SalesRow[] = []
 
   if (tab === "application") {
-    const apps = await db.application.findMany({
-      where: applicationWhere(tenantId),
+    // Источник вкладки «Заявка» — Ward.salesStage='application', как и у других
+    // вкладок. Это: (а) включает свежесозданных подопечных без Application
+    // (новые клиенты с +); (б) переживает ручной возврат в «Заявку» из ПКМ-меню,
+    // даже если у подопечного никогда не было Application. Activной Application
+    // (если есть) даёт филиал/направление и applicationId для «Обработать заявку».
+    const wards = await db.ward.findMany({
+      where: wardSalesWhere(tenantId, "application"),
       include: {
         client: {
           select: {
@@ -114,40 +110,54 @@ export default async function SalesPage({
             assignedTo: true,
             createdAt: true,
             firstPaidLessonDate: true,
+            branch: { select: { id: true, name: true } },
             channel: { select: { id: true, name: true } },
             _count: { select: { payments: true } },
           },
         },
-        ward: { select: { id: true, firstName: true, lastName: true } },
-        branch: { select: { id: true, name: true } },
-        direction: { select: { id: true, name: true } },
+        applications: {
+          where: { status: "active", deletedAt: null },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: {
+            branch: { select: { id: true, name: true } },
+            direction: { select: { id: true, name: true } },
+          },
+        },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { salesStageAt: "desc" },
     })
-    rows = apps.map((a) => ({
-      rowId: a.id,
-      applicationId: a.id,
-      clientId: a.client.id,
-      state: a.client._count.payments > 0 ? "client" : "lead",
-      firstName: a.client.firstName,
-      lastName: a.client.lastName,
-      phone: maskPhone(a.client.phone, role),
-      socialLink: a.client.socialLink,
-      channelName: a.client.channel?.name ?? null,
-      ward: a.ward,
-      branchName: a.branch.name,
-      directionName: a.direction.name,
-      groupOrTimeLabel: null,
-      scheduledDate: null,
-      startTime: null,
-      lessonId: null,
-      firstPaidLessonDate: a.client.firstPaidLessonDate ? a.client.firstPaidLessonDate.toISOString() : null,
-      expectedSubscriptionAmount: null,
-      createdAt: a.createdAt.toISOString(),
-      nextContactDate: a.client.nextContactDate ? a.client.nextContactDate.toISOString() : null,
-      comment: a.client.comment,
-      assignedTo: a.client.assignedTo,
-    }))
+    rows = wards.map((w) => {
+      const app = w.applications[0]
+      return {
+        rowId: app?.id ?? w.id,
+        applicationId: app?.id,
+        clientId: w.client.id,
+        state: w.client._count.payments > 0 ? "client" : "lead",
+        firstName: w.client.firstName,
+        lastName: w.client.lastName,
+        phone: maskPhone(w.client.phone, role),
+        socialLink: w.client.socialLink,
+        channelName: w.client.channel?.name ?? null,
+        ward: { id: w.id, firstName: w.firstName, lastName: w.lastName },
+        branchName: app?.branch?.name ?? w.client.branch?.name ?? null,
+        directionName: app?.direction?.name ?? null,
+        groupOrTimeLabel: null,
+        scheduledDate: null,
+        startTime: null,
+        lessonId: null,
+        firstPaidLessonDate: w.client.firstPaidLessonDate ? w.client.firstPaidLessonDate.toISOString() : null,
+        expectedSubscriptionAmount: null,
+        createdAt: app
+          ? app.createdAt.toISOString()
+          : w.salesStageAt
+            ? w.salesStageAt.toISOString()
+            : null,
+        nextContactDate: w.client.nextContactDate ? w.client.nextContactDate.toISOString() : null,
+        comment: w.client.comment,
+        assignedTo: w.client.assignedTo,
+      }
+    })
   } else {
     // tab in ('trial', 'trial_done', 'awaiting_payment') — все три читаются по Ward.
     // Один Ward = одна строка. salesStage определяет вкладку; для отображения подтягиваем
