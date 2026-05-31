@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { PageHelp } from "@/components/page-help"
-import { Users, Merge, Loader2, CheckCircle2, Phone, Mail, MessageSquare } from "lucide-react"
+import { Users, Merge, Loader2, CheckCircle2, Phone, Mail, MessageSquare, UserSearch } from "lucide-react"
 import { formatWardName } from "@/lib/format-name"
 
 interface DuplicateClient {
@@ -34,7 +34,8 @@ interface DuplicateClient {
 }
 
 interface DuplicateGroup {
-  phone: string
+  matchType: "phone" | "name"
+  matchValue: string
   clients: DuplicateClient[]
 }
 
@@ -146,19 +147,26 @@ export default function DuplicatesPage() {
             <CheckCircle2 className="size-10 text-green-500" />
             <p className="text-lg font-medium">Дубликатов не найдено</p>
             <p className="text-sm text-muted-foreground">
-              Все клиенты имеют уникальные номера телефонов
+              Совпадений по телефону и ФИО не обнаружено
             </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-4">
           {groups.map((group) => (
-            <Card key={group.phone}>
+            <Card key={`${group.matchType}:${group.matchValue}`}>
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center justify-between text-base">
                   <div className="flex items-center gap-2">
-                    <Phone className="size-4 text-muted-foreground" />
-                    <span>{group.phone}</span>
+                    {group.matchType === "phone" ? (
+                      <Phone className="size-4 text-muted-foreground" />
+                    ) : (
+                      <UserSearch className="size-4 text-muted-foreground" />
+                    )}
+                    <span>{group.matchValue}</span>
+                    <Badge variant="outline" className="text-xs">
+                      {group.matchType === "phone" ? "по телефону" : "по ФИО"}
+                    </Badge>
                     <Badge variant="destructive">{group.clients.length} дублей</Badge>
                   </div>
                   <Button size="sm" onClick={() => openMergeDialog(group)}>
@@ -182,6 +190,11 @@ export default function DuplicatesPage() {
                           </Badge>
                         )}
                       </div>
+                      {client.phone && (
+                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <Phone className="size-3" /> {client.phone}
+                        </div>
+                      )}
                       {client.email && (
                         <div className="flex items-center gap-1 text-sm text-muted-foreground">
                           <Mail className="size-3" /> {client.email}

@@ -232,6 +232,10 @@ export function AttendanceTable({
 
   // All students combined (enrolled + makeup)
   const allStudents = [...students, ...makeupStudents]
+  // Trial students are not in Attendance; «отмечен» = status != scheduled.
+  const trialMarkedCount = trialStudents.filter((t) => t.status !== "scheduled").length
+  const totalStudentsCount = allStudents.length + trialStudents.length
+  const totalMarkedCount = allStudents.filter((s) => s.attendance).length + trialMarkedCount
 
   // Auto-save topic
   const saveField = useCallback(
@@ -1040,7 +1044,7 @@ export function AttendanceTable({
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">
-              Посещаемость ({markedStudents.length}/{allStudents.length})
+              Посещаемость ({totalMarkedCount}/{totalStudentsCount})
             </CardTitle>
             <div className="flex items-center gap-2">
               {currentUserRole !== "instructor" && (
@@ -1073,7 +1077,7 @@ export function AttendanceTable({
           </div>
         </CardHeader>
         <CardContent>
-          {allStudents.length === 0 ? (
+          {totalStudentsCount === 0 ? (
             <div className="text-center py-10 text-muted-foreground">
               <Users className="mx-auto size-10 opacity-50 mb-2" />
               <p>В группе нет зачисленных учеников</p>

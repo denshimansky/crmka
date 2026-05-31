@@ -122,6 +122,10 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
             {parentPhone ? ` · ${parentPhone}` : ""}
           </p>
         </div>
+      </div>
+
+      {/* Action buttons — слева, как у родителя (client-card-content.tsx) */}
+      <div className="flex flex-wrap items-center gap-2">
         <TrialLessonDialog
           clientId={ward.client.id}
           wards={[{ id: ward.id, firstName: ward.firstName, lastName: ward.lastName }]}
