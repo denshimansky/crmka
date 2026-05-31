@@ -93,6 +93,9 @@ export function TrialLessonForm({
   const [startTime, setStartTime] = useState("10:00")
   const [comment, setComment] = useState("")
   const [validationError, setValidationError] = useState<string | null>(null)
+  // Доступные даты для выбранной группы (реальные занятия). null = ещё не загружено
+  // или режим «без группы»; [] = группа выбрана, занятий нет.
+  const [groupLessonDates, setGroupLessonDates] = useState<string[] | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -129,6 +132,39 @@ export function TrialLessonForm({
   const filteredGroups = directionId && branchId
     ? groups.filter((g) => g.directionId === directionId && g.branchId === branchId)
     : []
+
+  // При смене группы подгружаем её предстоящие занятия — это даёт честный
+  // список доступных дат и убирает ошибку «У группы нет занятия на эту дату».
+  useEffect(() => {
+    if (kind !== "group" || !groupId) {
+      setGroupLessonDates(null)
+      return
+    }
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await fetch(`/api/groups/${groupId}/lessons`)
+        if (!res.ok) {
+          setGroupLessonDates([])
+          return
+        }
+        const lessons: { date: string }[] = await res.json()
+        if (cancelled) return
+        const dates = lessons.map((l) => l.date.slice(0, 10))
+        setGroupLessonDates(dates)
+        if (dates.length > 0 && !dates.includes(scheduledDate)) {
+          setScheduledDate(dates[0])
+        }
+      } catch {
+        setGroupLessonDates([])
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId, kind])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -365,7 +401,28 @@ export function TrialLessonForm({
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label>Дата *</Label>
-          <Input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} />
+          {kind === "group" && groupId && groupLessonDates !== null ? (
+            groupLessonDates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">У этой группы нет предстоящих занятий.</p>
+            ) : (
+              <Select value={scheduledDate} onValueChange={(v) => v && setScheduledDate(v)}>
+                <SelectTrigger className="w-full">
+                  {scheduledDate
+                    ? new Date(scheduledDate).toLocaleDateString("ru-RU")
+                    : "Выберите дату"}
+                </SelectTrigger>
+                <SelectContent>
+                  {groupLessonDates.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {new Date(d).toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )
+          ) : (
+            <Input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} />
+          )}
         </div>
         {kind === "individual" && (
           <div className="space-y-1.5">

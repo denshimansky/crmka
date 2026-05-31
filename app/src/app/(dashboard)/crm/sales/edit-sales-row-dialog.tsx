@@ -92,6 +92,9 @@ export function EditSalesRowDialog({
   const [directionId, setDirectionId] = useState<string>("")
   const [groupId, setGroupId] = useState<string>("")
   const [scheduledDate, setScheduledDate] = useState<string>(isoToDate(row.scheduledDate))
+  // Список доступных дат пробного — реальные занятия выбранной группы.
+  // null = ещё не загружены / нет группы; пустой массив = группа выбрана, занятий нет.
+  const [groupLessonDates, setGroupLessonDates] = useState<string[] | null>(null)
 
   useEffect(() => {
     if (!open || refLoaded) return
@@ -142,6 +145,45 @@ export function EditSalesRowDialog({
         : [],
     [groups, branchId, directionId],
   )
+
+  // При смене группы — подгружаем её реальные занятия (только будущие,
+  // плюс текущая дата строки, если она в прошлом — чтобы select показывал её).
+  useEffect(() => {
+    if (!trialEditable || !groupId) {
+      setGroupLessonDates(null)
+      return
+    }
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await fetch(`/api/groups/${groupId}/lessons`)
+        if (!res.ok) {
+          setGroupLessonDates([])
+          return
+        }
+        const lessons: { date: string }[] = await res.json()
+        if (cancelled) return
+        const dates = lessons.map((l) => l.date.slice(0, 10))
+        // Если у строки уже выставлена дата (старое пробное) и она не попала в
+        // список (из-за поля from=today) — добавим, чтобы текущее значение было видимым.
+        const initial = isoToDate(row.scheduledDate)
+        if (initial && !dates.includes(initial)) dates.unshift(initial)
+        setGroupLessonDates(dates)
+        // Если текущая выбранная дата отсутствует в списке — сбрасываем в первую доступную.
+        if (!dates.includes(scheduledDate) && dates.length > 0) {
+          setScheduledDate(dates[0])
+        }
+      } catch {
+        setGroupLessonDates([])
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+    // scheduledDate намеренно не в deps — пересчитывать список нужно только при смене группы.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId, trialEditable, row.scheduledDate])
 
   const employeeOptions = useMemo(
     () =>
@@ -361,18 +403,9 @@ export function EditSalesRowDialog({
             </div>
           )}
 
-          {/* Пробное — дата и группа */}
+          {/* Пробное — сначала группа (определяет доступные даты), потом дата */}
           {showsTrialFields && (
             <>
-              <div className="space-y-1.5">
-                <Label>Дата пробного {!trialEditable ? "(только просмотр)" : ""}</Label>
-                <Input
-                  type="date"
-                  value={scheduledDate}
-                  onChange={(e) => setScheduledDate(e.target.value)}
-                  disabled={!trialEditable}
-                />
-              </div>
               <div className="space-y-1.5">
                 <Label>Группа {!trialEditable ? "(только просмотр)" : ""}</Label>
                 <Select
@@ -387,6 +420,39 @@ export function EditSalesRowDialog({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Дата пробного {!trialEditable ? "(только просмотр)" : ""}</Label>
+                {trialEditable && groupId && groupLessonDates !== null ? (
+                  groupLessonDates.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">У этой группы нет предстоящих занятий.</p>
+                  ) : (
+                    <Select
+                      value={scheduledDate}
+                      onValueChange={(v) => v && setScheduledDate(v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        {scheduledDate
+                          ? new Date(scheduledDate).toLocaleDateString("ru-RU")
+                          : "Выберите дату"}
+                      </SelectTrigger>
+                      <SelectContent>
+                        {groupLessonDates.map((d) => (
+                          <SelectItem key={d} value={d}>
+                            {new Date(d).toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )
+                ) : (
+                  <Input
+                    type="date"
+                    value={scheduledDate}
+                    onChange={(e) => setScheduledDate(e.target.value)}
+                    disabled={!trialEditable}
+                  />
+                )}
               </div>
             </>
           )}
