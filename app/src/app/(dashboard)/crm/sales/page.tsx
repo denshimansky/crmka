@@ -1,6 +1,6 @@
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
-import { Prisma } from "@prisma/client"
+import { Prisma, WardSalesStage } from "@prisma/client"
 import { PageHelp } from "@/components/page-help"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { CreateClientDialog } from "../clients/create-client-dialog"
@@ -15,27 +15,37 @@ const TAB_LABELS: Record<SalesTabKey, string> = {
 }
 const TAB_ORDER: SalesTabKey[] = ["application", "trial", "trial_done", "awaiting_payment"]
 
-// Единые where-условия для каждой вкладки — counter и rows используют один объект,
-// чтобы цифры в табах всегда совпадали с количеством записей в таблице.
+const TAB_TO_STAGE: Record<Exclude<SalesTabKey, "application">, WardSalesStage> = {
+  trial: "trial_scheduled",
+  trial_done: "trial_attended",
+  awaiting_payment: "awaiting_payment",
+}
+
+// Фильтр родителя для всех вкладок «Продаж»: исключаем только архив и ЧС.
+// Любой другой funnelStatus (включая active_client — родитель уже платил по другому ребёнку)
+// допустим, потому что воронка теперь живёт на Ward, а не на Client.
+function notArchivedClient(): Prisma.ClientWhereInput {
+  return {
+    deletedAt: null,
+    funnelStatus: { notIn: ["archived", "blacklisted"] },
+  }
+}
+
 function applicationWhere(tenantId: string): Prisma.ApplicationWhereInput {
-  return { tenantId, status: "active", deletedAt: null }
-}
-
-function trialWhere(tenantId: string, kind: "scheduled" | "attended"): Prisma.TrialLessonWhereInput {
-  const base: Prisma.TrialLessonWhereInput = {
+  return {
     tenantId,
-    status: kind,
-    wardId: { not: null },
-    client: { deletedAt: null },
+    status: "active",
+    deletedAt: null,
+    client: notArchivedClient(),
   }
-  if (kind === "attended") {
-    base.client = { funnelStatus: "trial_attended", deletedAt: null }
-  }
-  return base
 }
 
-function awaitingPaymentWhere(tenantId: string): Prisma.ClientWhereInput {
-  return { tenantId, deletedAt: null, funnelStatus: "awaiting_payment" }
+function wardSalesWhere(tenantId: string, stage: WardSalesStage): Prisma.WardWhereInput {
+  return {
+    tenantId,
+    salesStage: stage,
+    client: notArchivedClient(),
+  }
 }
 
 function fmtMoney(amount: number): string {
@@ -74,9 +84,9 @@ export default async function SalesPage({
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
     db.application.count({ where: applicationWhere(tenantId) }),
-    db.trialLesson.count({ where: trialWhere(tenantId, "scheduled") }),
-    db.trialLesson.count({ where: trialWhere(tenantId, "attended") }),
-    db.client.count({ where: awaitingPaymentWhere(tenantId) }),
+    db.ward.count({ where: wardSalesWhere(tenantId, "trial_scheduled") }),
+    db.ward.count({ where: wardSalesWhere(tenantId, "trial_attended") }),
+    db.ward.count({ where: wardSalesWhere(tenantId, "awaiting_payment") }),
   ])
 
   const counts: Record<SalesTabKey, number> = {
@@ -138,10 +148,22 @@ export default async function SalesPage({
       comment: a.client.comment,
       assignedTo: a.client.assignedTo,
     }))
-  } else if (tab === "trial" || tab === "trial_done") {
-    const trialStatus: "scheduled" | "attended" = tab === "trial" ? "scheduled" : "attended"
-    const trials = await db.trialLesson.findMany({
-      where: trialWhere(tenantId, trialStatus),
+  } else {
+    // tab in ('trial', 'trial_done', 'awaiting_payment') — все три читаются по Ward.
+    // Один Ward = одна строка. salesStage определяет вкладку; для отображения подтягиваем
+    // одно «представительное» пробное (запланированное для trial, последнее attended для остальных).
+    const stage = TAB_TO_STAGE[tab]
+    const trialLessonFilter =
+      tab === "trial"
+        ? { status: "scheduled" as const }
+        : { status: "attended" as const }
+    const trialLessonOrder =
+      tab === "trial"
+        ? ({ scheduledDate: "asc" as const })
+        : ({ attendedAt: "desc" as const })
+
+    const wards = await db.ward.findMany({
+      where: wardSalesWhere(tenantId, stage),
       include: {
         client: {
           select: {
@@ -154,71 +176,16 @@ export default async function SalesPage({
             nextContactDate: true,
             assignedTo: true,
             firstPaidLessonDate: true,
+            branch: { select: { id: true, name: true } },
             channel: { select: { id: true, name: true } },
             _count: { select: { payments: true } },
           },
         },
-        ward: { select: { id: true, firstName: true, lastName: true } },
-        group: {
-          select: {
-            id: true,
-            name: true,
-            branch: { select: { id: true, name: true } },
-            direction: { select: { id: true, name: true } },
-          },
-        },
-        direction: { select: { id: true, name: true } },
-        room: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
-        // Для групповых пробных время хранится у связанного Lesson; у TrialLesson.startTime
-        // оно null. Подтягиваем для отображения «ДД.ММ.ГГГГ HH:MM».
-        lesson: { select: { startTime: true } },
-      },
-      orderBy: { scheduledDate: tab === "trial" ? "asc" : "desc" },
-    })
-    rows = trials.map((t) => ({
-      rowId: t.id,
-      clientId: t.client.id,
-      state: t.client._count.payments > 0 ? "client" : "lead",
-      firstName: t.client.firstName,
-      lastName: t.client.lastName,
-      phone: maskPhone(t.client.phone, role),
-      socialLink: t.client.socialLink,
-      channelName: t.client.channel?.name ?? null,
-      ward: t.ward!,
-      branchName: t.group?.branch?.name ?? t.room?.branch?.name ?? null,
-      directionName: t.group?.direction?.name ?? t.direction?.name ?? null,
-      groupOrTimeLabel:
-        t.group?.name ??
-        (t.startTime
-          ? `Индив. ${t.startTime}${t.durationMinutes ? `, ${t.durationMinutes}мин` : ""}`
-          : null),
-      scheduledDate: t.scheduledDate.toISOString(),
-      startTime: t.startTime ?? t.lesson?.startTime ?? null,
-      lessonId: t.lessonId,
-      firstPaidLessonDate: t.client.firstPaidLessonDate
-        ? t.client.firstPaidLessonDate.toISOString()
-        : null,
-      expectedSubscriptionAmount: null,
-      createdAt: null,
-      nextContactDate: t.client.nextContactDate ? t.client.nextContactDate.toISOString() : null,
-      comment: t.client.comment,
-      assignedTo: t.client.assignedTo,
-    }))
-  } else {
-    // awaiting_payment
-    const clients = await db.client.findMany({
-      where: awaitingPaymentWhere(tenantId),
-      include: {
-        branch: { select: { id: true, name: true } },
-        wards: { select: { id: true, firstName: true, lastName: true } },
-        channel: { select: { id: true, name: true } },
-        _count: { select: { payments: true } },
         trialLessons: {
-          where: { status: "attended" },
-          orderBy: { attendedAt: "desc" },
+          where: trialLessonFilter,
+          orderBy: trialLessonOrder,
           take: 1,
           include: {
-            ward: { select: { id: true, firstName: true, lastName: true } },
             group: {
               select: {
                 id: true,
@@ -228,43 +195,58 @@ export default async function SalesPage({
               },
             },
             direction: { select: { id: true, name: true, lessonPrice: true } },
-            // Время старта групповых пробных хранится у Lesson, не у TrialLesson.
+            room: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
+            // Для групповых пробных время хранится у связанного Lesson; у TrialLesson.startTime
+            // оно null. Подтягиваем для отображения «ДД.ММ.ГГГГ HH:MM».
             lesson: { select: { startTime: true } },
           },
         },
       },
-      orderBy: { updatedAt: "desc" },
+      orderBy:
+        tab === "trial"
+          ? { salesStageAt: "asc" }
+          : { salesStageAt: "desc" },
     })
-    rows = clients.map((c) => {
-      const trial = c.trialLessons[0]
-      const trialWard = trial?.ward ?? c.wards[0] ?? { id: "", firstName: "—", lastName: null }
-      const direction = trial?.group?.direction ?? trial?.direction ?? null
+
+    rows = wards.map((w) => {
+      const t = w.trialLessons[0]
+      const direction = t?.group?.direction ?? t?.direction ?? null
       const lessonPrice = direction?.lessonPrice ? Number(direction.lessonPrice) : 0
       // Простая оценка: 8 занятий × стоимость занятия (фактическое количество
       // зависит от расписания группы и месяца — уточняется при оформлении абонемента).
-      const expected = lessonPrice > 0 ? fmtMoney(lessonPrice * 8) : null
+      const expected =
+        tab === "awaiting_payment" && lessonPrice > 0 ? fmtMoney(lessonPrice * 8) : null
       return {
-        rowId: c.id,
-        clientId: c.id,
-        state: c._count.payments > 0 ? "client" : "lead",
-        firstName: c.firstName,
-        lastName: c.lastName,
-        phone: maskPhone(c.phone, role),
-        socialLink: c.socialLink,
-        channelName: c.channel?.name ?? null,
-        ward: trialWard,
-        branchName: trial?.group?.branch?.name ?? c.branch?.name ?? null,
+        rowId: w.id,
+        clientId: w.client.id,
+        state: w.client._count.payments > 0 ? "client" : "lead",
+        firstName: w.client.firstName,
+        lastName: w.client.lastName,
+        phone: maskPhone(w.client.phone, role),
+        socialLink: w.client.socialLink,
+        channelName: w.client.channel?.name ?? null,
+        ward: { id: w.id, firstName: w.firstName, lastName: w.lastName },
+        branchName:
+          t?.group?.branch?.name ?? t?.room?.branch?.name ?? w.client.branch?.name ?? null,
         directionName: direction?.name ?? null,
-        groupOrTimeLabel: trial?.group?.name ?? null,
-        scheduledDate: trial?.scheduledDate ? trial.scheduledDate.toISOString() : null,
-        startTime: trial?.startTime ?? trial?.lesson?.startTime ?? null,
-        lessonId: trial?.lessonId ?? null,
-        firstPaidLessonDate: c.firstPaidLessonDate ? c.firstPaidLessonDate.toISOString() : null,
+        groupOrTimeLabel:
+          t?.group?.name ??
+          (t?.startTime
+            ? `Индив. ${t.startTime}${t.durationMinutes ? `, ${t.durationMinutes}мин` : ""}`
+            : null),
+        scheduledDate: t?.scheduledDate ? t.scheduledDate.toISOString() : null,
+        startTime: t?.startTime ?? t?.lesson?.startTime ?? null,
+        lessonId: t?.lessonId ?? null,
+        firstPaidLessonDate: w.client.firstPaidLessonDate
+          ? w.client.firstPaidLessonDate.toISOString()
+          : null,
         expectedSubscriptionAmount: expected,
-        createdAt: c.createdAt.toISOString(),
-        nextContactDate: c.nextContactDate ? c.nextContactDate.toISOString() : null,
-        comment: c.comment,
-        assignedTo: c.assignedTo,
+        createdAt: w.salesStageAt ? w.salesStageAt.toISOString() : null,
+        nextContactDate: w.client.nextContactDate
+          ? w.client.nextContactDate.toISOString()
+          : null,
+        comment: w.client.comment,
+        assignedTo: w.client.assignedTo,
       }
     })
   }

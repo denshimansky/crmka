@@ -137,27 +137,35 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 5. Ожидание оплаты > 3 дней
+  // 5. Ожидание оплаты > 3 дней — теперь по подопечному (Ward.salesStage).
+  // Одна задача на родителя, даже если у него несколько детей висит в awaiting_payment.
   if (isTriggerEnabled("payment_due", triggerSettings, todayLocal)) {
     const threeDaysAgo = new Date(today)
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
-    const awaitingClients = await db.client.findMany({
+    const awaitingWards = await db.ward.findMany({
       where: {
-        tenantId, deletedAt: null, funnelStatus: "awaiting_payment",
-        updatedAt: { lt: threeDaysAgo },
+        tenantId,
+        salesStage: "awaiting_payment",
+        salesStageAt: { lt: threeDaysAgo },
+        client: { deletedAt: null },
       },
-      select: { id: true, firstName: true, lastName: true },
+      select: {
+        client: { select: { id: true, firstName: true, lastName: true } },
+      },
     })
-    for (const c of awaitingClients) {
+    const seenClients = new Set<string>()
+    for (const w of awaitingWards) {
+      if (seenClients.has(w.client.id)) continue
+      seenClients.add(w.client.id)
       const exists = await db.task.findFirst({
-        where: { tenantId, clientId: c.id, autoTrigger: "payment_due", dueDate: today, deletedAt: null },
+        where: { tenantId, clientId: w.client.id, autoTrigger: "payment_due", dueDate: today, deletedAt: null },
       })
       if (!exists) {
         await db.task.create({
           data: {
-            tenantId, title: `Напомнить об оплате: ${[c.lastName, c.firstName].filter(Boolean).join(" ")}`,
+            tenantId, title: `Напомнить об оплате: ${[w.client.lastName, w.client.firstName].filter(Boolean).join(" ")}`,
             type: "auto", autoTrigger: "payment_due", status: "pending",
-            dueDate: today, assignedTo: defaultAssignee.id, clientId: c.id,
+            dueDate: today, assignedTo: defaultAssignee.id, clientId: w.client.id,
           },
         })
         created++

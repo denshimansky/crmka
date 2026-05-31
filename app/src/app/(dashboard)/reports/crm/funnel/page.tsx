@@ -15,6 +15,7 @@ function formatPercent(value: number, total: number): string {
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
+  application: "Заявка",
   trial_scheduled: "Пробное записано",
   trial_attended: "Пробное пройдено",
   awaiting_payment: "Ожидание оплаты",
@@ -27,6 +28,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_COLORS: Record<string, string> = {
   new: "bg-blue-500",
+  application: "bg-sky-500",
   trial_scheduled: "bg-cyan-500",
   trial_attended: "bg-teal-500",
   awaiting_payment: "bg-yellow-500",
@@ -45,50 +47,86 @@ export default async function FunnelReportPage({ searchParams }: { searchParams:
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59))
 
-  // Все клиенты для общей статистики
-  const allClients = await db.client.findMany({
-    where: { tenantId, deletedAt: null },
-    select: { funnelStatus: true, createdAt: true, firstPaymentDate: true },
-  })
+  // Воронка считается в двух плоскостях:
+  // - new / active_client / прочие статусы контакта — по родителям (Client);
+  // - application / trial_* / awaiting_payment — по сделкам (Ward.salesStage),
+  //   потому что у одного родителя дети могут быть на разных этапах.
+  const [allClients, allWards] = await Promise.all([
+    db.client.findMany({
+      where: { tenantId, deletedAt: null },
+      select: { funnelStatus: true, createdAt: true, firstPaymentDate: true },
+    }),
+    db.ward.findMany({
+      where: { tenantId, client: { deletedAt: null } },
+      select: { salesStage: true, salesStageAt: true },
+    }),
+  ])
 
   const totalClients = allClients.length
 
-  // === БЛОК 1: Воронка текущего месяца (новые лиды этого месяца) ===
+  // === БЛОК 1: Воронка текущего месяца ===
   const monthClients = allClients.filter(c => c.createdAt >= monthStart && c.createdAt <= monthEnd)
 
-  const funnelStages = [
-    "new", "trial_scheduled", "trial_attended", "awaiting_payment", "active_client",
+  // Новые лиды периода — по родителям (статус new + создание в периоде).
+  const periodNew = allClients.filter(
+    c => c.funnelStatus === "new" && c.createdAt >= monthStart && c.createdAt <= monthEnd
+  ).length
+
+  // Сделочные стадии периода — по Ward, который поднялся в стадию в течение месяца.
+  const periodWardsByStage = new Map<string, number>()
+  for (const w of allWards) {
+    if (w.salesStageAt && w.salesStageAt >= monthStart && w.salesStageAt <= monthEnd) {
+      periodWardsByStage.set(w.salesStage, (periodWardsByStage.get(w.salesStage) || 0) + 1)
+    }
+  }
+
+  // Конверсии периода — по родителям (firstPaymentDate в периоде).
+  const convertedThisMonth = allClients.filter(
+    c => c.firstPaymentDate && c.firstPaymentDate >= monthStart && c.firstPaymentDate <= monthEnd
+  ).length
+
+  const funnelData = [
+    { status: "new", label: STATUS_LABELS.new, count: periodNew, color: STATUS_COLORS.new },
+    { status: "application", label: STATUS_LABELS.application, count: periodWardsByStage.get("application") || 0, color: STATUS_COLORS.application },
+    { status: "trial_scheduled", label: STATUS_LABELS.trial_scheduled, count: periodWardsByStage.get("trial_scheduled") || 0, color: STATUS_COLORS.trial_scheduled },
+    { status: "trial_attended", label: STATUS_LABELS.trial_attended, count: periodWardsByStage.get("trial_attended") || 0, color: STATUS_COLORS.trial_attended },
+    { status: "awaiting_payment", label: STATUS_LABELS.awaiting_payment, count: periodWardsByStage.get("awaiting_payment") || 0, color: STATUS_COLORS.awaiting_payment },
+    { status: "active_client", label: STATUS_LABELS.active_client, count: convertedThisMonth, color: STATUS_COLORS.active_client },
   ]
 
-  // Считаем по статусам только тех, кто создан в этом месяце
-  const monthStatusCounts = new Map<string, number>()
-  for (const c of monthClients) {
-    monthStatusCounts.set(c.funnelStatus, (monthStatusCounts.get(c.funnelStatus) || 0) + 1)
+  // === БЛОК 2: Перетекающие с прошлых месяцев ===
+  // Родители: new / potential, созданные до начала месяца, ещё в работе.
+  const carryoverClientCounts = new Map<string, number>()
+  for (const c of allClients) {
+    if (c.createdAt < monthStart && (c.funnelStatus === "new" || c.funnelStatus === "potential")) {
+      carryoverClientCounts.set(c.funnelStatus, (carryoverClientCounts.get(c.funnelStatus) || 0) + 1)
+    }
   }
-
-  const funnelData = funnelStages.map((status) => ({
-    status,
-    label: STATUS_LABELS[status] || status,
-    count: monthStatusCounts.get(status) || 0,
-    color: STATUS_COLORS[status],
-  }))
-
-  // === БЛОК 2: Перетекающие с прошлых месяцев (созданы раньше, ещё в воронке) ===
-  const carryoverStatuses = ["new", "trial_scheduled", "trial_attended", "awaiting_payment", "potential"]
-  const carryoverClients = allClients.filter(
-    c => c.createdAt < monthStart && carryoverStatuses.includes(c.funnelStatus)
-  )
-  const carryoverCounts = new Map<string, number>()
-  for (const c of carryoverClients) {
-    carryoverCounts.set(c.funnelStatus, (carryoverCounts.get(c.funnelStatus) || 0) + 1)
+  // Сделки: ward в стадии до начала периода и ещё там висит.
+  const carryoverWardCounts = new Map<string, number>()
+  for (const w of allWards) {
+    if (w.salesStage !== "none" && (!w.salesStageAt || w.salesStageAt < monthStart)) {
+      carryoverWardCounts.set(w.salesStage, (carryoverWardCounts.get(w.salesStage) || 0) + 1)
+    }
   }
-  const carryoverData = carryoverStatuses
+  const carryoverStages = [
+    "new",
+    "application",
+    "trial_scheduled",
+    "trial_attended",
+    "awaiting_payment",
+    "potential",
+  ]
+  const carryoverData = carryoverStages
     .map((status) => ({
       status,
       label: STATUS_LABELS[status] || status,
-      count: carryoverCounts.get(status) || 0,
+      count:
+        (carryoverClientCounts.get(status) || 0) +
+        (carryoverWardCounts.get(status) || 0),
     }))
     .filter(d => d.count > 0)
+  const carryoverTotal = carryoverData.reduce((a, d) => a + d.count, 0)
 
   const otherStages = ["non_target", "blacklisted", "archived"]
   const otherData = otherStages
@@ -101,9 +139,6 @@ export default async function FunnelReportPage({ searchParams }: { searchParams:
 
   // Метрики
   const newThisMonth = monthClients.length
-  const convertedThisMonth = allClients.filter(
-    c => c.firstPaymentDate && c.firstPaymentDate >= monthStart && c.firstPaymentDate <= monthEnd
-  ).length
 
   const maxCount = Math.max(...funnelData.map(d => d.count), 1)
 
@@ -192,7 +227,7 @@ export default async function FunnelReportPage({ searchParams }: { searchParams:
       {carryoverData.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Перетекающие с прошлых месяцев ({carryoverClients.length})</CardTitle>
+            <CardTitle className="text-base">Перетекающие с прошлых месяцев ({carryoverTotal})</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">

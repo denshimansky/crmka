@@ -2,9 +2,24 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { Prisma, WardSalesStage } from "@prisma/client"
 
 const TAB_VALUES = ["application", "trial", "trial_done", "awaiting_payment"] as const
 type SalesTab = (typeof TAB_VALUES)[number]
+
+const TAB_TO_STAGE: Record<Exclude<SalesTab, "application">, WardSalesStage> = {
+  trial: "trial_scheduled",
+  trial_done: "trial_attended",
+  awaiting_payment: "awaiting_payment",
+}
+
+function notArchivedClient(branchId?: string): Prisma.ClientWhereInput {
+  return {
+    deletedAt: null,
+    funnelStatus: { notIn: ["archived", "blacklisted"] },
+    ...(branchId ? { branchId } : {}),
+  }
+}
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -42,11 +57,12 @@ export async function GET(req: NextRequest) {
         tenantId,
         status: "active",
         deletedAt: null,
+        client: notArchivedClient(),
         ...(branchId ? { branchId } : {}),
       },
       include: {
         client: { select: clientInclude },
-        ward: { select: { id: true, firstName: true, lastName: true } },
+        ward: { select: { id: true, firstName: true, lastName: true, salesStage: true } },
         branch: { select: { id: true, name: true } },
         direction: { select: { id: true, name: true, color: true } },
       },
@@ -55,84 +71,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(rows)
   }
 
-  if (tab === "trial") {
-    const rows = await db.trialLesson.findMany({
-      where: {
-        tenantId,
-        status: "scheduled",
-        ...(branchId ? { OR: [{ group: { branchId } }, { room: { branchId } }] } : {}),
-      },
-      include: {
-        client: { select: clientInclude },
-        ward: { select: { id: true, firstName: true, lastName: true } },
-        group: {
-          select: {
-            id: true,
-            name: true,
-            branch: { select: { id: true, name: true } },
-            direction: { select: { id: true, name: true, color: true } },
-          },
-        },
-        direction: { select: { id: true, name: true, color: true } },
-        room: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
-        instructor: { select: { id: true, firstName: true, lastName: true } },
-      },
-      orderBy: { scheduledDate: "asc" },
-    })
-    return NextResponse.json(rows)
-  }
+  // trial / trial_done / awaiting_payment — по подопечному
+  const stage = TAB_TO_STAGE[tab]
+  const trialLessonFilter =
+    tab === "trial" ? { status: "scheduled" as const } : { status: "attended" as const }
+  const trialLessonOrder =
+    tab === "trial" ? ({ scheduledDate: "asc" as const }) : ({ attendedAt: "desc" as const })
 
-  if (tab === "trial_done") {
-    const rows = await db.trialLesson.findMany({
-      where: {
-        tenantId,
-        status: "attended",
-        client: {
-          funnelStatus: "trial_attended",
-          deletedAt: null,
-          ...(branchId ? { branchId } : {}),
-        },
-      },
-      include: {
-        client: { select: clientInclude },
-        ward: { select: { id: true, firstName: true, lastName: true } },
-        group: {
-          select: {
-            id: true,
-            name: true,
-            branch: { select: { id: true, name: true } },
-            direction: { select: { id: true, name: true, color: true } },
-          },
-        },
-        direction: { select: { id: true, name: true, color: true } },
-        instructor: { select: { id: true, firstName: true, lastName: true } },
-      },
-      orderBy: { scheduledDate: "desc" },
-    })
-    return NextResponse.json(rows)
-  }
-
-  // awaiting_payment
-  const clients = await db.client.findMany({
+  const wards = await db.ward.findMany({
     where: {
       tenantId,
-      deletedAt: null,
-      funnelStatus: "awaiting_payment",
-      ...(branchId ? { branchId } : {}),
+      salesStage: stage,
+      client: notArchivedClient(branchId),
     },
-    select: {
-      ...clientInclude,
-      branch: { select: { id: true, name: true } },
-      wards: { select: { id: true, firstName: true, lastName: true } },
+    include: {
+      client: { select: { ...clientInclude, branch: { select: { id: true, name: true } } } },
       trialLessons: {
-        where: { status: "attended" },
-        orderBy: { attendedAt: "desc" },
+        where: trialLessonFilter,
+        orderBy: trialLessonOrder,
         take: 1,
-        select: {
-          id: true,
-          scheduledDate: true,
-          attendedAt: true,
-          wardId: true,
+        include: {
           group: {
             select: {
               id: true,
@@ -142,10 +100,13 @@ export async function GET(req: NextRequest) {
             },
           },
           direction: { select: { id: true, name: true, color: true, lessonPrice: true } },
+          room: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
+          instructor: { select: { id: true, firstName: true, lastName: true } },
+          lesson: { select: { startTime: true } },
         },
       },
     },
-    orderBy: { updatedAt: "desc" },
+    orderBy: tab === "trial" ? { salesStageAt: "asc" } : { salesStageAt: "desc" },
   })
-  return NextResponse.json(clients)
+  return NextResponse.json(wards)
 }

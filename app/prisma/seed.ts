@@ -470,8 +470,12 @@ async function step2_january(ctx: Awaited<ReturnType<typeof step1_setup>>) {
     const brId = i % 3 === 0 ? brPark.id : brAkad.id
     const phone = `+7 (9${String(10 + i).padStart(2, "0")}) ${String(100 + i * 3).padStart(3, "0")}-${String(20 + i * 2).padStart(2, "0")}-${String(10 + i).padStart(2, "0")}`
 
-    let funnelStatus: "new" | "trial_scheduled" | "trial_attended" | "awaiting_payment" | "active_client" | "potential" | "non_target"
+    // Client.funnelStatus теперь только «качество контакта»; продажные стадии
+    // (пробное / прошёл пробное / ожидаем оплату) живут на Ward.salesStage и
+    // выставляются ниже вместе с созданием Ward.
+    let funnelStatus: "new" | "active_client" | "potential" | "non_target"
     let clientStatus: "active" | null = null
+    let wardSalesStage: "none" | "trial_scheduled" | "trial_attended" = "none"
 
     if (i < 25) {
       funnelStatus = "active_client"
@@ -481,9 +485,11 @@ async function step2_january(ctx: Awaited<ReturnType<typeof step1_setup>>) {
     } else if (i < 30) {
       funnelStatus = "non_target"
     } else if (i < 32) {
-      funnelStatus = "trial_attended"
+      funnelStatus = "new"
+      wardSalesStage = "trial_attended"
     } else if (i < 35) {
-      funnelStatus = "trial_scheduled"
+      funnelStatus = "new"
+      wardSalesStage = "trial_scheduled"
     } else {
       funnelStatus = "new"
     }
@@ -503,16 +509,36 @@ async function step2_january(ctx: Awaited<ReturnType<typeof step1_setup>>) {
     })
     allClientIds.push(client.id)
 
+    // Создаём Ward для конвертированных клиентов и для лидов с активной воронкой (i<35).
     if (i < 25) {
       const ward = await db.ward.create({
         data: { tenantId: T, clientId: client.id, firstName: childNames[i], birthDate: new Date(Date.UTC(2019 + (i % 4), i % 12, 1 + (i % 28))) },
       })
       clients.push({ id: client.id, wardId: ward.id, branchId: brId, idx: i })
+    } else if (wardSalesStage !== "none") {
+      await db.ward.create({
+        data: {
+          tenantId: T,
+          clientId: client.id,
+          firstName: childNames[i % childNames.length],
+          birthDate: new Date(Date.UTC(2019 + (i % 4), i % 12, 1 + (i % 28))),
+          salesStage: wardSalesStage,
+          salesStageAt: createdDate,
+        },
+      })
     }
   }
   console.log("  Leads/Clients: 45 (25 converted)")
 
   // --- Trial lessons for first 32 leads ---
+  // Подтягиваем wardId для каждого клиента (Ward создан выше для i<25 и для i=30..31).
+  const leadWardByClientId = new Map(
+    (await db.ward.findMany({
+      where: { tenantId: T, clientId: { in: allClientIds } },
+      select: { id: true, clientId: true },
+      orderBy: { createdAt: "asc" },
+    })).map((w) => [w.clientId, w.id])
+  )
   const trialGroupIdx = [0, 2, 4, 6, 1, 3, 5, 7, 11, 12, 13, 14, 0, 2, 4, 6, 1, 3, 5, 7, 11, 12, 13, 14, 0, 2, 4, 6, 1, 3, 5, 7]
   for (let i = 0; i < 32; i++) {
     const gIdx = trialGroupIdx[i % trialGroupIdx.length]
@@ -524,7 +550,8 @@ async function step2_january(ctx: Awaited<ReturnType<typeof step1_setup>>) {
 
     await db.trialLesson.create({
       data: {
-        tenantId: T, clientId: allClientIds[i], groupId: groups[gIdx].id,
+        tenantId: T, clientId: allClientIds[i], wardId: leadWardByClientId.get(allClientIds[i]) ?? null,
+        groupId: groups[gIdx].id,
         status, scheduledDate: new Date(Date.UTC(2026, 0, 6 + (i % 15))),
         attendedAt: status === "attended" ? new Date(Date.UTC(2026, 0, 6 + (i % 15))) : undefined,
       },
@@ -813,19 +840,21 @@ async function step3_february(
     const brId = i % 3 === 0 ? brPark.id : brAkad.id
     const phone = `+7 (9${String(50 + i).padStart(2, "0")}) ${String(200 + i * 3).padStart(3, "0")}-${String(30 + i).padStart(2, "0")}-${String(40 + i).padStart(2, "0")}`
 
-    let funnelStatus: "active_client" | "potential" | "non_target" | "trial_scheduled" | "new"
+    let funnelStatus: "active_client" | "potential" | "non_target" | "new"
     let clientStatus: "active" | null = null
+    let wardSalesStage: "none" | "trial_scheduled" = "none"
     if (i < 25) { funnelStatus = "active_client"; clientStatus = "active" }
     else if (i < 28) funnelStatus = "potential"
-    else if (i < 30) funnelStatus = "trial_scheduled"
+    else if (i < 30) { funnelStatus = "new"; wardSalesStage = "trial_scheduled" }
     else funnelStatus = "new"
 
+    const createdAt = new Date(Date.UTC(2026, 1, 1 + (i % 20)))
     const client = await db.client.create({
       data: {
         tenantId: T, firstName: ln.first, lastName: ln.last, phone, funnelStatus, clientStatus,
         segment: "new_client", branchId: brId,
         comment: `Канал: ${channelForLead(i + 45)}`,
-        createdAt: new Date(Date.UTC(2026, 1, 1 + (i % 20))),
+        createdAt,
         firstPaymentDate: i < 25 ? new Date(Date.UTC(2026, 1, 3 + (i % 10))) : undefined,
         saleDate: i < 25 ? new Date(Date.UTC(2026, 1, 3 + (i % 10))) : undefined,
       },
@@ -837,6 +866,15 @@ async function step3_february(
         data: { tenantId: T, clientId: client.id, firstName: febChildNames[i], birthDate: new Date(Date.UTC(2018 + (i % 5), (i + 3) % 12, 1 + (i % 28))) },
       })
       febClients.push({ id: client.id, wardId: ward.id, branchId: brId, idx: i })
+    } else if (wardSalesStage !== "none") {
+      await db.ward.create({
+        data: {
+          tenantId: T, clientId: client.id,
+          firstName: febChildNames[i % febChildNames.length],
+          birthDate: new Date(Date.UTC(2018 + (i % 5), (i + 3) % 12, 1 + (i % 28))),
+          salesStage: wardSalesStage, salesStageAt: createdAt,
+        },
+      })
     }
   }
   console.log("  New leads (Feb): 35 (25 converted)")
@@ -1197,19 +1235,21 @@ async function step4_march(
     const brId = i % 3 === 0 ? brPark.id : brAkad.id
     const phone = `+7 (9${String(70 + (i % 30)).padStart(2, "0")}) ${String(300 + i * 2).padStart(3, "0")}-${String(50 + i).padStart(2, "0")}-${String(60 + i).padStart(2, "0")}`
 
-    let funnelStatus: "active_client" | "potential" | "non_target" | "trial_scheduled" | "new"
+    let funnelStatus: "active_client" | "potential" | "non_target" | "new"
     let clientStatus: "active" | null = null
+    let wardSalesStage: "none" | "trial_scheduled" = "none"
     if (i < 40) { funnelStatus = "active_client"; clientStatus = "active" }
     else if (i < 44) funnelStatus = "potential"
-    else if (i < 46) funnelStatus = "trial_scheduled"
+    else if (i < 46) { funnelStatus = "new"; wardSalesStage = "trial_scheduled" }
     else funnelStatus = "new"
 
+    const createdAt = new Date(Date.UTC(2026, 2, 1 + (i % 25)))
     const client = await db.client.create({
       data: {
         tenantId: T, firstName: ln.first, lastName: ln.last, phone, funnelStatus, clientStatus,
         segment: "new_client", branchId: brId,
         comment: `Канал: ${channelForLead(i + 80)}`,
-        createdAt: new Date(Date.UTC(2026, 2, 1 + (i % 25))),
+        createdAt,
         firstPaymentDate: i < 40 ? new Date(Date.UTC(2026, 2, 2 + (i % 15))) : undefined,
         saleDate: i < 40 ? new Date(Date.UTC(2026, 2, 2 + (i % 15))) : undefined,
       },
@@ -1220,6 +1260,15 @@ async function step4_march(
         data: { tenantId: T, clientId: client.id, firstName: marChildNames[i], birthDate: new Date(Date.UTC(2017 + (i % 6), (i + 5) % 12, 1 + (i % 28))) },
       })
       marClients.push({ id: client.id, wardId: ward.id, branchId: brId, idx: i })
+    } else if (wardSalesStage !== "none") {
+      await db.ward.create({
+        data: {
+          tenantId: T, clientId: client.id,
+          firstName: marChildNames[i % marChildNames.length],
+          birthDate: new Date(Date.UTC(2017 + (i % 6), (i + 5) % 12, 1 + (i % 28))),
+          salesStage: wardSalesStage, salesStageAt: createdAt,
+        },
+      })
     }
   }
   console.log("  New leads (Mar): 50 (40 converted)")
@@ -1742,28 +1791,33 @@ async function step7_closeMarchAndApril(
   const aprChildNames = ["Арсений", "Василина", "Демьян", "Злата", "Кузьма", "Лукерья", "Мирослав", "Ника"]
   const aprLeadChannels = ["Инстаграм", "Сарафанное радио", "Авито", "Сайт", "Инстаграм", "Листовки", "Сарафанное радио", "Авито"]
 
-  // funnelStatuses: 0-4 → trial_scheduled (3 attended, 1 no_show, 1 still scheduled for Apr 9)
-  // 5-6 → converted (active_client)
-  // 7 → new
-  const aprLeadStatuses: Array<{ funnel: "trial_scheduled" | "trial_attended" | "active_client" | "new"; client: "active" | null }> = [
-    { funnel: "trial_attended", client: null },   // 0: attended trial
-    { funnel: "trial_attended", client: null },   // 1: attended trial
-    { funnel: "trial_attended", client: null },   // 2: attended trial
-    { funnel: "trial_scheduled", client: null },  // 3: no_show
-    { funnel: "trial_scheduled", client: null },  // 4: still scheduled for Apr 9
-    { funnel: "active_client", client: "active" },// 5: converted
-    { funnel: "active_client", client: "active" },// 6: converted
-    { funnel: "new", client: null },              // 7: new lead
+  // Client.funnelStatus теперь только «качество контакта»; продажные стадии живут на
+  // Ward.salesStage, выставляются вместе с созданием Ward.
+  const aprLeadStatuses: Array<{
+    funnel: "active_client" | "new"
+    client: "active" | null
+    wardStage: "none" | "trial_scheduled" | "trial_attended"
+  }> = [
+    { funnel: "new", client: null, wardStage: "trial_attended" },   // 0: attended trial
+    { funnel: "new", client: null, wardStage: "trial_attended" },   // 1: attended trial
+    { funnel: "new", client: null, wardStage: "trial_attended" },   // 2: attended trial
+    { funnel: "new", client: null, wardStage: "trial_scheduled" },  // 3: no_show — пробное было запланировано
+    { funnel: "new", client: null, wardStage: "trial_scheduled" },  // 4: still scheduled for Apr 9
+    { funnel: "active_client", client: "active", wardStage: "none" },// 5: converted
+    { funnel: "active_client", client: "active", wardStage: "none" },// 6: converted
+    { funnel: "new", client: null, wardStage: "none" },              // 7: new lead
   ]
 
   const aprClients: { id: string; wardId: string; branchId: string; idx: number }[] = []
   const aprAllClientIds: string[] = []
+  const aprWardByClient = new Map<string, string>()
 
   for (let i = 0; i < 8; i++) {
     const ln = aprLeadNames[i]
     const brId = i % 3 === 0 ? brPark.id : brAkad.id
     const phone = `+7 (9${String(80 + i).padStart(2, "0")}) ${String(500 + i * 3).padStart(3, "0")}-${String(70 + i).padStart(2, "0")}-${String(80 + i).padStart(2, "0")}`
     const st = aprLeadStatuses[i]
+    const createdAt = new Date(Date.UTC(2026, 3, 1 + i))
 
     const client = await db.client.create({
       data: {
@@ -1771,7 +1825,7 @@ async function step7_closeMarchAndApril(
         funnelStatus: st.funnel, clientStatus: st.client,
         segment: "new_client", branchId: brId,
         comment: `Канал: ${aprLeadChannels[i]}`,
-        createdAt: new Date(Date.UTC(2026, 3, 1 + i)),
+        createdAt,
         firstPaymentDate: st.client === "active" ? new Date(Date.UTC(2026, 3, 5 + (i % 3))) : undefined,
         saleDate: st.client === "active" ? new Date(Date.UTC(2026, 3, 5 + (i % 3))) : undefined,
       },
@@ -1783,6 +1837,17 @@ async function step7_closeMarchAndApril(
         data: { tenantId: T, clientId: client.id, firstName: aprChildNames[i], birthDate: new Date(Date.UTC(2020 + (i % 3), i % 12, 10 + i)) },
       })
       aprClients.push({ id: client.id, wardId: ward.id, branchId: brId, idx: i })
+      aprWardByClient.set(client.id, ward.id)
+    } else if (st.wardStage !== "none") {
+      const ward = await db.ward.create({
+        data: {
+          tenantId: T, clientId: client.id,
+          firstName: aprChildNames[i],
+          birthDate: new Date(Date.UTC(2020 + (i % 3), i % 12, 10 + i)),
+          salesStage: st.wardStage, salesStageAt: createdAt,
+        },
+      })
+      aprWardByClient.set(client.id, ward.id)
     }
   }
   console.log("  April leads: 8 (2 converted)")
@@ -1793,9 +1858,11 @@ async function step7_closeMarchAndApril(
   const trialDates = [3, 4, 5, 6, 9] // April dates
 
   for (let i = 0; i < 5; i++) {
+    const clId = aprAllClientIds[i]
     await db.trialLesson.create({
       data: {
-        tenantId: T, clientId: aprAllClientIds[i], groupId: groups[trialGroupMapping[i]].id,
+        tenantId: T, clientId: clId, wardId: aprWardByClient.get(clId) ?? null,
+        groupId: groups[trialGroupMapping[i]].id,
         status: trialStatuses[i],
         scheduledDate: new Date(Date.UTC(2026, 3, trialDates[i])),
         attendedAt: trialStatuses[i] === "attended" ? new Date(Date.UTC(2026, 3, trialDates[i])) : undefined,
@@ -2231,7 +2298,7 @@ async function step8_enrichment(
   await db.client.create({
     data: {
       tenantId: T, firstName: "Алексей", lastName: "Березин",
-      phone: dupPhone2, funnelStatus: "trial_attended", segment: "new_client", branchId: brAkad.id,
+      phone: dupPhone2, funnelStatus: "new", segment: "new_client", branchId: brAkad.id,
       comment: "Дубликат — повторная запись через сайт",
       createdAt: new Date(Date.UTC(2026, 2, 20)),
     },

@@ -26,27 +26,29 @@ export async function GET(req: NextRequest) {
       instructor: { select: { firstName: true, lastName: true } },
       enrollments: {
         where: { isActive: true, deletedAt: null },
-        select: { id: true, clientId: true },
+        select: { id: true, clientId: true, wardId: true },
       },
     },
     orderBy: { name: "asc" },
   })
 
-  // Client statuses for enrolled clients
-  const enrolledClientIds = [...new Set(groups.flatMap((g) => g.enrollments.map((e) => e.clientId)))]
-  const clientStatuses =
-    enrolledClientIds.length > 0
-      ? await db.client.findMany({
-          where: { id: { in: enrolledClientIds }, tenantId },
-          select: { id: true, funnelStatus: true },
+  // Стадия воронки считается по подопечному (Ward.salesStage): один Ward = одна сделка.
+  const enrolledWardIds = [...new Set(
+    groups.flatMap((g) => g.enrollments.map((e) => e.wardId).filter((id): id is string => Boolean(id)))
+  )]
+  const wardStages =
+    enrolledWardIds.length > 0
+      ? await db.ward.findMany({
+          where: { id: { in: enrolledWardIds }, tenantId },
+          select: { id: true, salesStage: true },
         })
       : []
-  const statusMap = new Map(clientStatuses.map((c) => [c.id, c.funnelStatus]))
+  const wardStageMap = new Map(wardStages.map((w) => [w.id, w.salesStage]))
 
   const data = groups.map((g) => {
     const enrolled = g.enrollments.length
-    const onTrial = g.enrollments.filter((e) => statusMap.get(e.clientId) === "trial_scheduled").length
-    const awaitingPayment = g.enrollments.filter((e) => statusMap.get(e.clientId) === "awaiting_payment").length
+    const onTrial = g.enrollments.filter((e) => e.wardId && wardStageMap.get(e.wardId) === "trial_scheduled").length
+    const awaitingPayment = g.enrollments.filter((e) => e.wardId && wardStageMap.get(e.wardId) === "awaiting_payment").length
     const confirmed = enrolled - onTrial - awaitingPayment
     const free = Math.max(0, g.maxStudents - enrolled)
     const percent = pct(enrolled, g.maxStudents)

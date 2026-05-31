@@ -37,14 +37,29 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data
 
-  // Формируем список клиентов по фильтру
+  // Формируем список клиентов по фильтру.
+  // Продажные стадии (application/trial_*/awaiting_payment) переехали на Ward.salesStage —
+  // фильтруем по родителям, у которых есть хотя бы один Ward в нужной стадии.
+  const WARD_STAGES = new Set([
+    "application",
+    "trial_scheduled",
+    "trial_attended",
+    "awaiting_payment",
+  ])
   const clientWhere: any = {
     tenantId: session.user.tenantId,
     deletedAt: null,
   }
-  if (data.filterCriteria.funnelStatus) clientWhere.funnelStatus = data.filterCriteria.funnelStatus
-  if (data.filterCriteria.branchId) clientWhere.branchId = data.filterCriteria.branchId
-  if (data.filterCriteria.segment) clientWhere.segment = data.filterCriteria.segment
+  const fc = data.filterCriteria
+  if (fc.funnelStatus) {
+    if (WARD_STAGES.has(fc.funnelStatus)) {
+      clientWhere.wards = { some: { salesStage: fc.funnelStatus } }
+    } else {
+      clientWhere.funnelStatus = fc.funnelStatus
+    }
+  }
+  if (fc.branchId) clientWhere.branchId = fc.branchId
+  if (fc.segment) clientWhere.segment = fc.segment
 
   const clients = await db.client.findMany({
     where: clientWhere,

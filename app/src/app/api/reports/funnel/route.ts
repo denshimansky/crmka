@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
 
+// Воронка продаж считается в двух плоскостях:
+// - этапы «новый лид» и «активный клиент» — по Client (один родитель = один контакт);
+// - этапы «заявка / пробное запланировано / пробное прошло / ожидаем оплату» —
+//   по Ward.salesStage (одна сделка = один ребёнок), потому что у одного родителя
+//   может быть несколько детей на разных стадиях.
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
@@ -12,60 +17,73 @@ export async function GET(req: NextRequest) {
 
   const clientWhere: any = { tenantId, deletedAt: null }
   if (branchId) clientWhere.branchId = branchId
+  const wardWhere: any = { tenantId, client: { deletedAt: null, ...(branchId ? { branchId } : {}) } }
 
-  const allClients = await db.client.findMany({
-    where: clientWhere,
-    select: { funnelStatus: true, createdAt: true, firstPaymentDate: true },
-  })
+  const [allClients, allWards] = await Promise.all([
+    db.client.findMany({
+      where: clientWhere,
+      select: { funnelStatus: true, createdAt: true, firstPaymentDate: true },
+    }),
+    db.ward.findMany({
+      where: wardWhere,
+      select: { salesStage: true, salesStageAt: true },
+    }),
+  ])
 
   const totalClients = allClients.length
 
-  // Block 1: Current period funnel (new leads created in period)
-  const periodClients = allClients.filter(
-    (c) => c.createdAt >= dateFrom && c.createdAt <= dateTo
-  )
+  // === Block 1: воронка периода ===
+  // «new» — по родителям, созданным в периоде, в стадии «новый».
+  // «active_client» — по родителям, у которых первая оплата попала в период.
+  // Все «сделочные» стадии (application/trial_*) — по Ward.salesStageAt в периоде.
+  const periodNew = allClients.filter(
+    (c) => c.funnelStatus === "new" && c.createdAt >= dateFrom && c.createdAt <= dateTo
+  ).length
 
-  const funnelStages = [
-    "new",
-    "trial_scheduled",
-    "trial_attended",
-    "awaiting_payment",
-    "active_client",
-  ]
-
-  const periodStatusCounts: Record<string, number> = {}
-  for (const c of periodClients) {
-    periodStatusCounts[c.funnelStatus] = (periodStatusCounts[c.funnelStatus] || 0) + 1
+  const periodWardsByStage: Record<string, number> = {}
+  for (const w of allWards) {
+    if (w.salesStageAt && w.salesStageAt >= dateFrom && w.salesStageAt <= dateTo) {
+      periodWardsByStage[w.salesStage] = (periodWardsByStage[w.salesStage] || 0) + 1
+    }
   }
 
-  const funnelData = funnelStages.map((status) => ({
-    status,
-    count: periodStatusCounts[status] || 0,
-  }))
-
-  // Block 2: Carryover from previous periods
-  const carryoverStatuses = [
-    "new",
-    "trial_scheduled",
-    "trial_attended",
-    "awaiting_payment",
-    "potential",
-  ]
-  const carryoverClients = allClients.filter(
-    (c) => c.createdAt < dateFrom && carryoverStatuses.includes(c.funnelStatus)
-  )
-  const carryoverCounts: Record<string, number> = {}
-  for (const c of carryoverClients) {
-    carryoverCounts[c.funnelStatus] = (carryoverCounts[c.funnelStatus] || 0) + 1
-  }
-
-  // Metrics
-  const newThisPeriod = periodClients.length
   const convertedThisPeriod = allClients.filter(
     (c) =>
       c.firstPaymentDate &&
       c.firstPaymentDate >= dateFrom &&
       c.firstPaymentDate <= dateTo
+  ).length
+
+  const funnelData = [
+    { status: "new", count: periodNew },
+    { status: "application", count: periodWardsByStage["application"] || 0 },
+    { status: "trial_scheduled", count: periodWardsByStage["trial_scheduled"] || 0 },
+    { status: "trial_attended", count: periodWardsByStage["trial_attended"] || 0 },
+    { status: "awaiting_payment", count: periodWardsByStage["awaiting_payment"] || 0 },
+    { status: "active_client", count: convertedThisPeriod },
+  ]
+
+  // === Block 2: перетекающие из прошлых периодов ===
+  // По родителям: «new» и «potential» (созданы раньше, ещё в работе).
+  // По Ward: сделки, которые поднялись в воронку до периода и ещё в ней висят.
+  const carryoverCounts: Record<string, number> = {}
+  for (const c of allClients) {
+    if (c.createdAt < dateFrom && (c.funnelStatus === "new" || c.funnelStatus === "potential")) {
+      carryoverCounts[c.funnelStatus] = (carryoverCounts[c.funnelStatus] || 0) + 1
+    }
+  }
+  for (const w of allWards) {
+    if (
+      w.salesStage !== "none" &&
+      (!w.salesStageAt || w.salesStageAt < dateFrom)
+    ) {
+      carryoverCounts[w.salesStage] = (carryoverCounts[w.salesStage] || 0) + 1
+    }
+  }
+
+  // Metrics
+  const newThisPeriod = allClients.filter(
+    (c) => c.createdAt >= dateFrom && c.createdAt <= dateTo
   ).length
 
   return NextResponse.json({
@@ -77,6 +95,7 @@ export async function GET(req: NextRequest) {
       totalClients,
       newThisPeriod,
       convertedThisPeriod,
+      // Конверсия лид → платящий клиент: по родителям (один контакт = одна продажа).
       conversionRate: pct(
         allClients.filter((c) => c.funnelStatus === "active_client").length,
         totalClients

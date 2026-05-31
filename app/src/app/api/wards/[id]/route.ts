@@ -10,6 +10,9 @@ const updateSchema = z.object({
   lastName: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).optional(),
   birthDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).optional(),
   notes: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).optional(),
+  salesStage: z
+    .enum(["none", "application", "trial_scheduled", "trial_attended", "awaiting_payment"])
+    .optional(),
 })
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -48,8 +51,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const existing = await db.ward.findFirst({
     where: { id, tenantId: session.user.tenantId },
+    select: { id: true, clientId: true, salesStage: true },
   })
   if (!existing) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
+
+  const stageChanged =
+    data.salesStage !== undefined && data.salesStage !== existing.salesStage
 
   const ward = await db.ward.update({
     where: { id },
@@ -58,8 +65,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(data.lastName !== undefined && { lastName: data.lastName }),
       ...(data.birthDate !== undefined && { birthDate: data.birthDate ? new Date(data.birthDate) : null }),
       ...(data.notes !== undefined && { notes: data.notes }),
+      ...(stageChanged && { salesStage: data.salesStage!, salesStageAt: new Date() }),
     },
   })
+
+  if (stageChanged && session.user.employeeId) {
+    await db.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        employeeId: session.user.employeeId,
+        action: "update",
+        entityType: "Ward",
+        entityId: id,
+        changes: {
+          salesStage: { old: existing.salesStage, new: data.salesStage },
+        },
+      },
+    })
+  }
 
   return NextResponse.json(ward)
 }

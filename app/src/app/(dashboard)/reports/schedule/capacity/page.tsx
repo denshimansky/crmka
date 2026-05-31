@@ -21,27 +21,31 @@ export default async function CapacityReportPage() {
       instructor: { select: { firstName: true, lastName: true } },
       enrollments: {
         where: { isActive: true, deletedAt: null },
-        select: { id: true, clientId: true },
+        select: { id: true, clientId: true, wardId: true },
       },
     },
     orderBy: { name: "asc" },
   })
 
-  // Клиенты со статусом trial_scheduled или awaiting_payment, зачисленные в группы
-  const enrolledClientIds = [...new Set(groups.flatMap(g => g.enrollments.map(e => e.clientId)))]
-  const clientStatuses = enrolledClientIds.length > 0
-    ? await db.client.findMany({
-        where: { id: { in: enrolledClientIds }, tenantId, deletedAt: null },
-        select: { id: true, funnelStatus: true },
+  // Подопечные со стадией воронки trial_scheduled / awaiting_payment, зачисленные в группы.
+  // Считаем по Ward.salesStage (один Ward = одна сделка), потому что родитель может уже быть
+  // активным клиентом, а конкретный ребёнок в группе ещё на пробном.
+  const enrolledWardIds = [...new Set(
+    groups.flatMap(g => g.enrollments.map(e => e.wardId).filter((id): id is string => Boolean(id)))
+  )]
+  const wardStages = enrolledWardIds.length > 0
+    ? await db.ward.findMany({
+        where: { id: { in: enrolledWardIds }, tenantId },
+        select: { id: true, salesStage: true },
       })
     : []
-  const clientStatusMap = new Map(clientStatuses.map(c => [c.id, c.funnelStatus]))
+  const wardStageMap = new Map(wardStages.map(w => [w.id, w.salesStage]))
 
   const rows = groups.map((g) => {
     const enrolled = g.enrollments.length
     const capacity = g.maxStudents
-    const onTrial = g.enrollments.filter(e => clientStatusMap.get(e.clientId) === "trial_scheduled").length
-    const awaitingPayment = g.enrollments.filter(e => clientStatusMap.get(e.clientId) === "awaiting_payment").length
+    const onTrial = g.enrollments.filter(e => e.wardId && wardStageMap.get(e.wardId) === "trial_scheduled").length
+    const awaitingPayment = g.enrollments.filter(e => e.wardId && wardStageMap.get(e.wardId) === "awaiting_payment").length
     const confirmed = enrolled - onTrial - awaitingPayment
     const free = Math.max(0, capacity - enrolled)
     const percent = capacity > 0 ? Math.round((enrolled / capacity) * 100) : 0

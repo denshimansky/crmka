@@ -15,9 +15,13 @@ import {
 import { Plus } from "lucide-react"
 import { MANAGED_TRIGGERS, TRIGGER_LABEL } from "@/lib/tasks/trigger-settings"
 
+// Этапы воронки: новые/активные/потенциальные — статусы контакта (Client.funnelStatus),
+// заявка/пробное/прошёл пробное/ожидание оплаты — стадии подопечного (Ward.salesStage).
+// API сам определяет, по какому полю фильтровать.
 const FUNNEL_OPTIONS = [
   { value: "", label: "Все статусы" },
   { value: "new", label: "Новые лиды" },
+  { value: "application", label: "Заявка" },
   { value: "trial_scheduled", label: "Пробное записано" },
   { value: "trial_attended", label: "Пробное пройдено" },
   { value: "awaiting_payment", label: "Ожидание оплаты" },

@@ -69,21 +69,30 @@ export async function POST(req: NextRequest) {
   if (!branch) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
   if (!direction) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
 
-  const application = await db.application.create({
-    data: {
-      tenantId,
-      clientId: data.clientId,
-      wardId: data.wardId,
-      branchId: data.branchId,
-      directionId: data.directionId,
-      comment: data.comment,
-      createdBy: session.user.employeeId ?? undefined,
-    },
-    include: {
-      ward: { select: { id: true, firstName: true, lastName: true } },
-      branch: { select: { id: true, name: true } },
-      direction: { select: { id: true, name: true, color: true } },
-    },
+  const application = await db.$transaction(async (tx) => {
+    const created = await tx.application.create({
+      data: {
+        tenantId,
+        clientId: data.clientId,
+        wardId: data.wardId,
+        branchId: data.branchId,
+        directionId: data.directionId,
+        comment: data.comment,
+        createdBy: session.user.employeeId ?? undefined,
+      },
+      include: {
+        ward: { select: { id: true, firstName: true, lastName: true } },
+        branch: { select: { id: true, name: true } },
+        direction: { select: { id: true, name: true, color: true } },
+      },
+    })
+    // Воронка продаж по подопечному — после оплаты или ручного перевода она будет другой,
+    // но новая заявка всегда поднимает Ward в стадию «Заявка», если он ещё в none.
+    await tx.ward.updateMany({
+      where: { id: data.wardId, salesStage: "none" },
+      data: { salesStage: "application", salesStageAt: new Date() },
+    })
+    return created
   })
 
   if (session.user.employeeId) {

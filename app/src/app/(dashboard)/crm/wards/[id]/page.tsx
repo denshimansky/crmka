@@ -11,6 +11,7 @@ import { PageHelp } from "@/components/page-help"
 import { EditWardForm } from "./edit-ward-form"
 import { ClientHistory } from "../../clients/[id]/client-history"
 import { TrialLessonDialog } from "../../_components/trial-lesson-dialog"
+import { WardSalesStageActions } from "../../_components/ward-sales-stage-actions"
 import { formatWardName } from "@/lib/format-name"
 
 function formatMoney(amount: number): string {
@@ -126,6 +127,11 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
 
       {/* Action buttons — слева, как у родителя (client-card-content.tsx) */}
       <div className="flex flex-wrap items-center gap-2">
+        <WardSalesStageActions
+          wardId={ward.id}
+          currentStage={ward.salesStage}
+          disabled={activeSubscriptions.length > 0}
+        />
         <TrialLessonDialog
           clientId={ward.client.id}
           wards={[{ id: ward.id, firstName: ward.firstName, lastName: ward.lastName }]}

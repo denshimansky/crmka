@@ -154,11 +154,20 @@ export async function ClientCardContent({
     ? [client.assignee.lastName, client.assignee.firstName].filter(Boolean).join(" ")
     : "—"
 
+  // Подопечные с активной подпиской выходят из воронки продаж — селектор
+  // для них скрываем (см. WardSalesStageActions).
+  const wardsWithActiveSub = new Set(
+    activeSubscriptions
+      .map((s) => s.wardId)
+      .filter((id): id is string => Boolean(id))
+  )
   const wardsForClient = client.wards.map((w) => ({
     id: w.id,
     firstName: w.firstName,
     lastName: w.lastName,
     birthDate: w.birthDate?.toISOString() || null,
+    salesStage: w.salesStage,
+    hasActiveSubscription: wardsWithActiveSub.has(w.id),
   }))
 
   return (

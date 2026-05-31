@@ -27,6 +27,7 @@ import {
 import { Plus, Pencil, X, Ban, CalendarDays, Undo2, ArrowLeftRight } from "lucide-react"
 import { AddWardForm } from "./add-ward-form"
 import { AttendanceTab } from "./attendance-tab"
+import { WardSalesStageActions } from "../../_components/ward-sales-stage-actions"
 import { CommunicationFeed } from "@/components/communication-feed"
 import { ClientHistory } from "./client-history"
 import { formatWardName } from "@/lib/format-name"
@@ -36,6 +37,8 @@ interface Ward {
   firstName: string
   lastName: string | null
   birthDate: string | null // ISO string
+  salesStage?: string
+  hasActiveSubscription?: boolean
 }
 
 interface Subscription {
@@ -1955,16 +1958,25 @@ export function ClientTabs({
                 return (
                   <div
                     key={w.id}
-                    className="flex items-center justify-between rounded-md border p-3"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
                   >
                     <Link href={`/crm/wards/${w.id}`} className="font-medium hover:underline">
                       {name}
                     </Link>
-                    <span className="text-sm text-muted-foreground">
-                      {w.birthDate
-                        ? `${formatDate(w.birthDate)} (${calculateAge(w.birthDate)})`
-                        : "Дата рождения не указана"}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-muted-foreground">
+                        {w.birthDate
+                          ? `${formatDate(w.birthDate)} (${calculateAge(w.birthDate)})`
+                          : "Дата рождения не указана"}
+                      </span>
+                      {w.salesStage !== undefined && (
+                        <WardSalesStageActions
+                          wardId={w.id}
+                          currentStage={w.salesStage}
+                          disabled={w.hasActiveSubscription}
+                        />
+                      )}
+                    </div>
                   </div>
                 )
               })

@@ -173,7 +173,8 @@ export async function POST(req: NextRequest) {
         const updateSubData: any = {
           balance: { decrement: data.amount },
         }
-        if (sub.status === "pending") {
+        const becomesActive = sub.status === "pending"
+        if (becomesActive) {
           updateSubData.status = "active"
           updateSubData.activatedAt = new Date()
         }
@@ -181,6 +182,14 @@ export async function POST(req: NextRequest) {
           where: { id: data.subscriptionId },
           data: updateSubData,
         })
+        // Подопечный конкретного абонемента уходит из воронки продаж: подписка стала
+        // активной, его место — в активной базе клиентов, а не в /crm/sales.
+        if (becomesActive && sub.wardId) {
+          await tx.ward.update({
+            where: { id: sub.wardId },
+            data: { salesStage: "none", salesStageAt: new Date() },
+          })
+        }
       }
     }
 

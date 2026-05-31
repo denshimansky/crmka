@@ -11,11 +11,11 @@ import {
 import { CreateApplicationDialog } from "./create-application-dialog"
 import { TrialLessonDialog } from "./trial-lesson-dialog"
 
+// Этапы воронки продаж (Пробное / Прошёл пробное / Ожидание оплаты) переехали
+// на подопечного (Ward.salesStage) — селектор статуса родителя описывает только
+// «качество контакта»: новый, потенциальный, не целевой, ЧС, архив.
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "new", label: "Новый" },
-  { value: "trial_scheduled", label: "Пробное записано" },
-  { value: "trial_attended", label: "Пробное пройдено" },
-  { value: "awaiting_payment", label: "Ожидание оплаты" },
   { value: "potential", label: "Потенциальный" },
   { value: "non_target", label: "Не целевой" },
   { value: "blacklisted", label: "Чёрный список" },

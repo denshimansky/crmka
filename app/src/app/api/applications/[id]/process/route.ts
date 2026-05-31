@@ -80,6 +80,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ ok: true, outcome: "trial", trial: result.trial })
   }
 
+  // outcome=lead/potential — это качество контакта-родителя (Client.funnelStatus).
+  // Сам подопечный после обработки заявки выходит из воронки продаж (Ward.salesStage='none'),
+  // пока по нему не появится новое событие (заявка, пробное).
   const newFunnelStatus = data.outcome === "lead" ? "new" : "potential"
   const isActiveClient = application.client.clientStatus === "active"
 
@@ -99,6 +102,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         data: { funnelStatus: newFunnelStatus },
       })
     }
+    // Скидываем Ward.salesStage с 'application' в 'none' — только если он действительно
+    // ещё на стадии заявки (если уже двинулся в trial_scheduled и т.п. — не трогаем).
+    await tx.ward.updateMany({
+      where: { id: application.wardId, salesStage: "application" },
+      data: { salesStage: "none", salesStageAt: new Date() },
+    })
   })
 
   if (employeeId) {

@@ -108,18 +108,27 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     take: 5,
   })
 
-  // Воронка — по статусам
-  const funnelCounts = await db.client.groupBy({
-    by: ["funnelStatus"],
-    where: { tenantId, deletedAt: null },
-    _count: true,
-  })
+  // Воронка — лиды и активные считаются по родителям (Client.funnelStatus),
+  // сделочные стадии — по подопечным (Ward.salesStage).
+  const [funnelCounts, wardStageCounts] = await Promise.all([
+    db.client.groupBy({
+      by: ["funnelStatus"],
+      where: { tenantId, deletedAt: null },
+      _count: true,
+    }),
+    db.ward.groupBy({
+      by: ["salesStage"],
+      where: { tenantId, client: { deletedAt: null } },
+      _count: true,
+    }),
+  ])
 
   const funnelMap = new Map(funnelCounts.map(f => [f.funnelStatus, f._count]))
+  const wardStageMap = new Map(wardStageCounts.map(w => [w.salesStage, w._count]))
   const funnelStages = [
     { stage: "Новые", count: funnelMap.get("new") || 0, color: "bg-blue-500" },
-    { stage: "Пробное записано", count: funnelMap.get("trial_scheduled") || 0, color: "bg-cyan-500" },
-    { stage: "Ожидание оплаты", count: funnelMap.get("awaiting_payment") || 0, color: "bg-yellow-500" },
+    { stage: "Пробное записано", count: wardStageMap.get("trial_scheduled") || 0, color: "bg-cyan-500" },
+    { stage: "Ожидание оплаты", count: wardStageMap.get("awaiting_payment") || 0, color: "bg-yellow-500" },
     { stage: "Активные", count: funnelMap.get("active_client") || 0, color: "bg-green-500" },
   ]
   const maxFunnel = Math.max(...funnelStages.map(f => f.count), 1)

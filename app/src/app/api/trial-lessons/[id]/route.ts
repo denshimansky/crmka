@@ -51,7 +51,7 @@ async function computeTrialPay(
 }
 
 // PATCH /api/trial-lessons/[id] — изменить статус или флаг оплаты инструктору
-// attended → создаёт Attendance(isTrial=true), переводит лида в trial_attended (если ещё trial_scheduled)
+// attended → создаёт Attendance(isTrial=true), переводит Ward.salesStage в trial_attended (если ещё trial_scheduled)
 // no_show / cancelled → удаляет Attendance + закрывает автозадачу-напоминание
 // Изменение instructorPayEnabled — обновляет TrialLesson и (если уже attended) пересчитывает Attendance
 export async function PATCH(
@@ -73,7 +73,7 @@ export async function PATCH(
   const trial = await db.trialLesson.findFirst({
     where: { id, tenantId },
     include: {
-      client: { select: { funnelStatus: true } },
+      ward: { select: { id: true, salesStage: true } },
       lesson: {
         select: {
           id: true,
@@ -114,11 +114,16 @@ export async function PATCH(
 
     // --- Эффекты, не зависящие от наличия Lesson (работают и для индивидуальных) ---
 
-    // attended → перевести лида в trial_attended, если он ещё в trial_scheduled
-    if (status === "attended" && trial.client?.funnelStatus === "trial_scheduled") {
-      await tx.client.update({
-        where: { id: trial.clientId },
-        data: { funnelStatus: "trial_attended" },
+    // attended → перевести подопечного в trial_attended, если он ещё в trial_scheduled.
+    // Если у Ward уже awaiting_payment (админ перевёл вручную) — не откатываем назад.
+    if (
+      status === "attended" &&
+      trial.wardId &&
+      trial.ward?.salesStage === "trial_scheduled"
+    ) {
+      await tx.ward.update({
+        where: { id: trial.wardId },
+        data: { salesStage: "trial_attended", salesStageAt: now },
       })
     }
 
@@ -140,24 +145,37 @@ export async function PATCH(
       })
     }
 
-    // Отмена последнего пробного: если у лида не осталось активных пробных
-    // и он ещё в trial_scheduled / trial_attended — возвращаем в «Новый».
-    // Дальше воронки (awaiting_payment, active_client и т.д.) не трогаем.
-    if (status === "cancelled") {
-      const currentStatus = trial.client?.funnelStatus
-      if (currentStatus === "trial_scheduled" || currentStatus === "trial_attended") {
+    // Отмена последнего пробного у Ward: если у подопечного не осталось активных пробных
+    // и он ещё в trial_scheduled / trial_attended — возвращаем salesStage к 'none' либо
+    // к 'application', если по нему есть активная заявка. awaiting_payment не трогаем
+    // (это уже ручная отметка админа).
+    if (status === "cancelled" && trial.wardId) {
+      const wardStage = trial.ward?.salesStage
+      if (wardStage === "trial_scheduled" || wardStage === "trial_attended") {
         const remainingActive = await tx.trialLesson.count({
           where: {
             tenantId,
-            clientId: trial.clientId,
+            wardId: trial.wardId,
             id: { not: id },
             status: { not: "cancelled" },
           },
         })
         if (remainingActive === 0) {
-          await tx.client.update({
-            where: { id: trial.clientId },
-            data: { funnelStatus: "new" },
+          const activeApplication = await tx.application.findFirst({
+            where: {
+              tenantId,
+              wardId: trial.wardId,
+              status: "active",
+              deletedAt: null,
+            },
+            select: { id: true },
+          })
+          await tx.ward.update({
+            where: { id: trial.wardId },
+            data: {
+              salesStage: activeApplication ? "application" : "none",
+              salesStageAt: now,
+            },
           })
         }
       }

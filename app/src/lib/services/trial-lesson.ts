@@ -32,15 +32,12 @@ export async function createTrialLessonForClient(
     where: { id: input.clientId, tenantId, deletedAt: null },
     select: {
       id: true,
-      clientStatus: true,
-      funnelStatus: true,
       assignedTo: true,
       firstName: true,
       lastName: true,
     },
   })
   if (!client) return { ok: false, error: "Клиент не найден", status: 404 }
-  const isActiveClient = client.clientStatus === "active"
 
   const ward = await db.ward.findFirst({
     where: { id: input.wardId, clientId: input.clientId, tenantId },
@@ -202,12 +199,10 @@ export async function createTrialLessonForClient(
       },
     })
 
-    if (!isActiveClient) {
-      await tx.client.update({
-        where: { id: input.clientId },
-        data: { funnelStatus: "trial_scheduled" },
-      })
-    }
+    await tx.ward.update({
+      where: { id: input.wardId },
+      data: { salesStage: "trial_scheduled", salesStageAt: new Date() },
+    })
 
     if (options.applicationId) {
       await tx.application.update({
