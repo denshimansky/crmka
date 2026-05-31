@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
+import { Calendar } from "@/components/ui/calendar"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 import { formatWardName } from "@/lib/format-name"
 
@@ -399,27 +400,15 @@ export function TrialLessonForm({
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
+        <div className={kind === "individual" ? "space-y-1.5" : "col-span-2 space-y-1.5"}>
           <Label>Дата *</Label>
-          {kind === "group" && groupId && groupLessonDates !== null ? (
-            groupLessonDates.length === 0 ? (
-              <p className="text-sm text-muted-foreground">У этой группы нет предстоящих занятий.</p>
-            ) : (
-              <Select value={scheduledDate} onValueChange={(v) => v && setScheduledDate(v)}>
-                <SelectTrigger className="w-full">
-                  {scheduledDate
-                    ? new Date(scheduledDate).toLocaleDateString("ru-RU")
-                    : "Выберите дату"}
-                </SelectTrigger>
-                <SelectContent>
-                  {groupLessonDates.map((d) => (
-                    <SelectItem key={d} value={d}>
-                      {new Date(d).toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )
+          {kind === "group" && groupId ? (
+            <Calendar
+              value={scheduledDate}
+              onChange={setScheduledDate}
+              availableDates={groupLessonDates ? new Set(groupLessonDates) : undefined}
+              emptyHint="Сначала сгенерируйте расписание для этой группы."
+            />
           ) : (
             <Input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} />
           )}

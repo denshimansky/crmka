@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
+import { Calendar } from "@/components/ui/calendar"
 import type { SalesRow, SalesTabKey } from "./sales-table"
 
 interface BranchOption {
@@ -423,28 +424,13 @@ export function EditSalesRowDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>Дата пробного {!trialEditable ? "(только просмотр)" : ""}</Label>
-                {trialEditable && groupId && groupLessonDates !== null ? (
-                  groupLessonDates.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">У этой группы нет предстоящих занятий.</p>
-                  ) : (
-                    <Select
-                      value={scheduledDate}
-                      onValueChange={(v) => v && setScheduledDate(v)}
-                    >
-                      <SelectTrigger className="w-full">
-                        {scheduledDate
-                          ? new Date(scheduledDate).toLocaleDateString("ru-RU")
-                          : "Выберите дату"}
-                      </SelectTrigger>
-                      <SelectContent>
-                        {groupLessonDates.map((d) => (
-                          <SelectItem key={d} value={d}>
-                            {new Date(d).toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )
+                {trialEditable && groupId ? (
+                  <Calendar
+                    value={scheduledDate}
+                    onChange={setScheduledDate}
+                    availableDates={groupLessonDates ? new Set(groupLessonDates) : undefined}
+                    emptyHint="Сначала сгенерируйте расписание для этой группы."
+                  />
                 ) : (
                   <Input
                     type="date"
