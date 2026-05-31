@@ -127,8 +127,8 @@ export function TrialLessonForm({
     }
   }, [])
 
-  const filteredGroups = directionId
-    ? groups.filter((g) => g.directionId === directionId && (!branchId || g.branchId === branchId))
+  const filteredGroups = directionId && branchId
+    ? groups.filter((g) => g.directionId === directionId && g.branchId === branchId)
     : []
 
   async function handleSubmit(e: React.FormEvent) {
@@ -136,6 +136,7 @@ export function TrialLessonForm({
     setValidationError(null)
     if (!wardId) return setValidationError("Выберите подопечного")
     if (!directionId) return setValidationError("Выберите направление")
+    if (!branchId) return setValidationError("Выберите филиал")
     if (kind === "group" && !groupId) return setValidationError("Выберите группу")
     if (kind === "individual" && !instructorId) return setValidationError("Выберите педагога")
     if (kind === "individual" && !startTime) return setValidationError("Укажите время")
@@ -217,6 +218,36 @@ export function TrialLessonForm({
       </div>
 
       <div className="space-y-1.5">
+        <Label>Филиал *</Label>
+        <Select
+          value={branchId}
+          onValueChange={(v) => {
+            if (v) {
+              setBranchId(v)
+              setGroupId("")
+              setRoomId("")
+            }
+          }}
+          disabled={!!lockedBranchId}
+        >
+          <SelectTrigger className="w-full">
+            {branchId ? (
+              branchesList.find((b) => b.id === branchId)?.name
+            ) : (
+              <span className="text-muted-foreground">Выберите филиал</span>
+            )}
+          </SelectTrigger>
+          <SelectContent>
+            {branchesList.map((b) => (
+              <SelectItem key={b.id} value={b.id}>
+                {b.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1.5">
         <Label>Тип пробного</Label>
         <div className="inline-flex rounded-md border p-0.5">
           <button
@@ -248,14 +279,20 @@ export function TrialLessonForm({
             onValueChange={(v) => {
               if (v) setGroupId(v)
             }}
-            disabled={!directionId}
+            disabled={!directionId || !branchId}
           >
             <SelectTrigger className="w-full">
               {selectedGroup ? (
                 selectedGroup.name
               ) : (
                 <span className="text-muted-foreground">
-                  {directionId ? "Выберите группу" : "Сначала выберите направление"}
+                  {!directionId
+                    ? "Сначала выберите направление"
+                    : !branchId
+                      ? "Сначала выберите филиал"
+                      : filteredGroups.length === 0
+                        ? "Нет групп в этом филиале"
+                        : "Выберите группу"}
                 </span>
               )}
             </SelectTrigger>
@@ -300,58 +337,28 @@ export function TrialLessonForm({
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Филиал *</Label>
-              <Select
-                value={branchId}
-                onValueChange={(v) => {
-                  if (v) {
-                    setBranchId(v)
-                    setRoomId("")
-                  }
-                }}
-                disabled={!!lockedBranchId}
-              >
-                <SelectTrigger className="w-full">
-                  {branchId ? (
-                    branchesList.find((b) => b.id === branchId)?.name
-                  ) : (
-                    <span className="text-muted-foreground">Выберите филиал</span>
-                  )}
-                </SelectTrigger>
-                <SelectContent>
-                  {branchesList.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>
-                      {b.name}
+          <div className="space-y-1.5">
+            <Label>Кабинет *</Label>
+            <Select value={roomId} onValueChange={(v) => v && setRoomId(v)} disabled={!branchId}>
+              <SelectTrigger className="w-full">
+                {roomId ? (
+                  roomsList.find((r) => r.id === roomId)?.name
+                ) : (
+                  <span className="text-muted-foreground">
+                    {branchId ? "Выберите кабинет" : "Сначала выберите филиал"}
+                  </span>
+                )}
+              </SelectTrigger>
+              <SelectContent>
+                {roomsList
+                  .filter((r) => r.branchId === branchId)
+                  .map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
                     </SelectItem>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Кабинет *</Label>
-              <Select value={roomId} onValueChange={(v) => v && setRoomId(v)} disabled={!branchId}>
-                <SelectTrigger className="w-full">
-                  {roomId ? (
-                    roomsList.find((r) => r.id === roomId)?.name
-                  ) : (
-                    <span className="text-muted-foreground">
-                      {branchId ? "Выберите кабинет" : "Сначала филиал"}
-                    </span>
-                  )}
-                </SelectTrigger>
-                <SelectContent>
-                  {roomsList
-                    .filter((r) => r.branchId === branchId)
-                    .map((r) => (
-                      <SelectItem key={r.id} value={r.id}>
-                        {r.name}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
+              </SelectContent>
+            </Select>
           </div>
         </>
       )}

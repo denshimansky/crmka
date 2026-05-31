@@ -10,6 +10,7 @@ import { ArrowLeft, Building2, GraduationCap, User as UserIcon, CalendarDays } f
 import { PageHelp } from "@/components/page-help"
 import { EditWardForm } from "./edit-ward-form"
 import { ClientHistory } from "../../clients/[id]/client-history"
+import { TrialLessonDialog } from "../../_components/trial-lesson-dialog"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -120,6 +121,11 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
             {parentPhone ? ` · ${parentPhone}` : ""}
           </p>
         </div>
+        <TrialLessonDialog
+          clientId={ward.client.id}
+          wards={[{ id: ward.id, firstName: ward.firstName, lastName: ward.lastName }]}
+          lockedWardId={ward.id}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
