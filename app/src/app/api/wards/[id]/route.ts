@@ -69,6 +69,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     stageChanged &&
     (data.salesStage === "trial_attended" || data.salesStage === "awaiting_payment")
 
+  // Если стадия покидает «application» — активная заявка должна закрыться,
+  // иначе подопечный одновременно остаётся во вкладке «Заявка» и появляется
+  // на новой. Маппим итог обработки по новой стадии.
+  const shouldCloseApplication =
+    stageChanged &&
+    existing.salesStage === "application" &&
+    data.salesStage !== "application"
+  const applicationOutcome: "lead" | "potential" | "trial" =
+    data.salesStage === "trial_scheduled" ||
+    data.salesStage === "trial_attended" ||
+    data.salesStage === "awaiting_payment"
+      ? "trial"
+      : data.salesStage === "none"
+        ? "lead"
+        : "lead"
+
   const ward = await db.$transaction(async (tx) => {
     const w = await tx.ward.update({
       where: { id },
@@ -80,6 +96,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(stageChanged && { salesStage: data.salesStage!, salesStageAt: now }),
       },
     })
+
+    if (shouldCloseApplication) {
+      await tx.application.updateMany({
+        where: { tenantId, wardId: id, status: "active", deletedAt: null },
+        data: {
+          status: "processed",
+          processedToStatus: applicationOutcome,
+          processedAt: now,
+          processedBy: session.user.employeeId ?? undefined,
+        },
+      })
+    }
 
     if (shouldMarkAttended) {
       const scheduled = await tx.trialLesson.findFirst({

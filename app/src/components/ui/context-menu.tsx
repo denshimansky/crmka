@@ -1,109 +1,54 @@
 "use client"
 
 import * as React from "react"
-import { Menu as MenuPrimitive } from "@base-ui/react/menu"
+import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon } from "lucide-react"
 
-// Контекстное меню (ПКМ). База — base-ui Menu, но триггер по contextmenu
-// и виртуальный якорь в координатах курсора. Стили синхронизированы
-// с DropdownMenu, чтобы визуально совпадало.
+// Нативный base-ui ContextMenu — сам ловит правый клик / long-press и корректно
+// работает с подменю. Стили синхронизированы с DropdownMenu.
 
-interface ContextMenuContextValue {
-  open: boolean
-  setOpen: (v: boolean) => void
-  anchor: { getBoundingClientRect: () => DOMRect } | null
-  openAt: (x: number, y: number) => void
+export function ContextMenu({
+  children,
+  ...props
+}: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
+  return <ContextMenuPrimitive.Root {...props}>{children}</ContextMenuPrimitive.Root>
 }
 
-const Ctx = React.createContext<ContextMenuContextValue | null>(null)
-
-function useCtx() {
-  const v = React.useContext(Ctx)
-  if (!v) throw new Error("ContextMenu components must be inside <ContextMenu>")
-  return v
-}
-
-export function ContextMenu({ children }: { children: React.ReactNode }) {
-  const [open, setOpenState] = React.useState(false)
-  const [anchor, setAnchor] = React.useState<ContextMenuContextValue["anchor"]>(null)
-  // После открытия base-ui ловит следующий mouseup/mousedown как outside-press
-  // и сразу закрывает меню. Заглушаем первые ~250мс попыток закрытия после
-  // программного открытия. Эту же защёлку используем при правом клике по другой
-  // строке (контекстное меню должно «перепрыгнуть» без короткого закрытия).
-  const justOpenedAt = React.useRef(0)
-
-  const setOpen = React.useCallback((v: boolean) => {
-    if (!v && Date.now() - justOpenedAt.current < 250) return
-    setOpenState(v)
-  }, [])
-
-  const openAt = React.useCallback((x: number, y: number) => {
-    setAnchor({
-      getBoundingClientRect: () => ({
-        x, y, top: y, left: x, right: x, bottom: y,
-        width: 0, height: 0,
-        toJSON: () => ({}),
-      } as DOMRect),
-    })
-    justOpenedAt.current = Date.now()
-    // Открываем на следующий тик, чтобы текущий contextmenu-цикл (включая
-    // последующий mouseup) полностью завершился до того, как base-ui навесит
-    // слушатели outside-press.
-    setTimeout(() => setOpenState(true), 0)
-  }, [])
-
-  return (
-    <Ctx.Provider value={{ open, setOpen, anchor, openAt }}>
-      {/* modal=true — обязательно для контекстного меню с подменю: иначе
-          base-ui интерпретирует наведение на SubmenuTrigger как выход за
-          пределы родительского popup и закрывает всё меню. */}
-      <MenuPrimitive.Root open={open} onOpenChange={setOpen} modal>
-        {children}
-      </MenuPrimitive.Root>
-    </Ctx.Provider>
-  )
-}
-
-// Оборачивает любой элемент-строку и ловит правый клик. Сам элемент рендерится
-// через render-prop, чтобы не плодить лишний div вокруг <tr>.
+// Совместимый API с моей старой обёрткой: asChild раскрывает render-prop base-ui.
+// Дети элемента-обёртки переезжают в children триггера.
 export function ContextMenuTrigger({
   children,
   asChild,
 }: {
-  children: React.ReactElement
+  children: React.ReactNode
   asChild?: boolean
 }) {
-  const { openAt } = useCtx()
-  const original = (children.props as { onContextMenu?: (e: React.MouseEvent) => void }).onContextMenu
-  const onContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault()
-    openAt(e.clientX, e.clientY)
-    original?.(e)
+  if (asChild && React.isValidElement(children)) {
+    const element = children as React.ReactElement<{ children?: React.ReactNode }>
+    const inner = element.props.children
+    const elementWithoutChildren = React.cloneElement(element, { children: undefined })
+    return (
+      <ContextMenuPrimitive.Trigger render={elementWithoutChildren}>
+        {inner}
+      </ContextMenuPrimitive.Trigger>
+    )
   }
-  if (asChild) {
-    return React.cloneElement(children, { onContextMenu } as React.HTMLAttributes<HTMLElement>)
-  }
-  return <span onContextMenu={onContextMenu}>{children}</span>
+  return <ContextMenuPrimitive.Trigger>{children}</ContextMenuPrimitive.Trigger>
 }
 
 export function ContextMenuContent({
   className,
   children,
   ...props
-}: MenuPrimitive.Popup.Props) {
-  const { anchor } = useCtx()
-  if (!anchor) return null
+}: React.ComponentProps<typeof ContextMenuPrimitive.Popup>) {
   return (
-    <MenuPrimitive.Portal>
-      <MenuPrimitive.Positioner
+    <ContextMenuPrimitive.Portal>
+      <ContextMenuPrimitive.Positioner
         className="isolate z-50 outline-none"
-        anchor={anchor}
-        side="bottom"
-        align="start"
         sideOffset={4}
       >
-        <MenuPrimitive.Popup
+        <ContextMenuPrimitive.Popup
           data-slot="context-menu-content"
           className={cn(
             "z-50 min-w-[180px] origin-(--transform-origin) overflow-hidden rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
@@ -112,9 +57,9 @@ export function ContextMenuContent({
           {...props}
         >
           {children}
-        </MenuPrimitive.Popup>
-      </MenuPrimitive.Positioner>
-    </MenuPrimitive.Portal>
+        </ContextMenuPrimitive.Popup>
+      </ContextMenuPrimitive.Positioner>
+    </ContextMenuPrimitive.Portal>
   )
 }
 
@@ -123,12 +68,12 @@ export function ContextMenuItem({
   inset,
   variant = "default",
   ...props
-}: MenuPrimitive.Item.Props & {
+}: React.ComponentProps<typeof ContextMenuPrimitive.Item> & {
   inset?: boolean
   variant?: "default" | "destructive"
 }) {
   return (
-    <MenuPrimitive.Item
+    <ContextMenuPrimitive.Item
       data-slot="context-menu-item"
       data-inset={inset}
       data-variant={variant}
@@ -141,17 +86,19 @@ export function ContextMenuItem({
   )
 }
 
-export function ContextMenuSub({ ...props }: MenuPrimitive.SubmenuRoot.Props) {
-  return <MenuPrimitive.SubmenuRoot data-slot="context-menu-sub" {...props} />
+export function ContextMenuSub({
+  ...props
+}: React.ComponentProps<typeof ContextMenuPrimitive.SubmenuRoot>) {
+  return <ContextMenuPrimitive.SubmenuRoot data-slot="context-menu-sub" {...props} />
 }
 
 export function ContextMenuSubTrigger({
   className,
   children,
   ...props
-}: MenuPrimitive.SubmenuTrigger.Props) {
+}: React.ComponentProps<typeof ContextMenuPrimitive.SubmenuTrigger>) {
   return (
-    <MenuPrimitive.SubmenuTrigger
+    <ContextMenuPrimitive.SubmenuTrigger
       data-slot="context-menu-sub-trigger"
       className={cn(
         "flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-popup-open:bg-accent data-popup-open:text-accent-foreground data-open:bg-accent data-open:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -161,24 +108,22 @@ export function ContextMenuSubTrigger({
     >
       {children}
       <ChevronRightIcon className="ml-auto" />
-    </MenuPrimitive.SubmenuTrigger>
+    </ContextMenuPrimitive.SubmenuTrigger>
   )
 }
 
 export function ContextMenuSubContent({
   className,
   ...props
-}: MenuPrimitive.Popup.Props) {
+}: React.ComponentProps<typeof ContextMenuPrimitive.Popup>) {
   return (
-    <MenuPrimitive.Portal>
-      <MenuPrimitive.Positioner
+    <ContextMenuPrimitive.Portal>
+      <ContextMenuPrimitive.Positioner
         className="isolate z-50 outline-none"
-        side="right"
-        align="start"
         sideOffset={0}
         alignOffset={-3}
       >
-        <MenuPrimitive.Popup
+        <ContextMenuPrimitive.Popup
           data-slot="context-menu-sub-content"
           className={cn(
             "z-50 w-auto min-w-[160px] rounded-lg bg-popover p-1 text-popover-foreground shadow-lg ring-1 ring-foreground/10 duration-100 outline-none data-[side=right]:slide-in-from-left-2 data-[side=left]:slide-in-from-right-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
@@ -186,17 +131,17 @@ export function ContextMenuSubContent({
           )}
           {...props}
         />
-      </MenuPrimitive.Positioner>
-    </MenuPrimitive.Portal>
+      </ContextMenuPrimitive.Positioner>
+    </ContextMenuPrimitive.Portal>
   )
 }
 
 export function ContextMenuSeparator({
   className,
   ...props
-}: MenuPrimitive.Separator.Props) {
+}: React.ComponentProps<typeof ContextMenuPrimitive.Separator>) {
   return (
-    <MenuPrimitive.Separator
+    <ContextMenuPrimitive.Separator
       data-slot="context-menu-separator"
       className={cn("-mx-1 my-1 h-px bg-border", className)}
       {...props}
