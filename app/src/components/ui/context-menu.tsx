@@ -55,7 +55,10 @@ export function ContextMenu({ children }: { children: React.ReactNode }) {
 
   return (
     <Ctx.Provider value={{ open, setOpen, anchor, openAt }}>
-      <MenuPrimitive.Root open={open} onOpenChange={setOpen} modal={false}>
+      {/* modal=true — обязательно для контекстного меню с подменю: иначе
+          base-ui интерпретирует наведение на SubmenuTrigger как выход за
+          пределы родительского popup и закрывает всё меню. */}
+      <MenuPrimitive.Root open={open} onOpenChange={setOpen} modal>
         {children}
       </MenuPrimitive.Root>
     </Ctx.Provider>
