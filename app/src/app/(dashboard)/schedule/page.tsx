@@ -10,8 +10,14 @@ import { SchedulePrintButton } from "@/components/schedule-print"
 import { CopyMonthDialog } from "./copy-month-dialog"
 import { PageHelp } from "@/components/page-help"
 import { ScheduleFilterableGrid } from "./schedule-filters"
+import {
+  buildMonthGridFull,
+  getMonthGridRange,
+  offsetMonth,
+  ymd,
+} from "@/lib/date/month-grid"
 
-const ALLOWED_VIEWS = new Set<ScheduleView>(["week", "rooms"])
+const ALLOWED_VIEWS = new Set<ScheduleView>(["week", "rooms", "month"])
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -61,10 +67,11 @@ function formatWeekLabelCompact(monday: Date, sunday: Date): string {
 export default async function SchedulePage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string; view?: string; wardId?: string }>
+  searchParams: Promise<{ week?: string; monthOffset?: string; view?: string; wardId?: string }>
 }) {
   const sp = await searchParams
   const weekOffset = parseInt(sp.week || "0", 10) || 0
+  const monthOffset = parseInt(sp.monthOffset || "0", 10) || 0
   const view: ScheduleView = ALLOWED_VIEWS.has(sp.view as ScheduleView)
     ? (sp.view as ScheduleView)
     : "week"
@@ -74,6 +81,16 @@ export default async function SchedulePage({
   const tenantId = session.user.tenantId
 
   const { monday, sunday } = getWeekRange(weekOffset)
+
+  // Развилка диапазона данных: для месяца захватываем целую сетку (включая
+  // хвосты соседних месяцев), для недели — пн..вс.
+  const monthMeta = view === "month" ? offsetMonth(monthOffset) : null
+  const monthRange = monthMeta
+    ? getMonthGridRange(monthMeta.year, monthMeta.month)
+    : null
+  const dateRange = monthRange
+    ? { start: monthRange.gridStart, end: monthRange.gridEnd }
+    : { start: monday, end: sunday }
 
   const branches = await db.branch.findMany({
     where: { tenantId, deletedAt: null },
@@ -123,7 +140,7 @@ export default async function SchedulePage({
   const lessons = await db.lesson.findMany({
     where: {
       tenantId,
-      date: { gte: monday, lte: sunday },
+      date: { gte: dateRange.start, lte: dateRange.end },
       status: { not: "cancelled" },
       ...(wardIdFilter
         ? {
@@ -154,7 +171,7 @@ export default async function SchedulePage({
   const individualTrials = await db.trialLesson.findMany({
     where: {
       tenantId,
-      scheduledDate: { gte: monday, lte: sunday },
+      scheduledDate: { gte: dateRange.start, lte: dateRange.end },
       status: "scheduled",
       groupId: null,
       lessonId: null,
@@ -239,6 +256,25 @@ export default async function SchedulePage({
   const weekLabelCompact = formatWeekLabelCompact(monday, sunday)
   const hasLessons = lessons.length > 0 || individualTrials.length > 0
   const defaultDate = monday.toISOString().slice(0, 10)
+
+  // Месячная сетка дней (для view=month) — 7×N клеток с учётом хвостов соседних месяцев.
+  const gridDays = monthMeta
+    ? buildMonthGridFull(monthMeta.year, monthMeta.month).map((c) => ({
+        date: ymd(c.date),
+        inCurrentMonth: c.inCurrentMonth,
+      }))
+    : []
+
+  // Подписи для верхней навигации
+  const monthLabel = monthMeta
+    ? new Date(monthMeta.year, monthMeta.month, 1).toLocaleDateString("ru-RU", {
+        month: "long",
+        year: "numeric",
+      })
+    : ""
+  const monthLabelCompact = monthMeta
+    ? `${String(monthMeta.month + 1).padStart(2, "0")}.${monthMeta.year}`
+    : ""
 
   // Serialize lessons for client component (Date -> string)
   const serializedLessons = lessons.map((l) => ({
@@ -339,7 +375,15 @@ export default async function SchedulePage({
 
       <div className="flex items-center gap-2">
         <div className="flex-1">
-          <ScheduleWeekNav weekOffset={weekOffset} weekLabel={weekLabel} weekLabelCompact={weekLabelCompact} view={view} />
+          <ScheduleWeekNav
+            weekOffset={weekOffset}
+            weekLabel={weekLabel}
+            weekLabelCompact={weekLabelCompact}
+            monthOffset={monthOffset}
+            monthLabel={monthLabel}
+            monthLabelCompact={monthLabelCompact}
+            view={view}
+          />
         </div>
         <CopyMonthDialog />
         <CancelDayDialog defaultDate={defaultDate} branches={branches} />
@@ -363,7 +407,7 @@ export default async function SchedulePage({
         </h2>
       </div>
 
-      {!hasLessons && view !== "week" ? (
+      {!hasLessons && view === "rooms" ? (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
           <CalendarDays className="size-16 text-muted-foreground/50" />
           <div>
@@ -395,6 +439,7 @@ export default async function SchedulePage({
           currentWardId={wardIdFilter}
           weekDays={weekDays}
           dayNames={DAY_NAMES}
+          gridDays={gridDays}
           directionColorMap={directionColorMap}
           view={view}
           weekHourStart={weekHourStart}

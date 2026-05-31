@@ -22,6 +22,7 @@ import {
   ArrowLeft,
   Trash2,
 } from "lucide-react"
+import { buildMonthGrid, ymd } from "@/lib/date/month-grid"
 
 interface CalendarItem {
   id: string
@@ -46,25 +47,6 @@ const MONTH_NAMES = [
 ]
 
 const WEEKDAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-
-function ymd(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
-}
-
-function buildMonthGrid(year: number, month: number): (Date | null)[] {
-  const first = new Date(year, month, 1)
-  const last = new Date(year, month + 1, 0)
-  // Понедельник как начало недели: 1..7
-  const startWeekDay = first.getDay() === 0 ? 7 : first.getDay()
-  const cells: (Date | null)[] = []
-  for (let i = 1; i < startWeekDay; i++) cells.push(null)
-  for (let d = 1; d <= last.getDate(); d++) cells.push(new Date(year, month, d))
-  while (cells.length % 7 !== 0) cells.push(null)
-  return cells
-}
 
 export default function ProductionCalendarPage() {
   const now = new Date()

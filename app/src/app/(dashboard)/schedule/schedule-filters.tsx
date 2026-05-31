@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/select"
 import { CalendarDays, X, Filter, Baby } from "lucide-react"
 import type { ScheduleView } from "./schedule-week-nav"
+import { BRANCH_ALL_VALUE, useBranchFilter } from "@/hooks/use-branch-filter"
+import { MonthCalendarView } from "./month-calendar-view"
 
 interface Room {
   id: string
@@ -82,6 +84,7 @@ interface ScheduleFiltersProps {
   currentWardId: string | null
   weekDays: string[] // ISO date strings
   dayNames: string[]
+  gridDays: { date: string; inCurrentMonth: boolean }[]
   directionColorMap: Record<string, string>
   view: ScheduleView
   // Объединённый диапазон часов работы филиалов (для вида «По неделе»)
@@ -117,6 +120,7 @@ export function ScheduleFilterableGrid({
   currentWardId,
   weekDays,
   dayNames,
+  gridDays,
   directionColorMap,
   view,
   weekHourStart,
@@ -129,7 +133,11 @@ export function ScheduleFilterableGrid({
   const [roomFilter, setRoomFilter] = useState<string>("")
   const [directionFilter, setDirectionFilter] = useState<string>("")
   const [instructorFilter, setInstructorFilter] = useState<string>("")
-  const [branchFilter, setBranchFilter] = useState<string>(() => branches[0]?.id || "")
+  const { branchId: branchFilter, setBranchId: setBranchFilter } = useBranchFilter({
+    branches,
+    allowAll: view === "week",
+    defaultBranchId: branches[0]?.id ?? "",
+  })
   const [wardSearch, setWardSearch] = useState<string>("")
 
   const hasFilters = !!(roomFilter || directionFilter || instructorFilter || currentWardId)
@@ -154,14 +162,24 @@ export function ScheduleFilterableGrid({
       .slice(0, 100)
   }, [wards, wardSearch])
 
+  // В месячном виде сетки кабинетов нет — фильтрация по филиалу должна работать
+  // явно через сами занятия (lesson → room → branch). Заранее строим множество
+  // комнат выбранного филиала.
+  const branchRoomIds = useMemo(() => {
+    if (view !== "month") return null
+    if (!branchFilter || branchFilter === BRANCH_ALL_VALUE) return null
+    return new Set(allRooms.filter((r) => r.branchId === branchFilter).map((r) => r.id))
+  }, [view, branchFilter, allRooms])
+
   const filteredLessons = useMemo(() => {
     return lessons.filter((l) => {
       if (roomFilter && l.group.room.id !== roomFilter) return false
       if (directionFilter && l.group.directionId !== directionFilter) return false
       if (instructorFilter && l.instructorId !== instructorFilter) return false
+      if (branchRoomIds && !branchRoomIds.has(l.group.room.id)) return false
       return true
     })
-  }, [lessons, roomFilter, directionFilter, instructorFilter])
+  }, [lessons, roomFilter, directionFilter, instructorFilter, branchRoomIds])
 
   type Row = { id: string; label: string }
 
@@ -224,7 +242,32 @@ export function ScheduleFilterableGrid({
             }}
           >
             <SelectTrigger className="w-[220px]">
-              {branchFilter ? (
+              {branchFilter === BRANCH_ALL_VALUE ? (
+                "Все филиалы"
+              ) : branchFilter ? (
+                branches.find((b) => b.id === branchFilter)?.name || "Филиал"
+              ) : (
+                <span className="text-muted-foreground">Филиал</span>
+              )}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={BRANCH_ALL_VALUE}>Все филиалы</SelectItem>
+              {branches.map((b) => (
+                <SelectItem key={b.id} value={b.id}>
+                  {b.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : view === "month" ? (
+          <Select
+            value={branchFilter === BRANCH_ALL_VALUE ? "" : branchFilter}
+            onValueChange={(v) => {
+              if (v) setBranchFilter(v)
+            }}
+          >
+            <SelectTrigger className="w-[220px]">
+              {branchFilter && branchFilter !== BRANCH_ALL_VALUE ? (
                 branches.find((b) => b.id === branchFilter)?.name || "Филиал"
               ) : (
                 <span className="text-muted-foreground">Филиал</span>
@@ -375,6 +418,14 @@ export function ScheduleFilterableGrid({
           hourStart={weekHourStart}
           hourEnd={weekHourEnd}
         />
+      ) : view === "month" ? (
+        <MonthCalendarView
+          lessons={filteredLessons}
+          gridDays={gridDays}
+          weekdayNames={dayNames}
+          directionColorMap={directionColorMap}
+          todayKey={new Date().toISOString().slice(0, 10)}
+        />
       ) : filteredLessons.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
           <CalendarDays className="size-16 text-muted-foreground/50" />
@@ -498,6 +549,7 @@ export function ScheduleFilterableGrid({
 //   height = (длительность / 60) * CELL_HEIGHT  (45 мин = 3/4 ячейки, 30 мин = 1/2)
 const CELL_HEIGHT = 64
 const HEADER_DAY_H = 36
+const HEADER_BRANCH_H = 26
 const HEADER_ROOM_H = 28
 
 interface WeekRoomsViewProps {
@@ -547,24 +599,52 @@ function WeekRoomsView({
     )
   }
 
-  const branchRooms = allRooms.filter((r) => r.branchId === branchId)
+  // Группируем кабинеты по филиалам. При «Все филиалы» — берём все филиалы
+  // с кабинетами; иначе — один выбранный филиал.
+  const isAllBranches = branchId === "all"
+  const branchGroups: { branch: Branch; rooms: RoomWithBranch[] }[] = isAllBranches
+    ? branches
+        .map((b) => ({
+          branch: b,
+          rooms: allRooms.filter((r) => r.branchId === b.id),
+        }))
+        .filter((g) => g.rooms.length > 0)
+    : (() => {
+        const b = branches.find((x) => x.id === branchId)
+        if (!b) return []
+        const rs = allRooms.filter((r) => r.branchId === b.id)
+        return rs.length ? [{ branch: b, rooms: rs }] : []
+      })()
 
-  if (branchRooms.length === 0) {
+  const visibleRooms: RoomWithBranch[] = branchGroups.flatMap((g) => g.rooms)
+  const roomsPerDay = visibleRooms.length
+
+  if (roomsPerDay === 0) {
     return (
       <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-        В филиале нет кабинетов. Добавьте кабинеты в настройках филиала.
+        {isAllBranches
+          ? "Нет кабинетов ни в одном филиале. Добавьте кабинеты в настройках."
+          : "В филиале нет кабинетов. Добавьте кабинеты в настройках филиала."}
       </div>
     )
   }
 
-  const roomsCount = branchRooms.length
-  const colCount = weekDays.length * roomsCount
+  const colCount = weekDays.length * roomsPerDay
+  const showBranchRow = isAllBranches
+  const roomHeaderRow = showBranchRow ? 3 : 2
+  const bodyStartRow = showBranchRow ? 4 : 3
+  const headerRowsTemplate = showBranchRow
+    ? `${HEADER_DAY_H}px ${HEADER_BRANCH_H}px ${HEADER_ROOM_H}px`
+    : `${HEADER_DAY_H}px ${HEADER_ROOM_H}px`
 
   return (
     <div className="flex border-l border-t bg-background">
       {/* Левая фиксированная колонка времени — физически вне горизонтального скролла. */}
       <div className="flex-none border-r" style={{ width: 60 }}>
         <div className="border-b bg-muted/30" style={{ height: HEADER_DAY_H }} />
+        {showBranchRow && (
+          <div className="border-b bg-muted/20" style={{ height: HEADER_BRANCH_H }} />
+        )}
         <div className="border-b bg-muted/20" style={{ height: HEADER_ROOM_H }} />
         {HOURS.map((h) => (
           <div
@@ -583,7 +663,7 @@ function WeekRoomsView({
           className="grid bg-background"
           style={{
             gridTemplateColumns: `repeat(${colCount}, minmax(120px, 1fr))`,
-            gridTemplateRows: `${HEADER_DAY_H}px ${HEADER_ROOM_H}px repeat(${HOURS.length}, ${CELL_HEIGHT}px)`,
+            gridTemplateRows: `${headerRowsTemplate} repeat(${HOURS.length}, ${CELL_HEIGHT}px)`,
           }}
         >
           {/* Заголовки дней — правая граница утолщённая, она же разделитель дней */}
@@ -592,7 +672,7 @@ function WeekRoomsView({
               key={`day-${day}`}
               className="border-r-2 border-r-border border-b bg-muted/30 p-2 text-center text-sm font-semibold"
               style={{
-                gridColumn: `${1 + di * roomsCount} / span ${roomsCount}`,
+                gridColumn: `${1 + di * roomsPerDay} / span ${roomsPerDay}`,
                 gridRow: 1,
               }}
             >
@@ -600,41 +680,80 @@ function WeekRoomsView({
             </div>
           ))}
 
-          {/* Заголовки кабинетов — последний в дне получает утолщённую правую границу */}
-          {weekDays.flatMap((day, di) =>
-            branchRooms.map((room, ri) => {
-              const isDayEdge = ri === roomsCount - 1
-              return (
-                <div
-                  key={`room-${day}-${room.id}`}
-                  className={`${isDayEdge ? "border-r-2 border-r-border" : "border-r"} border-b bg-muted/20 px-1 py-1 text-center text-xs truncate`}
-                  style={{
-                    gridColumn: 1 + di * roomsCount + ri,
-                    gridRow: 2,
-                  }}
-                  title={room.name}
-                >
-                  {room.name}
-                </div>
-              )
-            })
-          )}
+          {/* Заголовки филиалов (только при «Все филиалы») */}
+          {showBranchRow &&
+            weekDays.flatMap((day, di) => {
+              let branchOffset = 0
+              return branchGroups.map((g, gi) => {
+                const isLastBranchInDay = gi === branchGroups.length - 1
+                const startCol = 1 + di * roomsPerDay + branchOffset
+                const el = (
+                  <div
+                    key={`branch-${day}-${g.branch.id}`}
+                    className={`${isLastBranchInDay ? "border-r-2 border-r-border" : "border-r"} border-b bg-muted/30 px-1 py-1 text-center text-xs font-semibold truncate`}
+                    style={{
+                      gridColumn: `${startCol} / span ${g.rooms.length}`,
+                      gridRow: 2,
+                    }}
+                    title={g.branch.name}
+                  >
+                    {g.branch.name}
+                  </div>
+                )
+                branchOffset += g.rooms.length
+                return el
+              })
+            })}
+
+          {/* Заголовки кабинетов */}
+          {weekDays.flatMap((day, di) => {
+            let dayRoomIdx = 0
+            return branchGroups.flatMap((g, gi) =>
+              g.rooms.map((room, ri) => {
+                const isBranchEdge = ri === g.rooms.length - 1
+                const isLastBranchInDay = gi === branchGroups.length - 1
+                const isDayEdge = isBranchEdge && isLastBranchInDay
+                const thickRight = isDayEdge || (isBranchEdge && showBranchRow)
+                const colIdx = 1 + di * roomsPerDay + dayRoomIdx
+                dayRoomIdx += 1
+                return (
+                  <div
+                    key={`room-${day}-${room.id}`}
+                    className={`${thickRight ? "border-r-2 border-r-border" : "border-r"} border-b bg-muted/20 px-1 py-1 text-center text-xs truncate`}
+                    style={{
+                      gridColumn: colIdx,
+                      gridRow: roomHeaderRow,
+                    }}
+                    title={room.name}
+                  >
+                    {room.name}
+                  </div>
+                )
+              })
+            )
+          })}
 
           {/* Колонки день × кабинет (одна на каждую пару, занимает все часы по высоте) */}
-          {weekDays.flatMap((day, di) =>
-            branchRooms.map((room, ri) => {
-              const colIdx = 1 + di * roomsCount + ri
-              const isDayEdge = ri === roomsCount - 1
-              const cellLessons = lessons.filter(
-                (l) => l.date === day && l.group.room.id === room.id
-              )
-              return (
+          {weekDays.flatMap((day, di) => {
+            let dayRoomIdx = 0
+            return branchGroups.flatMap((g, gi) =>
+              g.rooms.map((room, ri) => {
+                const isBranchEdge = ri === g.rooms.length - 1
+                const isLastBranchInDay = gi === branchGroups.length - 1
+                const isDayEdge = isBranchEdge && isLastBranchInDay
+                const thickRight = isDayEdge || (isBranchEdge && showBranchRow)
+                const colIdx = 1 + di * roomsPerDay + dayRoomIdx
+                dayRoomIdx += 1
+                const cellLessons = lessons.filter(
+                  (l) => l.date === day && l.group.room.id === room.id
+                )
+                return (
                 <div
                   key={`col-${day}-${room.id}`}
-                  className={`relative ${isDayEdge ? "border-r-2 border-r-border" : "border-r"}`}
+                  className={`relative ${thickRight ? "border-r-2 border-r-border" : "border-r"}`}
                   style={{
                     gridColumn: colIdx,
-                    gridRow: `3 / span ${HOURS.length}`,
+                    gridRow: `${bodyStartRow} / span ${HOURS.length}`,
                   }}
                 >
                 {/* Горизонтальные линии на границах часов */}
@@ -715,9 +834,10 @@ function WeekRoomsView({
                   )
                 })}
               </div>
+                )
+              })
             )
-          })
-          )}
+          })}
         </div>
       </div>
     </div>
