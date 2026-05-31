@@ -15,8 +15,9 @@ export function ContextMenu({
   return <ContextMenuPrimitive.Root {...props}>{children}</ContextMenuPrimitive.Root>
 }
 
-// Совместимый API с моей старой обёрткой: asChild раскрывает render-prop base-ui.
-// Дети элемента-обёртки переезжают в children триггера.
+// asChild → render-prop base-ui. Передаём элемент-обёртку целиком вместе с её
+// children: base-ui клонирует элемент с triggerProps, сохраняя его children
+// (TableCell-ячейки) через mergeProps(triggerOutProps, renderEl.props).
 export function ContextMenuTrigger({
   children,
   asChild,
@@ -25,14 +26,7 @@ export function ContextMenuTrigger({
   asChild?: boolean
 }) {
   if (asChild && React.isValidElement(children)) {
-    const element = children as React.ReactElement<{ children?: React.ReactNode }>
-    const inner = element.props.children
-    const elementWithoutChildren = React.cloneElement(element, { children: undefined })
-    return (
-      <ContextMenuPrimitive.Trigger render={elementWithoutChildren}>
-        {inner}
-      </ContextMenuPrimitive.Trigger>
-    )
+    return <ContextMenuPrimitive.Trigger render={children as React.ReactElement} />
   }
   return <ContextMenuPrimitive.Trigger>{children}</ContextMenuPrimitive.Trigger>
 }
