@@ -2,10 +2,21 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Settings2, Search, ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import { Settings2, Search, ArrowUpDown, ArrowDown, ArrowUp, Pencil, Trash2, ListChecks } from "lucide-react"
 import {
   EditableDateCell,
   EditableSelectCell,
@@ -13,6 +24,15 @@ import {
 } from "../_components/editable-cell"
 import { ProcessApplicationDialog } from "../_components/process-application-dialog"
 import { formatWardName } from "@/lib/format-name"
+import { EditSalesRowDialog } from "./edit-sales-row-dialog"
+
+const STAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: "none", label: "Вне воронки" },
+  { value: "application", label: "Заявка" },
+  { value: "trial_scheduled", label: "Пробное записано" },
+  { value: "trial_attended", label: "Прошёл пробное" },
+  { value: "awaiting_payment", label: "Ожидание оплаты" },
+]
 
 export type SalesTabKey = "application" | "trial" | "trial_done" | "awaiting_payment"
 
@@ -38,6 +58,8 @@ export interface SalesRow {
   startTime?: string | null
   /** lessonId привязанного занятия (если пробное в группе). Делает «Дату пробного» кликабельной → карточка занятия. */
   lessonId?: string | null
+  /** TrialLesson.id «представительного» пробного — используется при редактировании. */
+  trialLessonId?: string | null
   firstPaidLessonDate: string | null
   expectedSubscriptionAmount: string | null
   createdAt: string | null
@@ -100,10 +122,27 @@ export function SalesTable({
   rows: SalesRow[]
   employees: EmployeeOption[]
 }) {
+  const router = useRouter()
   const [processing, setProcessing] = useState<SalesRow | null>(null)
+  const [editing, setEditing] = useState<SalesRow | null>(null)
   const [query, setQuery] = useState("")
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>("asc")
+
+  async function setSalesStage(wardId: string, stage: string) {
+    const res = await fetch(`/api/wards/${wardId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ salesStage: stage }),
+    })
+    if (res.ok) router.refresh()
+  }
+
+  async function removeFromFunnel(wardId: string) {
+    if (!confirm("Вывести подопечного из воронки? Связанные пробные и заявки будут отменены.")) return
+    const res = await fetch(`/api/wards/${wardId}/remove-from-funnel`, { method: "POST" })
+    if (res.ok) router.refresh()
+  }
 
   const employeeOptions = useMemo(
     () =>
@@ -299,8 +338,9 @@ export function SalesTable({
           </TableHeader>
           <TableBody>
             {visibleRows.map((r) => (
+              <ContextMenu key={r.rowId}>
+              <ContextMenuTrigger asChild>
               <TableRow
-                key={r.rowId}
                 className={
                   isOverdueScheduled(r)
                     ? "bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-900/40"
@@ -399,6 +439,35 @@ export function SalesTable({
                   />
                 </TableCell>
               </TableRow>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onClick={() => setEditing(r)}>
+                  <Pencil className="size-3.5" />
+                  Изменить
+                </ContextMenuItem>
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    <ListChecks className="size-3.5" />
+                    Установить статус
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent>
+                    {STAGE_OPTIONS.map((s) => (
+                      <ContextMenuItem
+                        key={s.value}
+                        onClick={() => setSalesStage(r.ward.id, s.value)}
+                      >
+                        {s.label}
+                      </ContextMenuItem>
+                    ))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuSeparator />
+                <ContextMenuItem variant="destructive" onClick={() => removeFromFunnel(r.ward.id)}>
+                  <Trash2 className="size-3.5" />
+                  Удалить (вывести из воронки)
+                </ContextMenuItem>
+              </ContextMenuContent>
+              </ContextMenu>
             ))}
           </TableBody>
         </Table>
@@ -414,6 +483,18 @@ export function SalesTable({
           open={true}
           onOpenChange={(v) => {
             if (!v) setProcessing(null)
+          }}
+        />
+      )}
+
+      {editing && (
+        <EditSalesRowDialog
+          row={editing}
+          tab={tab}
+          employees={employees}
+          open={true}
+          onOpenChange={(v) => {
+            if (!v) setEditing(null)
           }}
         />
       )}

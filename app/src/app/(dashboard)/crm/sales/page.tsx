@@ -237,6 +237,7 @@ export default async function SalesPage({
         scheduledDate: t?.scheduledDate ? t.scheduledDate.toISOString() : null,
         startTime: t?.startTime ?? t?.lesson?.startTime ?? null,
         lessonId: t?.lessonId ?? null,
+        trialLessonId: t?.id ?? null,
         firstPaidLessonDate: w.client.firstPaidLessonDate
           ? w.client.firstPaidLessonDate.toISOString()
           : null,
