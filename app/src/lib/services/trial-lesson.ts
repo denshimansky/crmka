@@ -204,6 +204,15 @@ export async function createTrialLessonForClient(
       data: { salesStage: "trial_scheduled", salesStageAt: new Date() },
     })
 
+    // Если у клиента ещё нет ответственного — закрепляем за тем, кто записал
+    // пробное. Не перезаписываем уже назначенного, чтобы не отбирать клиентов.
+    if (!client.assignedTo && userEmployeeId) {
+      await tx.client.update({
+        where: { id: input.clientId },
+        data: { assignedTo: userEmployeeId },
+      })
+    }
+
     if (options.applicationId) {
       await tx.application.update({
         where: { id: options.applicationId },
