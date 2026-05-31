@@ -169,6 +169,9 @@ export default async function SalesPage({
         },
         direction: { select: { id: true, name: true } },
         room: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
+        // Для групповых пробных время хранится у связанного Lesson; у TrialLesson.startTime
+        // оно null. Подтягиваем для отображения «ДД.ММ.ГГГГ HH:MM».
+        lesson: { select: { startTime: true } },
       },
       orderBy: { scheduledDate: tab === "trial" ? "asc" : "desc" },
     })
@@ -190,7 +193,7 @@ export default async function SalesPage({
           ? `Индив. ${t.startTime}${t.durationMinutes ? `, ${t.durationMinutes}мин` : ""}`
           : null),
       scheduledDate: t.scheduledDate.toISOString(),
-      startTime: t.startTime,
+      startTime: t.startTime ?? t.lesson?.startTime ?? null,
       lessonId: t.lessonId,
       firstPaidLessonDate: t.client.firstPaidLessonDate
         ? t.client.firstPaidLessonDate.toISOString()
@@ -225,6 +228,8 @@ export default async function SalesPage({
               },
             },
             direction: { select: { id: true, name: true, lessonPrice: true } },
+            // Время старта групповых пробных хранится у Lesson, не у TrialLesson.
+            lesson: { select: { startTime: true } },
           },
         },
       },
@@ -252,7 +257,7 @@ export default async function SalesPage({
         directionName: direction?.name ?? null,
         groupOrTimeLabel: trial?.group?.name ?? null,
         scheduledDate: trial?.scheduledDate ? trial.scheduledDate.toISOString() : null,
-        startTime: trial?.startTime ?? null,
+        startTime: trial?.startTime ?? trial?.lesson?.startTime ?? null,
         lessonId: trial?.lessonId ?? null,
         firstPaidLessonDate: c.firstPaidLessonDate ? c.firstPaidLessonDate.toISOString() : null,
         expectedSubscriptionAmount: expected,
