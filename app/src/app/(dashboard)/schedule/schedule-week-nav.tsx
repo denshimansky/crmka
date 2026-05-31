@@ -77,6 +77,13 @@ export function ScheduleWeekNav({
 
   function setPeriod(next: Period) {
     if (next === period) return
+    // Запоминаем выбор пользователя в cookie (читается на сервере при
+    // следующем заходе на /schedule без ?view в URL — баг #41).
+    try {
+      document.cookie = `schedule_view=${next}; path=/; max-age=${60 * 60 * 24 * 365}`
+    } catch {
+      /* ignore */
+    }
     router.push(buildUrl({ view: next, weekOffset, monthOffset }))
   }
 

@@ -1,3 +1,4 @@
+import { cookies } from "next/headers"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import Link from "next/link"
@@ -17,6 +18,7 @@ import {
 } from "@/lib/date/month-grid"
 
 const ALLOWED_VIEWS = new Set<ScheduleView>(["week", "month"])
+const VIEW_COOKIE_NAME = "schedule_view"
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -71,9 +73,14 @@ export default async function SchedulePage({
   const sp = await searchParams
   const weekOffset = parseInt(sp.week || "0", 10) || 0
   const monthOffset = parseInt(sp.monthOffset || "0", 10) || 0
+  // Период (Неделя/Месяц) персистится через cookie schedule_view (баг #41):
+  // если в URL нет ?view, берём последний выбор пользователя; иначе — week.
+  const cookieView = (await cookies()).get(VIEW_COOKIE_NAME)?.value
   const view: ScheduleView = ALLOWED_VIEWS.has(sp.view as ScheduleView)
     ? (sp.view as ScheduleView)
-    : "week"
+    : ALLOWED_VIEWS.has(cookieView as ScheduleView)
+      ? (cookieView as ScheduleView)
+      : "week"
   const wardIdFilter = sp.wardId && /^[0-9a-f-]{36}$/i.test(sp.wardId) ? sp.wardId : null
 
   const session = await getSession()
