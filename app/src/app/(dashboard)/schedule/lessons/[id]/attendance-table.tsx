@@ -63,6 +63,10 @@ interface StudentData {
    *  «Разовое». При attendance=null это placeholder (isPending) — у такой
    *  строки есть кнопка «Убрать» для полного удаления записи. */
   isOneTime?: boolean
+  /** Зачисление с paymentStatus='awaiting_payment' — родитель ещё не оплатил
+   *  абонемент. Рендерим бейдж «Ожидаем оплату». Снимается автоматически при
+   *  пополнении баланса (см. /api/payments). */
+  awaitingPayment?: boolean
   /** Если пропуск этого занятия уже отработан в другом — здесь информация. */
   makeupResolved?: MakeupResolvedInfo | null
   /** Если стоит «Назначена отработка» — целевое будущее занятие. */
@@ -725,7 +729,16 @@ export function AttendanceTable({
         <TableCell>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium">{displayName}</span>
+              {student.wardId ? (
+                <Link
+                  href={`/crm/wards/${student.wardId}`}
+                  className="font-medium hover:underline"
+                >
+                  {displayName}
+                </Link>
+              ) : (
+                <span className="font-medium">{displayName}</span>
+              )}
               {student.isOneTime && (
                 <Badge
                   variant="outline"
@@ -733,6 +746,15 @@ export function AttendanceTable({
                   title="Разовое посещение (без зачисления в группу)"
                 >
                   Разовое
+                </Badge>
+              )}
+              {student.awaitingPayment && (
+                <Badge
+                  variant="outline"
+                  className="text-xs text-amber-700 dark:text-amber-300 border-amber-300"
+                  title="Абонемент выписан, но ещё не оплачен"
+                >
+                  Ожидаем оплату
                 </Badge>
               )}
               {/* Кнопка убрать разового — только для placeholder (Не отмечен). */}

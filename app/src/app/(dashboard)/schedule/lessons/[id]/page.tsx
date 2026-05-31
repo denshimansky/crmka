@@ -503,6 +503,7 @@ export default async function LessonCardPage({
         : null,
       subscriptionId: subscription?.id || null,
       lessonPrice,
+      awaitingPayment: enrollment.paymentStatus === "awaiting_payment",
       makeupResolved: madeUp
         ? {
             attendanceId: madeUp.id,

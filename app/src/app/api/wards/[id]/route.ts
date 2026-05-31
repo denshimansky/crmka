@@ -58,6 +58,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const stageChanged =
     data.salesStage !== undefined && data.salesStage !== existing.salesStage
+
+  // Запрет обратных переходов в воронке: из «Прошёл пробное» и «Ожидаем оплату»
+  // нельзя вернуть в «Пробное записано» или «Заявка» — это требует удаления из
+  // воронки и создания новой заявки (см. PRD).
+  if (stageChanged) {
+    const fromTerminal =
+      existing.salesStage === "trial_attended" ||
+      existing.salesStage === "awaiting_payment"
+    const toEarlier =
+      data.salesStage === "application" ||
+      data.salesStage === "trial_scheduled"
+    if (fromTerminal && toEarlier) {
+      return NextResponse.json(
+        {
+          error:
+            "Запрещено возвращаться в «Заявка» или «Пробное записано». Удалите ребёнка из воронки и создайте новую заявку.",
+        },
+        { status: 400 },
+      )
+    }
+  }
+
   const now = new Date()
   const tenantId = session.user.tenantId
 

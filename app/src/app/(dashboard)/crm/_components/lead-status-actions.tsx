@@ -41,6 +41,7 @@ export function LeadStatusActions({
   currentStatus,
   wards,
   isActiveClient = false,
+  trialDisabledReason,
 }: {
   clientId: string
   currentStatus: string
@@ -48,6 +49,9 @@ export function LeadStatusActions({
   // Активный клиент — селектор воронки заменяем на ограниченный набор
   // переходов (Выбывшие/Архив/ЧС); запись на пробное по-прежнему доступна
   isActiveClient?: boolean
+  // Если у клиента нет ни одного ward с открытой заявкой — кнопка пробного
+  // блокируется (см. PRD: пробное без заявки запрещено).
+  trialDisabledReason?: string
 }) {
   const router = useRouter()
   const [statusLoading, setStatusLoading] = useState(false)
@@ -145,7 +149,11 @@ export function LeadStatusActions({
 
       <CreateApplicationDialog clientId={clientId} wards={wards} />
 
-      <TrialLessonDialog clientId={clientId} wards={wards} />
+      <TrialLessonDialog
+        clientId={clientId}
+        wards={wards}
+        disabledReason={trialDisabledReason}
+      />
     </div>
   )
 }

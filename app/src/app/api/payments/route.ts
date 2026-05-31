@@ -189,8 +189,101 @@ export async function POST(req: NextRequest) {
             where: { id: sub.wardId },
             data: { salesStage: "none", salesStageAt: new Date() },
           })
+          await tx.groupEnrollment.updateMany({
+            where: {
+              tenantId: session.user.tenantId,
+              groupId: sub.groupId,
+              clientId: data.clientId,
+              wardId: sub.wardId,
+              isActive: true,
+            },
+            data: { paymentStatus: "active" },
+          })
         }
       }
+    }
+
+    // Автосписание pending-абонементов: пока на балансе клиента есть деньги,
+    // активируем pending по порядку startDate ASC. По решению владельца
+    // списываем ПОЛНУЮ стоимость каждого абонемента, баланс может уйти в
+    // минус (это позволяет одной оплатой «закрыть» нескольких детей).
+    // Цикл прекращается, когда после очередной активации clientBalance ≤ 0.
+    let activatedAny = false
+    while (true) {
+      const clientRow = await tx.client.findUnique({
+        where: { id: data.clientId },
+        select: { clientBalance: true },
+      })
+      if (!clientRow || clientRow.clientBalance.lessThanOrEqualTo(0)) break
+
+      const nextPending = await tx.subscription.findFirst({
+        where: {
+          tenantId: session.user.tenantId,
+          clientId: data.clientId,
+          status: "pending",
+          deletedAt: null,
+        },
+        orderBy: [{ startDate: "asc" }, { createdAt: "asc" }],
+      })
+      if (!nextPending) break
+
+      const finalAmount = new Prisma.Decimal(nextPending.finalAmount)
+      await tx.subscription.update({
+        where: { id: nextPending.id },
+        data: {
+          status: "active",
+          activatedAt: new Date(),
+          balance: new Prisma.Decimal(0),
+          chargedAmount: finalAmount,
+        },
+      })
+      await applyBalanceDelta(tx, {
+        tenantId: session.user.tenantId,
+        clientId: data.clientId,
+        delta: finalAmount.negated(),
+        type: "transfer_to_subscription",
+        refs: {
+          subscriptionId: nextPending.id,
+          paymentId: p.id,
+          directionId: nextPending.directionId,
+        },
+        createdBy: session.user.employeeId,
+      })
+      if (nextPending.wardId) {
+        await tx.ward.update({
+          where: { id: nextPending.wardId },
+          data: { salesStage: "none", salesStageAt: new Date() },
+        })
+        await tx.groupEnrollment.updateMany({
+          where: {
+            tenantId: session.user.tenantId,
+            groupId: nextPending.groupId,
+            clientId: data.clientId,
+            wardId: nextPending.wardId,
+            isActive: true,
+          },
+          data: { paymentStatus: "active" },
+        })
+      }
+      activatedAny = true
+    }
+
+    // После автосписания клиент уже не в воронке — переводим в active,
+    // даже если это не первая оплата (могло быть refund + новый платёж).
+    if (activatedAny) {
+      await tx.client.updateMany({
+        where: {
+          id: data.clientId,
+          OR: [
+            { clientStatus: { not: "active" } },
+            { funnelStatus: { not: "active_client" } },
+          ],
+        },
+        data: {
+          clientStatus: "active",
+          funnelStatus: "active_client",
+        },
+      })
     }
 
     // Если первая оплата — переводим клиента в active_client

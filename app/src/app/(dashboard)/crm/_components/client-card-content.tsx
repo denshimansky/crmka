@@ -170,6 +170,23 @@ export async function ClientCardContent({
     hasActiveSubscription: wardsWithActiveSub.has(w.id),
   }))
 
+  // Пробное доступно, если хотя бы у одного подопечного открыта заявка
+  // (ward.salesStage='application' или Application(status='active')).
+  const activeApplicationWardIds = new Set(
+    (
+      await db.application.findMany({
+        where: { tenantId, clientId: client.id, status: "active", deletedAt: null },
+        select: { wardId: true },
+      })
+    ).map((a) => a.wardId)
+  )
+  const canScheduleTrial = client.wards.some(
+    (w) => w.salesStage === "application" || activeApplicationWardIds.has(w.id),
+  )
+  const trialDisabledReason = canScheduleTrial
+    ? undefined
+    : "Сначала создайте заявку на ребёнка"
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -251,6 +268,7 @@ export async function ClientCardContent({
             firstName: w.firstName,
             lastName: w.lastName,
           }))}
+          trialDisabledReason={trialDisabledReason}
         />
       </div>
 

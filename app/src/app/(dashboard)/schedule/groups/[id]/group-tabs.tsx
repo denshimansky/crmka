@@ -32,7 +32,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertTriangle, Archive, ArchiveRestore, ArrowRightLeft, CalendarDays, ExternalLink, Plus, Trash2, UserPlus, Users } from "lucide-react"
+import { Archive, ArchiveRestore, ArrowRightLeft, CalendarDays, ExternalLink, Plus, Trash2, Users } from "lucide-react"
 import Link from "next/link"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 
@@ -65,13 +65,6 @@ interface TemplateData {
   dayLabel: string
   startTime: string
   durationMinutes: number
-}
-
-interface ClientOption {
-  id: string
-  name: string
-  phone: string
-  wards: { id: string; name: string }[]
 }
 
 interface DirectionOption {
@@ -116,7 +109,6 @@ interface GroupTabsProps {
   lessons: LessonData[]
   enrollments: EnrollmentData[]
   templates: TemplateData[]
-  clients: ClientOption[]
   scheduleStr: string
   currentMonth: number
   currentYear: number
@@ -156,7 +148,6 @@ export function GroupTabs({
   lessons,
   enrollments,
   templates,
-  clients,
   scheduleStr,
   currentMonth,
   currentYear,
@@ -192,10 +183,7 @@ export function GroupTabs({
 
       <TabsContent value="students">
         <StudentsTab
-          groupId={groupId}
           enrollments={enrollments}
-          clients={clients}
-          maxStudents={groupInfo.maxStudents}
           groupsForTransfer={groupsForTransfer}
           onRefresh={() => router.refresh()}
         />
@@ -377,30 +365,14 @@ function ScheduleTab({
 // --- Состав ---
 
 function StudentsTab({
-  groupId,
   enrollments,
-  clients,
-  maxStudents,
   groupsForTransfer,
   onRefresh,
 }: {
-  groupId: string
   enrollments: EnrollmentData[]
-  clients: ClientOption[]
-  maxStudents: number
   groupsForTransfer: TransferGroupOption[]
   onRefresh: () => void
 }) {
-  const [enrollOpen, setEnrollOpen] = useState(false)
-  const [enrolling, setEnrolling] = useState(false)
-  const [enrollError, setEnrollError] = useState<string | null>(null)
-  const [selectedClientId, setSelectedClientId] = useState("")
-  const [selectedWardId, setSelectedWardId] = useState("")
-
-  // Capacity warning state
-  const [capacityWarningOpen, setCapacityWarningOpen] = useState(false)
-  const [capacityWarningInfo, setCapacityWarningInfo] = useState<{ enrolled: number; maxStudents: number } | null>(null)
-
   // Transfer state
   const [transferOpen, setTransferOpen] = useState(false)
   const [transferEnrollmentId, setTransferEnrollmentId] = useState("")
@@ -409,50 +381,8 @@ function StudentsTab({
   const [transferring, setTransferring] = useState(false)
   const [transferError, setTransferError] = useState<string | null>(null)
 
-  const selectedClient = clients.find((c) => c.id === selectedClientId)
   const activeEnrollments = enrollments.filter((e) => e.isActive)
   const inactiveEnrollments = enrollments.filter((e) => !e.isActive)
-
-  async function handleEnroll(force = false) {
-    setEnrolling(true)
-    setEnrollError(null)
-    try {
-      const res = await fetch(`/api/groups/${groupId}/enrollments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: selectedClientId,
-          wardId: selectedWardId || null,
-          force,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setEnrollError(data.error || "Ошибка зачисления")
-        return
-      }
-      // Check for capacity warning
-      if (data.warning === "group_full") {
-        setCapacityWarningInfo({ enrolled: data.enrolled, maxStudents: data.maxStudents })
-        setEnrollOpen(false)
-        setCapacityWarningOpen(true)
-        return
-      }
-      setEnrollOpen(false)
-      setSelectedClientId("")
-      setSelectedWardId("")
-      onRefresh()
-    } catch {
-      setEnrollError("Не удалось зачислить ученика")
-    } finally {
-      setEnrolling(false)
-    }
-  }
-
-  async function handleForceEnroll() {
-    setCapacityWarningOpen(false)
-    await handleEnroll(true)
-  }
 
   function openTransfer(enrollment: EnrollmentData) {
     setTransferEnrollmentId(enrollment.id)
@@ -495,87 +425,6 @@ function StudentsTab({
         <h3 className="text-base font-medium">
           Ученики ({activeEnrollments.length})
         </h3>
-        <Dialog
-          open={enrollOpen}
-          onOpenChange={(val) => {
-            setEnrollOpen(val)
-            if (!val) {
-              setSelectedClientId("")
-              setSelectedWardId("")
-              setEnrollError(null)
-            }
-          }}
-        >
-          <DialogTrigger render={<Button size="sm" />}>
-            <UserPlus className="mr-2 size-4" />
-            Зачислить
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Зачислить ученика</DialogTitle>
-              <DialogDescription>
-                Выберите клиента и подопечного для зачисления в группу
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              {enrollError && (
-                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                  {enrollError}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label>Клиент</Label>
-                <Select
-                  value={selectedClientId}
-                  onValueChange={(val) => {
-                    if (val) setSelectedClientId(val)
-                    setSelectedWardId("")
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    {selectedClientId ? (() => { const c = clients.find(c => c.id === selectedClientId); return c ? `${c.name}${c.phone ? ` (${c.phone})` : ""}` : "" })() : <span className="text-muted-foreground">Выберите клиента</span>}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name} {c.phone ? `(${c.phone})` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {selectedClient && selectedClient.wards.length > 0 && (
-                <div className="space-y-2">
-                  <Label>Подопечный</Label>
-                  <Select value={selectedWardId} onValueChange={(v) => { if (v) setSelectedWardId(v) }}>
-                    <SelectTrigger className="w-full">
-                      {selectedWardId ? selectedClient?.wards.find(w => w.id === selectedWardId)?.name : <span className="text-muted-foreground">Выберите подопечного (необязательно)</span>}
-                    </SelectTrigger>
-                    <SelectContent>
-                      {selectedClient.wards.map((w) => (
-                        <SelectItem key={w.id} value={w.id}>
-                          {w.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-
-            <DialogFooter>
-              <DialogClose render={<Button variant="outline" />}>
-                Отмена
-              </DialogClose>
-              <Button onClick={() => handleEnroll()} disabled={enrolling || !selectedClientId}>
-                {enrolling ? "Зачисление..." : "Зачислить"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {activeEnrollments.length === 0 ? (
@@ -653,50 +502,6 @@ function StudentsTab({
           </Table>
         </div>
       )}
-
-      {/* Диалог предупреждения о превышении лимита */}
-      <Dialog
-        open={capacityWarningOpen}
-        onOpenChange={(val) => {
-          setCapacityWarningOpen(val)
-          if (!val) setCapacityWarningInfo(null)
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="size-5 text-amber-500" />
-              Группа заполнена
-            </DialogTitle>
-            <DialogDescription>
-              {capacityWarningInfo
-                ? `Группа заполнена (${capacityWarningInfo.enrolled}/${capacityWarningInfo.maxStudents}). Всё равно зачислить?`
-                : "Группа заполнена. Всё равно зачислить?"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300">
-            Количество учеников превышает установленный лимит группы. Зачисление возможно, но рекомендуется увеличить лимит или перевести ученика в другую группу.
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setCapacityWarningOpen(false)
-                setCapacityWarningInfo(null)
-              }}
-            >
-              Отмена
-            </Button>
-            <Button
-              variant="default"
-              onClick={handleForceEnroll}
-              disabled={enrolling}
-            >
-              {enrolling ? "Зачисление..." : "Зачислить"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Диалог перевода */}
       <Dialog

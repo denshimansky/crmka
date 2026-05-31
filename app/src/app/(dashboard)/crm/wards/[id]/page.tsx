@@ -66,6 +66,20 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
   const now = new Date()
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth() + 1
+
+  // Пробное на этого ребёнка доступно только при открытой заявке.
+  const hasActiveApplication =
+    ward.salesStage === "application" ||
+    Boolean(
+      await db.application.findFirst({
+        where: { tenantId, wardId: ward.id, status: "active", deletedAt: null },
+        select: { id: true },
+      }),
+    )
+  const trialDisabledReason = hasActiveApplication
+    ? undefined
+    : "Сначала создайте заявку на ребёнка"
+
   const activeSubscriptions = await db.subscription.findMany({
     where: {
       tenantId,
@@ -129,6 +143,7 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
       <div className="flex flex-wrap items-center gap-2">
         <WardSalesStageActions
           wardId={ward.id}
+          wardName={wardName}
           currentStage={ward.salesStage}
           disabled={activeSubscriptions.length > 0}
         />
@@ -136,6 +151,7 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
           clientId={ward.client.id}
           wards={[{ id: ward.id, firstName: ward.firstName, lastName: ward.lastName }]}
           lockedWardId={ward.id}
+          disabledReason={trialDisabledReason}
         />
       </div>
 

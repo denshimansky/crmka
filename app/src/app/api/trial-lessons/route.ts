@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { z } from "zod"
 import { createTrialLessonForClient } from "@/lib/services/trial-lesson"
+import { db } from "@/lib/db"
 
 // Два режима записи пробного:
 //   1. С группой (groupId задан) — дата должна совпадать с расписанием группы.
@@ -28,6 +29,35 @@ export async function POST(req: NextRequest) {
   const parsed = createSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
+  }
+
+  // У ребёнка должна быть открытая заявка ИЛИ Ward.salesStage='application'.
+  // Без этого условия пробное создаётся «из воздуха», что ломает воронку.
+  // Создание пробного через обработку заявки (`/api/applications/[id]/process`)
+  // идёт мимо этой проверки — там заявка по определению есть.
+  const ward = await db.ward.findFirst({
+    where: { id: parsed.data.wardId, tenantId: session.user.tenantId },
+    select: { salesStage: true },
+  })
+  if (!ward) {
+    return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
+  }
+  if (ward.salesStage !== "application") {
+    const hasActiveApplication = await db.application.findFirst({
+      where: {
+        tenantId: session.user.tenantId,
+        wardId: parsed.data.wardId,
+        status: "active",
+        deletedAt: null,
+      },
+      select: { id: true },
+    })
+    if (!hasActiveApplication) {
+      return NextResponse.json(
+        { error: "У ребёнка нет открытой заявки. Создайте заявку перед записью на пробное." },
+        { status: 400 },
+      )
+    }
   }
 
   const result = await createTrialLessonForClient(

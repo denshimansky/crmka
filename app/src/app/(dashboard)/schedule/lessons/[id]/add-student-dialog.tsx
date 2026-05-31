@@ -45,14 +45,12 @@ export function AddStudentDialog({ lessonId, groupIsOneTime = false }: AddStuden
   const [searching, setSearching] = useState(false)
   const [results, setResults] = useState<StudentResult[]>([])
 
-  const [isOneTime, setIsOneTime] = useState(groupIsOneTime)
   const [addingKey, setAddingKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   function reset() {
     setSearch("")
     setResults([])
-    setIsOneTime(groupIsOneTime)
     setError(null)
   }
 
@@ -97,7 +95,7 @@ export function AddStudentDialog({ lessonId, groupIsOneTime = false }: AddStuden
         body: JSON.stringify({
           clientId: student.clientId,
           wardId: student.wardId,
-          isOneTime,
+          isOneTime: true,
         }),
       })
       if (!res.ok) {
@@ -147,20 +145,16 @@ export function AddStudentDialog({ lessonId, groupIsOneTime = false }: AddStuden
             autoFocus
           />
 
-          {/* Чекбокс «Разовое» доступен только для обычных групп — у разовой
-              группы он зафиксирован в ON и не показывается (всё равно разовое). */}
+          {/* Через эту кнопку можно добавить только разовое посещение —
+              чекбокс зафиксирован и не отключается. Для зачисления
+              в группу нужен абонемент через воронку продаж. */}
           {!groupIsOneTime && (
-            <label className="flex items-start gap-2 cursor-pointer rounded-md border p-3">
-              <Checkbox
-                checked={isOneTime}
-                onCheckedChange={(v) => setIsOneTime(v === true)}
-                className="mt-0.5"
-              />
+            <label className="flex items-start gap-2 rounded-md border p-3 opacity-90">
+              <Checkbox checked disabled className="mt-0.5" />
               <div>
                 <div className="text-sm font-medium">Разовое посещение</div>
                 <div className="text-xs text-muted-foreground">
-                  Без зачисления в группу. Если выключено — ребёнок добавится в
-                  группу как постоянный участник.
+                  Через эту кнопку можно добавить только разовое посещение.
                 </div>
               </div>
             </label>

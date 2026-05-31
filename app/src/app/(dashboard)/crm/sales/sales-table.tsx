@@ -23,16 +23,10 @@ import {
   EditableTextCell,
 } from "../_components/editable-cell"
 import { ProcessApplicationDialog } from "../_components/process-application-dialog"
+import { TrialLessonDialog } from "../_components/trial-lesson-dialog"
+import { AwaitingPaymentDialog } from "../_components/awaiting-payment-dialog"
 import { formatWardName } from "@/lib/format-name"
 import { EditSalesRowDialog } from "./edit-sales-row-dialog"
-
-const STAGE_OPTIONS: { value: string; label: string }[] = [
-  { value: "none", label: "Вне воронки" },
-  { value: "application", label: "Заявка" },
-  { value: "trial_scheduled", label: "Пробное записано" },
-  { value: "trial_attended", label: "Прошёл пробное" },
-  { value: "awaiting_payment", label: "Ожидание оплаты" },
-]
 
 export type SalesTabKey = "application" | "trial" | "trial_done" | "awaiting_payment"
 
@@ -125,18 +119,16 @@ export function SalesTable({
   const router = useRouter()
   const [processing, setProcessing] = useState<SalesRow | null>(null)
   const [editing, setEditing] = useState<SalesRow | null>(null)
+  // Открытие модалок «Пробное записано» / «Ожидание оплаты» из ПКМ.
+  const [trialFor, setTrialFor] = useState<SalesRow | null>(null)
+  const [awaitingFor, setAwaitingFor] = useState<SalesRow | null>(null)
   const [query, setQuery] = useState("")
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>("asc")
 
-  async function setSalesStage(wardId: string, stage: string) {
-    const res = await fetch(`/api/wards/${wardId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ salesStage: stage }),
-    })
-    if (res.ok) router.refresh()
-  }
+  // Из «Прошёл пробное»/«Ожидаем оплату» возврат в «Пробное записано» запрещён
+  // (PRD). На вкладках trial_done и awaiting_payment пункт скрываем.
+  const canScheduleTrial = tab === "application" || tab === "trial"
 
   async function removeFromFunnel(wardId: string) {
     if (!confirm("Вывести подопечного из воронки? Связанные пробные и заявки будут отменены.")) return
@@ -453,14 +445,14 @@ export function SalesTable({
                     Установить статус
                   </ContextMenuSubTrigger>
                   <ContextMenuSubContent>
-                    {STAGE_OPTIONS.map((s) => (
-                      <ContextMenuItem
-                        key={s.value}
-                        onClick={() => setSalesStage(r.ward.id, s.value)}
-                      >
-                        {s.label}
+                    {canScheduleTrial && (
+                      <ContextMenuItem onClick={() => setTrialFor(r)}>
+                        Пробное записано
                       </ContextMenuItem>
-                    ))}
+                    )}
+                    <ContextMenuItem onClick={() => setAwaitingFor(r)}>
+                      Ожидание оплаты
+                    </ContextMenuItem>
                   </ContextMenuSubContent>
                 </ContextMenuSub>
                 <ContextMenuSeparator />
@@ -497,6 +489,29 @@ export function SalesTable({
           open={true}
           onOpenChange={(v) => {
             if (!v) setEditing(null)
+          }}
+        />
+      )}
+
+      {trialFor && (
+        <TrialLessonDialog
+          clientId={trialFor.clientId}
+          wards={[trialFor.ward]}
+          lockedWardId={trialFor.ward.id}
+          open={true}
+          onOpenChange={(v) => {
+            if (!v) setTrialFor(null)
+          }}
+        />
+      )}
+
+      {awaitingFor && (
+        <AwaitingPaymentDialog
+          wardId={awaitingFor.ward.id}
+          wardName={wardName(awaitingFor.ward)}
+          open={true}
+          onOpenChange={(v) => {
+            if (!v) setAwaitingFor(null)
           }}
         />
       )}

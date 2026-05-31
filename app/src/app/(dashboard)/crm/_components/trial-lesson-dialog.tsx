@@ -27,6 +27,9 @@ export function TrialLessonDialog({
   buttonLabel = "Записать на пробное",
   buttonVariant = "outline",
   buttonSize = "sm",
+  disabledReason,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
 }: {
   clientId: string
   wards: WardLite[]
@@ -35,13 +38,30 @@ export function TrialLessonDialog({
   buttonLabel?: string
   buttonVariant?: "default" | "outline" | "secondary" | "ghost"
   buttonSize?: "default" | "sm" | "lg" | "icon"
+  /** Если задан — кнопка-триггер disabled, текст показывается в title. Пробное
+   *  без открытой заявки запрещено (см. API /api/trial-lessons). */
+  disabledReason?: string
+  /** Управляемый режим — для открытия модалки без триггера (например,
+   *  из ПКМ в /crm/sales). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const isControlled = openProp !== undefined
+  const [openInternal, setOpenInternal] = useState(false)
+  const open = isControlled ? openProp : openInternal
+  const setOpen = (v: boolean) => {
+    if (isControlled) onOpenChangeProp?.(v)
+    else setOpenInternal(v)
+  }
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const noWards = wards.length === 0
+  const disabled = noWards || Boolean(disabledReason)
+  const title = noWards
+    ? "Сначала добавьте подопечного"
+    : disabledReason ?? undefined
 
   async function handleSubmit(payload: TrialFormPayload) {
     setSubmitting(true)
@@ -72,8 +92,8 @@ export function TrialLessonDialog({
         <Button
           variant={buttonVariant}
           size={buttonSize}
-          disabled={noWards}
-          title={noWards ? "Сначала добавьте подопечного" : undefined}
+          disabled={disabled}
+          title={title}
         />
       }
     >
@@ -90,7 +110,7 @@ export function TrialLessonDialog({
         if (!v) setError(null)
       }}
     >
-      {trigger ?? defaultTrigger}
+      {isControlled ? null : (trigger ?? defaultTrigger)}
 
       <DialogContent className="sm:max-w-md">
         <DialogHeader>

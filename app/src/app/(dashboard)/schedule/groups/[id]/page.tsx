@@ -128,20 +128,6 @@ export default async function GroupCardPage({
     orderBy: { name: "asc" },
   })
 
-  // Клиенты для зачисления (для диалога)
-  const clients = await db.client.findMany({
-    where: { tenantId, deletedAt: null },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      phone: true,
-      wards: { select: { id: true, firstName: true, lastName: true } },
-    },
-    orderBy: { lastName: "asc" },
-    take: 200,
-  })
-
   const instructorName = `${group.instructor.lastName} ${group.instructor.firstName}`
   const enrolled = group._count.enrollments
   const scheduleStr = group.templates
@@ -182,16 +168,6 @@ export default async function GroupCardPage({
     dayLabel: DAY_SHORT[t.dayOfWeek],
     startTime: t.startTime,
     durationMinutes: t.durationMinutes,
-  }))
-
-  const clientsForEnroll = clients.map((c) => ({
-    id: c.id,
-    name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
-    phone: c.phone || "",
-    wards: c.wards.map((w) => ({
-      id: w.id,
-      name: [w.lastName, w.firstName].filter(Boolean).join(" "),
-    })),
   }))
 
   const currentMonth = now.getMonth() + 1
@@ -240,7 +216,6 @@ export default async function GroupCardPage({
         lessons={lessonsData}
         enrollments={enrollmentsData}
         templates={templatesData}
-        clients={clientsForEnroll}
         scheduleStr={scheduleStr}
         currentMonth={currentMonth}
         currentYear={currentYear}
