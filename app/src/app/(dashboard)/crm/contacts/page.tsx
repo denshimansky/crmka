@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Upload, Copy } from "lucide-react"
+import { Copy } from "lucide-react"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
@@ -203,10 +203,6 @@ export default async function ContactsPage({
           <Button variant="outline" size="sm" render={<Link href="/crm/duplicates" />}>
             <Copy className="mr-2 size-4" />
             Дубликаты
-          </Button>
-          <Button variant="outline" size="sm" render={<Link href="/crm/import" />}>
-            <Upload className="mr-2 size-4" />
-            Импорт
           </Button>
           <CreateClientDialog branches={branches} />
         </div>

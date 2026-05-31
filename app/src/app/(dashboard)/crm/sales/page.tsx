@@ -129,6 +129,8 @@ export default async function SalesPage({
       directionName: a.direction.name,
       groupOrTimeLabel: null,
       scheduledDate: null,
+      startTime: null,
+      lessonId: null,
       firstPaidLessonDate: a.client.firstPaidLessonDate ? a.client.firstPaidLessonDate.toISOString() : null,
       expectedSubscriptionAmount: null,
       createdAt: a.createdAt.toISOString(),
@@ -188,6 +190,8 @@ export default async function SalesPage({
           ? `Индив. ${t.startTime}${t.durationMinutes ? `, ${t.durationMinutes}мин` : ""}`
           : null),
       scheduledDate: t.scheduledDate.toISOString(),
+      startTime: t.startTime,
+      lessonId: t.lessonId,
       firstPaidLessonDate: t.client.firstPaidLessonDate
         ? t.client.firstPaidLessonDate.toISOString()
         : null,
@@ -248,6 +252,8 @@ export default async function SalesPage({
         directionName: direction?.name ?? null,
         groupOrTimeLabel: trial?.group?.name ?? null,
         scheduledDate: trial?.scheduledDate ? trial.scheduledDate.toISOString() : null,
+        startTime: trial?.startTime ?? null,
+        lessonId: trial?.lessonId ?? null,
         firstPaidLessonDate: c.firstPaidLessonDate ? c.firstPaidLessonDate.toISOString() : null,
         expectedSubscriptionAmount: expected,
         createdAt: c.createdAt.toISOString(),

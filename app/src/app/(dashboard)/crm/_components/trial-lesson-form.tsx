@@ -192,31 +192,6 @@ export function TrialLessonForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label>Направление *</Label>
-        <Select
-          value={directionId}
-          onValueChange={(v) => {
-            if (v) {
-              setDirectionId(v)
-              setGroupId("")
-            }
-          }}
-          disabled={!!lockedDirectionId}
-        >
-          <SelectTrigger className="w-full">
-            {selectedDirection ? selectedDirection.name : <span className="text-muted-foreground">Выберите направление</span>}
-          </SelectTrigger>
-          <SelectContent>
-            {directions.map((d) => (
-              <SelectItem key={d.id} value={d.id}>
-                {d.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-1.5">
         <Label>Филиал *</Label>
         <Select
           value={branchId}
@@ -240,6 +215,31 @@ export function TrialLessonForm({
             {branchesList.map((b) => (
               <SelectItem key={b.id} value={b.id}>
                 {b.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Направление *</Label>
+        <Select
+          value={directionId}
+          onValueChange={(v) => {
+            if (v) {
+              setDirectionId(v)
+              setGroupId("")
+            }
+          }}
+          disabled={!!lockedDirectionId}
+        >
+          <SelectTrigger className="w-full">
+            {selectedDirection ? selectedDirection.name : <span className="text-muted-foreground">Выберите направление</span>}
+          </SelectTrigger>
+          <SelectContent>
+            {directions.map((d) => (
+              <SelectItem key={d.id} value={d.id}>
+                {d.name}
               </SelectItem>
             ))}
           </SelectContent>

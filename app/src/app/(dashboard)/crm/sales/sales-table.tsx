@@ -5,7 +5,7 @@ import { useMemo, useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Settings2, Search } from "lucide-react"
+import { Settings2, Search, ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react"
 import {
   EditableDateCell,
   EditableSelectCell,
@@ -34,6 +34,10 @@ export interface SalesRow {
   directionName: string | null
   groupOrTimeLabel: string | null
   scheduledDate: string | null
+  /** HH:MM начала пробного (если задано) — для отображения «ДД.ММ.ГГГГ HH:MM» в столбце «Дата пробного». */
+  startTime?: string | null
+  /** lessonId привязанного занятия (если пробное в группе). Делает «Дату пробного» кликабельной → карточка занятия. */
+  lessonId?: string | null
   firstPaidLessonDate: string | null
   expectedSubscriptionAmount: string | null
   createdAt: string | null
@@ -61,6 +65,32 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString("ru-RU")
 }
 
+function fmtDateTime(iso: string | null, time: string | null | undefined): string {
+  if (!iso) return "—"
+  const d = new Date(iso).toLocaleDateString("ru-RU")
+  return time ? `${d} ${time}` : d
+}
+
+/** Все сортируемые колонки таблицы Продаж. */
+type SortKey =
+  | "state"
+  | "parent"
+  | "phone"
+  | "channel"
+  | "nextContact"
+  | "ward"
+  | "scheduled"
+  | "branch"
+  | "direction"
+  | "group"
+  | "createdAt"
+  | "firstPaid"
+  | "expected"
+  | "comment"
+  | "assigned"
+
+type SortDir = "asc" | "desc"
+
 export function SalesTable({
   tab,
   rows,
@@ -72,6 +102,8 @@ export function SalesTable({
 }) {
   const [processing, setProcessing] = useState<SalesRow | null>(null)
   const [query, setQuery] = useState("")
+  const [sortKey, setSortKey] = useState<SortKey | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>("asc")
 
   const employeeOptions = useMemo(
     () =>
@@ -82,15 +114,118 @@ export function SalesTable({
     [employees],
   )
 
+  const employeeLabel = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const o of employeeOptions) m.set(o.value, o.label)
+    return (id: string | null) => (id ? m.get(id) || "" : "")
+  }, [employeeOptions])
+
+  /** Сравнимое значение для сортировки. Даты → ISO-строка (естественный порядок),
+   *  остальное → строка в нижнем регистре. Пустые значения сортируются в конец. */
+  function sortValue(r: SalesRow, key: SortKey): string {
+    switch (key) {
+      case "state":
+        return r.state
+      case "parent":
+        return fullName(r).toLowerCase()
+      case "phone":
+        return (r.phone || "").toLowerCase()
+      case "channel":
+        return (r.channelName || "").toLowerCase()
+      case "nextContact":
+        return r.nextContactDate || ""
+      case "ward":
+        return wardName(r.ward).toLowerCase()
+      case "scheduled":
+        return (r.scheduledDate || "") + (r.startTime || "")
+      case "branch":
+        return (r.branchName || "").toLowerCase()
+      case "direction":
+        return (r.directionName || "").toLowerCase()
+      case "group":
+        return (r.groupOrTimeLabel || "").toLowerCase()
+      case "createdAt":
+        return r.createdAt || ""
+      case "firstPaid":
+        return r.firstPaidLessonDate || ""
+      case "expected":
+        return r.expectedSubscriptionAmount || ""
+      case "comment":
+        return (r.comment || "").toLowerCase()
+      case "assigned":
+        return employeeLabel(r.assignedTo).toLowerCase()
+    }
+  }
+
+  function toggleSort(key: SortKey) {
+    if (sortKey !== key) {
+      setSortKey(key)
+      setSortDir("asc")
+    } else if (sortDir === "asc") {
+      setSortDir("desc")
+    } else {
+      // Третий клик — сбросить сортировку
+      setSortKey(null)
+    }
+  }
+
   const visibleRows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) => {
-      const parent = fullName(r).toLowerCase()
-      if (parent.includes(q)) return true
-      return wardName(r.ward).toLowerCase().includes(q)
+    const filtered = q
+      ? rows.filter((r) => {
+          const parent = fullName(r).toLowerCase()
+          if (parent.includes(q)) return true
+          return wardName(r.ward).toLowerCase().includes(q)
+        })
+      : rows
+    if (!sortKey) return filtered
+    const sign = sortDir === "asc" ? 1 : -1
+    const copy = [...filtered]
+    copy.sort((a, b) => {
+      const va = sortValue(a, sortKey)
+      const vb = sortValue(b, sortKey)
+      // Пустые в конец независимо от направления
+      const ae = va === ""
+      const be = vb === ""
+      if (ae && !be) return 1
+      if (!ae && be) return -1
+      if (va === vb) return 0
+      return va.localeCompare(vb, "ru") * sign
     })
-  }, [rows, query])
+    return copy
+    // sortValue зависит только от employeeLabel — он мемоизирован, поэтому
+    // включаем именно его, а не функцию-обёртку.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, query, sortKey, sortDir, employeeLabel])
+
+  /** Прошло ли пробное (scheduledDate < сейчас). Используется только для tab=trial,
+   *  где status=scheduled — соответственно ребёнок не отмечен (баг #41 продолж.). */
+  const nowTs = Date.now()
+  function isOverdueScheduled(r: SalesRow): boolean {
+    if (tab !== "trial") return false
+    if (!r.scheduledDate) return false
+    const ts = new Date(r.scheduledDate).getTime()
+    if (!Number.isFinite(ts)) return false
+    return ts < nowTs
+  }
+
+  function SortableHead({ label, sortKey: k, className }: { label: string; sortKey: SortKey; className?: string }) {
+    const active = sortKey === k
+    const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
+    return (
+      <TableHead className={className}>
+        <button
+          type="button"
+          onClick={() => toggleSort(k)}
+          className="inline-flex items-center gap-1 hover:text-foreground"
+          title="Сортировать"
+        >
+          <span>{label}</span>
+          <Icon className={`size-3 ${active ? "text-foreground" : "text-muted-foreground/60"}`} />
+        </button>
+      </TableHead>
+    )
+  }
 
   const searchBar = (
     <div className="relative">
@@ -133,34 +268,43 @@ export function SalesTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Состояние</TableHead>
+              <SortableHead label="Состояние" sortKey="state" />
               {tab === "application" && <TableHead className="w-[40px]"></TableHead>}
-              <TableHead>ФИО родителя</TableHead>
-              <TableHead>Телефон</TableHead>
+              <SortableHead label="ФИО родителя" sortKey="parent" />
+              <SortableHead label="Телефон" sortKey="phone" />
               <TableHead>Соцсети</TableHead>
-              {tab === "application" && <TableHead>Канал</TableHead>}
-              {tab === "application" && <TableHead>След. связь</TableHead>}
-              <TableHead>Ребёнок</TableHead>
+              {tab === "application" && <SortableHead label="Канал" sortKey="channel" />}
+              {tab === "application" && <SortableHead label="След. связь" sortKey="nextContact" />}
+              <SortableHead label="Ребёнок" sortKey="ward" />
               {(tab === "trial" || tab === "trial_done" || tab === "awaiting_payment") && (
-                <TableHead>Дата пробного</TableHead>
+                <SortableHead label="Дата пробного" sortKey="scheduled" />
               )}
-              <TableHead>Филиал</TableHead>
-              <TableHead>Направление</TableHead>
+              <SortableHead label="Филиал" sortKey="branch" />
+              <SortableHead label="Направление" sortKey="direction" />
               {(tab === "trial" || tab === "trial_done" || tab === "awaiting_payment") && (
-                <TableHead>Группа</TableHead>
+                <SortableHead label="Группа" sortKey="group" />
               )}
-              {tab === "application" && <TableHead>Создана</TableHead>}
+              {tab === "application" && <SortableHead label="Создана" sortKey="createdAt" />}
               {(tab === "trial_done" || tab === "awaiting_payment") && (
-                <TableHead>Дата 1-го платного</TableHead>
+                <SortableHead label="Дата 1-го платного" sortKey="firstPaid" />
               )}
-              {tab === "awaiting_payment" && <TableHead>Стоимость абонемента</TableHead>}
-              <TableHead>Комментарий</TableHead>
-              <TableHead>Ответственный</TableHead>
+              {tab === "awaiting_payment" && (
+                <SortableHead label="Стоимость абонемента" sortKey="expected" />
+              )}
+              <SortableHead label="Комментарий" sortKey="comment" />
+              <SortableHead label="Ответственный" sortKey="assigned" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {visibleRows.map((r) => (
-              <TableRow key={r.rowId}>
+              <TableRow
+                key={r.rowId}
+                className={
+                  isOverdueScheduled(r)
+                    ? "bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-900/40"
+                    : undefined
+                }
+              >
                 <TableCell className="text-xs font-medium">
                   {r.state === "client" ? "Клиент" : "Лид"}
                 </TableCell>
@@ -207,7 +351,19 @@ export function SalesTable({
                 )}
                 <TableCell className="text-sm">{wardName(r.ward)}</TableCell>
                 {(tab === "trial" || tab === "trial_done" || tab === "awaiting_payment") && (
-                  <TableCell className="text-sm">{fmtDate(r.scheduledDate)}</TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">
+                    {r.lessonId ? (
+                      <Link
+                        href={`/schedule/lessons/${r.lessonId}`}
+                        className="text-primary hover:underline"
+                        title="Открыть карточку занятия"
+                      >
+                        {fmtDateTime(r.scheduledDate, r.startTime)}
+                      </Link>
+                    ) : (
+                      fmtDateTime(r.scheduledDate, r.startTime)
+                    )}
+                  </TableCell>
                 )}
                 <TableCell className="text-sm">{r.branchName || "—"}</TableCell>
                 <TableCell className="text-sm">{r.directionName || "—"}</TableCell>
