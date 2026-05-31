@@ -14,18 +14,26 @@ import { Button } from "@/components/ui/button"
 import { CreateGroupDialog } from "./create-group-dialog"
 import { PageHelp } from "@/components/page-help"
 import { ArchiveToggle } from "./archive-toggle"
+import { BranchFilter } from "./branch-filter"
 
 const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 export default async function GroupsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ showArchived?: string }>
+  searchParams: Promise<{ showArchived?: string; branches?: string }>
 }) {
   const sp = await searchParams
   const showArchived = sp.showArchived === "1"
   const session = await getSession()
   const tenantId = session.user.tenantId
+
+  // Множественный фильтр по филиалам: ?branches=id1,id2.
+  // Пустой/отсутствующий — все филиалы.
+  const branchFilter = (sp.branches ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
 
   const [groups, directions, branches, rooms, instructors] = await Promise.all([
     db.group.findMany({
@@ -34,6 +42,7 @@ export default async function GroupsPage({
         // Технические одноразовые группы в списке групп не показываем.
         isOneTime: false,
         ...(showArchived ? {} : { deletedAt: null }),
+        ...(branchFilter.length > 0 ? { branchId: { in: branchFilter } } : {}),
       },
       include: {
         direction: true,
@@ -100,6 +109,10 @@ export default async function GroupsPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <BranchFilter
+            branches={branches.map((b) => ({ id: b.id, name: b.name }))}
+            selected={branchFilter}
+          />
           <ArchiveToggle showArchived={showArchived} />
           <CreateGroupDialog
             directions={directionsOptions}
@@ -112,9 +125,13 @@ export default async function GroupsPage({
       {groups.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
           <div>
-            <h2 className="text-lg font-semibold">Нет групп</h2>
+            <h2 className="text-lg font-semibold">
+              {branchFilter.length > 0 ? "Нет групп в выбранных филиалах" : "Нет групп"}
+            </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Создайте первую группу, чтобы начать формировать расписание
+              {branchFilter.length > 0
+                ? "Попробуйте снять фильтр или создать новую группу"
+                : "Создайте первую группу, чтобы начать формировать расписание"}
             </p>
           </div>
         </div>
