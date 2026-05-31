@@ -83,6 +83,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ? "trial"
       : "lead"
 
+  // Обратное направление: пользователь вернул Ward в стадию «Заявка». Так как
+  // источник строк во вкладке «Заявка» — Application, нужно реактивировать
+  // последнюю обработанную/удалённую заявку, иначе строка просто пропадёт из UI.
+  const shouldReopenApplication =
+    stageChanged && data.salesStage === "application"
+
   const ward = await db.$transaction(async (tx) => {
     const w = await tx.ward.update({
       where: { id },
@@ -105,6 +111,35 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           processedBy: session.user.employeeId ?? undefined,
         },
       })
+    }
+
+    if (shouldReopenApplication) {
+      // Если уже есть активная заявка — ничего не делаем; иначе ищем самую
+      // свежую обработанную/удалённую и возвращаем её в active. Чистим
+      // processed-поля и снимаем soft-delete.
+      const hasActive = await tx.application.findFirst({
+        where: { tenantId, wardId: id, status: "active", deletedAt: null },
+        select: { id: true },
+      })
+      if (!hasActive) {
+        const latest = await tx.application.findFirst({
+          where: { tenantId, wardId: id },
+          orderBy: { updatedAt: "desc" },
+          select: { id: true },
+        })
+        if (latest) {
+          await tx.application.update({
+            where: { id: latest.id },
+            data: {
+              status: "active",
+              processedToStatus: null,
+              processedAt: null,
+              processedBy: null,
+              deletedAt: null,
+            },
+          })
+        }
+      }
     }
 
     if (shouldMarkAttended) {
