@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 import { EditableTextCell } from "../_components/editable-cell"
+import { formatWardName as fmtWardName } from "@/lib/format-name"
 
 export type ChildState =
   | "lead"
@@ -77,7 +78,7 @@ const STATE_ORDER: ChildState[] = [
 ]
 
 function wardFullName(r: { firstName: string; lastName: string | null }): string {
-  return [r.firstName, r.lastName].filter(Boolean).join(" ") || "Без имени"
+  return fmtWardName(r)
 }
 
 function fmtDate(iso: string | null): string {

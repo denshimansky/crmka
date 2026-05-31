@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { PageHelp } from "@/components/page-help"
 import { Users, Merge, Loader2, CheckCircle2, Phone, Mail, MessageSquare } from "lucide-react"
+import { formatWardName } from "@/lib/format-name"
 
 interface DuplicateClient {
   id: string
@@ -203,7 +204,7 @@ export default function DuplicatesPage() {
                       {client.wards.length > 0 && (
                         <div className="text-xs text-muted-foreground">
                           <Users className="inline size-3 mr-1" />
-                          {client.wards.map((w) => [w.firstName, w.lastName].filter(Boolean).join(" ")).join(", ")}
+                          {client.wards.map((w) => formatWardName(w, "")).filter(Boolean).join(", ")}
                         </div>
                       )}
                       {client.comment && (

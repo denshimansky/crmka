@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ClipboardList, Settings2, Trash2 } from "lucide-react"
+import { formatWardName } from "@/lib/format-name"
 import { ProcessApplicationDialog } from "./process-application-dialog"
 
 interface ApplicationRow {
@@ -21,7 +22,7 @@ interface ApplicationRow {
 }
 
 function wardName(w: ApplicationRow["ward"]): string {
-  return [w.firstName, w.lastName].filter(Boolean).join(" ") || "Без имени"
+  return formatWardName(w)
 }
 
 function fmtDate(iso: string): string {

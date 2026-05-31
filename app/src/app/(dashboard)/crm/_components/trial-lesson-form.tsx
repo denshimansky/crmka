@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
+import { formatWardName } from "@/lib/format-name"
 
 interface WardLite {
   id: string
@@ -43,9 +44,7 @@ interface RoomOption {
   branchId: string
 }
 
-function wardName(w: WardLite): string {
-  return [w.firstName, w.lastName].filter(Boolean).join(" ") || "Без имени"
-}
+const wardName = formatWardName
 
 export type TrialFormPayload = {
   wardId: string

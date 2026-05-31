@@ -9,6 +9,7 @@ import {
 import {
   Calendar, CreditCard, Wallet, BookOpen, Clock, User,
 } from "lucide-react"
+import { formatWardName } from "@/lib/format-name"
 
 interface PortalData {
   client: {
@@ -191,7 +192,7 @@ export default function PortalPage() {
                     <TableRow key={sub.id}>
                       <TableCell className="font-medium">{sub.direction.name}</TableCell>
                       <TableCell className="text-sm">{sub.group.name}</TableCell>
-                      <TableCell className="text-sm">{sub.ward ? `${sub.ward.firstName} ${sub.ward.lastName || ""}` : "—"}</TableCell>
+                      <TableCell className="text-sm">{sub.ward ? formatWardName(sub.ward, "—") : "—"}</TableCell>
                       <TableCell className="text-sm">{String(sub.periodMonth).padStart(2, "0")}.{sub.periodYear}</TableCell>
                       <TableCell>{sub.totalLessons}</TableCell>
                       <TableCell>{Number(sub.finalAmount).toLocaleString("ru")} ₽</TableCell>
@@ -255,7 +256,7 @@ export default function PortalPage() {
             <div className="space-y-2">
               {wards.map((w) => (
                 <div key={w.id} className="flex items-center justify-between rounded-md border p-3">
-                  <span className="font-medium text-sm">{w.firstName} {w.lastName || ""}</span>
+                  <span className="font-medium text-sm">{formatWardName(w)}</span>
                   {w.birthDate && (
                     <span className="text-xs text-muted-foreground">
                       {new Date(w.birthDate).toLocaleDateString("ru")}

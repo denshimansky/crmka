@@ -12,6 +12,7 @@ import {
   EditableTextCell,
 } from "../_components/editable-cell"
 import { ProcessApplicationDialog } from "../_components/process-application-dialog"
+import { formatWardName } from "@/lib/format-name"
 
 export type SalesTabKey = "application" | "trial" | "trial_done" | "awaiting_payment"
 
@@ -52,7 +53,7 @@ function fullName(r: { firstName: string | null; lastName: string | null }): str
 }
 
 function wardName(w: WardLite): string {
-  return [w.firstName, w.lastName].filter(Boolean).join(" ") || "—"
+  return formatWardName(w, "—")
 }
 
 function fmtDate(iso: string | null): string {

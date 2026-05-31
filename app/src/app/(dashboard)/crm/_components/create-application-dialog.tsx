@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { ClipboardPlus } from "lucide-react"
+import { formatWardName } from "@/lib/format-name"
 
 interface WardLite {
   id: string
@@ -33,9 +34,7 @@ interface DirectionOption {
   name: string
 }
 
-function wardName(w: WardLite): string {
-  return [w.firstName, w.lastName].filter(Boolean).join(" ") || "Без имени"
-}
+const wardName = formatWardName
 
 export function CreateApplicationDialog({
   clientId,

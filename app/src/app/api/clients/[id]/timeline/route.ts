@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
+import { formatWardName } from "@/lib/format-name"
 
 // Точные типы результатов findMany c include — нужны, чтобы в ward-режиме
 // (когда мы возвращаем пустой массив вместо запроса) типизация сохранилась.
@@ -194,9 +195,7 @@ export async function GET(
 
   // --- Пробные занятия
   for (const t of trials) {
-    const wardName = t.ward
-      ? [t.ward.firstName, t.ward.lastName].filter(Boolean).join(" ")
-      : null
+    const wardName = t.ward ? formatWardName(t.ward, "") || null : null
     const directionName = t.direction?.name || ""
     const instructorName = t.instructor
       ? [t.instructor.lastName, t.instructor.firstName].filter(Boolean).join(" ")
@@ -241,9 +240,7 @@ export async function GET(
 
   // --- Абонементы (создание + закрытие)
   for (const s of subscriptions) {
-    const wardName = s.ward
-      ? [s.ward.firstName, s.ward.lastName].filter(Boolean).join(" ")
-      : null
+    const wardName = s.ward ? formatWardName(s.ward, "") || null : null
     const directionName = s.direction?.name || ""
     const amount = Number(s.finalAmount)
 

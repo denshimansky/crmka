@@ -11,6 +11,7 @@ import { PageHelp } from "@/components/page-help"
 import { EditWardForm } from "./edit-ward-form"
 import { ClientHistory } from "../../clients/[id]/client-history"
 import { TrialLessonDialog } from "../../_components/trial-lesson-dialog"
+import { formatWardName } from "@/lib/format-name"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -91,7 +92,7 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
 
   const parentName =
     [ward.client.lastName, ward.client.firstName, ward.client.patronymic].filter(Boolean).join(" ") || "Без имени"
-  const wardName = [ward.firstName, ward.lastName].filter(Boolean).join(" ") || "Без имени"
+  const wardName = formatWardName(ward)
   const parentPhone = maskPhone(ward.client.phone, session.user.role)
 
   return (

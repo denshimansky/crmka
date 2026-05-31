@@ -29,6 +29,7 @@ import { AddWardForm } from "./add-ward-form"
 import { AttendanceTab } from "./attendance-tab"
 import { CommunicationFeed } from "@/components/communication-feed"
 import { ClientHistory } from "./client-history"
+import { formatWardName } from "@/lib/format-name"
 
 interface Ward {
   id: string
@@ -1085,9 +1086,7 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                 const usedLessons = lessonPrice > 0 ? Math.round(chargedAmount / lessonPrice) : 0
                 const remainingLessons = Math.max(0, s.totalLessons - usedLessons)
                 const canEdit = s.status === "pending" || s.status === "active"
-                const wardLabel = s.ward
-                  ? [s.ward.firstName, s.ward.lastName].filter(Boolean).join(" ")
-                  : null
+                const wardLabel = s.ward ? formatWardName(s.ward) : null
                 return (
                   <TableRow key={s.id}>
                     <TableCell className="text-sm">
@@ -1671,13 +1670,13 @@ function AddSubscriptionDialog({
               <Label>Подопечный</Label>
               <Select value={wardId} onValueChange={(v) => { if (v !== null) setWardId(v) }}>
                 <SelectTrigger className="w-full">
-                  {selectedWard ? [selectedWard.firstName, selectedWard.lastName].filter(Boolean).join(" ") : "Не выбран"}
+                  {selectedWard ? formatWardName(selectedWard) : "Не выбран"}
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="">Не выбран</SelectItem>
                   {wards.map(w => (
                     <SelectItem key={w.id} value={w.id}>
-                      {[w.firstName, w.lastName].filter(Boolean).join(" ")}
+                      {formatWardName(w)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1952,7 +1951,7 @@ export function ClientTabs({
               </p>
             ) : (
               wards.map((w) => {
-                const name = [w.firstName, w.lastName].filter(Boolean).join(" ")
+                const name = formatWardName(w, "")
                 return (
                   <div
                     key={w.id}

@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input"
 import { Search } from "lucide-react"
 import { CreateApplicationDialog } from "../_components/create-application-dialog"
+import { formatWardName } from "@/lib/format-name"
 import {
   EditableDateCell,
   EditableSelectCell,
@@ -69,7 +70,7 @@ function fullName(r: { firstName: string | null; lastName: string | null }): str
 
 function wardsLabel(wards: WardLite[]): string {
   if (!wards.length) return "—"
-  return wards.map((w) => [w.firstName, w.lastName].filter(Boolean).join(" ") || "—").join(", ")
+  return wards.map((w) => formatWardName(w, "—")).join(", ")
 }
 
 function firstWardBirth(wards: WardLite[]): string {

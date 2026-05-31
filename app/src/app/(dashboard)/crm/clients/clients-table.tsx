@@ -11,6 +11,7 @@ import {
 import { Search, Copy, Upload, RotateCcw } from "lucide-react"
 import { SortableTableHead } from "@/components/sortable-table-head"
 import { useTablePrefs } from "@/hooks/use-table-prefs"
+import { formatWardName } from "@/lib/format-name"
 
 // --- Types ---
 
@@ -153,7 +154,8 @@ const COLUMNS: ColumnDef[] = [
     getValue: (c) => c.wards.length,
     render: (c) => {
       const wardNames = c.wards
-        .map((w) => [w.firstName, w.lastName].filter(Boolean).join(" "))
+        .map((w) => formatWardName(w, ""))
+        .filter(Boolean)
         .join(", ")
       return (
         <span className="text-sm text-muted-foreground">
