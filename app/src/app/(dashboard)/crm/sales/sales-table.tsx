@@ -170,12 +170,14 @@ export function SalesTable({
   }
 
   const visibleRows = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const filtered = q
+    // Поиск-по-токенам: каждое слово запроса ищется в склейке «ФИО родителя +
+    // ФИО ребёнка». Без этого порядок «Имя Фамилия» не работал, т.к. в строке
+    // лежит «Фамилия Имя».
+    const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    const filtered = tokens.length
       ? rows.filter((r) => {
-          const parent = fullName(r).toLowerCase()
-          if (parent.includes(q)) return true
-          return wardName(r.ward).toLowerCase().includes(q)
+          const haystack = `${fullName(r).toLowerCase()} ${wardName(r.ward).toLowerCase()}`
+          return tokens.every((t) => haystack.includes(t))
         })
       : rows
     if (!sortKey) return filtered

@@ -84,14 +84,31 @@ export async function GET(req: NextRequest) {
     where.clientStatus = "churned"
   }
 
-  // Поиск по имени, фамилии, телефону
+  // Поиск-по-токенам: каждое слово запроса должно совпасть с одним из полей
+  // (имя/фамилия/телефон/email). Без этого «Фамилия Имя» не находилось,
+  // потому что в одном поле такой подстроки нет.
   if (search) {
-    where.OR = [
-      { firstName: { contains: search, mode: "insensitive" } },
-      { lastName: { contains: search, mode: "insensitive" } },
-      { phone: { contains: search } },
-      { email: { contains: search, mode: "insensitive" } },
-    ]
+    const tokens = search.split(/\s+/).map((t) => t.trim()).filter(Boolean)
+    if (tokens.length === 1) {
+      const t = tokens[0]
+      where.OR = [
+        { firstName: { contains: t, mode: "insensitive" } },
+        { lastName: { contains: t, mode: "insensitive" } },
+        { phone: { contains: t } },
+        { email: { contains: t, mode: "insensitive" } },
+      ]
+    } else if (tokens.length > 1) {
+      where.AND = [
+        ...((where.AND as Prisma.ClientWhereInput[] | undefined) ?? []),
+        ...tokens.map((t) => ({
+          OR: [
+            { firstName: { contains: t, mode: "insensitive" as const } },
+            { lastName: { contains: t, mode: "insensitive" as const } },
+            { phone: { contains: t } },
+          ],
+        })),
+      ]
+    }
   }
 
   if (segment) {

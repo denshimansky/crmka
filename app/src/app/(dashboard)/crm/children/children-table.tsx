@@ -193,12 +193,12 @@ export function ChildrenTable({
         if (ageMax !== null && years > ageMax) return false
       }
       if (q) {
-        const childName = wardFullName(r).toLowerCase()
-        const parentName = r.parentName.toLowerCase()
-        const phone = (r.parentPhone || "").toLowerCase()
-        if (!childName.includes(q) && !parentName.includes(q) && !phone.includes(q)) {
-          return false
-        }
+        // Поиск-по-токенам: каждое слово запроса ищется в склейке «ребёнок +
+        // родитель + телефон». Без этого «Имя Фамилия» не работало, т.к. в
+        // строке имени лежит «Фамилия Имя».
+        const haystack = `${wardFullName(r).toLowerCase()} ${r.parentName.toLowerCase()} ${(r.parentPhone || "").toLowerCase()}`
+        const tokens = q.split(/\s+/).filter(Boolean)
+        if (!tokens.every((t) => haystack.includes(t))) return false
       }
       return true
     })

@@ -103,23 +103,31 @@ export default async function ContactsPage({
   const baseWhere = buildWhere(tab, tenantId)
   let where: Prisma.ClientWhereInput = baseWhere
   if (query) {
+    // Поиск-по-токенам: каждое слово запроса должно совпасть с одним из полей
+    // (имя/фамилия родителя или ребёнка). Иначе «Фамилия Имя» не находилось,
+    // потому что в одном поле такой подстроки нет.
+    const tokens = query.split(/\s+/).map((t) => t.trim()).filter(Boolean)
     const digits = query.replace(/\D/g, "")
-    const orConds: Prisma.ClientWhereInput[] = [
-      { firstName: { contains: query, mode: "insensitive" } },
-      { lastName: { contains: query, mode: "insensitive" } },
-      {
-        wards: {
-          some: {
-            OR: [
-              { firstName: { contains: query, mode: "insensitive" } },
-              { lastName: { contains: query, mode: "insensitive" } },
-            ],
+    const tokenClauses: Prisma.ClientWhereInput[] = tokens.map((token) => ({
+      OR: [
+        { firstName: { contains: token, mode: "insensitive" } },
+        { lastName: { contains: token, mode: "insensitive" } },
+        {
+          wards: {
+            some: {
+              OR: [
+                { firstName: { contains: token, mode: "insensitive" } },
+                { lastName: { contains: token, mode: "insensitive" } },
+              ],
+            },
           },
         },
-      },
-    ]
-    if (digits) orConds.push({ phone: { contains: digits } })
-    where = { AND: [baseWhere, { OR: orConds }] }
+      ],
+    }))
+    const altOr: Prisma.ClientWhereInput[] = []
+    if (tokenClauses.length > 0) altOr.push({ AND: tokenClauses })
+    if (digits) altOr.push({ phone: { contains: digits } })
+    where = { AND: [baseWhere, { OR: altOr }] }
   }
   const clients = await db.client.findMany({
     where,
