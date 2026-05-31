@@ -27,7 +27,6 @@ import {
 import { Plus, Pencil, X, Ban, CalendarDays, Undo2, ArrowLeftRight } from "lucide-react"
 import { AddWardForm } from "./add-ward-form"
 import { AttendanceTab } from "./attendance-tab"
-import { WardSalesStageActions } from "../../_components/ward-sales-stage-actions"
 import { CommunicationFeed } from "@/components/communication-feed"
 import { ClientHistory } from "./client-history"
 import { formatWardName } from "@/lib/format-name"
@@ -1963,20 +1962,11 @@ export function ClientTabs({
                     <Link href={`/crm/wards/${w.id}`} className="font-medium hover:underline">
                       {name}
                     </Link>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-muted-foreground">
-                        {w.birthDate
-                          ? `${formatDate(w.birthDate)} (${calculateAge(w.birthDate)})`
-                          : "Дата рождения не указана"}
-                      </span>
-                      {w.salesStage !== undefined && (
-                        <WardSalesStageActions
-                          wardId={w.id}
-                          currentStage={w.salesStage}
-                          disabled={w.hasActiveSubscription}
-                        />
-                      )}
-                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      {w.birthDate
+                        ? `${formatDate(w.birthDate)} (${calculateAge(w.birthDate)})`
+                        : "Дата рождения не указана"}
+                    </span>
                   </div>
                 )
               })
