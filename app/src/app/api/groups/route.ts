@@ -7,6 +7,7 @@ import {
   getGenerationRange,
 } from "@/lib/schedule/generate-group-lessons"
 import { bracketSchema, validateForScheme } from "@/lib/salary/rate-schema"
+import { findDuplicateTemplateIndexes } from "@/lib/schedule/group-conflicts"
 
 // GET /api/groups — список групп организации
 export async function GET() {
@@ -114,6 +115,20 @@ export async function POST(request: NextRequest) {
   // Если дату старта не указали — берём сегодня. Если endDate не указали —
   // год вперёд от startDate (логика в getGenerationRange).
   const startDate = rawStartDate ?? new Date()
+
+  // Запрещаем дубликаты в шаблонах (одинаковая пара день недели + время)
+  if (templates && templates.length > 0) {
+    const dupIdx = findDuplicateTemplateIndexes(templates)
+    if (dupIdx.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "В расписании повторяется одна и та же пара «день недели + время». Уберите дубликаты.",
+        },
+        { status: 400 },
+      )
+    }
+  }
 
   // Если задана ставка — валидируем под её схему до записи в БД
   if (salaryRate) {

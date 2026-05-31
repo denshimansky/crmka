@@ -21,7 +21,7 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog"
-import { Plus, Trash2, Wallet } from "lucide-react"
+import { Plus, Trash2, Wallet, AlertTriangle } from "lucide-react"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 import {
   SalaryRateForm,
@@ -64,6 +64,31 @@ const DAY_OPTIONS = [
   { value: 6, label: "Воскресенье" },
 ]
 
+interface SlotConflict {
+  slot: { dayOfWeek: number; startTime: string; durationMinutes: number }
+  with: Array<{
+    groupId: string
+    groupName: string
+    startTime: string
+    durationMinutes: number
+  }>
+}
+
+function getDuplicateIndexes(rows: ScheduleRow[]): Set<number> {
+  const seen = new Map<string, number>()
+  const dups = new Set<number>()
+  rows.forEach((r, i) => {
+    const key = `${r.dayOfWeek}_${r.startTime}`
+    if (seen.has(key)) {
+      dups.add(i)
+      dups.add(seen.get(key)!)
+    } else {
+      seen.set(key, i)
+    }
+  })
+  return dups
+}
+
 function todayYmd(): string {
   const d = new Date()
   const y = d.getFullYear()
@@ -98,10 +123,14 @@ export function CreateGroupDialog({
   const [rate, setRate] = useState<RateFormValue | null>(null)
   const [rateDialogOpen, setRateDialogOpen] = useState(false)
   const [rateDraft, setRateDraft] = useState<RateFormValue>(emptyRate())
+  const [conflicts, setConflicts] = useState<SlotConflict[] | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const selectedBranch = branches.find((b) => b.id === branchId)
   const selectedDirection = directions.find((d) => d.id === directionId)
   const availableRooms = selectedBranch?.rooms ?? []
+  const duplicateIdx = getDuplicateIndexes(templates)
+  const hasDuplicates = duplicateIdx.size > 0
 
   function addTemplate() {
     setTemplates((prev) => [
@@ -138,6 +167,8 @@ export function CreateGroupDialog({
     setRateDialogOpen(false)
     setRateDraft(emptyRate())
     setError(null)
+    setConflicts(null)
+    setConfirmOpen(false)
   }
 
   function openRateDialog() {
@@ -155,43 +186,92 @@ export function CreateGroupDialog({
     setRateDialogOpen(false)
   }
 
+  async function createGroup() {
+    const res = await fetch("/api/groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        directionId,
+        branchId,
+        roomId,
+        instructorId,
+        maxStudents,
+        templates: templates.length > 0 ? templates : undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        salaryRate: rate
+          ? {
+              scheme: rate.scheme,
+              ratePerStudent: rate.ratePerStudent,
+              ratePerLesson: rate.ratePerLesson,
+              fixedPerShift: rate.fixedPerShift,
+              percentOfPayments: rate.percentOfPayments,
+              brackets: rate.brackets,
+            }
+          : undefined,
+      }),
+    })
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error || "Ошибка при создании группы")
+      return false
+    }
+
+    return true
+  }
+
   async function handleSubmit() {
-    setLoading(true)
     setError(null)
 
-    try {
-      const res = await fetch("/api/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          directionId,
-          branchId,
-          roomId,
-          instructorId,
-          maxStudents,
-          templates: templates.length > 0 ? templates : undefined,
-          startDate: startDate || undefined,
-          endDate: endDate || undefined,
-          salaryRate: rate
-            ? {
-                scheme: rate.scheme,
-                ratePerStudent: rate.ratePerStudent,
-                ratePerLesson: rate.ratePerLesson,
-                fixedPerShift: rate.fixedPerShift,
-                percentOfPayments: rate.percentOfPayments,
-                brackets: rate.brackets,
-              }
-            : undefined,
-        }),
-      })
+    if (hasDuplicates) {
+      setError(
+        "В расписании повторяется одна и та же пара «день недели + время». Уберите дубликаты.",
+      )
+      return
+    }
 
-      if (!res.ok) {
-        const data = await res.json()
-        setError(data.error || "Ошибка при создании группы")
-        return
+    setLoading(true)
+
+    try {
+      // Сначала — проверка пересечений с другими группами в этом кабинете.
+      if (templates.length > 0 && roomId) {
+        const checkRes = await fetch("/api/groups/check-conflicts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomId, templates }),
+        })
+        if (checkRes.ok) {
+          const data = (await checkRes.json()) as { conflicts: SlotConflict[] }
+          if (data.conflicts.length > 0) {
+            setConflicts(data.conflicts)
+            setConfirmOpen(true)
+            setLoading(false)
+            return
+          }
+        }
       }
 
+      const ok = await createGroup()
+      if (!ok) return
+
+      resetForm()
+      setOpen(false)
+      router.refresh()
+    } catch {
+      setError("Не удалось создать группу")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleConfirmCreate() {
+    setLoading(true)
+    setError(null)
+    try {
+      const ok = await createGroup()
+      if (!ok) return
       resetForm()
       setOpen(false)
       router.refresh()
@@ -387,54 +467,70 @@ export function CreateGroupDialog({
               </p>
             )}
 
-            {templates.map((t, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <Select
-                  value={String(t.dayOfWeek)}
-                  onValueChange={(v) => { if (v !== null && v !== undefined && v !== "") updateTemplate(i, "dayOfWeek", parseInt(v)) }}
+            {templates.map((t, i) => {
+              const isDup = duplicateIdx.has(i)
+              return (
+                <div
+                  key={i}
+                  className={
+                    isDup
+                      ? "flex items-center gap-2 rounded-md border border-destructive/60 bg-destructive/5 p-1"
+                      : "flex items-center gap-2"
+                  }
                 >
-                  <SelectTrigger className="w-[140px]">
-                    {DAY_OPTIONS.find((d) => d.value === t.dayOfWeek)?.label ?? "День недели"}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DAY_OPTIONS.map((d) => (
-                      <SelectItem key={d.value} value={String(d.value)}>
-                        {d.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <Select
+                    value={String(t.dayOfWeek)}
+                    onValueChange={(v) => { if (v !== null && v !== undefined && v !== "") updateTemplate(i, "dayOfWeek", parseInt(v)) }}
+                  >
+                    <SelectTrigger className="w-[140px]">
+                      {DAY_OPTIONS.find((d) => d.value === t.dayOfWeek)?.label ?? "День недели"}
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DAY_OPTIONS.map((d) => (
+                        <SelectItem key={d.value} value={String(d.value)}>
+                          {d.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-                <Input
-                  type="time"
-                  className="w-[100px]"
-                  value={t.startTime}
-                  onChange={(e) => updateTemplate(i, "startTime", e.target.value)}
-                />
-
-                <div className="flex items-center gap-1">
                   <Input
-                    type="number"
-                    className="w-[70px]"
-                    min={1}
-                    value={t.durationMinutes}
-                    onChange={(e) =>
-                      updateTemplate(i, "durationMinutes", parseInt(e.target.value) || 45)
-                    }
+                    type="time"
+                    className="w-[100px]"
+                    value={t.startTime}
+                    onChange={(e) => updateTemplate(i, "startTime", e.target.value)}
                   />
-                  <span className="text-xs text-muted-foreground">мин</span>
-                </div>
 
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeTemplate(i)}
-                >
-                  <Trash2 className="size-4 text-muted-foreground" />
-                </Button>
-              </div>
-            ))}
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      className="w-[70px]"
+                      min={1}
+                      value={t.durationMinutes}
+                      onChange={(e) =>
+                        updateTemplate(i, "durationMinutes", parseInt(e.target.value) || 45)
+                      }
+                    />
+                    <span className="text-xs text-muted-foreground">мин</span>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeTemplate(i)}
+                  >
+                    <Trash2 className="size-4 text-muted-foreground" />
+                  </Button>
+                </div>
+              )
+            })}
+
+            {hasDuplicates && (
+              <p className="text-xs text-destructive">
+                Эти строки повторяются — один и тот же день и время. Удалите дубликат или измените время.
+              </p>
+            )}
           </div>
         </div>
 
@@ -444,12 +540,75 @@ export function CreateGroupDialog({
           </DialogClose>
           <Button
             onClick={handleSubmit}
-            disabled={loading || !name || !directionId || !branchId || !roomId || !instructorId}
+            disabled={
+              loading ||
+              !name ||
+              !directionId ||
+              !branchId ||
+              !roomId ||
+              !instructorId ||
+              hasDuplicates
+            }
           >
             {loading ? "Создание..." : "Создать"}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Вложенная модалка «Конфликт расписания» */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-5 text-amber-600" />
+              Кабинет уже занят
+            </DialogTitle>
+            <DialogDescription>
+              В выбранном кабинете в это время уже занимаются другие группы.
+              Вы можете изменить день или время — или создать группу всё равно.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {(conflicts ?? []).map((c, i) => (
+              <div key={i} className="rounded-md border p-3 text-sm">
+                <div className="font-medium">
+                  {DAY_OPTIONS.find((d) => d.value === c.slot.dayOfWeek)?.label},{" "}
+                  {c.slot.startTime} ({c.slot.durationMinutes} мин)
+                </div>
+                <div className="mt-1 text-muted-foreground">
+                  Пересекается с:
+                </div>
+                <ul className="mt-1 space-y-0.5">
+                  {c.with.map((w) => (
+                    <li key={w.groupId}>
+                      <span className="font-medium">{w.groupName}</span>{" "}
+                      <span className="text-muted-foreground">
+                        — {w.startTime} ({w.durationMinutes} мин)
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setConfirmOpen(false)
+                setConflicts(null)
+              }}
+            >
+              Изменить расписание
+            </Button>
+            <Button onClick={handleConfirmCreate} disabled={loading}>
+              {loading ? "Создание..." : "Создать всё равно"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Вложенная модалка «Ставка группы» */}
       <Dialog open={rateDialogOpen} onOpenChange={setRateDialogOpen}>
