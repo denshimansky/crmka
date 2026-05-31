@@ -153,14 +153,19 @@ export default async function SalesPage({
     // Один Ward = одна строка. salesStage определяет вкладку; для отображения подтягиваем
     // одно «представительное» пробное (запланированное для trial, последнее attended для остальных).
     const stage = TAB_TO_STAGE[tab]
-    const trialLessonFilter =
+    // На trial_done / awaiting_payment основной кейс — attended-пробное,
+    // но если стадия Ward была сдвинута вручную (через ПКМ-меню) без отметки
+    // в Расписании, scheduled-пробное всё ещё актуально и его данные нужно
+    // показать в строке. Берём любой не-cancelled, attended приоритизируем.
+    const trialLessonFilter: Prisma.TrialLessonWhereInput =
       tab === "trial"
-        ? { status: "scheduled" as const }
-        : { status: "attended" as const }
-    const trialLessonOrder =
+        ? { status: "scheduled" }
+        : { status: { in: ["attended", "scheduled"] } }
+    const trialLessonOrder: Prisma.TrialLessonOrderByWithRelationInput[] =
       tab === "trial"
-        ? ({ scheduledDate: "asc" as const })
-        : ({ attendedAt: "desc" as const })
+        ? [{ scheduledDate: "asc" }]
+        // status asc: 'attended' < 'scheduled' алфавитно → attended вперёд.
+        : [{ status: "asc" }, { scheduledDate: "desc" }]
 
     const wards = await db.ward.findMany({
       where: wardSalesWhere(tenantId, stage),

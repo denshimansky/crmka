@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
+import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
 const updateSchema = z.object({
@@ -57,22 +58,105 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const stageChanged =
     data.salesStage !== undefined && data.salesStage !== existing.salesStage
+  const now = new Date()
+  const tenantId = session.user.tenantId
 
-  const ward = await db.ward.update({
-    where: { id },
-    data: {
-      ...(data.firstName !== undefined && { firstName: data.firstName }),
-      ...(data.lastName !== undefined && { lastName: data.lastName }),
-      ...(data.birthDate !== undefined && { birthDate: data.birthDate ? new Date(data.birthDate) : null }),
-      ...(data.notes !== undefined && { notes: data.notes }),
-      ...(stageChanged && { salesStage: data.salesStage!, salesStageAt: new Date() }),
-    },
+  // Если стадия переезжает в trial_attended или awaiting_payment, а связанный
+  // scheduled-пробный ещё не отмечен — синхронизируем его (status=attended,
+  // attendedAt, Attendance). Иначе на вкладках «Прошёл пробное» / «Ожидаем оплату»
+  // у строки пропадут филиал/направление/группа — они подтягиваются из TrialLesson.
+  const shouldMarkAttended =
+    stageChanged &&
+    (data.salesStage === "trial_attended" || data.salesStage === "awaiting_payment")
+
+  const ward = await db.$transaction(async (tx) => {
+    const w = await tx.ward.update({
+      where: { id },
+      data: {
+        ...(data.firstName !== undefined && { firstName: data.firstName }),
+        ...(data.lastName !== undefined && { lastName: data.lastName }),
+        ...(data.birthDate !== undefined && { birthDate: data.birthDate ? new Date(data.birthDate) : null }),
+        ...(data.notes !== undefined && { notes: data.notes }),
+        ...(stageChanged && { salesStage: data.salesStage!, salesStageAt: now }),
+      },
+    })
+
+    if (shouldMarkAttended) {
+      const scheduled = await tx.trialLesson.findFirst({
+        where: { tenantId, wardId: id, status: "scheduled" },
+        orderBy: { scheduledDate: "desc" },
+        include: {
+          lesson: { select: { id: true } },
+        },
+      })
+      if (scheduled) {
+        await tx.trialLesson.update({
+          where: { id: scheduled.id },
+          data: { status: "attended", attendedAt: now },
+        })
+
+        // Создаём Attendance(isTrial=true) — как в PATCH /api/trial-lessons/[id].
+        // Salary за пробное не считаем здесь: его проще будет пересчитать через
+        // обычный flow при необходимости. Делаем минимальный корректный набор.
+        if (scheduled.lesson) {
+          const presentType = await tx.attendanceType.findFirst({
+            where: { OR: [{ tenantId: null }, { tenantId }], code: "present", isActive: true },
+          })
+          if (presentType) {
+            const existingAtt = await tx.attendance.findFirst({
+              where: {
+                tenantId,
+                lessonId: scheduled.lesson.id,
+                clientId: existing.clientId,
+                wardId: id,
+                isTrial: true,
+              },
+            })
+            if (!existingAtt) {
+              await tx.attendance.create({
+                data: {
+                  tenantId,
+                  lessonId: scheduled.lesson.id,
+                  clientId: existing.clientId,
+                  wardId: id,
+                  attendanceTypeId: presentType.id,
+                  chargeAmount: new Prisma.Decimal(0),
+                  instructorPayAmount: new Prisma.Decimal(0),
+                  instructorPayEnabled: scheduled.instructorPayEnabled,
+                  isTrial: true,
+                  markedBy: session.user.employeeId ?? undefined,
+                  markedAt: now,
+                },
+              })
+            }
+          }
+        }
+
+        // Закрываем фантомные напоминания о пробном.
+        await tx.task.updateMany({
+          where: {
+            tenantId,
+            clientId: existing.clientId,
+            autoTrigger: "trial_reminder",
+            status: "pending",
+            deletedAt: null,
+          },
+          data: {
+            status: "completed",
+            completedAt: now,
+            completedBy: session.user.employeeId ?? undefined,
+          },
+        })
+      }
+    }
+
+    return w
   })
 
   if (stageChanged && session.user.employeeId) {
     await db.auditLog.create({
       data: {
-        tenantId: session.user.tenantId,
+        tenantId,
         employeeId: session.user.employeeId,
         action: "update",
         entityType: "Ward",
