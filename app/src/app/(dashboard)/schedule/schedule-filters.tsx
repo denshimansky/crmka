@@ -12,7 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
-import { CalendarDays, X, Filter, Baby } from "lucide-react"
+import { X, Filter, Baby } from "lucide-react"
 import type { ScheduleView } from "./schedule-week-nav"
 import { BRANCH_ALL_VALUE, useBranchFilter } from "@/hooks/use-branch-filter"
 import { MonthCalendarView } from "./month-calendar-view"
@@ -75,7 +75,6 @@ interface WardOption {
 
 interface ScheduleFiltersProps {
   lessons: LessonData[]
-  rooms: Room[]
   allRooms: RoomWithBranch[]
   branches: Branch[]
   directions: Direction[]
@@ -111,7 +110,6 @@ function getOccupancyStyle(enrolled: number, max: number): { className: string; 
 
 export function ScheduleFilterableGrid({
   lessons,
-  rooms,
   allRooms,
   branches,
   directions,
@@ -142,6 +140,16 @@ export function ScheduleFilterableGrid({
 
   const hasFilters = !!(roomFilter || directionFilter || instructorFilter || currentWardId)
 
+  // Список кабинетов для фильтра: если выбран филиал — только его кабинеты,
+  // иначе все. Источник — allRooms (с branchId), а не rooms (только из текущих
+  // занятий), чтобы пользователь мог выбрать кабинет даже без занятий в нём.
+  const availableRoomsForFilter = useMemo(() => {
+    if (branchFilter && branchFilter !== BRANCH_ALL_VALUE) {
+      return allRooms.filter((r) => r.branchId === branchFilter)
+    }
+    return allRooms
+  }, [allRooms, branchFilter])
+
   function setWardFilter(id: string | null) {
     const params = new URLSearchParams(searchParams.toString())
     if (id) params.set("wardId", id)
@@ -163,8 +171,9 @@ export function ScheduleFilterableGrid({
   }, [wards, wardSearch])
 
   // В месячном виде сетки кабинетов нет — фильтрация по филиалу должна работать
-  // явно через сами занятия (lesson → room → branch). Заранее строим множество
-  // комнат выбранного филиала.
+  // явно через сами занятия (lesson → room → branch). В неделе это делает
+  // WeekRoomsView (выбирает кабинеты по branchId), но если выбран конкретный
+  // кабинет, лента занятий должна по нему фильтроваться независимо от вида.
   const branchRoomIds = useMemo(() => {
     if (view !== "month") return null
     if (!branchFilter || branchFilter === BRANCH_ALL_VALUE) return null
@@ -181,13 +190,6 @@ export function ScheduleFilterableGrid({
     })
   }, [lessons, roomFilter, directionFilter, instructorFilter, branchRoomIds])
 
-  type Row = { id: string; label: string }
-
-  const visibleRows: Row[] = useMemo(() => {
-    const ids = new Set(filteredLessons.map((l) => l.group.room.id))
-    return rooms.filter((r) => ids.has(r.id)).map((r) => ({ id: r.id, label: r.name }))
-  }, [filteredLessons, rooms])
-
   function clearFilters() {
     setRoomFilter("")
     setDirectionFilter("")
@@ -202,7 +204,7 @@ export function ScheduleFilterableGrid({
 
   const activeFilterLabels: { label: string; onClear: () => void }[] = []
   if (roomFilter) {
-    const room = rooms.find((r) => r.id === roomFilter)
+    const room = allRooms.find((r) => r.id === roomFilter)
     activeFilterLabels.push({
       label: `Кабинет: ${room?.name || "?"}`,
       onClear: () => setRoomFilter(""),
@@ -259,7 +261,7 @@ export function ScheduleFilterableGrid({
               ))}
             </SelectContent>
           </Select>
-        ) : view === "month" ? (
+        ) : (
           <Select
             value={branchFilter === BRANCH_ALL_VALUE ? "" : branchFilter}
             onValueChange={(v) => {
@@ -281,24 +283,24 @@ export function ScheduleFilterableGrid({
               ))}
             </SelectContent>
           </Select>
-        ) : (
-          <Select value={roomFilter} onValueChange={(v) => setRoomFilter(v ?? "")}>
-            <SelectTrigger className="w-[180px]">
-              {roomFilter ? (
-                rooms.find((r) => r.id === roomFilter)?.name || "Кабинет"
-              ) : (
-                <span className="text-muted-foreground">Кабинет</span>
-              )}
-            </SelectTrigger>
-            <SelectContent>
-              {rooms.map((room) => (
-                <SelectItem key={room.id} value={room.id}>
-                  {room.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         )}
+
+        <Select value={roomFilter} onValueChange={(v) => setRoomFilter(v ?? "")}>
+          <SelectTrigger className="w-[180px]">
+            {roomFilter ? (
+              allRooms.find((r) => r.id === roomFilter)?.name || "Кабинет"
+            ) : (
+              <span className="text-muted-foreground">Кабинет</span>
+            )}
+          </SelectTrigger>
+          <SelectContent>
+            {availableRoomsForFilter.map((room) => (
+              <SelectItem key={room.id} value={room.id}>
+                {room.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <Select value={directionFilter} onValueChange={(v) => setDirectionFilter(v ?? "")}>
           <SelectTrigger className="w-[180px]">
@@ -411,6 +413,7 @@ export function ScheduleFilterableGrid({
           allRooms={allRooms}
           branches={branches}
           branchId={branchFilter}
+          roomFilter={roomFilter}
           weekDays={weekDays}
           dayNames={dayNames}
           directionColorMap={directionColorMap}
@@ -418,7 +421,7 @@ export function ScheduleFilterableGrid({
           hourStart={weekHourStart}
           hourEnd={weekHourEnd}
         />
-      ) : view === "month" ? (
+      ) : (
         <MonthCalendarView
           lessons={filteredLessons}
           gridDays={gridDays}
@@ -426,114 +429,6 @@ export function ScheduleFilterableGrid({
           directionColorMap={directionColorMap}
           todayKey={new Date().toISOString().slice(0, 10)}
         />
-      ) : filteredLessons.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-          <CalendarDays className="size-16 text-muted-foreground/50" />
-          <div>
-            <h2 className="text-lg font-semibold">
-              {hasFilters ? "Нет занятий по выбранным фильтрам" : "Нет занятий на этой неделе"}
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {hasFilters
-                ? "Попробуйте изменить параметры фильтрации"
-                : "Создайте группы и сгенерируйте расписание"}
-            </p>
-          </div>
-          {hasFilters ? (
-            <Button variant="outline" onClick={clearFilters}>
-              Сбросить фильтры
-            </Button>
-          ) : (
-            <Link href="/schedule/groups">
-              <Button>Перейти к группам</Button>
-            </Link>
-          )}
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <div className="min-w-[900px]">
-            <div
-              className="grid gap-px bg-border"
-              style={{ gridTemplateColumns: `160px repeat(7, 1fr)` }}
-            >
-              {/* Header */}
-              <div className="bg-background p-2 text-xs font-medium text-muted-foreground">
-                Кабинет
-              </div>
-              {weekDays.map((day, i) => (
-                <div key={i} className="bg-background p-2 text-center text-sm font-medium">
-                  {dayNames[i]} {formatDateShort(day)}
-                </div>
-              ))}
-
-              {/* Rows by room */}
-              {visibleRows.map((row) => (
-                <div key={row.id} className="contents">
-                  <div className="bg-background p-2 text-sm font-medium text-muted-foreground">
-                    {row.label}
-                  </div>
-                  {weekDays.map((dayStr, di) => {
-                    const dayLessons = filteredLessons.filter(
-                      (l) => l.group.room.id === row.id && l.date === dayStr
-                    )
-                    return (
-                      <div
-                        key={`${row.id}-${di}`}
-                        className="min-h-[100px] bg-background p-1 space-y-1"
-                      >
-                        {dayLessons.map((lesson) => {
-                          const colorClass =
-                            directionColorMap[lesson.group.directionId] || ""
-                          const enrolled = lesson.group._count.enrollments
-                          const max = lesson.group.maxStudents
-                          const occupancy = getOccupancyStyle(enrolled, max)
-                          const instructorName = [
-                            lesson.instructor.lastName,
-                            lesson.instructor.firstName?.[0] ? lesson.instructor.firstName[0] + "." : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")
-                          return (
-                            <Link key={lesson.id} href={lesson.href || `/schedule/lessons/${lesson.id}`}>
-                              <Card
-                                className={`cursor-pointer border p-2 text-xs ${colorClass} ${occupancy.className} hover:opacity-80`}
-                                title={occupancy.label}
-                              >
-                                <div className="font-bold flex items-center justify-between gap-1">
-                                  <span>{lesson.startTime}</span>
-                                  {lesson.isTrial && (
-                                    <Badge variant="outline" className="h-4 px-1 text-[9px] border-blue-300 text-blue-700 dark:text-blue-400">
-                                      проб
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className="font-medium">{lesson.group.name}</div>
-                                <div className="opacity-70">{instructorName}</div>
-                                <div className="mt-1 flex items-center justify-between">
-                                  <span className="font-semibold">
-                                    {enrolled}/{max}
-                                  </span>
-                                  {max > 0 && enrolled / max > 0.9 && (
-                                    <Badge
-                                      variant="destructive"
-                                      className="h-4 px-1 text-[10px]"
-                                    >
-                                      !
-                                    </Badge>
-                                  )}
-                                </div>
-                              </Card>
-                            </Link>
-                          )
-                        })}
-                      </div>
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
       )}
     </>
   )
@@ -557,6 +452,7 @@ interface WeekRoomsViewProps {
   allRooms: RoomWithBranch[]
   branches: Branch[]
   branchId: string
+  roomFilter: string
   weekDays: string[]
   dayNames: string[]
   directionColorMap: Record<string, string>
@@ -570,6 +466,7 @@ function WeekRoomsView({
   allRooms,
   branches,
   branchId,
+  roomFilter,
   weekDays,
   dayNames,
   directionColorMap,
@@ -600,9 +497,10 @@ function WeekRoomsView({
   }
 
   // Группируем кабинеты по филиалам. При «Все филиалы» — берём все филиалы
-  // с кабинетами; иначе — один выбранный филиал.
+  // с кабинетами; иначе — один выбранный филиал. Если в фильтре выбран
+  // конкретный кабинет — оставляем только его, остальные колонки скрываются.
   const isAllBranches = branchId === "all"
-  const branchGroups: { branch: Branch; rooms: RoomWithBranch[] }[] = isAllBranches
+  const branchGroupsRaw: { branch: Branch; rooms: RoomWithBranch[] }[] = isAllBranches
     ? branches
         .map((b) => ({
           branch: b,
@@ -615,6 +513,12 @@ function WeekRoomsView({
         const rs = allRooms.filter((r) => r.branchId === b.id)
         return rs.length ? [{ branch: b, rooms: rs }] : []
       })()
+
+  const branchGroups = roomFilter
+    ? branchGroupsRaw
+        .map((g) => ({ ...g, rooms: g.rooms.filter((r) => r.id === roomFilter) }))
+        .filter((g) => g.rooms.length > 0)
+    : branchGroupsRaw
 
   const visibleRooms: RoomWithBranch[] = branchGroups.flatMap((g) => g.rooms)
   const roomsPerDay = visibleRooms.length

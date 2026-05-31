@@ -2,7 +2,6 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { CalendarDays } from "lucide-react"
 import { ScheduleWeekNav, type ScheduleView } from "./schedule-week-nav"
 import { CancelDayDialog } from "./cancel-day-dialog"
 import { StandaloneLessonDialog } from "./standalone-lesson-dialog"
@@ -17,7 +16,7 @@ import {
   ymd,
 } from "@/lib/date/month-grid"
 
-const ALLOWED_VIEWS = new Set<ScheduleView>(["week", "rooms", "month"])
+const ALLOWED_VIEWS = new Set<ScheduleView>(["week", "month"])
 
 const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -192,15 +191,6 @@ export default async function SchedulePage({
     orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
   })
 
-  // Collect unique rooms
-  const roomMap = new Map<string, { id: string; name: string }>()
-  for (const lesson of lessons) {
-    if (!roomMap.has(lesson.group.room.id)) {
-      roomMap.set(lesson.group.room.id, lesson.group.room)
-    }
-  }
-  const rooms = Array.from(roomMap.values())
-
   // Collect unique directions (groups + individual trials)
   const directionMap = new Map<string, { id: string; name: string }>()
   for (const lesson of lessons) {
@@ -302,8 +292,7 @@ export default async function SchedulePage({
   // Клик ведёт в карточку лида.
   const trialDirectionFallback =
     directions[0] ?? { id: "trial-fallback", name: "—" }
-  const synthRoomId = "trial-no-room"
-  const synthRoom = { id: synthRoomId, name: "—" }
+  const synthRoom = { id: "trial-no-room", name: "—" }
   const trialAsLessons = individualTrials.map((t) => {
     const wardName = t.ward
       ? [t.ward.lastName, t.ward.firstName].filter(Boolean).join(" ")
@@ -337,25 +326,6 @@ export default async function SchedulePage({
     if (a.date !== b.date) return a.date.localeCompare(b.date)
     return a.startTime.localeCompare(b.startTime)
   })
-
-  // Если у каких-то пробных нет реального кабинета — добавим синтетический «—».
-  const roomsUsed = new Set<string>()
-  for (const item of trialAsLessons) roomsUsed.add(item.group.room.id)
-  const hasSynthetic = roomsUsed.has(synthRoomId)
-  // Добавим реальные кабинеты пробных, которых нет в `rooms` (могут быть из других филиалов)
-  const extraRooms: { id: string; name: string }[] = []
-  for (const t of individualTrials) {
-    if (t.room && !rooms.some((r) => r.id === t.room!.id)) {
-      if (!extraRooms.some((r) => r.id === t.room!.id)) {
-        extraRooms.push({ id: t.room.id, name: t.room.name })
-      }
-    }
-  }
-  const roomsWithTrials = [
-    ...rooms,
-    ...extraRooms,
-    ...(hasSynthetic ? [synthRoom] : []),
-  ]
 
   return (
     <div className="space-y-6">
@@ -407,44 +377,33 @@ export default async function SchedulePage({
         </h2>
       </div>
 
-      {!hasLessons && view === "rooms" ? (
-        <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-          <CalendarDays className="size-16 text-muted-foreground/50" />
-          <div>
-            <h2 className="text-lg font-semibold">Нет занятий на этой неделе</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Создайте группы и сгенерируйте расписание
-            </p>
-          </div>
-          <Link href="/schedule/groups">
-            <Button>Перейти к группам</Button>
-          </Link>
-        </div>
-      ) : (
-        <ScheduleFilterableGrid
-          lessons={allScheduleItems}
-          rooms={roomsWithTrials}
-          allRooms={allRoomsRaw}
-          branches={branches.map((b) => ({ id: b.id, name: b.name }))}
-          directions={directions}
-          instructors={instructors}
-          wards={wardsForFilter.map((w) => ({
-            id: w.id,
-            firstName: w.firstName,
-            lastName: w.lastName,
-            parentName:
-              [w.client.lastName, w.client.firstName].filter(Boolean).join(" ") ||
-              "Без имени",
-          }))}
-          currentWardId={wardIdFilter}
-          weekDays={weekDays}
-          dayNames={DAY_NAMES}
-          gridDays={gridDays}
-          directionColorMap={directionColorMap}
-          view={view}
-          weekHourStart={weekHourStart}
-          weekHourEnd={weekHourEnd}
-        />
+      <ScheduleFilterableGrid
+        lessons={allScheduleItems}
+        allRooms={allRoomsRaw}
+        branches={branches.map((b) => ({ id: b.id, name: b.name }))}
+        directions={directions}
+        instructors={instructors}
+        wards={wardsForFilter.map((w) => ({
+          id: w.id,
+          firstName: w.firstName,
+          lastName: w.lastName,
+          parentName:
+            [w.client.lastName, w.client.firstName].filter(Boolean).join(" ") ||
+            "Без имени",
+        }))}
+        currentWardId={wardIdFilter}
+        weekDays={weekDays}
+        dayNames={DAY_NAMES}
+        gridDays={gridDays}
+        directionColorMap={directionColorMap}
+        view={view}
+        weekHourStart={weekHourStart}
+        weekHourEnd={weekHourEnd}
+      />
+      {!hasLessons && (
+        <p className="py-2 text-center text-sm text-muted-foreground">
+          На выбранный период нет занятий
+        </p>
       )}
     </div>
   )

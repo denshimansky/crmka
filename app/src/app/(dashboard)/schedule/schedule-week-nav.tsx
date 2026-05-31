@@ -5,12 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 
-export type ScheduleView = "week" | "rooms" | "month"
-
-const WEEK_VIEW_OPTIONS: { value: Extract<ScheduleView, "week" | "rooms">; label: string }[] = [
-  { value: "week", label: "По неделе" },
-  { value: "rooms", label: "По кабинетам" },
-]
+export type ScheduleView = "week" | "month"
 
 type Period = "week" | "month"
 
@@ -82,16 +77,6 @@ export function ScheduleWeekNav({
 
   function setPeriod(next: Period) {
     if (next === period) return
-    if (next === "month") {
-      router.push(buildUrl({ view: "month", weekOffset, monthOffset }))
-    } else {
-      // При возврате из «Месяц» — встаём на «По неделе» как умолчательный вариант
-      // (пользователь может вручную переключить sub-view ниже).
-      router.push(buildUrl({ view: "week", weekOffset, monthOffset }))
-    }
-  }
-
-  function setWeekSubView(next: Extract<ScheduleView, "week" | "rooms">) {
     router.push(buildUrl({ view: next, weekOffset, monthOffset }))
   }
 
@@ -132,22 +117,6 @@ export function ScheduleWeekNav({
             Месяц
           </Button>
         </div>
-
-        {/* Подвид недели — только в режиме «Неделя» */}
-        {period === "week" && (
-          <div className="flex flex-wrap gap-1">
-            {WEEK_VIEW_OPTIONS.map((opt) => (
-              <Button
-                key={opt.value}
-                variant={opt.value === view ? "default" : "outline"}
-                size="sm"
-                onClick={() => setWeekSubView(opt.value)}
-              >
-                {opt.label}
-              </Button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   )
