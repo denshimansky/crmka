@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -183,7 +184,15 @@ export default function DuplicatesPage() {
                       className="rounded-lg border p-3 space-y-2"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-medium">{clientName(client)}</span>
+                        <Link
+                          href={`/crm/clients/${client.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-primary hover:underline"
+                          title="Открыть карточку родителя в новой вкладке"
+                        >
+                          {clientName(client)}
+                        </Link>
                         {client.segment && (
                           <Badge variant="outline" className="text-xs">
                             {SEGMENT_LABELS[client.segment] || client.segment}
