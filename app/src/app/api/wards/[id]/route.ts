@@ -69,21 +69,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     stageChanged &&
     (data.salesStage === "trial_attended" || data.salesStage === "awaiting_payment")
 
-  // Если стадия покидает «application» — активная заявка должна закрыться,
-  // иначе подопечный одновременно остаётся во вкладке «Заявка» и появляется
-  // на новой. Маппим итог обработки по новой стадии.
+  // При установке любой стадии, кроме application, закрываем все активные
+  // заявки подопечного — иначе строка одновременно висит в «Заявке» и в новой
+  // вкладке. Условие НЕ зависит от прежнего Ward.salesStage: на вкладке
+  // «Заявка» источник строки — Application, а Ward.salesStage там может быть
+  // любым (например, 'none' после миграции старых данных).
   const shouldCloseApplication =
-    stageChanged &&
-    existing.salesStage === "application" &&
-    data.salesStage !== "application"
+    data.salesStage !== undefined && data.salesStage !== "application"
   const applicationOutcome: "lead" | "potential" | "trial" =
     data.salesStage === "trial_scheduled" ||
     data.salesStage === "trial_attended" ||
     data.salesStage === "awaiting_payment"
       ? "trial"
-      : data.salesStage === "none"
-        ? "lead"
-        : "lead"
+      : "lead"
 
   const ward = await db.$transaction(async (tx) => {
     const w = await tx.ward.update({
