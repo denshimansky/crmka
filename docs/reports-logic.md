@@ -991,6 +991,83 @@ Cross-group отработка фиксируется через пару Attend
 
 ---
 
+## 13bis. Особенности пакетного типа абонемента
+
+`Organization.subscriptionType` определяет модель работы:
+- `calendar` — абонемент привязан к календарному месяцу (`periodYear`, `periodMonth` обязательны).
+- `package` — абонемент = N занятий со сроком годности (`startDate`, `expiresAt`).
+- `fixed` — зарезервировано (в реализации не задействовано).
+
+Тип выбирается в wizard онбординга и блокируется (`subscriptionTypeLockedAt`) после
+создания первого абонемента. Разблокировка — только техподдержкой.
+
+### 13bis.1. Поиск абонемента при отметке посещения
+
+Для `subscriptionType = 'package'` поиск абонемента в attendance-route идёт по
+**FIFO** среди пакетов, у которых:
+- `startDate <= lesson.date`
+- `expiresAt IS NULL OR expiresAt >= lesson.date`
+- `balance > 0` (есть остаток денег = остаток занятий, т.к. списание идёт на `lessonPrice`)
+- `status IN ('active', 'pending')`
+
+`orderBy: startDate ASC` — самый старый пакет списывается первым.
+
+### 13bis.2. Истечение пакета
+
+Cron `close-expired-packages` (03:15 UTC ежедневно) переводит пакеты с
+`expiresAt < today` в `status = 'closed'`, `endDate = today`. **Остаток balance
+сгорает** (выручка остаётся у организации) — это решение бизнеса.
+
+Lazy-защита: в attendance-route `expiresAt >= lessonDate` уже исключает
+просроченные пакеты от списания, даже если cron не успел отработать.
+
+Ручное продление (`PATCH /api/subscriptions/[id] { expiresAt }`): меняет дату,
+а если пакет уже был закрыт по истечении — реактивирует (`status = 'active'`).
+
+### 13bis.3. Уведомления о скором истечении
+
+Cron `notify-expiring-packages` (06:00 UTC ежедневно) создаёт in-app уведомления
+типа `package_expiring` для всех owner/manager/admin тенанта, у которого:
+- `subscriptionType = 'package'`
+- `packageExpiryNotifyDaysBefore > 0`
+
+Условие выборки пакетов: `expiresAt IN (today, today + N]`, `balance > 0`.
+
+Идемпотентность: уведомление по конкретному `Subscription.id` не создаётся
+повторно в течение 24 часов.
+
+### 13bis.4. Адаптация месячных отчётов
+
+Все отчёты, фильтрующие по `(periodYear, periodMonth)`, для package-тенанта
+используют **пересечение интервалов**:
+```
+startDate <= dateTo  AND  (expiresAt IS NULL OR expiresAt >= dateFrom)
+```
+
+- **Активные абонементы (1.1)** — package со `status IN (active, pending)` и пересечением периода.
+- **Не продлённые** — пакеты, истёкшие в окне без нового пакета того же
+  (clientId, directionId) со `startDate > expiresAt - 7 дней`.
+- **Должники** — package с `balance > 0`, пересекающий выбранное окно.
+- **Ожидаемые поступления** — `SUM(balance)` активных пакетов на `dateFrom`.
+
+### 13bis.5. P&L и выручка
+
+**Не требуют изменений.** Выручка считается через `Attendance.chargeAmount`
+по дате занятия (см. 7.2), что корректно для обоих типов: для пакета
+выручка естественным образом распределяется по месяцам отработки.
+
+### 13bis.6. Шаблоны пакетов
+
+`PackageTemplate` хранит пресеты (4/8/12 занятий и опциональный `validDays`).
+При создании абонемента:
+- Если `packageTemplateId` указан: `validDays = data.validDays || template.validDays || org.packageDefaultValidDays`.
+- Если шаблон не выбран (ручной ввод): `validDays = data.validDays || org.packageDefaultValidDays`.
+- `expiresAt = startDate + validDays`.
+
+`groupId` остаётся обязательным — один пакет = одна группа.
+
+---
+
 ## 13. Расчёт ЗП по новым схемам (Ф3)
 
 Пять схем `SalaryScheme`. Применяется через `resolveRate` + `calcPay`:

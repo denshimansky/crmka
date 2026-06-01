@@ -14,12 +14,28 @@ export async function GET(req: NextRequest) {
   const year = dateFrom.getUTCFullYear()
   const month = dateFrom.getUTCMonth() + 1
 
+  // Развилка по типу абонемента организации: calendar — фильтр по periodYear/Month,
+  // package — пересечение интервала действия пакета с (dateFrom, dateTo).
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionType: true },
+  })
+  const isPackage = org?.subscriptionType === "package"
+
   const subWhere: any = {
     tenantId,
     deletedAt: null,
-    periodYear: year,
-    periodMonth: month,
     status: { in: ["active", "pending"] },
+    ...(isPackage
+      ? {
+          type: "package",
+          startDate: { lte: dateTo },
+          OR: [{ expiresAt: null }, { expiresAt: { gte: dateFrom } }],
+        }
+      : {
+          periodYear: year,
+          periodMonth: month,
+        }),
   }
   if (branchId) subWhere.group = { branchId }
 
@@ -58,18 +74,27 @@ export async function GET(req: NextRequest) {
     else byDirection[dir].paid += Number(s.finalAmount)
   }
 
-  // Forecast next month — active subscriptions' finalAmount
+  // Forecast next month — для calendar это абонементы периода M+1,
+  // для package — пакеты, у которых expiresAt попадает в следующий месяц
+  // (т.е. их остаток ещё будет «отрабатываться» в следующем месяце).
   const nextMonth = month === 12 ? 1 : month + 1
   const nextYear = month === 12 ? year + 1 : year
+  const nextStart = new Date(Date.UTC(nextYear, nextMonth - 1, 1))
+  const nextEnd = new Date(Date.UTC(nextYear, nextMonth, 0, 23, 59, 59, 999))
 
   const nextMonthForecast = await db.subscription.aggregate({
     where: {
       tenantId,
       deletedAt: null,
-      periodYear: nextYear,
-      periodMonth: nextMonth,
       status: { in: ["active", "pending"] },
       client: { clientStatus: "active" },
+      ...(isPackage
+        ? {
+            type: "package",
+            startDate: { lte: nextEnd },
+            OR: [{ expiresAt: null }, { expiresAt: { gte: nextStart } }],
+          }
+        : { periodYear: nextYear, periodMonth: nextMonth }),
     },
     _sum: { finalAmount: true },
     _count: true,

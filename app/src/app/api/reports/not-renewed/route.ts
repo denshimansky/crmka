@@ -19,12 +19,32 @@ export async function GET(req: NextRequest) {
   const prevYear = prevDate.getUTCFullYear()
   const prevMonth = prevDate.getUTCMonth() + 1
 
+  // Развилка по типу абонемента.
+  // calendar: «не продлил» = был в M-1, нет в M.
+  // package: «не продлил» = пакет истёк в M-1 (expiresAt в диапазоне prevMonth)
+  //          и нет нового пакета того же (client, direction) со startDate
+  //          в окне [expiresAt - 7 дней, ...).
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionType: true },
+  })
+  const isPackage = org?.subscriptionType === "package"
+
+  const prevStart = new Date(Date.UTC(prevYear, prevMonth - 1, 1))
+  const prevEnd = new Date(Date.UTC(prevYear, prevMonth, 0, 23, 59, 59, 999))
+  const currentStart = new Date(Date.UTC(year, month - 1, 1))
+  const currentEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
+
   const subWhere: any = {
     tenantId,
     deletedAt: null,
-    periodYear: prevYear,
-    periodMonth: prevMonth,
     status: { in: ["active", "closed"] },
+    ...(isPackage
+      ? {
+          type: "package",
+          expiresAt: { gte: prevStart, lte: prevEnd },
+        }
+      : { periodYear: prevYear, periodMonth: prevMonth }),
   }
   if (directionId) subWhere.directionId = directionId
 
@@ -35,6 +55,7 @@ export async function GET(req: NextRequest) {
       clientId: true,
       directionId: true,
       finalAmount: true,
+      expiresAt: true,
       client: {
         select: {
           id: true,
@@ -54,15 +75,23 @@ export async function GET(req: NextRequest) {
     ? lastMonthSubs.filter((s) => s.client.branchId === branchId)
     : lastMonthSubs
 
-  // Current month subscriptions
+  // Текущие абонементы. Для package — пакеты, начатые в окне «истечение −7 дней
+  // → текущий месяц включительно» (продлевался почти сразу).
   const currentMonthSubs = await db.subscription.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      periodYear: year,
-      periodMonth: month,
+      ...(isPackage
+        ? {
+            type: "package",
+            startDate: {
+              gte: new Date(prevStart.getTime() - 7 * 24 * 60 * 60 * 1000),
+              lte: currentEnd,
+            },
+          }
+        : { periodYear: year, periodMonth: month }),
     },
-    select: { clientId: true, directionId: true },
+    select: { clientId: true, directionId: true, startDate: true },
   })
 
   const renewedSet = new Set(

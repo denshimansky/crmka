@@ -70,6 +70,10 @@
 | onboarding_status | OnboardingStatus | да | Статус прохождения wizard | — |
 | onboarding_needs_help | Boolean | да | Флаг «нужна помощь» (дефолт false) | — |
 | onboarding_assigned_to | UUID | нет | FK → BackofficeUser | Ответственный из команды CRMka |
+| subscription_type | SubscriptionType | нет | Модель работы с абонементами (calendar / fixed / package). NULL до выбора в wizard | — |
+| subscription_type_locked_at | DateTime | нет | Момент автоблокировки типа абонемента (выставляется после создания первого Subscription). Разблокировка — только техподдержкой | — |
+| package_default_valid_days | Int | да | Срок годности пакета по умолчанию в днях (дефолт 60). Используется, если шаблон/абонемент не задают свой | Настройка организации |
+| package_expiry_notify_days_before | Int | да | За сколько дней до истечения пакета слать in-app уведомление (дефолт 7). 0 = не уведомлять | Настройка организации |
 | task_trigger_settings | Json | нет | Ф6: настройки автотриггеров задач — массив `{ trigger: TaskAutoTrigger, enabled: bool, startDayOfMonth?: int }`. null или отсутствие триггера = триггер включён | Используется генератором задач |
 | hide_phones_from_instructors | Boolean | да | **Ф8 / dead code:** поле осталось от Ф6 для конфигурируемой политики. Логика хардкоднута — инструктор всегда не видит телефоны, флаг не читается и не пишется | — |
 | restrict_client_export | Boolean | да | **Ф8 / dead code:** аналогично — инструктор всегда не может выгрузить базу, флаг не используется | — |
@@ -482,9 +486,31 @@
 
 ---
 
+## PackageTemplate
+
+Шаблон пакета: пресет количества занятий + опциональный срок годности. Используется
+только для тенантов с `Organization.subscriptionType = 'package'`.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | Мультитенант |
+| lessons_count | Int | да | Количество занятий в пакете (4/8/12 или произвольное) | — |
+| valid_days | Int | нет | Срок годности (дней). NULL = берём `Organization.packageDefaultValidDays` | — |
+| is_active | Boolean | да | Доступен для выбора при продаже (дефолт true) | — |
+| sort_order | Int | да | Порядок в UI (дефолт 0) | — |
+| created_at | DateTime | да | Дата создания | — |
+| updated_at | DateTime | да | Дата обновления | — |
+| deleted_at | DateTime | нет | Мягкое удаление | — |
+
+Уникальность активного `lessons_count` в рамках тенанта проверяется на уровне API.
+
+---
+
 ## Subscription
 
-Абонемент — предоплата за услуги. Привязан к клиенту, направлению, группе. Каждый месяц — новый.
+Абонемент — предоплата за услуги. Привязан к клиенту, направлению, группе. Для
+`calendar` — каждый месяц новый; для `package` — действует до `expires_at`.
 
 | Поле | Тип | Обязательное | Описание | Связь |
 |---|---|---|---|---|
@@ -494,10 +520,10 @@
 | ward_id | UUID | нет | FK → Ward | Подопечный (опц.) |
 | direction_id | UUID | да | FK → Direction | Направление |
 | group_id | UUID | да | FK → Group | Группа |
-| type | SubscriptionType | да | Тип: calendar / fixed / package (MVP = calendar) | — |
+| type | SubscriptionType | да | Тип: calendar / fixed / package. Берётся из `Organization.subscriptionType` при создании | — |
 | status | SubscriptionStatus | да | Статус: active / closed / withdrawn | — |
-| period_year | Int | да | Год (2026) | — |
-| period_month | Int | да | Месяц (1–12) | — |
+| period_year | Int | нет | Год (2026). **Обязателен для calendar, NULL для package** | — |
+| period_month | Int | нет | Месяц (1–12). **Обязателен для calendar, NULL для package** | — |
 | lesson_price | Decimal(12,2) | да | Стоимость одного занятия (может быть индивидуальной) | — |
 | total_lessons | Int | да | Количество занятий в абонементе | — |
 | total_amount | Decimal(12,2) | да | Полная сумма абонемента (до скидок) | — |
@@ -507,6 +533,8 @@
 | charged_amount | Decimal(12,2) | да | **Ф2:** Накопительная сумма списаний по абонементу в ₽. Количество отработанных занятий = `round(charged_amount / lesson_price)` | — |
 | start_date | Date | да | Дата начала (может быть не 1 число) | — |
 | end_date | Date | нет | Дата окончания | — |
+| expires_at | Date | нет | **Для package:** дата сгорания пакета (`start_date + valid_days`). Cron `close-expired-packages` переводит в `closed` после истечения | — |
+| package_template_id | UUID | нет | **Для package:** FK → PackageTemplate. Опционально — пакет может быть создан с ручным `total_lessons`/`valid_days` без шаблона | — |
 | withdrawal_reason_id | UUID | нет | FK → WithdrawalReason | Причина отчисления (при закрытии) |
 | withdrawal_date | Date | нет | Дата отчисления | — |
 | is_trial_credited | Boolean | да | Стоимость пробного засчитана в абонемент (дефолт false) | — |

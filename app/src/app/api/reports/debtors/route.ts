@@ -15,12 +15,29 @@ export async function GET(req: NextRequest) {
   const year = dateFrom.getUTCFullYear()
   const month = dateFrom.getUTCMonth() + 1
 
+  // Развилка по типу абонемента организации.
+  // calendar: должник = balance>0 на конкретный месяц.
+  // package: должник = balance>0 в пакете, пересекающем выбранное окно.
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionType: true },
+  })
+  const isPackage = org?.subscriptionType === "package"
+
   const subWhere: any = {
     tenantId,
     deletedAt: null,
-    periodYear: year,
-    periodMonth: month,
     balance: { gt: 0 }, // positive balance = debt
+    ...(isPackage
+      ? {
+          type: "package",
+          startDate: { lte: dateTo },
+          OR: [{ expiresAt: null }, { expiresAt: { gte: dateFrom } }],
+        }
+      : {
+          periodYear: year,
+          periodMonth: month,
+        }),
   }
   if (directionId) subWhere.directionId = directionId
   if (branchId) subWhere.group = { branchId }
