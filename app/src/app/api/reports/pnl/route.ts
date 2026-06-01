@@ -56,6 +56,35 @@ export async function GET(req: NextRequest) {
     revenueByDirection[dirId].revenue += Number(a.chargeAmount)
   }
 
+  // Прочие доходы (вне абонементов): Payment без subscriptionId, с incomeCategoryId.
+  // Учитываются по дате платежа (как в ДДС), refund исключаем. Разбивка по категориям
+  // показывается отдельным блоком в P&L и входит в итоговый «Чистая прибыль».
+  const otherIncomePayments = await db.payment.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      subscriptionId: null,
+      incomeCategoryId: { not: null },
+      type: { in: ["incoming", "transfer_in"] },
+      date: { gte: dateFrom, lte: dateTo },
+    },
+    select: {
+      amount: true,
+      incomeCategoryId: true,
+      incomeCategory: { select: { id: true, name: true } },
+    },
+  })
+  const otherIncomeByCategoryMap = new Map<string, { categoryId: string; categoryName: string; amount: number }>()
+  for (const p of otherIncomePayments) {
+    if (!p.incomeCategory) continue
+    const key = p.incomeCategory.id
+    const prev = otherIncomeByCategoryMap.get(key) || { categoryId: key, categoryName: p.incomeCategory.name, amount: 0 }
+    prev.amount += Number(p.amount)
+    otherIncomeByCategoryMap.set(key, prev)
+  }
+  const otherIncomeByCategory = Array.from(otherIncomeByCategoryMap.values()).sort((a, b) => b.amount - a.amount)
+  const totalOtherIncome = otherIncomeByCategory.reduce((s, x) => s + x.amount, 0)
+
   // Расходы выбираем расширенным окном: расход с recognitionMode=amortized мог быть
   // оплачен сильно раньше окна отчёта, но раскладка может затрагивать текущий месяц.
   const expensesFrom = new Date(dateFrom)
@@ -162,9 +191,13 @@ export async function GET(req: NextRequest) {
   const variableExpenses = slices.filter((s) => s.isVariable).reduce((sum, s) => sum + s.amountInWindow, 0)
   const fixedExpenses = totalExpenses - variableExpenses
   const totalVariableCosts = variableExpenses + totalSalaryAccrued
+  // Маржа считается только от основной выручки (списания за занятия) — прочие доходы
+  // не относятся к маржинальности услуг, они идут отдельным блоком в конце P&L.
   const margin = revenue - totalVariableCosts
-  const netProfit = revenue - totalExpenses - totalSalaryAccrued
-  const profitability = revenue > 0 ? (netProfit / revenue) * 100 : 0
+  const totalIncome = revenue + totalOtherIncome
+  const netProfit = totalIncome - totalExpenses - totalSalaryAccrued
+  // Рентабельность от полного дохода (выручка + прочие).
+  const profitability = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0
 
   const expenseRows = Object.entries(byCategory)
     .map(([category, v]) => ({
@@ -213,6 +246,9 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     data: {
       revenue,
+      otherIncome: totalOtherIncome,
+      otherIncomeByCategory,
+      totalIncome,
       salaryAccrued: totalSalaryAccrued,
       variableExpenses,
       fixedExpenses,

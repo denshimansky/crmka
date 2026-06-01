@@ -63,6 +63,33 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     revenueByDirection[dirId].revenue += Number(a.chargeAmount)
   }
 
+  // === ПРОЧИЕ ДОХОДЫ ВНЕ АБОНЕМЕНТОВ ===
+  // Payment без subscriptionId, с incomeCategoryId. По дате платежа, refund исключаем.
+  const otherIncomePayments = await db.payment.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      subscriptionId: null,
+      incomeCategoryId: { not: null },
+      type: { in: ["incoming", "transfer_in"] },
+      date: { gte: monthStart, lte: monthEnd },
+    },
+    select: {
+      amount: true,
+      incomeCategoryId: true,
+      incomeCategory: { select: { id: true, name: true } },
+    },
+  })
+  const otherIncomeMap = new Map<string, { name: string; amount: number }>()
+  for (const p of otherIncomePayments) {
+    if (!p.incomeCategory) continue
+    const prev = otherIncomeMap.get(p.incomeCategory.id) || { name: p.incomeCategory.name, amount: 0 }
+    prev.amount += Number(p.amount)
+    otherIncomeMap.set(p.incomeCategory.id, prev)
+  }
+  const otherIncomeByCategory = Array.from(otherIncomeMap.values()).sort((a, b) => b.amount - a.amount)
+  const totalOtherIncome = otherIncomeByCategory.reduce((s, x) => s + x.amount, 0)
+
   // === РАСХОДЫ ===
   // Расширяем окно: расходы с recognitionMode = single_period / amortized могли быть
   // оплачены сильно раньше отчётного месяца, но раскладка попадает в текущий месяц ОПИУ.
@@ -109,9 +136,11 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const variableExpenses = expenseSlices.filter(s => s.isVariable).reduce((sum, s) => sum + s.amount, 0)
   const fixedExpenses = totalExpenses - variableExpenses
   const totalVariableCosts = variableExpenses + totalSalaryAccrued
+  // Маржа считается только от основной выручки (списания за занятия).
   const margin = revenue - totalVariableCosts
-  const netProfit = revenue - totalExpenses - totalSalaryAccrued
-  const profitability = revenue > 0 ? (netProfit / revenue) * 100 : 0
+  const totalIncome = revenue + totalOtherIncome
+  const netProfit = totalIncome - totalExpenses - totalSalaryAccrued
+  const profitability = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0
 
   // === FIN-16: Распределение постоянных расходов по направлениям ===
   const fixedExpenseItems: FixedExpenseItem[] = expenseSlices
@@ -164,6 +193,19 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       .filter(([, v]) => !v.isVariable)
       .sort((a, b) => b[1].amount - a[1].amount)
       .map(([name, v]) => ({ label: `  ${name}`, amount: v.amount, bold: false, color: "text-orange-600" })),
+    // Прочие доходы — отдельным блоком после расходов, перед чистой прибылью.
+    ...(otherIncomeByCategory.length > 0
+      ? [
+          { label: "", amount: 0, bold: false, color: "" },
+          { label: "Прочие доходы:", amount: totalOtherIncome, bold: true, color: "text-green-700" },
+          ...otherIncomeByCategory.map((c) => ({
+            label: `  ${c.name}`,
+            amount: c.amount,
+            bold: false,
+            color: "text-green-600",
+          })),
+        ]
+      : []),
     { label: "", amount: 0, bold: false, color: "" },
     { label: "Чистая прибыль", amount: netProfit, bold: true, color: netProfit >= 0 ? "text-green-700" : "text-red-700" },
     { label: "Рентабельность", amount: profitability, bold: true, color: profitability >= 0 ? "text-green-700" : "text-red-700" },

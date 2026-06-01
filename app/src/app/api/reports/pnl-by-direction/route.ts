@@ -157,20 +157,52 @@ export async function GET(req: NextRequest) {
 
   rows.sort((a, b) => b.revenue - a.revenue)
 
+  // Прочие доходы (вне абонементов) не привязаны к направлению — учитываются
+  // только в общих итогах. По дате платежа, refund исключаем.
+  const otherIncomePayments = await db.payment.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      subscriptionId: null,
+      incomeCategoryId: { not: null },
+      type: { in: ["incoming", "transfer_in"] },
+      date: { gte: dateFrom, lte: dateTo },
+    },
+    select: {
+      amount: true,
+      incomeCategory: { select: { id: true, name: true } },
+    },
+  })
+  const otherIncomeMap = new Map<string, { categoryId: string; categoryName: string; amount: number }>()
+  for (const p of otherIncomePayments) {
+    if (!p.incomeCategory) continue
+    const key = p.incomeCategory.id
+    const prev = otherIncomeMap.get(key) || { categoryId: key, categoryName: p.incomeCategory.name, amount: 0 }
+    prev.amount += Number(p.amount)
+    otherIncomeMap.set(key, prev)
+  }
+  const otherIncomeByCategory = Array.from(otherIncomeMap.values()).sort((a, b) => b.amount - a.amount)
+  const totalOtherIncome = otherIncomeByCategory.reduce((s, x) => s + x.amount, 0)
+
   // Totals
   const totalSalary = rows.reduce((s, r) => s + r.salary, 0)
   const totalDirectExpenses = rows.reduce((s, r) => s + r.directExpenses, 0)
   const totalVariableCosts = rows.reduce((s, r) => s + r.variableCosts, 0)
   const totalMargin = rows.reduce((s, r) => s + r.margin, 0)
-  const totalNetProfit = rows.reduce((s, r) => s + r.netProfit, 0)
+  const totalNetProfitDirections = rows.reduce((s, r) => s + r.netProfit, 0)
+  const totalNetProfit = totalNetProfitDirections + totalOtherIncome
+  const totalIncome = totalRevenue + totalOtherIncome
   const totalProfitability =
-    totalRevenue > 0 ? (totalNetProfit / totalRevenue) * 100 : 0
+    totalIncome > 0 ? (totalNetProfit / totalIncome) * 100 : 0
 
   return NextResponse.json({
     data: {
       rows,
       totals: {
         revenue: totalRevenue,
+        otherIncome: totalOtherIncome,
+        otherIncomeByCategory,
+        totalIncome,
         salary: totalSalary,
         directExpenses: totalDirectExpenses,
         variableCosts: totalVariableCosts,
