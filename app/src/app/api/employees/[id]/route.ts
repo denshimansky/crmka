@@ -16,6 +16,16 @@ const updateSchema = z.object({
   password: z.string().min(6, "Пароль минимум 6 символов").optional().or(z.literal("")).transform(v => v || undefined),
   branchIds: z.array(z.string().uuid()).optional(),
   isActive: z.boolean().optional(),
+  // Окладники: фиксированный месячный оклад и основное направление для ОПИУ.
+  monthlySalary: z.any().transform(v => {
+    if (v === null || v === undefined || v === "") return null
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }).optional(),
+  defaultDirectionId: z.any().transform(v => {
+    if (v === null || v === undefined || v === "") return null
+    return typeof v === "string" ? v : null
+  }).optional(),
 })
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -68,6 +78,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(data.role && { role: data.role }),
       ...(data.password && { passwordHash: await bcrypt.hash(data.password, 10) }),
       ...(data.isActive !== undefined && { isActive: data.isActive }),
+      ...(data.monthlySalary !== undefined && { monthlySalary: data.monthlySalary }),
+      ...(data.defaultDirectionId !== undefined && { defaultDirectionId: data.defaultDirectionId }),
     },
     include: {
       employeeBranches: { include: { branch: { select: { id: true, name: true } } } },

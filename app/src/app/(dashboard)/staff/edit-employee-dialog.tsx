@@ -28,6 +28,11 @@ interface Branch {
   name: string
 }
 
+interface Direction {
+  id: string
+  name: string
+}
+
 interface Employee {
   id: string
   firstName: string
@@ -39,10 +44,20 @@ interface Employee {
   birthDate: string | null
   role: string
   isActive: boolean
+  monthlySalary: number | null
+  defaultDirectionId: string | null
   employeeBranches: { branch: Branch }[]
 }
 
-export function EditEmployeeDialog({ employee, branches }: { employee: Employee; branches: Branch[] }) {
+export function EditEmployeeDialog({
+  employee,
+  branches,
+  directions,
+}: {
+  employee: Employee
+  branches: Branch[]
+  directions: Direction[]
+}) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -59,6 +74,10 @@ export function EditEmployeeDialog({ employee, branches }: { employee: Employee;
   const [selectedBranches, setSelectedBranches] = useState<string[]>(
     employee.employeeBranches.map((eb) => eb.branch.id)
   )
+  const [monthlySalary, setMonthlySalary] = useState(
+    employee.monthlySalary !== null ? String(employee.monthlySalary) : ""
+  )
+  const [defaultDirectionId, setDefaultDirectionId] = useState(employee.defaultDirectionId ?? "")
 
   function toggleBranch(branchId: string) {
     setSelectedBranches((prev) =>
@@ -90,6 +109,8 @@ export function EditEmployeeDialog({ employee, branches }: { employee: Employee;
           role,
           password: password || undefined,
           branchIds: selectedBranches,
+          monthlySalary: monthlySalary.trim() === "" ? null : Number(monthlySalary),
+          defaultDirectionId: defaultDirectionId || null,
         }),
       })
 
@@ -189,6 +210,51 @@ export function EditEmployeeDialog({ employee, branches }: { employee: Employee;
                 </div>
               </div>
             )}
+
+            <fieldset className="space-y-3 rounded-md border p-3">
+              <legend className="px-1 text-sm font-medium">Оклад (для не-преподавателей)</legend>
+              <p className="text-xs text-muted-foreground">
+                Для администраторов и других ролей с фиксированной ставкой. На странице
+                «Документ выплат» эта сумма подтянется автоматически по кнопке «Заполнить».
+                Преподаватели начисляются по факту посещений и оклад здесь обычно не нужен.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>Месячный оклад, ₽</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={monthlySalary}
+                    onChange={(e) => setMonthlySalary(e.target.value)}
+                    placeholder="Нет оклада"
+                  />
+                </div>
+                <div>
+                  <Label>Основное направление</Label>
+                  <Select value={defaultDirectionId || "__none__"} onValueChange={(v) => {
+                    if (v === null || v === "__none__") setDefaultDirectionId("")
+                    else setDefaultDirectionId(v)
+                  }}>
+                    <SelectTrigger className="w-full">
+                      {defaultDirectionId
+                        ? directions.find(d => d.id === defaultDirectionId)?.name ?? "Не выбрано"
+                        : "Не выбрано"}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Не выбрано</SelectItem>
+                      {directions.map(d => (
+                        <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Основное направление используется при разнесении оклада по направлениям в ОПИУ.
+                Если не выбрано — оклад распределяется по всем направлениям пропорционально выручке.
+              </p>
+            </fieldset>
 
             <div>
               <Label>Новый пароль (оставьте пустым, чтобы не менять)</Label>

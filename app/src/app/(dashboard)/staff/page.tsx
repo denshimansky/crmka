@@ -145,8 +145,11 @@ export default async function StaffPage() {
                               employee={{
                                 ...emp,
                                 birthDate: emp.birthDate?.toISOString() || null,
+                                monthlySalary: emp.monthlySalary ? Number(emp.monthlySalary) : null,
+                                defaultDirectionId: emp.defaultDirectionId,
                               }}
                               branches={branches}
+                              directions={directions}
                             />
                           </div>
                         </TableCell>

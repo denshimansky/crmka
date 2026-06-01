@@ -4,8 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Banknote, TrendingUp, TrendingDown, Users } from "lucide-react"
+import Link from "next/link"
 import { PaySalaryDialog } from "./pay-salary-dialog"
 import { SalaryCorrections } from "./salary-corrections"
+import { Button } from "@/components/ui/button"
+import { FileText } from "lucide-react"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { PageHelp } from "@/components/page-help"
@@ -173,12 +176,20 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
             period={monthName}
           />
         </div>
-        <PaySalaryDialog
-          employees={displayRows.map(r => ({ id: r.id, name: r.name, remaining: r.remaining }))}
-          accounts={accounts}
-          periodYear={year}
-          periodMonth={month}
-        />
+        <div className="flex items-center gap-2">
+          <Link href={`/salary/payments/new?year=${year}&month=${month}`}>
+            <Button variant="outline">
+              <FileText className="mr-2 size-4" />
+              Документ выплат
+            </Button>
+          </Link>
+          <PaySalaryDialog
+            employees={displayRows.map(r => ({ id: r.id, name: r.name, remaining: r.remaining }))}
+            accounts={accounts}
+            periodYear={year}
+            periodMonth={month}
+          />
+        </div>
       </div>
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">

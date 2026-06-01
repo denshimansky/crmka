@@ -7,7 +7,10 @@ import { z } from "zod"
 import { logAudit } from "@/lib/audit"
 import { requirePermission } from "@/lib/api-permissions"
 
-const createSchema = z.object({
+// Legacy: одна выплата = (employee × account × amount). Используется простым диалогом
+// «Провести выплату». Сохраняется как SalaryPayment + одна позиция SalaryPaymentItem
+// (directionId = null) для согласованности с новым flow.
+const legacySchema = z.object({
   employeeId: z.string().uuid("Выберите сотрудника"),
   accountId: z.string().uuid("Выберите счёт"),
   amount: z.number().min(0.01, "Сумма должна быть больше 0"),
@@ -19,6 +22,26 @@ const createSchema = z.object({
     return n === 1 || n === 2 ? n : undefined
   }),
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+})
+
+// Document: одна выплата = N позиций (сотрудник × счёт × направление × сумма).
+// Используется страницей /salary/payments/new с кнопкой «Заполнить».
+const docSchema = z.object({
+  date: z.string().min(1, "Укажите дату"),
+  periodYear: z.number().int(),
+  periodMonth: z.number().int().min(1).max(12),
+  periodHalf: z.any().transform(v => {
+    const n = Number(v)
+    return n === 1 || n === 2 ? n : undefined
+  }),
+  comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  items: z.array(z.object({
+    employeeId: z.string().uuid(),
+    accountId: z.string().uuid(),
+    directionId: z.string().uuid().nullable().optional(),
+    amount: z.number().min(0.01),
+    comment: z.string().optional().nullable(),
+  })).min(1, "Добавьте хотя бы одну строку выплаты"),
 })
 
 export async function GET(req: NextRequest) {
@@ -43,6 +66,13 @@ export async function GET(req: NextRequest) {
     include: {
       employee: { select: { id: true, firstName: true, lastName: true, role: true } },
       account: { select: { id: true, name: true } },
+      items: {
+        include: {
+          employee: { select: { id: true, firstName: true, lastName: true } },
+          account: { select: { id: true, name: true } },
+          direction: { select: { id: true, name: true } },
+        },
+      },
     },
     orderBy: { date: "desc" },
   })
@@ -60,29 +90,130 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const parsed = createSchema.safeParse(body)
+  const tenantId = session.user.tenantId
+  const employeeId = session.user.employeeId
+
+  // === Документ с items ===
+  if (Array.isArray(body?.items)) {
+    const parsed = docSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
+    }
+    const data = parsed.data
+
+    if (await isPeriodLocked(tenantId, new Date(Date.UTC(data.periodYear, data.periodMonth - 1, 1)), role)) {
+      return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
+    }
+
+    // Проверяем сотрудников/счета/направления одним прогоном.
+    const employeeIds = Array.from(new Set(data.items.map(i => i.employeeId)))
+    const accountIds = Array.from(new Set(data.items.map(i => i.accountId)))
+    const directionIds = Array.from(new Set(data.items.map(i => i.directionId).filter((v): v is string => !!v)))
+
+    const [employees, accounts, directions] = await Promise.all([
+      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true } }),
+      db.financialAccount.findMany({ where: { id: { in: accountIds }, tenantId }, select: { id: true } }),
+      directionIds.length > 0
+        ? db.direction.findMany({ where: { id: { in: directionIds }, tenantId }, select: { id: true } })
+        : Promise.resolve([] as Array<{ id: string }>),
+    ])
+    if (employees.length !== employeeIds.length) {
+      return NextResponse.json({ error: "Один или несколько сотрудников не найдены" }, { status: 404 })
+    }
+    if (accounts.length !== accountIds.length) {
+      return NextResponse.json({ error: "Один или несколько счетов не найдены" }, { status: 404 })
+    }
+    if (directions.length !== directionIds.length) {
+      return NextResponse.json({ error: "Одно или несколько направлений не найдены" }, { status: 404 })
+    }
+
+    const totalAmount = data.items.reduce((s, it) => s + it.amount, 0)
+    const headEmployeeId = data.items[0].employeeId
+    const headAccountId = data.items[0].accountId
+
+    const payment = await db.$transaction(async (tx) => {
+      // Шапка документа. employeeId/accountId/amount — репрезентативные (для обратной
+      // совместимости со старыми выборками). Источник истины — items.
+      const p = await tx.salaryPayment.create({
+        data: {
+          tenantId,
+          employeeId: headEmployeeId,
+          accountId: headAccountId,
+          amount: totalAmount,
+          date: new Date(data.date),
+          periodYear: data.periodYear,
+          periodMonth: data.periodMonth,
+          periodHalf: data.periodHalf,
+          comment: data.comment,
+          createdBy: employeeId,
+        },
+      })
+
+      // Items.
+      await tx.salaryPaymentItem.createMany({
+        data: data.items.map((it) => ({
+          tenantId,
+          salaryPaymentId: p.id,
+          employeeId: it.employeeId,
+          accountId: it.accountId,
+          directionId: it.directionId ?? null,
+          amount: it.amount,
+          comment: it.comment ?? null,
+        })),
+      })
+
+      // Списываем суммы со счетов (агрегируем по счёту, чтобы не дёргать update N раз).
+      const byAccount = new Map<string, number>()
+      for (const it of data.items) {
+        byAccount.set(it.accountId, (byAccount.get(it.accountId) || 0) + it.amount)
+      }
+      for (const [accId, sum] of byAccount.entries()) {
+        await tx.financialAccount.update({ where: { id: accId }, data: { balance: { decrement: sum } } })
+      }
+
+      return p
+    })
+
+    logAudit({
+      tenantId,
+      employeeId,
+      action: "create",
+      entityType: "SalaryPayment",
+      entityId: payment.id,
+      changes: {
+        amount: { new: totalAmount },
+        items: { new: data.items.length },
+        periodYear: { new: data.periodYear },
+        periodMonth: { new: data.periodMonth },
+      },
+      req,
+    })
+
+    return NextResponse.json(payment, { status: 201 })
+  }
+
+  // === Legacy: одна выплата ===
+  const parsed = legacySchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
   const data = parsed.data
 
-  // Проверка принадлежности сотрудника и счёта к тенанту
   const [employee, account] = await Promise.all([
-    db.employee.findFirst({ where: { id: data.employeeId, tenantId: session.user.tenantId } }),
-    db.financialAccount.findFirst({ where: { id: data.accountId, tenantId: session.user.tenantId } }),
+    db.employee.findFirst({ where: { id: data.employeeId, tenantId }, select: { id: true } }),
+    db.financialAccount.findFirst({ where: { id: data.accountId, tenantId }, select: { id: true } }),
   ])
   if (!employee) return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
   if (!account) return NextResponse.json({ error: "Счёт не найден" }, { status: 404 })
 
-  // Проверка закрытия периода
-  if (await isPeriodLocked(session.user.tenantId, new Date(Date.UTC(data.periodYear, data.periodMonth - 1, 1)), role)) {
+  if (await isPeriodLocked(tenantId, new Date(Date.UTC(data.periodYear, data.periodMonth - 1, 1)), role)) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
 
   const payment = await db.$transaction(async (tx) => {
     const p = await tx.salaryPayment.create({
       data: {
-        tenantId: session.user.tenantId,
+        tenantId,
         employeeId: data.employeeId,
         accountId: data.accountId,
         amount: data.amount,
@@ -91,7 +222,7 @@ export async function POST(req: NextRequest) {
         periodMonth: data.periodMonth,
         periodHalf: data.periodHalf,
         comment: data.comment,
-        createdBy: session.user.employeeId,
+        createdBy: employeeId,
       },
       include: {
         employee: { select: { id: true, firstName: true, lastName: true, role: true } },
@@ -99,7 +230,20 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Списываем с баланса счёта
+    // Зеркальная позиция в items — чтобы новый журнал ДДС и ОПИУ видели одну и ту же
+    // запись независимо от того, через какой UI создана выплата.
+    await tx.salaryPaymentItem.create({
+      data: {
+        tenantId,
+        salaryPaymentId: p.id,
+        employeeId: data.employeeId,
+        accountId: data.accountId,
+        directionId: null,
+        amount: data.amount,
+        comment: data.comment ?? null,
+      },
+    })
+
     await tx.financialAccount.update({
       where: { id: data.accountId },
       data: { balance: { decrement: data.amount } },
@@ -109,8 +253,8 @@ export async function POST(req: NextRequest) {
   })
 
   logAudit({
-    tenantId: session.user.tenantId,
-    employeeId: session.user.employeeId,
+    tenantId,
+    employeeId,
     action: "create",
     entityType: "SalaryPayment",
     entityId: payment.id,
