@@ -165,6 +165,8 @@
 | candidate_status | CandidateStatus | нет | Статус кандидата (только для type=CANDIDATE): NEW / INTERVIEW / TRIAL_DAY / HIRED / REJECTED | — |
 | interview_history | Json | нет | История собеседований (только для type=CANDIDATE): массив {date, comment} | — |
 | resume_url | String | нет | Путь к файлу резюме (только для type=CANDIDATE) | — |
+| monthly_salary | Decimal(12,2) | нет | Месячный оклад для не-преподавателей (админы, управляющие, окладники-инструкторы). Подтягивается в документ выплаты ЗП и в P&L как затраты периода | — |
+| default_direction_id | UUID | нет | FK → Direction. Основное направление для разнесения оклада в ОПИУ. Null = распределяется по всем направлениям пропорционально выручке | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | deleted_at | DateTime | нет | Мягкое удаление | — |
@@ -563,15 +565,16 @@
 
 ## Payment
 
-Платёж — оплата от клиента или возврат.
+Платёж — оплата от клиента или прочий доход (проценты банка, продажа товаров и т.п.).
 
 | Поле | Тип | Обязательное | Описание | Связь |
 |---|---|---|---|---|
 | id | UUID | да | PK | — |
 | tenant_id | UUID | да | FK → Organization | Мультитенант |
-| client_id | UUID | да | FK → Client | Клиент |
+| client_id | UUID | **нет** | FK → Client. Null для прочих доходов (без клиента) | Клиент |
 | subscription_id | UUID | нет | FK → Subscription | Абонемент (null = на баланс клиента) |
 | account_id | UUID | да | FK → Account | Счёт/касса | — |
+| income_category_id | UUID | нет | FK → IncomeCategory. Заполняется для платежей без клиента/абонемента | Категория прочего дохода |
 | amount | Decimal(12,2) | да | Сумма (положительная = приход, отрицательная = возврат) | — |
 | type | PaymentType | да | Тип: incoming / refund / transfer_in | — |
 | method | PaymentMethod | да | Способ: cash / bank_transfer / acquiring / online_yukassa / online_robokassa / sbp_qr | — |
@@ -583,6 +586,8 @@
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
 | deleted_at | DateTime | нет | Мягкое удаление | — |
+
+**Инвариант:** ровно одно из `client_id` или `income_category_id` должно быть заполнено (валидация в API). Прочий доход (без клиента) НЕ создаёт `ClientBalanceTransaction`, НЕ активирует абонементы, НЕ переводит клиента в active_client.
 
 ---
 
@@ -693,10 +698,11 @@
 | category_id | UUID | да | FK → ExpenseCategory | Статья расхода |
 | account_id | UUID | да | FK → Account | Оплачено из счёта |
 | amount | Decimal(12,2) | да | Полная сумма расхода | — |
-| date | Date | да | Дата расхода | — |
+| date | Date | да | Дата платежа (используется в ДДС) | — |
 | comment | String | нет | Комментарий | — |
-| amortization_months | Int | нет | Период амортизации (null = без амортизации). ДДС = полная сумма, финрез = 1/N | — |
-| amortization_start_date | Date | нет | Дата начала амортизации | — |
+| recognition_mode | ExpenseRecognitionMode | да | Режим признания в ОПИУ: by_payment_date / single_period / amortized. Default: by_payment_date | — |
+| amortization_months | Int | нет | Число месяцев раскладки в ОПИУ (≥2 для amortized, =1 для single_period, null для by_payment_date) | — |
+| amortization_start_date | Date | нет | Месяц начала раскладки в ОПИУ. Обязателен для single_period и amortized | — |
 | is_variable | Boolean | да | Переменный расход (ЗП, материалы) vs постоянный | — |
 | is_recurring | Boolean | да | Повторяющийся расход (копируется ежемесячно, дефолт false) | — |
 | recurring_group_id | UUID | нет | Группировка повторяющихся расходов | — |
@@ -704,6 +710,14 @@
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
 | deleted_at | DateTime | нет | Мягкое удаление | — |
+
+**Принципы признания:**
+- В ДДС расход всегда учитывается одной суммой по `date`.
+- В ОПИУ — по `recognition_mode`:
+  - `by_payment_date`: одна доля в месяц `date`
+  - `single_period`: одна доля в месяц `amortization_start_date` (пример: аренда июня уплачена 25 мая)
+  - `amortized`: `amortization_months` равных долей начиная с `amortization_start_date`. Округление до копейки, остаток в последний месяц
+- UI-лимит `amortization_months`: 2–60. При выборке расходов для P&L-отчёта окно расширяется на 60 месяцев назад (см. `AMORTIZATION_LOOKBACK_MONTHS` в `src/lib/expense-amortization.ts`).
 
 ---
 
@@ -733,10 +747,36 @@
 | name | String | да | Название | — |
 | is_salary | Boolean | да | Категория зарплаты (для выделения в финрезе) | — |
 | is_variable | Boolean | да | Переменный расход (для маржинальности) | — |
-| is_system | Boolean | да | Системная (нельзя удалить) | — |
+| is_system | Boolean | да | Системная (нельзя удалить и переименовать) | — |
 | is_active | Boolean | да | Активна (дефолт true) | — |
 | sort_order | Int | да | Порядок (дефолт 0) | — |
 | created_at | DateTime | да | Дата создания | — |
+
+CRUD: `/api/expense-categories` (GET для системных + tenant, POST/PATCH/DELETE для owner|manager). У системных можно менять флаги `is_variable`, `is_salary`, `is_active`, `sort_order`, но НЕ `name`. Управление в UI: /settings/finance-categories.
+
+---
+
+## IncomeCategory
+
+Статья дохода — для прочих поступлений вне абонементов (проценты банка, продажа товаров, аренда зала сторонним организациям).
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | нет | FK → Organization | null = системные |
+| name | String | да | Название | — |
+| is_system | Boolean | да | Системная (нельзя удалить и переименовать) | — |
+| is_active | Boolean | да | Активна (дефолт true) | — |
+| sort_order | Int | да | Порядок (дефолт 0) | — |
+| created_at | DateTime | да | Дата создания | — |
+
+**Системные категории (созданы миграцией):**
+- «Оплата абонементов» — применяется к платежам с абонементом (не задаётся явно)
+- «Проценты банка»
+- «Продажа товаров»
+- «Прочее»
+
+Используется в `Payment.income_category_id` для платежей без `client_id`. CRUD: `/api/income-categories`. Управление: /settings/finance-categories.
 
 ---
 
@@ -763,22 +803,46 @@
 
 ## SalaryPayment
 
-Выплата ЗП сотруднику.
+Шапка документа выплаты ЗП. Может быть как простой одиночной выплатой (legacy: один сотрудник × счёт × сумма), так и документом с несколькими позициями (`items[]` → `SalaryPaymentItem`).
 
 | Поле | Тип | Обязательное | Описание | Связь |
 |---|---|---|---|---|
 | id | UUID | да | PK | — |
 | tenant_id | UUID | да | FK → Organization | Мультитенант |
-| employee_id | UUID | да | FK → Employee | Сотрудник |
-| account_id | UUID | да | FK → Account | Из какого счёта |
-| amount | Decimal(12,2) | да | Сумма выплаты | — |
+| employee_id | UUID | да | FK → Employee | Сотрудник (репрезентативный — первый из items) |
+| account_id | UUID | да | FK → Account | Счёт (репрезентативный — первый из items) |
+| amount | Decimal(12,2) | да | Итоговая сумма (sum по items) | — |
 | date | Date | да | Дата выплаты | — |
 | period_year | Int | да | За какой год | — |
 | period_month | Int | да | За какой месяц | — |
-| period_half | Int | нет | Тип выплаты (1 = аванс, 2 = зарплата, null = произвольная выплата) | — |
+| period_half | Int | нет | Тип выплаты (1 = аванс, 2 = зарплата, null = произвольная) | — |
 | comment | String | нет | Комментарий | — |
 | created_at | DateTime | да | Дата создания | — |
 | created_by | UUID | нет | FK → Employee | Кто провёл |
+
+**Источник истины — items.** Поля `employee_id / account_id / amount` остаются NOT NULL для обратной совместимости с существующими выборками и репортами; для документа с N>1 позиций они заполняются «репрезентативно» (первая позиция, sum amount).
+
+---
+
+## SalaryPaymentItem
+
+Позиция документа выплаты ЗП — фактическое списание со счёта в адрес одного сотрудника по одному направлению.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | Мультитенант |
+| salary_payment_id | UUID | да | FK → SalaryPayment (CASCADE) | Шапка документа |
+| employee_id | UUID | да | FK → Employee | Кому выплачено |
+| account_id | UUID | да | FK → Account | С какого счёта |
+| direction_id | UUID | нет | FK → Direction. Null = «без направления» (распределяется как постоянный расход) | Направление для разнесения в ОПИУ |
+| amount | Decimal(12,2) | да | Сумма позиции | — |
+| comment | String | нет | Комментарий к позиции | — |
+| created_at | DateTime | да | Дата создания | — |
+
+**Поведение в отчётах:**
+- В **ДДС** каждая позиция — отдельная строка журнала по `(salary_payment.date, account_id, amount)`. Direction не отображается в журнале.
+- В **ОПИУ** позиции группируются по `(period_year, period_month, direction_id)`. Direction=null распределяется через `distributeFixedExpenses` пропорционально выручке направлений.
 
 ---
 
@@ -1654,6 +1718,22 @@
 
 ---
 
+# Enums (фрагмент — финансовые)
+
+## ExpenseRecognitionMode
+
+Режим признания расхода в ОПИУ (поле `Expense.recognition_mode`).
+
+| Значение | Описание |
+|---|---|
+| `by_payment_date` | (default) В ОПИУ расход падает в месяц `date` платежа |
+| `single_period` | Одной суммой в месяц `amortization_start_date` |
+| `amortized` | Равными долями по `amortization_months` месяцев начиная с `amortization_start_date` |
+
+См. реализацию: `app/src/lib/expense-amortization.ts`. Unit-тесты: `app/src/__tests__/expense-amortization.test.ts`.
+
+---
+
 # Индексы (рекомендации)
 
 Ключевые индексы для производительности:
@@ -1674,3 +1754,5 @@
 14. **ClientBalanceTransaction:** `(tenant_id, client_id, created_at)` — история баланса клиента
 15. **Expense:** `(tenant_id, is_recurring)` — повторяющиеся расходы
 16. **Payment:** `(tenant_id, created_at)` — ДДС по дням
+17. **SalaryPaymentItem:** `(tenant_id, employee_id)`, `(salary_payment_id)` — выборка позиций документа выплаты, расчёт ОПИУ по направлениям
+18. **IncomeCategory:** `(tenant_id)` — справочник прочих доходов
