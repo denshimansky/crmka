@@ -89,6 +89,12 @@ model Organization {
   rolePermissions     Json?    @map("role_permissions")
   onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
 
+  // Тип абонемента (один на компанию). Выбирается в wizard, блокируется после первого абонемента.
+  subscriptionType              SubscriptionType? @map("subscription_type")
+  subscriptionTypeLockedAt      DateTime?         @map("subscription_type_locked_at")
+  packageDefaultValidDays       Int               @default(60) @map("package_default_valid_days")
+  packageExpiryNotifyDaysBefore Int               @default(7) @map("package_expiry_notify_days_before")
+
   // Ф6: Безопасность данных
   hidePhonesFromInstructors Boolean @default(false) @map("hide_phones_from_instructors")
   restrictClientExport      Boolean @default(false) @map("restrict_client_export")
@@ -134,6 +140,7 @@ model Organization {
   pageViews                 PageView[]
   loginAttempts             LoginAttempt[]
   applications              Application[]
+  packageTemplates          PackageTemplate[]
 
   @@map("organizations")
 }
@@ -664,6 +671,26 @@ model SalaryAdjustment {
 
 // === АБОНЕМЕНТЫ ===
 
+// Шаблоны пакетов: пресеты количества занятий (4/8/12) с опциональным сроком годности.
+// Используются только для тенантов с subscriptionType=package.
+model PackageTemplate {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  lessonsCount Int       @map("lessons_count")
+  validDays    Int?      @map("valid_days")
+  isActive     Boolean   @default(true) @map("is_active")
+  sortOrder    Int       @default(0) @map("sort_order")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  organization  Organization   @relation(fields: [tenantId], references: [id])
+  subscriptions Subscription[]
+
+  @@index([tenantId, isActive])
+  @@map("package_templates")
+}
+
 model Subscription {
   id                     String             @id @default(uuid()) @db.Uuid
   tenantId               String             @map("tenant_id") @db.Uuid
@@ -673,8 +700,8 @@ model Subscription {
   groupId                String             @map("group_id") @db.Uuid
   type                   SubscriptionType   @default(calendar)
   status                 SubscriptionStatus @default(pending)
-  periodYear             Int                @map("period_year")
-  periodMonth            Int                @map("period_month")
+  periodYear             Int?               @map("period_year")
+  periodMonth            Int?               @map("period_month")
   lessonPrice            Decimal            @map("lesson_price") @db.Decimal(12, 2)
   totalLessons           Int                @map("total_lessons")
   totalAmount            Decimal            @map("total_amount") @db.Decimal(12, 2)
@@ -684,6 +711,8 @@ model Subscription {
   chargedAmount          Decimal            @default(0) @map("charged_amount") @db.Decimal(12, 2)
   startDate              DateTime           @map("start_date") @db.Date
   endDate                DateTime?          @map("end_date") @db.Date
+  expiresAt              DateTime?          @map("expires_at") @db.Date
+  packageTemplateId      String?            @map("package_template_id") @db.Uuid
   withdrawalReasonId     String?            @map("withdrawal_reason_id") @db.Uuid
   withdrawalDate         DateTime?          @map("withdrawal_date") @db.Date
   isTrialCredited        Boolean            @default(false) @map("is_trial_credited")
@@ -698,6 +727,7 @@ model Subscription {
   ward                Ward?                      @relation(fields: [wardId], references: [id])
   direction           Direction                  @relation(fields: [directionId], references: [id])
   group               Group                      @relation(fields: [groupId], references: [id])
+  packageTemplate     PackageTemplate?           @relation(fields: [packageTemplateId], references: [id])
   payments            Payment[]
   discounts           Discount[]
   attendances         Attendance[]
@@ -706,6 +736,8 @@ model Subscription {
 
   @@index([tenantId, clientId])
   @@index([tenantId, periodYear, periodMonth])
+  @@index([tenantId, type, status, expiresAt])
+  @@index([tenantId, clientId, groupId, type, status])
   @@map("subscriptions")
 }
 

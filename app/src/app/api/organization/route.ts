@@ -18,6 +18,9 @@ const updateSchema = z.object({
   roleDisplayNames: z.record(z.string()).optional(),
   rolePermissions: z.record(z.record(z.boolean())).optional(),
   onboardingCompleted: z.boolean().optional(),
+  subscriptionType: z.enum(["calendar", "fixed", "package"]).optional(),
+  packageDefaultValidDays: z.number().int().min(1).max(3650).optional(),
+  packageExpiryNotifyDaysBefore: z.number().int().min(0).max(60).optional(),
 })
 
 export async function GET() {
@@ -48,6 +51,24 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
   const data = parsed.data
+
+  // Тип абонемента нельзя сменить после блокировки (= после создания первого абонемента).
+  // Разблокировать может только техподдержка через backoffice.
+  if (data.subscriptionType !== undefined) {
+    if (session.user.role !== "owner") {
+      return NextResponse.json({ error: "Тип абонемента может выбирать только владелец" }, { status: 403 })
+    }
+    const current = await db.organization.findUnique({
+      where: { id: session.user.tenantId },
+      select: { subscriptionType: true, subscriptionTypeLockedAt: true },
+    })
+    if (current?.subscriptionTypeLockedAt && current.subscriptionType !== data.subscriptionType) {
+      return NextResponse.json(
+        { error: "Тип абонемента заблокирован. Для смены обратитесь в техподдержку." },
+        { status: 409 },
+      )
+    }
+  }
 
   const org = await db.organization.update({
     where: { id: session.user.tenantId },
