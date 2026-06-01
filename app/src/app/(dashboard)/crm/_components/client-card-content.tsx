@@ -2,11 +2,11 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { notFound } from "next/navigation"
-import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, CreditCard, FileText, Building2, GraduationCap, User, Percent, CalendarDays } from "lucide-react"
+import { CreditCard, FileText, Building2, GraduationCap, User, Percent, CalendarDays } from "lucide-react"
+import { BackButton } from "@/components/back-button"
 import { ClientTabs } from "../clients/[id]/client-tabs"
 import { EditClientDialog } from "../clients/[id]/edit-client-dialog"
 import { UnprolongedCommentsSection } from "../clients/[id]/unprolonged-comments"
@@ -191,11 +191,7 @@ export async function ClientCardContent({
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Link href={backHref}>
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="size-4" />
-          </Button>
-        </Link>
+        <BackButton fallbackHref={backHref} />
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{fullName}</h1>
