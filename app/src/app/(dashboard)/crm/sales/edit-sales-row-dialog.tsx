@@ -255,13 +255,37 @@ export function EditSalesRowDialog({
       }
     }
 
-    // 3. Заявка — обновляем поля Application (branch/direction).
-    if (showsApplicationFields && row.applicationId) {
-      const appChanges: Record<string, unknown> = {}
-      if (branchId && selectedBranchName !== row.branchName) appChanges.branchId = branchId
-      if (directionId && selectedDirectionName !== row.directionName) appChanges.directionId = directionId
-      if (Object.keys(appChanges).length > 0) {
-        const r = await jsonFetch(`/api/applications/${row.applicationId}`, "PATCH", appChanges)
+    // 3. Заявка — обновляем поля Application (branch/direction). Если заявки
+    // ещё нет (Ward создан через «+ Клиент» без Application) — создаём её,
+    // когда заполнены оба поля; иначе синхронизируем филиал на Client (он же
+    // отображается в таблице как фолбэк, когда Application нет).
+    if (showsApplicationFields) {
+      if (row.applicationId) {
+        const appChanges: Record<string, unknown> = {}
+        if (branchId && selectedBranchName !== row.branchName) appChanges.branchId = branchId
+        if (directionId && selectedDirectionName !== row.directionName) appChanges.directionId = directionId
+        if (Object.keys(appChanges).length > 0) {
+          const r = await jsonFetch(`/api/applications/${row.applicationId}`, "PATCH", appChanges)
+          if (!r.ok) {
+            setError(r.error)
+            setSubmitting(false)
+            return
+          }
+        }
+      } else if (branchId && directionId) {
+        const r = await jsonFetch(`/api/applications`, "POST", {
+          clientId: row.clientId,
+          wardId: row.ward.id,
+          branchId,
+          directionId,
+        })
+        if (!r.ok) {
+          setError(r.error)
+          setSubmitting(false)
+          return
+        }
+      } else if (branchId && selectedBranchName !== row.branchName) {
+        const r = await jsonFetch(`/api/clients/${row.clientId}`, "PATCH", { branchId })
         if (!r.ok) {
           setError(r.error)
           setSubmitting(false)
