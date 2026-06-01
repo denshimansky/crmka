@@ -422,10 +422,16 @@ export function SalesTable({
                   <TableCell className="text-sm">{r.expectedSubscriptionAmount || "—"}</TableCell>
                 )}
                 <TableCell>
-                  <EditableTextCell
-                    initialValue={r.comment}
-                    endpoint={{ url: `/api/clients/${r.clientId}`, field: "comment" }}
-                  />
+                  {r.applicationId ? (
+                    <EditableTextCell
+                      initialValue={r.comment}
+                      endpoint={{ url: `/api/applications/${r.applicationId}`, field: "comment" }}
+                    />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      {r.comment || "—"}
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell>
                   <EditableSelectCell

@@ -157,7 +157,7 @@ export default async function SalesPage({
             ? w.salesStageAt.toISOString()
             : null,
         nextContactDate: w.client.nextContactDate ? w.client.nextContactDate.toISOString() : null,
-        comment: w.client.comment,
+        comment: app?.comment ?? null,
         assignedTo: w.client.assignedTo,
       }
     })
@@ -219,6 +219,15 @@ export default async function SalesPage({
             lesson: { select: { startTime: true } },
           },
         },
+        // Комментарий «по заявке» показываем во всех вкладках продаж — берём
+        // последнюю не-удалённую заявку подопечного (на этих стадиях она, как
+        // правило, уже processed).
+        applications: {
+          where: { deletedAt: null },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { id: true, comment: true },
+        },
       },
       orderBy:
         tab === "trial"
@@ -228,6 +237,7 @@ export default async function SalesPage({
 
     rows = wards.map((w) => {
       const t = w.trialLessons[0]
+      const app = w.applications[0]
       const direction = t?.group?.direction ?? t?.direction ?? null
       const lessonPrice = direction?.lessonPrice ? Number(direction.lessonPrice) : 0
       // Простая оценка: 8 занятий × стоимость занятия (фактическое количество
@@ -236,6 +246,7 @@ export default async function SalesPage({
         tab === "awaiting_payment" && lessonPrice > 0 ? fmtMoney(lessonPrice * 8) : null
       return {
         rowId: w.id,
+        applicationId: app?.id,
         clientId: w.client.id,
         state: w.client._count.payments > 0 ? "client" : "lead",
         firstName: w.client.firstName,
@@ -268,7 +279,7 @@ export default async function SalesPage({
         nextContactDate: w.client.nextContactDate
           ? w.client.nextContactDate.toISOString()
           : null,
-        comment: w.client.comment,
+        comment: app?.comment ?? null,
         assignedTo: w.client.assignedTo,
       }
     })

@@ -223,13 +223,14 @@ export function EditSalesRowDialog({
     setSubmitting(true)
     setError(null)
 
-    // 1. Поля родителя (Client).
+    // 1. Поля родителя (Client). Комментарий сюда не пишем — он живёт на
+    // Application (см. шаг 3); если заявки ещё нет, при заполненных филиале+
+    // направлении создадим её вместе с комментарием.
     const clientChanges: Record<string, unknown> = {}
     if (parentFirstName !== (row.firstName || "")) clientChanges.firstName = parentFirstName
     if (parentLastName !== (row.lastName || "")) clientChanges.lastName = parentLastName
     if (phone !== (row.phone || "")) clientChanges.phone = phone
     if (socialLink !== (row.socialLink || "")) clientChanges.socialLink = socialLink
-    if (comment !== (row.comment || "")) clientChanges.comment = comment
     if ((assignedTo || null) !== (row.assignedTo || null)) clientChanges.assignedTo = assignedTo || null
 
     if (Object.keys(clientChanges).length > 0) {
@@ -255,42 +256,47 @@ export function EditSalesRowDialog({
       }
     }
 
-    // 3. Заявка — обновляем поля Application (branch/direction). Если заявки
-    // ещё нет (Ward создан через «+ Клиент» без Application) — создаём её,
-    // когда заполнены оба поля; иначе синхронизируем филиал на Client (он же
-    // отображается в таблице как фолбэк, когда Application нет).
-    if (showsApplicationFields) {
-      if (row.applicationId) {
-        const appChanges: Record<string, unknown> = {}
-        if (branchId && selectedBranchName !== row.branchName) appChanges.branchId = branchId
-        if (directionId && selectedDirectionName !== row.directionName) appChanges.directionId = directionId
-        if (Object.keys(appChanges).length > 0) {
-          const r = await jsonFetch(`/api/applications/${row.applicationId}`, "PATCH", appChanges)
-          if (!r.ok) {
-            setError(r.error)
-            setSubmitting(false)
-            return
-          }
-        }
-      } else if (branchId && directionId) {
-        const r = await jsonFetch(`/api/applications`, "POST", {
-          clientId: row.clientId,
-          wardId: row.ward.id,
-          branchId,
-          directionId,
-        })
+    // 3. Заявка — обновляем поля Application (branch/direction/comment).
+    // Комментарий правим на всех вкладках (PATCH разрешает comment даже у
+    // обработанных заявок). Если заявки ещё нет — создаём её, когда заполнены
+    // филиал и направление (заодно прикладываем введённый комментарий).
+    // Если меняется только филиал — синхронизируем его на Client (фолбэк
+    // отображения, когда Application нет).
+    const commentChanged = comment !== (row.comment || "")
+    if (row.applicationId) {
+      const appChanges: Record<string, unknown> = {}
+      if (showsApplicationFields && branchId && selectedBranchName !== row.branchName)
+        appChanges.branchId = branchId
+      if (showsApplicationFields && directionId && selectedDirectionName !== row.directionName)
+        appChanges.directionId = directionId
+      if (commentChanged) appChanges.comment = comment
+      if (Object.keys(appChanges).length > 0) {
+        const r = await jsonFetch(`/api/applications/${row.applicationId}`, "PATCH", appChanges)
         if (!r.ok) {
           setError(r.error)
           setSubmitting(false)
           return
         }
-      } else if (branchId && selectedBranchName !== row.branchName) {
-        const r = await jsonFetch(`/api/clients/${row.clientId}`, "PATCH", { branchId })
-        if (!r.ok) {
-          setError(r.error)
-          setSubmitting(false)
-          return
-        }
+      }
+    } else if (showsApplicationFields && branchId && directionId) {
+      const r = await jsonFetch(`/api/applications`, "POST", {
+        clientId: row.clientId,
+        wardId: row.ward.id,
+        branchId,
+        directionId,
+        ...(comment ? { comment } : {}),
+      })
+      if (!r.ok) {
+        setError(r.error)
+        setSubmitting(false)
+        return
+      }
+    } else if (showsApplicationFields && branchId && selectedBranchName !== row.branchName) {
+      const r = await jsonFetch(`/api/clients/${row.clientId}`, "PATCH", { branchId })
+      if (!r.ok) {
+        setError(r.error)
+        setSubmitting(false)
+        return
       }
     }
 

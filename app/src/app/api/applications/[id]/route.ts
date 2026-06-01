@@ -27,7 +27,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     where: { id, tenantId, deletedAt: null },
   })
   if (!existing) return NextResponse.json({ error: "Заявка не найдена" }, { status: 404 })
-  if (existing.status !== "active") {
+  // Филиал/направление обработанной заявки менять нельзя (они уже влияли на
+  // зачисление и downstream). А комментарий — это заметки, его правят и после
+  // обработки (например, на вкладках «Пробное»/«Ожидаем оплату»).
+  const editsBranchOrDirection = data.branchId !== undefined || data.directionId !== undefined
+  if (editsBranchOrDirection && existing.status !== "active") {
     return NextResponse.json({ error: "Обработанную заявку редактировать нельзя" }, { status: 400 })
   }
 
