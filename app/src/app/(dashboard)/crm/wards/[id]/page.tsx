@@ -68,17 +68,48 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
   const currentMonth = now.getMonth() + 1
 
   // Пробное на этого ребёнка доступно только при открытой заявке.
+  const activeApplication = await db.application.findFirst({
+    where: { tenantId, wardId: ward.id, status: "active", deletedAt: null },
+    select: { id: true, branchId: true, directionId: true },
+    orderBy: { createdAt: "desc" },
+  })
   const hasActiveApplication =
-    ward.salesStage === "application" ||
-    Boolean(
-      await db.application.findFirst({
-        where: { tenantId, wardId: ward.id, status: "active", deletedAt: null },
-        select: { id: true },
-      }),
-    )
+    ward.salesStage === "application" || Boolean(activeApplication)
   const trialDisabledReason = hasActiveApplication
     ? undefined
     : "Сначала создайте заявку на ребёнка"
+
+  // Подтягиваем филиал/направление/группу для предзаполнения формы «В ожидание
+  // оплаты»: сперва из активной заявки, затем из последнего пробного (group/
+  // direction). Group-id берём только из пробного.
+  const lastTrial =
+    ward.salesStage === "trial_attended" || !activeApplication
+      ? await db.trialLesson.findFirst({
+          where: {
+            tenantId,
+            wardId: ward.id,
+            status: { in: ["attended", "scheduled"] },
+          },
+          select: {
+            groupId: true,
+            directionId: true,
+            group: { select: { branchId: true, directionId: true } },
+            room: { select: { branchId: true } },
+          },
+          orderBy: [{ status: "asc" }, { scheduledDate: "desc" }],
+        })
+      : null
+  const defaultBranchId =
+    activeApplication?.branchId ??
+    lastTrial?.group?.branchId ??
+    lastTrial?.room?.branchId ??
+    null
+  const defaultDirectionId =
+    activeApplication?.directionId ??
+    lastTrial?.group?.directionId ??
+    lastTrial?.directionId ??
+    null
+  const defaultGroupId = lastTrial?.groupId ?? null
 
   const activeSubscriptions = await db.subscription.findMany({
     where: {
@@ -145,6 +176,9 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
           wardId={ward.id}
           wardName={wardName}
           currentStage={ward.salesStage}
+          defaultBranchId={defaultBranchId}
+          defaultDirectionId={defaultDirectionId}
+          defaultGroupId={defaultGroupId}
           disabled={activeSubscriptions.length > 0}
         />
         <TrialLessonDialog

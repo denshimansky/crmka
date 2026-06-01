@@ -20,11 +20,17 @@ export function WardSalesStageActions({
   wardId,
   wardName,
   currentStage,
+  defaultBranchId,
+  defaultDirectionId,
+  defaultGroupId,
   disabled = false,
 }: {
   wardId: string
   wardName?: string
   currentStage: string
+  defaultBranchId?: string | null
+  defaultDirectionId?: string | null
+  defaultGroupId?: string | null
   // Активный абонемент → подопечный вне воронки, кнопка не нужна.
   disabled?: boolean
 }) {
@@ -44,6 +50,9 @@ export function WardSalesStageActions({
       <AwaitingPaymentDialog
         wardId={wardId}
         wardName={wardName ?? "Подопечный"}
+        defaultBranchId={defaultBranchId}
+        defaultDirectionId={defaultDirectionId}
+        defaultGroupId={defaultGroupId}
         open={open}
         onOpenChange={setOpen}
       />

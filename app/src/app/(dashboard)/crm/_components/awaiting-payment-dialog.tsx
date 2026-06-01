@@ -55,6 +55,7 @@ export function AwaitingPaymentDialog({
   wardName,
   defaultBranchId,
   defaultDirectionId,
+  defaultGroupId,
   open,
   onOpenChange,
 }: {
@@ -62,6 +63,7 @@ export function AwaitingPaymentDialog({
   wardName: string
   defaultBranchId?: string | null
   defaultDirectionId?: string | null
+  defaultGroupId?: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -74,7 +76,7 @@ export function AwaitingPaymentDialog({
 
   const [branchId, setBranchId] = useState<string>(defaultBranchId ?? "")
   const [directionId, setDirectionId] = useState<string>(defaultDirectionId ?? "")
-  const [groupId, setGroupId] = useState<string>("")
+  const [groupId, setGroupId] = useState<string>(defaultGroupId ?? "")
   const [firstPaidDate, setFirstPaidDate] = useState<string>("")
 
   const [submitting, setSubmitting] = useState(false)
@@ -136,28 +138,41 @@ export function AwaitingPaymentDialog({
   }, [open])
 
   // Reset при закрытии — иначе при повторном открытии будут старые значения.
+  // (При открытии defaults уже учтены в useState-инициализаторах; повторный
+  // setState на тех же значениях безопасен.)
   useEffect(() => {
     if (!open) {
       setBranchId(defaultBranchId ?? "")
       setDirectionId(defaultDirectionId ?? "")
-      setGroupId("")
+      setGroupId(defaultGroupId ?? "")
       setFirstPaidDate("")
       setError(null)
     }
-  }, [open, defaultBranchId, defaultDirectionId])
+  }, [open, defaultBranchId, defaultDirectionId, defaultGroupId])
 
-  // Сброс направления/группы при смене филиала, группы при смене направления.
+  // Валидация подставленных дефолтов после загрузки справочников: если
+  // переданная группа/направление не существует в загруженных данных — чистим,
+  // чтобы не отправить мусор. Прежний useEffect здесь стирал groupId на каждом
+  // рендере и затирал подставленную из заявки группу.
   useEffect(() => {
-    if (
-      directionId &&
-      branchId &&
-      groups.some((g) => g.directionId === directionId && g.branchId !== branchId)
-    ) {
-      // Если выбранное направление есть только в другом филиале — оставляем
-      // как есть; пользователь сам перевыберет.
+    if (loadingOptions) return
+    if (groupId) {
+      const g = groups.find((x) => x.id === groupId)
+      if (!g || g.branchId !== branchId || g.directionId !== directionId) {
+        setGroupId("")
+      }
     }
-    setGroupId("")
-  }, [branchId, directionId, groups])
+    if (directionId && branchId) {
+      const directionAvailable = groups.some(
+        (g) => g.directionId === directionId && g.branchId === branchId,
+      )
+      if (!directionAvailable && directions.length > 0) {
+        // Направление выбрано, но в этом филиале групп под него нет — оставляем
+        // как подсказку, пользователь сам перевыберет (поведение прежнее).
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingOptions])
 
   const filteredDirections = useMemo(() => {
     if (!branchId) return directions
@@ -247,6 +262,7 @@ export function AwaitingPaymentDialog({
                   if (v) {
                     setBranchId(v)
                     setDirectionId("")
+                    setGroupId("")
                   }
                 }}
               >
@@ -270,7 +286,10 @@ export function AwaitingPaymentDialog({
               <Select
                 value={directionId}
                 onValueChange={(v) => {
-                  if (v) setDirectionId(v)
+                  if (v) {
+                    setDirectionId(v)
+                    setGroupId("")
+                  }
                 }}
                 disabled={!branchId}
               >

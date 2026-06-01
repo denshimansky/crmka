@@ -44,8 +44,11 @@ export interface SalesRow {
   socialLink: string | null
   channelName: string | null
   ward: WardLite
+  branchId: string | null
   branchName: string | null
+  directionId: string | null
   directionName: string | null
+  groupId: string | null
   groupOrTimeLabel: string | null
   scheduledDate: string | null
   /** HH:MM начала пробного (если задано) — для отображения «ДД.ММ.ГГГГ HH:MM» в столбце «Дата пробного». */
@@ -509,6 +512,9 @@ export function SalesTable({
         <AwaitingPaymentDialog
           wardId={awaitingFor.ward.id}
           wardName={wardName(awaitingFor.ward)}
+          defaultBranchId={awaitingFor.branchId}
+          defaultDirectionId={awaitingFor.directionId}
+          defaultGroupId={awaitingFor.groupId}
           open={true}
           onOpenChange={(v) => {
             if (!v) setAwaitingFor(null)

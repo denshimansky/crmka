@@ -140,8 +140,11 @@ export default async function SalesPage({
         socialLink: w.client.socialLink,
         channelName: w.client.channel?.name ?? null,
         ward: { id: w.id, firstName: w.firstName, lastName: w.lastName },
+        branchId: app?.branch?.id ?? w.client.branch?.id ?? null,
         branchName: app?.branch?.name ?? w.client.branch?.name ?? null,
+        directionId: app?.direction?.id ?? null,
         directionName: app?.direction?.name ?? null,
+        groupId: null,
         groupOrTimeLabel: null,
         scheduledDate: null,
         startTime: null,
@@ -241,9 +244,13 @@ export default async function SalesPage({
         socialLink: w.client.socialLink,
         channelName: w.client.channel?.name ?? null,
         ward: { id: w.id, firstName: w.firstName, lastName: w.lastName },
+        branchId:
+          t?.group?.branch?.id ?? t?.room?.branch?.id ?? w.client.branch?.id ?? null,
         branchName:
           t?.group?.branch?.name ?? t?.room?.branch?.name ?? w.client.branch?.name ?? null,
+        directionId: direction?.id ?? null,
         directionName: direction?.name ?? null,
+        groupId: t?.group?.id ?? null,
         groupOrTimeLabel:
           t?.group?.name ??
           (t?.startTime
