@@ -47,7 +47,13 @@ export function DrillDownSheet({
 }: DrillDownSheetProps) {
   return (
     <Sheet open={isOpen} onOpenChange={(v) => { if (!v) onClose() }}>
-      <SheetContent side="right" className="sm:max-w-xl w-full overflow-y-auto">
+      <SheetContent
+        side="right"
+        // Sheet по умолчанию имеет data-[side=right]:sm:max-w-sm (384px) и width:3/4.
+        // Для drill-down это узко и появляется горизонтальный скролл. Перекрываем
+        // max-width на десктопе — до 1280px, fit-content по факту.
+        className="w-full data-[side=right]:sm:max-w-none sm:w-[min(92vw,1280px)] overflow-y-auto"
+      >
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
           {description && <SheetDescription>{description}</SheetDescription>}
@@ -59,12 +65,15 @@ export function DrillDownSheet({
           ) : !data || data.rows.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">Нет данных</p>
           ) : (
-            <div className="rounded-md border">
+            // overflow-x-auto оставлен как страховка для экстремально широких таблиц
+            // (например, > 1280px на десктопе) — но при ширине Sheet до 1280px
+            // 99% drill-down-отчётов укладываются без горизонтального скролла.
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     {data.columns.map((col, i) => (
-                      <TableHead key={i} className={i === data.columns.length - 1 ? "text-right" : ""}>
+                      <TableHead key={i} className={i === data.columns.length - 1 ? "text-right whitespace-nowrap" : "whitespace-nowrap"}>
                         {col}
                       </TableHead>
                     ))}
@@ -76,7 +85,7 @@ export function DrillDownSheet({
                       {row.map((cell, j) => (
                         <TableCell
                           key={j}
-                          className={j === row.length - 1 ? "text-right font-medium" : ""}
+                          className={j === row.length - 1 ? "text-right font-medium whitespace-nowrap" : ""}
                         >
                           {j === row.length - 1 && typeof cell === "number"
                             ? formatValue(cell)
