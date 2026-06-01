@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
@@ -5,112 +6,293 @@ import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ArrowDownCircle, ArrowUpCircle, Wallet } from "lucide-react"
+import { ArrowDownCircle, ArrowUpCircle, Wallet, ArrowRightLeft } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
-import { DrilldownAmount } from "@/components/drilldown-amount"
 import { ReportExport } from "@/components/report-export"
 
 function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
+  const sign = amount < 0 ? "−" : amount > 0 ? "+" : ""
+  return sign + new Intl.NumberFormat("ru-RU").format(Math.abs(Math.round(amount * 100) / 100)) + " ₽"
 }
 
-export default async function DdsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+function formatDate(d: Date): string {
+  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
+}
+
+const METHOD_LABELS: Record<string, string> = {
+  cash: "Наличные",
+  bank_transfer: "Безнал",
+  acquiring: "Эквайринг",
+  online_yukassa: "ЮKassa",
+  online_robokassa: "Робокасса",
+  sbp_qr: "СБП",
+}
+
+const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  cash: "Касса",
+  bank_account: "Р/С",
+  acquiring: "Эквайринг",
+  online: "Онлайн",
+}
+
+const OP_TYPE_LABELS: Record<string, string> = {
+  owner_withdrawal: "Выемка",
+  encashment: "Инкассация",
+  transfer: "Перевод",
+}
+
+type JournalKind = "income" | "refund" | "expense" | "salary" | "transfer" | "withdrawal" | "encashment"
+
+interface JournalRow {
+  id: string
+  kind: JournalKind
+  date: Date
+  amount: number // знаковая: + приход, − расход; для transfer — положительная (без знака)
+  category: string
+  counterparty: string
+  account: string
+  responsible: string
+  comment: string
+  href?: string // для перехода в исходник
+}
+
+const KIND_LABELS: Record<JournalKind, { label: string; classes: string }> = {
+  income: { label: "Приход", classes: "bg-green-100 text-green-800" },
+  refund: { label: "Возврат", classes: "bg-orange-100 text-orange-800" },
+  expense: { label: "Расход", classes: "bg-red-100 text-red-800" },
+  salary: { label: "ЗП", classes: "bg-purple-100 text-purple-800" },
+  transfer: { label: "Перевод", classes: "bg-blue-100 text-blue-800" },
+  withdrawal: { label: "Выемка", classes: "bg-amber-100 text-amber-800" },
+  encashment: { label: "Инкассация", classes: "bg-cyan-100 text-cyan-800" },
+}
+
+export default async function DdsJournalPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  const { year, month } = getMonthFromParams(await searchParams)
+  const params = await searchParams
+  const { year, month } = getMonthFromParams(params)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
-  const monthEnd = new Date(Date.UTC(year, month, 0))
+  const monthEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
 
-  // Все счета
+  const accountFilter = typeof params.account === "string" ? params.account : undefined
+  const kindFilter = typeof params.kind === "string" ? params.kind : undefined
+
+  // === Счета (для шапки и для join'а имени счёта в строки) ===
   const accounts = await db.financialAccount.findMany({
     where: { tenantId, deletedAt: null },
-    select: { id: true, name: true, type: true, balance: true },
+    select: { id: true, name: true, type: true, balance: true, isActive: true },
     orderBy: { createdAt: "asc" },
   })
+  const accountById = new Map(accounts.map(a => [a.id, a]))
 
-  // Приход — оплаты за месяц
-  const payments = await db.payment.findMany({
-    where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
-    select: { amount: true, method: true, accountId: true },
+  // === Сотрудники (для имени ответственного) ===
+  const employees = await db.employee.findMany({
+    where: { tenantId, deletedAt: null },
+    select: { id: true, firstName: true, lastName: true },
   })
+  const employeeById = new Map(employees.map(e => [e.id, [e.lastName, e.firstName].filter(Boolean).join(" ").trim()]))
 
-  // Расход — расходы за месяц
-  const expenses = await db.expense.findMany({
-    where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
-    include: { category: { select: { name: true } } },
-  })
-
-  // Выплаты ЗП за месяц
-  const salaryPayments = await db.salaryPayment.findMany({
-    where: { tenantId, date: { gte: monthStart, lte: monthEnd } },
-    select: { amount: true, accountId: true },
-  })
-
-  // Операции между счетами за месяц
-  const operations = await db.accountOperation.findMany({
-    where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
-    include: {
-      fromAccount: { select: { name: true } },
-      toAccount: { select: { name: true } },
-    },
-  })
-
-  // === Приход ===
-  const totalIncome = payments.reduce((s, p) => s + Number(p.amount), 0)
-  const METHOD_LABELS: Record<string, string> = {
-    cash: "Наличные", bank_transfer: "Безнал", acquiring: "Эквайринг",
-    online_yukassa: "ЮKassa", online_robokassa: "Робокасса", sbp_qr: "СБП",
+  function responsibleName(id: string | null | undefined): string {
+    if (!id) return "—"
+    return employeeById.get(id) || "—"
   }
-  const incomeByMethod = new Map<string, number>()
+
+  // === Загрузка операций периода ===
+  const [payments, expenses, salaryPayments, operations] = await Promise.all([
+    db.payment.findMany({
+      where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
+      include: {
+        client: { select: { firstName: true, lastName: true } },
+        subscription: { select: { direction: { select: { name: true } } } },
+        incomeCategory: { select: { name: true } },
+      },
+    }),
+    db.expense.findMany({
+      where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
+      include: { category: { select: { name: true } } },
+    }),
+    db.salaryPayment.findMany({
+      where: { tenantId, date: { gte: monthStart, lte: monthEnd } },
+      include: { employee: { select: { firstName: true, lastName: true } } },
+    }),
+    db.accountOperation.findMany({
+      where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
+      include: {
+        fromAccount: { select: { name: true } },
+        toAccount: { select: { name: true } },
+      },
+    }),
+  ])
+
+  // === Строки журнала ===
+  const rows: JournalRow[] = []
+
   for (const p of payments) {
-    const label = METHOD_LABELS[p.method] || p.method
-    incomeByMethod.set(label, (incomeByMethod.get(label) || 0) + Number(p.amount))
+    const accName = accountById.get(p.accountId)?.name ?? "—"
+    const counterparty = p.client
+      ? [p.client.lastName, p.client.firstName].filter(Boolean).join(" ").trim() || "—"
+      : "Прочий доход"
+    const category =
+      p.type === "refund"
+        ? "Возврат клиенту"
+        : p.subscription?.direction.name
+          ? `Оплата абонемента: ${p.subscription.direction.name}`
+          : p.incomeCategory?.name ?? METHOD_LABELS[p.method] ?? "Поступление"
+    const amount = p.type === "refund" ? -Number(p.amount) : Number(p.amount)
+    rows.push({
+      id: `payment:${p.id}`,
+      kind: p.type === "refund" ? "refund" : "income",
+      date: p.date,
+      amount,
+      category,
+      counterparty,
+      account: accName,
+      responsible: responsibleName(p.createdBy),
+      comment: p.comment ?? "",
+      href: "/finance/payments",
+    })
   }
 
-  // === Расход ===
-  const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
-  const expenseByCategory = new Map<string, number>()
   for (const e of expenses) {
-    expenseByCategory.set(e.category.name, (expenseByCategory.get(e.category.name) || 0) + Number(e.amount))
+    const accName = accountById.get(e.accountId)?.name ?? "—"
+    rows.push({
+      id: `expense:${e.id}`,
+      kind: "expense",
+      date: e.date,
+      amount: -Number(e.amount),
+      category: e.category.name,
+      counterparty: "—",
+      account: accName,
+      responsible: responsibleName(e.createdBy),
+      comment: e.comment ?? "",
+      href: "/finance/expenses",
+    })
   }
 
-  const totalSalaryPaid = salaryPayments.reduce((s, p) => s + Number(p.amount), 0)
-  const totalWithdrawals = operations.filter(o => o.type === "owner_withdrawal").reduce((s, o) => s + Number(o.amount), 0)
-  const totalEncashments = operations.filter(o => o.type === "encashment").reduce((s, o) => s + Number(o.amount), 0)
+  for (const sp of salaryPayments) {
+    const accName = accountById.get(sp.accountId)?.name ?? "—"
+    const empName = [sp.employee.lastName, sp.employee.firstName].filter(Boolean).join(" ").trim() || "—"
+    rows.push({
+      id: `salary:${sp.id}`,
+      kind: "salary",
+      date: sp.date,
+      amount: -Number(sp.amount),
+      category: `Выплата ЗП за ${String(sp.periodMonth).padStart(2, "0")}.${sp.periodYear}`,
+      counterparty: empName,
+      account: accName,
+      responsible: responsibleName(sp.createdBy),
+      comment: sp.comment ?? "",
+      href: "/salary",
+    })
+  }
 
-  const totalOutflow = totalExpenses + totalSalaryPaid + totalWithdrawals + totalEncashments
+  for (const op of operations) {
+    const kind: JournalKind =
+      op.type === "transfer" ? "transfer" : op.type === "owner_withdrawal" ? "withdrawal" : "encashment"
+    const fromName = op.fromAccount?.name ?? "—"
+    const toName = op.toAccount?.name ?? "—"
+    const accountField =
+      op.type === "transfer"
+        ? `${fromName} → ${toName}`
+        : op.type === "owner_withdrawal"
+          ? fromName
+          : `${fromName} → ${toName}`
+    rows.push({
+      id: `op:${op.id}`,
+      kind,
+      date: op.date,
+      // Для withdrawal — это вывод собственника (минус). Для transfer/encashment — внутреннее перемещение (без знака).
+      amount: op.type === "owner_withdrawal" ? -Number(op.amount) : Number(op.amount),
+      category: OP_TYPE_LABELS[op.type] ?? op.type,
+      counterparty: "—",
+      account: accountField,
+      responsible: responsibleName(op.createdBy),
+      comment: op.description ?? "",
+      href: "/finance/cash",
+    })
+  }
 
-  // === Остатки ===
+  // === Фильтры ===
+  let filteredRows = rows
+
+  if (accountFilter) {
+    const filterName = accountById.get(accountFilter)?.name
+    if (filterName) {
+      filteredRows = filteredRows.filter(r => {
+        // Для transfer/encashment — проверяем, что одна из сторон совпадает по имени.
+        if (r.account.includes("→")) {
+          const [from, to] = r.account.split("→").map(s => s.trim())
+          return from === filterName || to === filterName
+        }
+        return r.account === filterName
+      })
+    }
+  }
+
+  if (kindFilter && kindFilter !== "all") {
+    filteredRows = filteredRows.filter(r => r.kind === kindFilter)
+  }
+
+  filteredRows.sort((a, b) => a.date.getTime() - b.date.getTime())
+
+  // === Сводки по карточкам счетов ===
+  const monthSummary: Record<string, { incoming: number; outgoing: number }> = {}
+  for (const a of accounts) monthSummary[a.id] = { incoming: 0, outgoing: 0 }
+  for (const p of payments) {
+    if (!monthSummary[p.accountId]) continue
+    if (p.type === "refund") monthSummary[p.accountId].outgoing += Number(p.amount)
+    else monthSummary[p.accountId].incoming += Number(p.amount)
+  }
+  for (const e of expenses) {
+    if (!monthSummary[e.accountId]) continue
+    monthSummary[e.accountId].outgoing += Number(e.amount)
+  }
+  for (const sp of salaryPayments) {
+    if (!monthSummary[sp.accountId]) continue
+    monthSummary[sp.accountId].outgoing += Number(sp.amount)
+  }
+  for (const op of operations) {
+    if (op.type === "transfer" || op.type === "encashment") {
+      if (op.fromAccountId && monthSummary[op.fromAccountId]) monthSummary[op.fromAccountId].outgoing += Number(op.amount)
+      if (op.toAccountId && monthSummary[op.toAccountId]) monthSummary[op.toAccountId].incoming += Number(op.amount)
+    } else if (op.type === "owner_withdrawal") {
+      if (op.fromAccountId && monthSummary[op.fromAccountId]) monthSummary[op.fromAccountId].outgoing += Number(op.amount)
+    }
+  }
+
+  // === Итоги периода для топ-карточек ===
+  const totalIncome = rows.filter(r => r.kind === "income").reduce((s, r) => s + r.amount, 0)
+  const totalOutflow = rows
+    .filter(r => r.kind === "expense" || r.kind === "salary" || r.kind === "refund" || r.kind === "withdrawal")
+    .reduce((s, r) => s + Math.abs(r.amount), 0)
   const totalBalance = accounts.reduce((s, a) => s + Number(a.balance), 0)
 
-  const monthKey = `${year}-${String(month).padStart(2, "0")}`
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const monthKey = `${year}-${String(month).padStart(2, "0")}`
 
-  // Строки расхода для таблицы
-  const expenseRows = [
-    ...Array.from(expenseByCategory.entries()).map(([name, amount]) => ({ name, amount })),
-    ...(totalSalaryPaid > 0 ? [{ name: "Выплаты ЗП", amount: totalSalaryPaid }] : []),
-    ...(totalWithdrawals > 0 ? [{ name: "Выемки собственника", amount: totalWithdrawals }] : []),
-    ...(totalEncashments > 0 ? [{ name: "Инкассации", amount: totalEncashments }] : []),
-  ].sort((a, b) => b.amount - a.amount)
+  // === Данные для экспорта (по одной строке журнала) ===
+  const exportRows = filteredRows.map(r => ({
+    date: formatDate(r.date),
+    kind: KIND_LABELS[r.kind].label,
+    category: r.category,
+    counterparty: r.counterparty,
+    account: r.account,
+    amount: Math.round(r.amount * 100) / 100,
+    responsible: r.responsible,
+    comment: r.comment,
+  }))
 
-  // Данные для экспорта
-  const ddsExportRows = [
-    { type: "ПРИХОД", category: "", amount: "" },
-    ...Array.from(incomeByMethod.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([method, amount]) => ({ type: "", category: method, amount: Math.round(amount) })),
-    { type: "", category: "Итого приход", amount: Math.round(totalIncome) },
-    { type: "", category: "", amount: "" },
-    { type: "РАСХОД", category: "", amount: "" },
-    ...expenseRows.map((r) => ({ type: "", category: r.name, amount: Math.round(r.amount) })),
-    { type: "", category: "Итого расход", amount: Math.round(totalOutflow) },
-    { type: "", category: "", amount: "" },
-    { type: "ОСТАТКИ", category: "", amount: "" },
-    ...accounts.map((a) => ({ type: "", category: a.name, amount: Math.round(Number(a.balance)) })),
-    { type: "", category: "Итого", amount: Math.round(totalBalance) },
-  ]
+  // Helper: ссылки фильтра с сохранением месяца.
+  function filterHref(patch: Record<string, string | undefined>): string {
+    const sp = new URLSearchParams()
+    sp.set("year", String(year))
+    sp.set("month", String(month))
+    const merged = { account: accountFilter, kind: kindFilter, ...patch }
+    if (merged.account) sp.set("account", merged.account)
+    if (merged.kind && merged.kind !== "all") sp.set("kind", merged.kind)
+    return `?${sp.toString()}`
+  }
 
   return (
     <div className="space-y-6">
@@ -120,19 +302,24 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
             <h1 className="text-2xl font-bold">ДДС</h1>
             <PageHelp pageKey="finance/dds" />
           </div>
-          <p className="text-sm text-muted-foreground">Движение денежных средств</p>
+          <p className="text-sm text-muted-foreground">Журнал движения денег: построчно, день в день</p>
         </div>
         <div className="flex items-center gap-2">
           <MonthPicker />
           <ReportExport
-            title="Движение денежных средств"
-            filename={`dds-${monthKey}`}
+            title="Журнал ДДС"
+            filename={`dds-journal-${monthKey}`}
             columns={[
-              { header: "Раздел", key: "type", width: 14 },
-              { header: "Статья", key: "category", width: 30 },
-              { header: "Сумма", key: "amount", width: 18 },
+              { header: "Дата", key: "date", width: 12 },
+              { header: "Тип", key: "kind", width: 12 },
+              { header: "Категория", key: "category", width: 30 },
+              { header: "Контрагент", key: "counterparty", width: 22 },
+              { header: "Счёт", key: "account", width: 22 },
+              { header: "Сумма", key: "amount", width: 14 },
+              { header: "Ответственный", key: "responsible", width: 20 },
+              { header: "Комментарий", key: "comment", width: 30 },
             ]}
-            rows={ddsExportRows}
+            rows={exportRows}
             period={monthName}
           />
         </div>
@@ -143,7 +330,7 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
         <Badge variant="outline">{monthName}</Badge>
       </div>
 
-      {/* Summary */}
+      {/* Топ-карточки */}
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="flex items-center gap-4 p-4">
@@ -151,17 +338,8 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
               <ArrowDownCircle className="size-5 text-green-600" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Приход</p>
-              <p className="text-lg font-bold text-green-600">
-                <DrilldownAmount
-                  amount={formatMoney(totalIncome)}
-                  report="dds"
-                  field="payments"
-                  month={monthKey}
-                  title="Детализация прихода"
-                  className="text-green-600"
-                />
-              </p>
+              <p className="text-xs text-muted-foreground">Поступления</p>
+              <p className="text-lg font-bold text-green-600">{formatMoney(totalIncome)}</p>
             </div>
           </CardContent>
         </Card>
@@ -171,17 +349,8 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
               <ArrowUpCircle className="size-5 text-red-600" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Расход</p>
-              <p className="text-lg font-bold text-red-600">
-                <DrilldownAmount
-                  amount={formatMoney(totalOutflow)}
-                  report="dds"
-                  field="outflow"
-                  month={monthKey}
-                  title="Детализация расхода"
-                  className="text-red-600"
-                />
-              </p>
+              <p className="text-xs text-muted-foreground">Выбытия</p>
+              <p className="text-lg font-bold text-red-600">{formatMoney(-totalOutflow)}</p>
             </div>
           </CardContent>
         </Card>
@@ -192,163 +361,129 @@ export default async function DdsPage({ searchParams }: { searchParams: Promise<
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Остаток на счетах</p>
-              <p className="text-lg font-bold">{formatMoney(totalBalance)}</p>
+              <p className="text-lg font-bold">{new Intl.NumberFormat("ru-RU").format(Math.round(totalBalance))} ₽</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Приход */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base text-green-700">Приход</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {incomeByMethod.size === 0 ? (
-              <p className="text-sm text-muted-foreground">Нет поступлений</p>
-            ) : (
-              <Table>
-                <TableBody>
-                  {Array.from(incomeByMethod.entries())
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([method, amount]) => (
-                    <TableRow key={method}>
-                      <TableCell>{method}</TableCell>
-                      <TableCell className="text-right font-medium text-green-600">{formatMoney(amount)}</TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow className="font-bold">
-                    <TableCell>Итого приход</TableCell>
-                    <TableCell className="text-right text-green-700">
-                      <DrilldownAmount
-                        amount={formatMoney(totalIncome)}
-                        report="dds"
-                        field="payments"
-                        month={monthKey}
-                        title="Детализация прихода"
-                        className="text-green-700"
-                      />
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+      {/* Карточки счетов */}
+      {accounts.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {accounts.map(a => {
+            const summary = monthSummary[a.id] ?? { incoming: 0, outgoing: 0 }
+            const typeLabel = ACCOUNT_TYPE_LABELS[a.type] ?? a.type
+            const isFilterActive = accountFilter === a.id
+            return (
+              <Link key={a.id} href={filterHref({ account: isFilterActive ? undefined : a.id })}>
+                <Card className={`hover:border-primary/50 transition-colors ${isFilterActive ? "border-primary" : ""}`}>
+                  <CardContent className="space-y-2 p-3">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{typeLabel}</span>
+                      {isFilterActive && <Badge variant="outline" className="text-[10px]">фильтр</Badge>}
+                    </div>
+                    <p className="truncate text-sm font-medium">{a.name}</p>
+                    <p className="text-lg font-bold">
+                      {new Intl.NumberFormat("ru-RU").format(Math.round(Number(a.balance)))} ₽
+                    </p>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-green-600">
+                        +{new Intl.NumberFormat("ru-RU").format(Math.round(summary.incoming))}
+                      </span>
+                      <span className="text-red-600">
+                        −{new Intl.NumberFormat("ru-RU").format(Math.round(summary.outgoing))}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            )
+          })}
+        </div>
+      )}
 
-        {/* Расход */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base text-red-700">Расход</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {expenseRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Нет расходов</p>
-            ) : (
-              <Table>
-                <TableBody>
-                  {expenseRows.map((row) => (
-                    <TableRow key={row.name}>
-                      <TableCell>{row.name}</TableCell>
-                      <TableCell className="text-right font-medium text-red-600">{formatMoney(row.amount)}</TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow className="font-bold">
-                    <TableCell>Итого расход</TableCell>
-                    <TableCell className="text-right text-red-700">
-                      <DrilldownAmount
-                        amount={formatMoney(totalOutflow)}
-                        report="dds"
-                        field="outflow"
-                        month={monthKey}
-                        title="Детализация расхода"
-                        className="text-red-700"
-                      />
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+      {/* Кинд-фильтры */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-xs text-muted-foreground">Фильтр:</span>
+        <Link href={filterHref({ kind: undefined })}>
+          <Badge variant={!kindFilter || kindFilter === "all" ? "default" : "outline"}>Все ({rows.length})</Badge>
+        </Link>
+        {(["income", "expense", "salary", "transfer", "refund", "withdrawal", "encashment"] as JournalKind[]).map(k => {
+          const count = rows.filter(r => r.kind === k).length
+          if (count === 0) return null
+          return (
+            <Link key={k} href={filterHref({ kind: kindFilter === k ? undefined : k })}>
+              <Badge variant={kindFilter === k ? "default" : "outline"}>
+                {KIND_LABELS[k].label} ({count})
+              </Badge>
+            </Link>
+          )
+        })}
+        {(accountFilter || (kindFilter && kindFilter !== "all")) && (
+          <Link href={filterHref({ account: undefined, kind: undefined })}>
+            <Badge variant="secondary">Сбросить фильтры</Badge>
+          </Link>
+        )}
       </div>
 
-      {/* Остатки по счетам */}
+      {/* Журнал */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Остатки по счетам</CardTitle>
+          <CardTitle className="text-base">
+            Журнал движений
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              ({filteredRows.length} {filteredRows.length === 1 ? "строка" : "строк"})
+            </span>
+          </CardTitle>
         </CardHeader>
-        <CardContent>
-          {accounts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Нет счетов</p>
+        <CardContent className="p-0">
+          {filteredRows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 p-12 text-muted-foreground">
+              <ArrowRightLeft className="size-8" />
+              <p className="text-sm">Нет движений за выбранный период{accountFilter || kindFilter ? " (с учётом фильтров)" : ""}</p>
+            </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Счёт</TableHead>
-                  <TableHead>Тип</TableHead>
-                  <TableHead className="text-right">Остаток</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {accounts.map((a) => (
-                  <TableRow key={a.id}>
-                    <TableCell className="font-medium">{a.name}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      <Badge variant="outline">
-                        {{ cash: "Касса", bank_account: "Р/С", acquiring: "Эквайринг", online: "Онлайн" }[a.type]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className={`text-right font-medium ${Number(a.balance) >= 0 ? "" : "text-red-600"}`}>
-                      {formatMoney(Number(a.balance))}
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Дата</TableHead>
+                    <TableHead>Тип</TableHead>
+                    <TableHead>Категория</TableHead>
+                    <TableHead>Контрагент</TableHead>
+                    <TableHead>Счёт</TableHead>
+                    <TableHead className="text-right">Сумма</TableHead>
+                    <TableHead>Ответственный</TableHead>
+                    <TableHead>Комментарий</TableHead>
                   </TableRow>
-                ))}
-                <TableRow className="font-bold">
-                  <TableCell colSpan={2}>Итого</TableCell>
-                  <TableCell className="text-right">{formatMoney(totalBalance)}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredRows.map(r => (
+                    <TableRow key={r.id}>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(r.date)}</TableCell>
+                      <TableCell>
+                        <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${KIND_LABELS[r.kind].classes}`}>
+                          {KIND_LABELS[r.kind].label}
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-medium">{r.category}</TableCell>
+                      <TableCell className="text-muted-foreground">{r.counterparty}</TableCell>
+                      <TableCell className="text-muted-foreground">{r.account}</TableCell>
+                      <TableCell className={`text-right font-medium ${r.amount > 0 ? "text-green-600" : r.amount < 0 ? "text-red-600" : ""}`}>
+                        {formatMoney(r.amount)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{r.responsible}</TableCell>
+                      <TableCell className="max-w-[240px] truncate text-muted-foreground" title={r.comment}>
+                        {r.comment || "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
-
-      {/* Операции между счетами */}
-      {operations.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Перемещения и операции</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Тип</TableHead>
-                  <TableHead>Откуда</TableHead>
-                  <TableHead>Куда</TableHead>
-                  <TableHead className="text-right">Сумма</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {operations.map((op) => (
-                  <TableRow key={op.id}>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {{ owner_withdrawal: "Выемка", encashment: "Инкассация", transfer: "Перевод" }[op.type]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{op.fromAccount?.name || "—"}</TableCell>
-                    <TableCell>{op.toAccount?.name || "—"}</TableCell>
-                    <TableCell className="text-right font-medium">{formatMoney(Number(op.amount))}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

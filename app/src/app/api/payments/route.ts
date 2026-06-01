@@ -11,7 +11,10 @@ import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
 const createSchema = z.object({
-  clientId: z.string().uuid("Некорректный ID клиента"),
+  // Для обычной оплаты от клиента — clientId. Для прочих доходов (проценты банка,
+  // продажа товаров) — incomeCategoryId. Хотя бы одно из них обязательно.
+  clientId: z.string().uuid("Некорректный ID клиента").optional(),
+  incomeCategoryId: z.string().uuid("Некорректный ID категории дохода").optional(),
   accountId: z.string().uuid("Некорректный ID счёта"),
   amount: z.number().min(0.01, "Сумма должна быть больше 0"),
   method: z.enum(["cash", "bank_transfer", "acquiring", "online_yukassa", "online_robokassa", "sbp_qr"], {
@@ -93,11 +96,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
 
-  // Проверяем клиента
-  const client = await db.client.findFirst({
-    where: { id: data.clientId, tenantId: session.user.tenantId, deletedAt: null },
-  })
-  if (!client) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
+  // Должно быть либо clientId, либо incomeCategoryId (прочий доход).
+  const isOtherIncome = !data.clientId && !!data.incomeCategoryId
+  if (!data.clientId && !data.incomeCategoryId) {
+    return NextResponse.json({ error: "Укажите клиента или категорию дохода" }, { status: 400 })
+  }
+  if (data.clientId && data.incomeCategoryId) {
+    return NextResponse.json({ error: "Нельзя указать одновременно клиента и категорию прочего дохода" }, { status: 400 })
+  }
+
+  // Проверяем клиента, если он передан.
+  let client: { id: string } | null = null
+  if (data.clientId) {
+    client = await db.client.findFirst({
+      where: { id: data.clientId, tenantId: session.user.tenantId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!client) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
+  }
+
+  // Проверяем категорию дохода (если прочий доход).
+  if (isOtherIncome && data.incomeCategoryId) {
+    const cat = await db.incomeCategory.findFirst({
+      where: {
+        id: data.incomeCategoryId,
+        OR: [{ tenantId: null }, { tenantId: session.user.tenantId }],
+        isActive: true,
+      },
+    })
+    if (!cat) return NextResponse.json({ error: "Категория дохода не найдена" }, { status: 404 })
+  }
 
   // Проверяем счёт
   const account = await db.financialAccount.findFirst({
@@ -105,8 +133,8 @@ export async function POST(req: NextRequest) {
   })
   if (!account) return NextResponse.json({ error: "Счёт не найден" }, { status: 404 })
 
-  // Проверяем абонемент если указан
-  if (data.subscriptionId) {
+  // Проверяем абонемент если указан (только для платежей с клиентом).
+  if (data.subscriptionId && data.clientId) {
     const sub = await db.subscription.findFirst({
       where: { id: data.subscriptionId, tenantId: session.user.tenantId, clientId: data.clientId, deletedAt: null },
     })
@@ -114,10 +142,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Первая ли оплата клиента?
-  const priorPayments = await db.payment.count({
-    where: { clientId: data.clientId, tenantId: session.user.tenantId, deletedAt: null },
-  })
-  const isFirstPayment = priorPayments === 0
+  const priorPayments = data.clientId
+    ? await db.payment.count({
+        where: { clientId: data.clientId, tenantId: session.user.tenantId, deletedAt: null },
+      })
+    : 0
+  const isFirstPayment = !!data.clientId && priorPayments === 0
 
   // Создаём оплату и обновляем связанные сущности в транзакции
   const payment = await db.$transaction(async (tx) => {
@@ -126,8 +156,9 @@ export async function POST(req: NextRequest) {
       data: {
         tenantId: session.user.tenantId,
         clientId: data.clientId,
+        incomeCategoryId: data.incomeCategoryId,
         accountId: data.accountId,
-        subscriptionId: data.subscriptionId,
+        subscriptionId: data.clientId ? data.subscriptionId : undefined,
         amount: data.amount,
         type: "incoming",
         method: data.method,
@@ -155,6 +186,12 @@ export async function POST(req: NextRequest) {
       where: { id: data.accountId },
       data: { balance: { increment: data.amount } },
     })
+
+    // Для прочих доходов (без клиента) — никаких баланс-клиента, абонементов,
+    // воронок: только запись Payment и баланс счёта.
+    if (!data.clientId) {
+      return p
+    }
 
     // Обновляем баланс клиента через единый ledger
     await applyBalanceDelta(tx, {
@@ -309,21 +346,27 @@ export async function POST(req: NextRequest) {
     action: "create",
     entityType: "Payment",
     entityId: payment.id,
-    changes: { amount: { new: data.amount }, method: { new: data.method }, clientId: { new: data.clientId } },
+    changes: {
+      amount: { new: data.amount },
+      method: { new: data.method },
+      clientId: { new: data.clientId ?? null },
+      incomeCategoryId: { new: data.incomeCategoryId ?? null },
+    },
     req,
   })
 
-  // Каскад: после оплаты убираем уведомления о просроченной оплате этого клиента.
-  // Сценарий "оплатили, но долг ещё есть" — менее вероятен; админ при необходимости
-  // получит новое уведомление по обычному циклу.
-  await db.notification.deleteMany({
-    where: {
-      tenantId: session.user.tenantId,
-      type: "overdue_payment",
-      entityType: "Client",
-      entityId: data.clientId,
-    },
-  })
+  // Каскад: после оплаты клиента убираем уведомления о просроченной оплате.
+  // Для прочих доходов (без клиента) этого каскада нет.
+  if (data.clientId) {
+    await db.notification.deleteMany({
+      where: {
+        tenantId: session.user.tenantId,
+        type: "overdue_payment",
+        entityType: "Client",
+        entityId: data.clientId,
+      },
+    })
+  }
 
   return NextResponse.json(payment, { status: 201 })
 }

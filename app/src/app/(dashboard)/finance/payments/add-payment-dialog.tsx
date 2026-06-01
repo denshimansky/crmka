@@ -19,6 +19,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import { ClientCombobox } from "@/components/client-combobox"
 import { Plus } from "lucide-react"
 
@@ -38,6 +39,11 @@ interface SubOption {
   label: string
 }
 
+interface IncomeCategoryOption {
+  id: string
+  name: string
+}
+
 const METHOD_OPTIONS = [
   { value: "cash", label: "Наличные" },
   { value: "bank_transfer", label: "Безнал" },
@@ -50,15 +56,19 @@ const METHOD_OPTIONS = [
 export function AddPaymentDialog({
   clients,
   accounts,
+  incomeCategories,
 }: {
   clients: ClientOption[]
   accounts: AccountOption[]
+  incomeCategories: IncomeCategoryOption[]
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [isOtherIncome, setIsOtherIncome] = useState(false)
+  const [incomeCategoryId, setIncomeCategoryId] = useState("")
   const [clientId, setClientId] = useState("")
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState("")
@@ -69,6 +79,8 @@ export function AddPaymentDialog({
   const [clientSubs, setClientSubs] = useState<SubOption[]>([])
 
   function reset() {
+    setIsOtherIncome(false)
+    setIncomeCategoryId("")
     setClientId("")
     setAmount("")
     setMethod("")
@@ -110,7 +122,11 @@ export function AddPaymentDialog({
     e.preventDefault()
     setError(null)
 
-    if (!clientId) { setError("Выберите клиента"); return }
+    if (isOtherIncome) {
+      if (!incomeCategoryId) { setError("Выберите категорию дохода"); return }
+    } else {
+      if (!clientId) { setError("Выберите клиента"); return }
+    }
     if (!amount || Number(amount) <= 0) { setError("Укажите сумму"); return }
     if (!method) { setError("Выберите способ оплаты"); return }
     if (!accountId) { setError("Выберите счёт"); return }
@@ -122,12 +138,13 @@ export function AddPaymentDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clientId,
+          clientId: isOtherIncome ? undefined : clientId,
+          incomeCategoryId: isOtherIncome ? incomeCategoryId : undefined,
           accountId,
           amount: Number(amount),
           method,
           date,
-          subscriptionId: subscriptionId || undefined,
+          subscriptionId: isOtherIncome ? undefined : (subscriptionId || undefined),
           comment: comment || undefined,
         }),
       })
@@ -151,6 +168,7 @@ export function AddPaymentDialog({
   const selectedMethod = METHOD_OPTIONS.find(m => m.value === method)
   const selectedAccount = accounts.find(a => a.id === accountId)
   const selectedSub = clientSubs.find(s => s.id === subscriptionId)
+  const selectedIncomeCategory = incomeCategories.find(c => c.id === incomeCategoryId)
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
@@ -169,15 +187,51 @@ export function AddPaymentDialog({
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <Label>Клиент *</Label>
-            <ClientCombobox
-              options={clients}
-              value={clientId}
-              onChange={(id) => loadClientSubs(id)}
-              placeholder="Начните вводить ФИО..."
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={isOtherIncome}
+              onCheckedChange={(v) => {
+                setIsOtherIncome(v === true)
+                if (v === true) {
+                  setClientId("")
+                  setSubscriptionId("")
+                  setClientSubs([])
+                } else {
+                  setIncomeCategoryId("")
+                }
+              }}
             />
-          </div>
+            Прочий доход (без клиента)
+          </label>
+
+          {isOtherIncome ? (
+            <div className="space-y-1.5">
+              <Label>Категория дохода *</Label>
+              <Select value={incomeCategoryId} onValueChange={(v) => { if (v) setIncomeCategoryId(v) }}>
+                <SelectTrigger className="w-full">
+                  {selectedIncomeCategory ? selectedIncomeCategory.name : "Выберите категорию"}
+                </SelectTrigger>
+                <SelectContent>
+                  {incomeCategories.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Например: проценты банка, продажа товаров. Не учитывается в выручке ОПИУ (она по списаниям с занятий).
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label>Клиент *</Label>
+              <ClientCombobox
+                options={clients}
+                value={clientId}
+                onChange={(id) => loadClientSubs(id)}
+                placeholder="Начните вводить ФИО..."
+              />
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -230,7 +284,7 @@ export function AddPaymentDialog({
             </div>
           </div>
 
-          {clientId && clientSubs.length > 0 && (
+          {!isOtherIncome && clientId && clientSubs.length > 0 && (
             <div className="space-y-1.5">
               <Label>Абонемент</Label>
               <Select value={subscriptionId} onValueChange={(v) => { if (v !== null) setSubscriptionId(v) }}>
