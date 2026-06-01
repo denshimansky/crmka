@@ -35,10 +35,12 @@ import { PageHelp } from "@/components/page-help"
 interface DiscountTemplate {
   id: string
   name: string
-  type: "percent" | "fixed"
+  // На бэке хранится семантический тип (permanent/one_time/linked) и тип
+  // величины (valueType: percent/fixed). В этом UI пока показываем только
+  // единицу — она для пользователя и есть «тип скидки».
+  valueType: "percent" | "fixed"
   value: number
   isActive: boolean
-  description: string | null
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -46,8 +48,8 @@ const TYPE_LABELS: Record<string, string> = {
   fixed: "Фиксированная сумма",
 }
 
-function formatValue(type: string, value: number): string {
-  if (type === "percent") return `${value}%`
+function formatValue(valueType: string, value: number): string {
+  if (valueType === "percent") return `${value}%`
   return new Intl.NumberFormat("ru-RU").format(value) + " ₽"
 }
 
@@ -92,9 +94,9 @@ export default function DiscountTemplatesPage() {
   function openEdit(t: DiscountTemplate) {
     setEditTemplate(t)
     setFormName(t.name)
-    setFormType(t.type)
+    setFormType(t.valueType)
     setFormValue(String(t.value))
-    setFormDescription(t.description || "")
+    setFormDescription("")
     setFormIsActive(t.isActive)
     setError(null)
     setDialogOpen(true)
@@ -121,16 +123,19 @@ export default function DiscountTemplatesPage() {
       const url = editTemplate
         ? `/api/discount-templates/${editTemplate.id}`
         : "/api/discount-templates"
-      const method = editTemplate ? "PATCH" : "POST"
+      // У API на [id] есть PUT, не PATCH — раньше edit молча падал бы 405-кой.
+      const method = editTemplate ? "PUT" : "POST"
 
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: formName.trim(),
-          type: formType,
+          // Семантика (постоянная/разовая/связанная) в UI пока не выбирается,
+          // ставим permanent по умолчанию — UI отображает только единицу.
+          type: "permanent",
+          valueType: formType,
           value: Number(formValue),
-          description: formDescription.trim() || null,
           isActive: formIsActive,
         }),
       })
@@ -212,13 +217,13 @@ export default function DiscountTemplatesPage() {
               <TableRow key={t.id}>
                 <TableCell className="font-medium">{t.name}</TableCell>
                 <TableCell>
-                  <Badge variant="outline">{TYPE_LABELS[t.type] || t.type}</Badge>
+                  <Badge variant="outline">{TYPE_LABELS[t.valueType] || t.valueType}</Badge>
                 </TableCell>
                 <TableCell className="font-medium">
-                  {formatValue(t.type, t.value)}
+                  {formatValue(t.valueType, t.value)}
                 </TableCell>
                 <TableCell className="text-muted-foreground max-w-[200px] truncate">
-                  {t.description || "—"}
+                  —
                 </TableCell>
                 <TableCell>
                   {t.isActive ? (
