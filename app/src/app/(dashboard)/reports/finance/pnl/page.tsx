@@ -25,15 +25,27 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  const { year, month } = getMonthFromParams(await searchParams)
+  const params = await searchParams
+  const { year, month } = getMonthFromParams(params)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0))
+  const branchFilter = typeof params.branch === "string" ? params.branch : undefined
+
+  // Список филиалов для табов «Общий | Филиал A | ...»
+  const allBranches = await db.branch.findMany({
+    where: { tenantId, deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  })
 
   // === ВЫРУЧКА: списания с абонементов (chargedAmount) ===
   const attendances = await db.attendance.findMany({
     where: {
       tenantId,
-      lesson: { date: { gte: monthStart, lte: monthEnd } },
+      lesson: {
+        date: { gte: monthStart, lte: monthEnd },
+        ...(branchFilter ? { group: { branchId: branchFilter } } : {}),
+      },
       attendanceType: { countsAsRevenue: true },
     },
     select: {
@@ -65,25 +77,28 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
 
   // === ПРОЧИЕ ДОХОДЫ ВНЕ АБОНЕМЕНТОВ ===
   // Payment без subscriptionId, с incomeCategoryId. По дате платежа, refund исключаем.
-  const otherIncomePayments = await db.payment.findMany({
-    where: {
-      tenantId,
-      deletedAt: null,
-      subscriptionId: null,
-      incomeCategoryId: { not: null },
-      type: { in: ["incoming", "transfer_in"] },
-      date: { gte: monthStart, lte: monthEnd },
-    },
-    select: {
-      amount: true,
-      incomeCategoryId: true,
-      incomeCategory: { select: { id: true, name: true } },
-    },
-  })
-  const otherIncomeMap = new Map<string, { name: string; amount: number }>()
+  // Прочие доходы не привязаны к филиалу — показываем только в общем P&L (без фильтра).
+  const otherIncomePayments = branchFilter
+    ? []
+    : await db.payment.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          subscriptionId: null,
+          incomeCategoryId: { not: null },
+          type: { in: ["incoming", "transfer_in"] },
+          date: { gte: monthStart, lte: monthEnd },
+        },
+        select: {
+          amount: true,
+          incomeCategoryId: true,
+          incomeCategory: { select: { id: true, name: true } },
+        },
+      })
+  const otherIncomeMap = new Map<string, { id: string; name: string; amount: number }>()
   for (const p of otherIncomePayments) {
     if (!p.incomeCategory) continue
-    const prev = otherIncomeMap.get(p.incomeCategory.id) || { name: p.incomeCategory.name, amount: 0 }
+    const prev = otherIncomeMap.get(p.incomeCategory.id) || { id: p.incomeCategory.id, name: p.incomeCategory.name, amount: 0 }
     prev.amount += Number(p.amount)
     otherIncomeMap.set(p.incomeCategory.id, prev)
   }
@@ -95,8 +110,11 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   // оплачены сильно раньше отчётного месяца, но раскладка попадает в текущий месяц ОПИУ.
   const expensesFrom = new Date(monthStart)
   expensesFrom.setUTCMonth(expensesFrom.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
+  const expWhere: any = { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: monthEnd } }
+  if (branchFilter) expWhere.branches = { some: { branchId: branchFilter } }
+
   const expenses = await db.expense.findMany({
-    where: { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: monthEnd } },
+    where: expWhere,
     include: { category: { select: { id: true, name: true, isSalary: true, isVariable: true } } },
   })
 
@@ -113,10 +131,10 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
 
   const totalExpenses = expenseSlices.reduce((s, x) => s + x.amount, 0)
 
-  // Расходы по категориям
-  const expenseByCategory = new Map<string, { amount: number; isSalary: boolean; isVariable: boolean }>()
+  // Расходы по категориям (с categoryId для drill-down)
+  const expenseByCategory = new Map<string, { categoryId: string; amount: number; isSalary: boolean; isVariable: boolean }>()
   for (const s of expenseSlices) {
-    const prev = expenseByCategory.get(s.categoryName) || { amount: 0, isSalary: s.isSalary, isVariable: s.isVariable }
+    const prev = expenseByCategory.get(s.categoryName) || { categoryId: s.categoryId, amount: 0, isSalary: s.isSalary, isVariable: s.isVariable }
     prev.amount += s.amount
     expenseByCategory.set(s.categoryName, prev)
   }
@@ -125,7 +143,10 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const salaryAttendances = await db.attendance.findMany({
     where: {
       tenantId,
-      lesson: { date: { gte: monthStart, lte: monthEnd } },
+      lesson: {
+        date: { gte: monthStart, lte: monthEnd },
+        ...(branchFilter ? { group: { branchId: branchFilter } } : {}),
+      },
       instructorPayEnabled: true,
     },
     select: { instructorPayAmount: true },
@@ -175,8 +196,17 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
 
   const monthKey = `${year}-${String(month).padStart(2, "0")}`
 
-  // Строки P&L
-  const pnlRows: { label: string; amount: number; bold: boolean; color: string; drillField?: string }[] = [
+  // Строки P&L. drillField + drillCategoryId/drillIncomeCategoryId → drill-down.
+  type PnlRow = {
+    label: string
+    amount: number
+    bold: boolean
+    color: string
+    drillField?: string
+    drillCategoryId?: string
+    drillIncomeCategoryId?: string
+  }
+  const pnlRows: PnlRow[] = [
     { label: "Выручка (отработанные занятия)", amount: revenue, bold: true, color: "text-green-700", drillField: "revenue" },
     { label: "", amount: 0, bold: false, color: "" }, // separator
     { label: "Переменные расходы:", amount: totalVariableCosts, bold: true, color: "text-red-700" },
@@ -184,7 +214,14 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     ...Array.from(expenseByCategory.entries())
       .filter(([, v]) => v.isVariable)
       .sort((a, b) => b[1].amount - a[1].amount)
-      .map(([name, v]) => ({ label: `  ${name}`, amount: v.amount, bold: false, color: "text-red-600" })),
+      .map(([name, v]) => ({
+        label: `  ${name}`,
+        amount: v.amount,
+        bold: false,
+        color: "text-red-600",
+        drillField: "expense-category",
+        drillCategoryId: v.categoryId,
+      })),
     { label: "", amount: 0, bold: false, color: "" },
     { label: "Маржа (Выручка − Переменные)", amount: margin, bold: true, color: margin >= 0 ? "text-green-700" : "text-red-700" },
     { label: "", amount: 0, bold: false, color: "" },
@@ -192,18 +229,27 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     ...Array.from(expenseByCategory.entries())
       .filter(([, v]) => !v.isVariable)
       .sort((a, b) => b[1].amount - a[1].amount)
-      .map(([name, v]) => ({ label: `  ${name}`, amount: v.amount, bold: false, color: "text-orange-600" })),
+      .map(([name, v]) => ({
+        label: `  ${name}`,
+        amount: v.amount,
+        bold: false,
+        color: "text-orange-600",
+        drillField: "expense-category",
+        drillCategoryId: v.categoryId,
+      })),
     // Прочие доходы — отдельным блоком после расходов, перед чистой прибылью.
     ...(otherIncomeByCategory.length > 0
       ? [
-          { label: "", amount: 0, bold: false, color: "" },
-          { label: "Прочие доходы:", amount: totalOtherIncome, bold: true, color: "text-green-700" },
+          { label: "", amount: 0, bold: false, color: "" } as PnlRow,
+          { label: "Прочие доходы:", amount: totalOtherIncome, bold: true, color: "text-green-700", drillField: "other-income" } as PnlRow,
           ...otherIncomeByCategory.map((c) => ({
             label: `  ${c.name}`,
             amount: c.amount,
             bold: false,
             color: "text-green-600",
-          })),
+            drillField: "other-income-category",
+            drillIncomeCategoryId: c.id,
+          } as PnlRow)),
         ]
       : []),
     { label: "", amount: 0, bold: false, color: "" },
@@ -219,6 +265,18 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       amount: r.label === "Рентабельность" ? `${r.amount.toFixed(1)}%` : Math.round(r.amount),
     }))
 
+  const activeBranchName = branchFilter
+    ? allBranches.find(b => b.id === branchFilter)?.name ?? "—"
+    : "Все филиалы"
+
+  function branchHref(bId: string | undefined): string {
+    const sp = new URLSearchParams()
+    sp.set("year", String(year))
+    sp.set("month", String(month))
+    if (bId) sp.set("branch", bId)
+    return `?${sp.toString()}`
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -230,12 +288,12 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
             <h1 className="text-2xl font-bold">Финансовый результат (P&L)</h1>
             <PageHelp pageKey="reports/finance/pnl" />
           </div>
-          <p className="text-sm text-muted-foreground">Выручка − Расходы − ЗП = Прибыль</p>
+          <p className="text-sm text-muted-foreground">Выручка + Прочие доходы − Расходы − ЗП = Прибыль</p>
         </div>
         <MonthPicker />
         <ReportExport
-          title="Финансовый результат (P&L)"
-          filename={`pnl-${monthKey}`}
+          title={`Финансовый результат (P&L) — ${activeBranchName}`}
+          filename={`pnl-${monthKey}${branchFilter ? `-${branchFilter.slice(0, 8)}` : ""}`}
           columns={[
             { header: "Показатель", key: "label", width: 40 },
             { header: "Сумма", key: "amount", width: 18 },
@@ -248,7 +306,32 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <span>Период:</span>
         <Badge variant="outline">{monthName}</Badge>
+        <span className="ml-2">Филиал:</span>
+        <Badge variant="outline">{activeBranchName}</Badge>
       </div>
+
+      {/* Табы по филиалам — показываем, если филиалов больше одного. */}
+      {allBranches.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2 border-b pb-2">
+          <Link href={branchHref(undefined)}>
+            <Badge variant={!branchFilter ? "default" : "outline"} className="cursor-pointer">
+              Все филиалы
+            </Badge>
+          </Link>
+          {allBranches.map(b => (
+            <Link key={b.id} href={branchHref(b.id)}>
+              <Badge variant={branchFilter === b.id ? "default" : "outline"} className="cursor-pointer">
+                {b.name}
+              </Badge>
+            </Link>
+          ))}
+          {branchFilter && (
+            <span className="text-xs text-muted-foreground ml-2">
+              Прочие доходы показываются только в общем P&L
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-4">
         <Card>
@@ -306,8 +389,13 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
                           report="pnl"
                           field={row.drillField}
                           month={monthKey}
-                          title={`Детализация: ${row.label.trim()}`}
+                          title={`Детализация: ${row.label.trim()}${branchFilter ? ` — ${activeBranchName}` : ""}`}
                           className={row.color}
+                          extraParams={{
+                            categoryId: row.drillCategoryId,
+                            incomeCategoryId: row.drillIncomeCategoryId,
+                            branchId: branchFilter,
+                          }}
                         />
                       ) : (
                         formatMoney(row.amount)

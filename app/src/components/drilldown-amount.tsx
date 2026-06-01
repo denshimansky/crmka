@@ -16,6 +16,8 @@ interface DrilldownAmountProps {
   title: string
   description?: string
   className?: string
+  /** Дополнительные query-параметры к API drill-down (categoryId, branchId, incomeCategoryId и т.п.). */
+  extraParams?: Record<string, string | undefined>
 }
 
 export function DrilldownAmount({
@@ -26,6 +28,7 @@ export function DrilldownAmount({
   title,
   description,
   className = "",
+  extraParams,
 }: DrilldownAmountProps) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -35,15 +38,19 @@ export function DrilldownAmount({
     setOpen(true)
     setLoading(true)
     try {
-      const res = await fetch(
-        `/api/reports/drill-down?report=${report}&field=${field}&month=${month}`
-      )
+      const params = new URLSearchParams({ report, field, month })
+      if (extraParams) {
+        for (const [k, v] of Object.entries(extraParams)) {
+          if (v) params.set(k, v)
+        }
+      }
+      const res = await fetch(`/api/reports/drill-down?${params.toString()}`)
       if (res.ok) {
         setData(await res.json())
       }
     } catch { /* ignore */ }
     finally { setLoading(false) }
-  }, [report, field, month])
+  }, [report, field, month, extraParams])
 
   return (
     <>
