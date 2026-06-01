@@ -11,6 +11,10 @@ import Link from "next/link"
 import { DrilldownAmount } from "@/components/drilldown-amount"
 import { ReportExport } from "@/components/report-export"
 import { distributeFixedExpenses, type FixedExpenseItem } from "@/lib/expense-distribution"
+import {
+  expenseAmountInWindow,
+  AMORTIZATION_LOOKBACK_MONTHS,
+} from "@/lib/expense-amortization"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 function formatMoney(amount: number): string {
@@ -60,20 +64,34 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   }
 
   // === РАСХОДЫ ===
+  // Расширяем окно: расходы с recognitionMode = single_period / amortized могли быть
+  // оплачены сильно раньше отчётного месяца, но раскладка попадает в текущий месяц ОПИУ.
+  const expensesFrom = new Date(monthStart)
+  expensesFrom.setUTCMonth(expensesFrom.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
   const expenses = await db.expense.findMany({
-    where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
+    where: { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: monthEnd } },
     include: { category: { select: { id: true, name: true, isSalary: true, isVariable: true } } },
   })
 
-  const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
+  // Для каждого расхода — сумма, попавшая в текущий месяц с учётом раскладки.
+  const expenseSlices = expenses
+    .map((e) => ({
+      categoryId: e.category.id,
+      categoryName: e.category.name,
+      isSalary: e.category.isSalary,
+      isVariable: e.category.isVariable,
+      amount: expenseAmountInWindow(e, year, month, year, month),
+    }))
+    .filter((s) => s.amount > 0)
+
+  const totalExpenses = expenseSlices.reduce((s, x) => s + x.amount, 0)
 
   // Расходы по категориям
   const expenseByCategory = new Map<string, { amount: number; isSalary: boolean; isVariable: boolean }>()
-  for (const e of expenses) {
-    const key = e.category.name
-    const prev = expenseByCategory.get(key) || { amount: 0, isSalary: e.category.isSalary, isVariable: e.category.isVariable }
-    prev.amount += Number(e.amount)
-    expenseByCategory.set(key, prev)
+  for (const s of expenseSlices) {
+    const prev = expenseByCategory.get(s.categoryName) || { amount: 0, isSalary: s.isSalary, isVariable: s.isVariable }
+    prev.amount += s.amount
+    expenseByCategory.set(s.categoryName, prev)
   }
 
   // === ЗП (начислено из посещений) ===
@@ -88,7 +106,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const totalSalaryAccrued = salaryAttendances.reduce((s, a) => s + Number(a.instructorPayAmount), 0)
 
   // === РАСЧЁТЫ ===
-  const variableExpenses = expenses.filter(e => e.category.isVariable).reduce((s, e) => s + Number(e.amount), 0)
+  const variableExpenses = expenseSlices.filter(s => s.isVariable).reduce((sum, s) => sum + s.amount, 0)
   const fixedExpenses = totalExpenses - variableExpenses
   const totalVariableCosts = variableExpenses + totalSalaryAccrued
   const margin = revenue - totalVariableCosts
@@ -96,14 +114,14 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const profitability = revenue > 0 ? (netProfit / revenue) * 100 : 0
 
   // === FIN-16: Распределение постоянных расходов по направлениям ===
-  const fixedExpenseItems: FixedExpenseItem[] = expenses
-    .filter(e => !e.category.isVariable)
-    .reduce<FixedExpenseItem[]>((acc, e) => {
-      const existing = acc.find(x => x.id === e.category.id)
+  const fixedExpenseItems: FixedExpenseItem[] = expenseSlices
+    .filter(s => !s.isVariable)
+    .reduce<FixedExpenseItem[]>((acc, s) => {
+      const existing = acc.find(x => x.id === s.categoryId)
       if (existing) {
-        existing.amount += Number(e.amount)
+        existing.amount += s.amount
       } else {
-        acc.push({ id: e.category.id, category: e.category.name, amount: Number(e.amount) })
+        acc.push({ id: s.categoryId, category: s.categoryName, amount: s.amount })
       }
       return acc
     }, [])

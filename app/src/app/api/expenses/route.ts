@@ -16,9 +16,11 @@ const createSchema = z.object({
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   isVariable: z.boolean().optional(),
   isRecurring: z.boolean().optional().default(false),
+  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized"]).optional().default("by_payment_date"),
+  amortizationStartDate: z.string().optional().nullable(),
   amortizationMonths: z.any().transform(v => {
     const n = Number(v)
-    return n > 0 ? n : undefined
+    return Number.isFinite(n) && n > 0 ? n : undefined
   }),
   branchIds: z.array(z.string().uuid()).optional().default([]),
 })
@@ -104,6 +106,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
 
+  // Валидация режима признания расхода в ОПИУ.
+  let recognitionAmortMonths: number | null = null
+  let recognitionStartDate: Date | null = null
+  if (data.recognitionMode === "single_period") {
+    if (!data.amortizationStartDate) {
+      return NextResponse.json({ error: "Укажите месяц признания для режима «Одной суммой в другом месяце»" }, { status: 400 })
+    }
+    recognitionStartDate = new Date(data.amortizationStartDate)
+    recognitionAmortMonths = 1
+  } else if (data.recognitionMode === "amortized") {
+    if (!data.amortizationStartDate || !data.amortizationMonths || data.amortizationMonths < 2) {
+      return NextResponse.json({ error: "Укажите месяц начала и количество месяцев (≥ 2) для амортизации" }, { status: 400 })
+    }
+    if (data.amortizationMonths > 60) {
+      return NextResponse.json({ error: "Максимум 60 месяцев" }, { status: 400 })
+    }
+    recognitionStartDate = new Date(data.amortizationStartDate)
+    recognitionAmortMonths = data.amortizationMonths
+  }
+
   const expense = await db.$transaction(async (tx) => {
     const e = await tx.expense.create({
       data: {
@@ -115,8 +137,9 @@ export async function POST(req: NextRequest) {
         comment: data.comment,
         isVariable: data.isVariable !== undefined ? data.isVariable : category.isVariable,
         isRecurring: data.isRecurring,
-        amortizationMonths: data.amortizationMonths,
-        amortizationStartDate: data.amortizationMonths ? new Date(data.date) : undefined,
+        recognitionMode: data.recognitionMode,
+        amortizationMonths: recognitionAmortMonths,
+        amortizationStartDate: recognitionStartDate,
         createdBy: session.user.employeeId,
       },
       include: {

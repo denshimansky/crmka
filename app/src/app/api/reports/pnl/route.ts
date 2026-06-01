@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
 import { distributeFixedExpenses, type FixedExpenseItem } from "@/lib/expense-distribution"
+import {
+  expenseAmountInWindow,
+  AMORTIZATION_LOOKBACK_MONTHS,
+} from "@/lib/expense-amortization"
 
-/** 7.2. Финансовый результат (P&L) */
+/** 7.2. Финансовый результат (P&L) с учётом периода признания расхода. */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
@@ -13,7 +17,7 @@ export async function GET(req: NextRequest) {
   const branchId = searchParams.get("branchId")
   const showPercent = searchParams.get("showPercent") === "true" // 7.4 toggle
 
-  // Revenue = charged amounts from attendances (countsAsRevenue)
+  // Выручка = списания за период (chargeAmount), как в ОПИУ — по дате занятия.
   const attWhere: any = {
     tenantId,
     lesson: { date: { gte: dateFrom, lte: dateTo } },
@@ -41,7 +45,7 @@ export async function GET(req: NextRequest) {
   })
   const revenue = attendances.reduce((s, a) => s + Number(a.chargeAmount), 0)
 
-  // Revenue by direction (for fixed expense distribution)
+  // Выручка по направлениям (для FIN-16 — распределения постоянных расходов).
   const revenueByDirection: Record<string, { name: string; revenue: number }> = {}
   for (const a of attendances) {
     const dirId = a.lesson.group.directionId
@@ -52,8 +56,15 @@ export async function GET(req: NextRequest) {
     revenueByDirection[dirId].revenue += Number(a.chargeAmount)
   }
 
-  // Expenses
-  const expWhere: any = { tenantId, deletedAt: null, date: { gte: dateFrom, lte: dateTo } }
+  // Расходы выбираем расширенным окном: расход с recognitionMode=amortized мог быть
+  // оплачен сильно раньше окна отчёта, но раскладка может затрагивать текущий месяц.
+  const expensesFrom = new Date(dateFrom)
+  expensesFrom.setUTCMonth(expensesFrom.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
+  const expWhere: any = {
+    tenantId,
+    deletedAt: null,
+    date: { gte: expensesFrom, lte: dateTo },
+  }
   if (branchId) expWhere.branches = { some: { branchId } }
 
   const expenses = await db.expense.findMany({
@@ -61,9 +72,35 @@ export async function GET(req: NextRequest) {
     include: { category: { select: { id: true, name: true, isSalary: true, isVariable: true } } },
   })
 
-  const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
+  const fromY = dateFrom.getUTCFullYear()
+  const fromM = dateFrom.getUTCMonth() + 1
+  const toY = dateTo.getUTCFullYear()
+  const toM = dateTo.getUTCMonth() + 1
 
-  // Salary accrued
+  // Для каждого расхода — сумма, попавшая в окно отчёта (с учётом раскладки).
+  type ExpenseSlice = {
+    categoryId: string
+    categoryName: string
+    isSalary: boolean
+    isVariable: boolean
+    amountInWindow: number
+  }
+  const slices: ExpenseSlice[] = []
+  for (const e of expenses) {
+    const inWindow = expenseAmountInWindow(e, fromY, fromM, toY, toM)
+    if (inWindow === 0) continue
+    slices.push({
+      categoryId: e.category.id,
+      categoryName: e.category.name,
+      isSalary: e.category.isSalary,
+      isVariable: e.category.isVariable,
+      amountInWindow: inWindow,
+    })
+  }
+
+  const totalExpenses = slices.reduce((s, x) => s + x.amountInWindow, 0)
+
+  // Начисленная ЗП инструкторов = факт занятий (по дате занятия), как было.
   const salaryAtt = await db.attendance.findMany({
     where: {
       tenantId,
@@ -73,17 +110,56 @@ export async function GET(req: NextRequest) {
     },
     select: { instructorPayAmount: true },
   })
-  const totalSalaryAccrued = salaryAtt.reduce((s, a) => s + Number(a.instructorPayAmount), 0)
+  const instructorSalaryAccrued = salaryAtt.reduce((s, a) => s + Number(a.instructorPayAmount), 0)
 
-  // By category
-  const byCategory: Record<string, { amount: number; isSalary: boolean; isVariable: boolean }> = {}
-  for (const e of expenses) {
-    const key = e.category.name
-    if (!byCategory[key]) byCategory[key] = { amount: 0, isSalary: e.category.isSalary, isVariable: e.category.isVariable }
-    byCategory[key].amount += Number(e.amount)
+  // Окладники: Employee.monthlySalary × (число месяцев в окне). Окно ОПИУ обычно = 1 месяц
+  // (MonthPicker), но если кто-то задал диапазон — считаем по числу полных месяцев.
+  const monthsInWindow =
+    (toY - fromY) * 12 + (toM - fromM) + 1
+  const salariedEmployees = await db.employee.findMany({
+    where: { tenantId, deletedAt: null, isActive: true, monthlySalary: { not: null } },
+    select: { id: true, monthlySalary: true },
+  })
+  const monthlySalaryTotal = salariedEmployees.reduce(
+    (s, e) => s + Number(e.monthlySalary ?? 0),
+    0,
+  )
+  const fixedSalaryAccrued = monthlySalaryTotal * monthsInWindow
+
+  // Премии / штрафы окладников и преподов за окно.
+  const adjustments = await db.salaryAdjustment.findMany({
+    where: {
+      tenantId,
+      periodYear: { gte: fromY, lte: toY },
+      // Дополнительной фильтрации по месяцу не делаем — для одиночного месяца fromY=toY,
+      // а в P&L UI окно почти всегда = 1 месяц.
+    },
+    select: { type: true, amount: true, periodYear: true, periodMonth: true },
+  })
+  let adjustBonus = 0
+  let adjustPenalty = 0
+  for (const adj of adjustments) {
+    const k = adj.periodYear * 12 + (adj.periodMonth - 1)
+    const fromKey = fromY * 12 + (fromM - 1)
+    const toKey = toY * 12 + (toM - 1)
+    if (k < fromKey || k > toKey) continue
+    if (adj.type === "bonus") adjustBonus += Number(adj.amount)
+    else adjustPenalty += Number(adj.amount)
   }
 
-  const variableExpenses = expenses.filter((e) => e.category.isVariable).reduce((s, e) => s + Number(e.amount), 0)
+  const totalSalaryAccrued =
+    instructorSalaryAccrued + fixedSalaryAccrued + adjustBonus - adjustPenalty
+
+  // По категориям.
+  const byCategory: Record<string, { amount: number; isSalary: boolean; isVariable: boolean }> = {}
+  for (const s of slices) {
+    if (!byCategory[s.categoryName]) {
+      byCategory[s.categoryName] = { amount: 0, isSalary: s.isSalary, isVariable: s.isVariable }
+    }
+    byCategory[s.categoryName].amount += s.amountInWindow
+  }
+
+  const variableExpenses = slices.filter((s) => s.isVariable).reduce((sum, s) => sum + s.amountInWindow, 0)
   const fixedExpenses = totalExpenses - variableExpenses
   const totalVariableCosts = variableExpenses + totalSalaryAccrued
   const margin = revenue - totalVariableCosts
@@ -100,15 +176,15 @@ export async function GET(req: NextRequest) {
     }))
     .sort((a, b) => b.amount - a.amount)
 
-  // FIN-16: Distribute fixed expenses by direction revenue
-  const fixedExpenseItems: FixedExpenseItem[] = expenses
-    .filter((e) => !e.category.isVariable)
-    .reduce<FixedExpenseItem[]>((acc, e) => {
-      const existing = acc.find((x) => x.id === e.category.id)
+  // FIN-16: распределение постоянных расходов по выручке направлений.
+  const fixedExpenseItems: FixedExpenseItem[] = slices
+    .filter((s) => !s.isVariable)
+    .reduce<FixedExpenseItem[]>((acc, s) => {
+      const existing = acc.find((x) => x.id === s.categoryId)
       if (existing) {
-        existing.amount += Number(e.amount)
+        existing.amount += s.amountInWindow
       } else {
-        acc.push({ id: e.category.id, category: e.category.name, amount: Number(e.amount) })
+        acc.push({ id: s.categoryId, category: s.categoryName, amount: s.amountInWindow })
       }
       return acc
     }, [])
@@ -120,7 +196,6 @@ export async function GET(req: NextRequest) {
 
   const distribution = distributeFixedExpenses(fixedExpenseItems, revenueMap)
 
-  // Build distribution summary for response
   const distributionByDirection = Object.entries(distribution.byKey).map(([dirId, items]) => ({
     directionId: dirId,
     directionName: revenueByDirection[dirId]?.name ?? dirId,
@@ -146,7 +221,6 @@ export async function GET(req: NextRequest) {
       netProfit,
       profitability: Math.round(profitability * 10) / 10,
       expensesByCategory: expenseRows,
-      // FIN-16: distribution breakdown
       fixedExpenseDistribution: {
         totalFixed: distribution.totalFixed,
         byDirection: distributionByDirection,

@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { EditExpenseDialog } from "./edit-expense-dialog"
 
+type RecognitionMode = "by_payment_date" | "single_period" | "amortized"
+
 interface ExpenseRow {
   id: string
   categoryId: string
@@ -16,7 +18,9 @@ interface ExpenseRow {
   comment: string | null
   isRecurring: boolean
   isVariable: boolean
+  recognitionMode: RecognitionMode
   amortizationMonths: number | null
+  amortizationStartDate: string | null
   branchNames: string[]
   branchIds: string[]
 }
@@ -70,7 +74,7 @@ export function ExpensesTable({
               <TableHead className="text-right">Сумма</TableHead>
               <TableHead>Филиал</TableHead>
               <TableHead>Счёт</TableHead>
-              <TableHead>Аморт.</TableHead>
+              <TableHead>ОПИУ</TableHead>
               <TableHead>Комментарий</TableHead>
             </TableRow>
           </TableHeader>
@@ -95,8 +99,12 @@ export function ExpensesTable({
                   {exp.branchNames.length > 0 ? exp.branchNames.join(", ") : "Все"}
                 </TableCell>
                 <TableCell className="text-muted-foreground">{exp.accountName}</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {exp.amortizationMonths ? `${exp.amortizationMonths} мес.` : "—"}
+                <TableCell className="text-muted-foreground text-xs">
+                  {exp.recognitionMode === "single_period" && exp.amortizationStartDate
+                    ? `1 мес. с ${formatDate(exp.amortizationStartDate)}`
+                    : exp.recognitionMode === "amortized" && exp.amortizationMonths && exp.amortizationStartDate
+                      ? `${exp.amortizationMonths} мес. с ${formatDate(exp.amortizationStartDate)}`
+                      : "По дате платежа"}
                 </TableCell>
                 <TableCell className="max-w-[200px] truncate text-muted-foreground">
                   {exp.comment || "—"}
@@ -117,7 +125,9 @@ export function ExpensesTable({
             date: editingExpense.date,
             comment: editingExpense.comment,
             isRecurring: editingExpense.isRecurring,
+            recognitionMode: editingExpense.recognitionMode,
             amortizationMonths: editingExpense.amortizationMonths,
+            amortizationStartDate: editingExpense.amortizationStartDate,
             branchIds: editingExpense.branchIds,
           }}
           categories={categories}

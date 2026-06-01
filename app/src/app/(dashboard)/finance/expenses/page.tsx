@@ -88,7 +88,9 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     comment: e.comment,
     isRecurring: e.isRecurring,
     isVariable: e.isVariable,
+    recognitionMode: e.recognitionMode,
     amortizationMonths: e.amortizationMonths,
+    amortizationStartDate: e.amortizationStartDate ? e.amortizationStartDate.toISOString().slice(0, 10) : null,
     branchNames: e.branches.map(b => b.branch?.name).filter(Boolean) as string[],
     branchIds: e.branches.map(b => b.branchId).filter(Boolean) as string[],
   }))

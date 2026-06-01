@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, safeDivide, pct } from "@/lib/report-helpers"
+import {
+  expenseAmountInWindow,
+  AMORTIZATION_LOOKBACK_MONTHS,
+} from "@/lib/expense-amortization"
 
 /** 7.3. P&L на уровне группы */
 export async function GET(req: NextRequest) {
@@ -67,20 +71,33 @@ export async function GET(req: NextRequest) {
     branchLessons.set(g.branchId, (branchLessons.get(g.branchId) || 0) + les)
   }
 
-  // Expenses per branch
+  // Expenses per branch — расширяем окно выборки для учёта амортизированных расходов,
+  // оплаченных до начала отчётного периода.
+  const expensesFrom = new Date(dateFrom)
+  expensesFrom.setUTCMonth(expensesFrom.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
   const expenses = await db.expense.findMany({
-    where: { tenantId, deletedAt: null, date: { gte: dateFrom, lte: dateTo } },
+    where: { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: dateTo } },
     select: {
       amount: true,
+      date: true,
+      recognitionMode: true,
+      amortizationMonths: true,
+      amortizationStartDate: true,
       isVariable: true,
       branches: { select: { branchId: true } },
     },
   })
 
+  const fromY = dateFrom.getUTCFullYear()
+  const fromM = dateFrom.getUTCMonth() + 1
+  const toY = dateTo.getUTCFullYear()
+  const toM = dateTo.getUTCMonth() + 1
+
   const branchVariableExp = new Map<string, number>()
   const branchFixedExp = new Map<string, number>()
   for (const e of expenses) {
-    const amt = Number(e.amount)
+    const amt = expenseAmountInWindow(e, fromY, fromM, toY, toM)
+    if (amt === 0) continue
     for (const eb of e.branches) {
       if (eb.branchId) {
         if (e.isVariable) {

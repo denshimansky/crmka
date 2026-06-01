@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
+import {
+  expenseAmountInWindow,
+  AMORTIZATION_LOOKBACK_MONTHS,
+} from "@/lib/expense-amortization"
 
 /** 7.4. % распределения финансового результата */
 export async function GET(req: NextRequest) {
@@ -36,21 +40,37 @@ export async function GET(req: NextRequest) {
   })
   const totalSalary = salaryAtt.reduce((s, a) => s + Number(a.instructorPayAmount), 0)
 
-  // Expenses by category
-  const expWhere: any = { tenantId, deletedAt: null, date: { gte: dateFrom, lte: dateTo } }
+  // Expenses by category — учитываем период признания (recognitionMode + amortization*).
+  const expensesFrom = new Date(dateFrom)
+  expensesFrom.setUTCMonth(expensesFrom.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
+  const expWhere: any = { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: dateTo } }
   if (branchId) expWhere.branches = { some: { branchId } }
 
   const expenses = await db.expense.findMany({
     where: expWhere,
-    select: { amount: true, category: { select: { name: true } } },
+    select: {
+      amount: true,
+      date: true,
+      recognitionMode: true,
+      amortizationMonths: true,
+      amortizationStartDate: true,
+      category: { select: { name: true } },
+    },
   })
 
-  const byCategory: Record<string, number> = {}
-  for (const e of expenses) {
-    byCategory[e.category.name] = (byCategory[e.category.name] || 0) + Number(e.amount)
-  }
+  const fromY = dateFrom.getUTCFullYear()
+  const fromM = dateFrom.getUTCMonth() + 1
+  const toY = dateTo.getUTCFullYear()
+  const toM = dateTo.getUTCMonth() + 1
 
-  const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
+  const byCategory: Record<string, number> = {}
+  let totalExpenses = 0
+  for (const e of expenses) {
+    const amt = expenseAmountInWindow(e, fromY, fromM, toY, toM)
+    if (amt === 0) continue
+    byCategory[e.category.name] = (byCategory[e.category.name] || 0) + amt
+    totalExpenses += amt
+  }
   const netProfit = revenue - totalExpenses - totalSalary
 
   const data = [

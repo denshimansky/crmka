@@ -13,9 +13,12 @@ const updateSchema = z.object({
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   isVariable: z.boolean().optional(),
   isRecurring: z.boolean().optional(),
+  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized"]).optional(),
+  amortizationStartDate: z.string().nullable().optional(),
   amortizationMonths: z.any().transform(v => {
+    if (v === null) return null
     const n = Number(v)
-    return n > 0 ? n : null
+    return Number.isFinite(n) && n > 0 ? n : null
   }),
   branchIds: z.array(z.string().uuid()).optional(),
 })
@@ -38,6 +41,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   const data = parsed.data
 
+  // Валидация режима признания (если он передан в запросе).
+  if (data.recognitionMode === "single_period") {
+    if (!data.amortizationStartDate) {
+      return NextResponse.json({ error: "Укажите месяц признания для режима «Одной суммой в другом месяце»" }, { status: 400 })
+    }
+  } else if (data.recognitionMode === "amortized") {
+    if (!data.amortizationStartDate || !data.amortizationMonths || data.amortizationMonths < 2) {
+      return NextResponse.json({ error: "Укажите месяц начала и количество месяцев (≥ 2) для амортизации" }, { status: 400 })
+    }
+    if (data.amortizationMonths > 60) {
+      return NextResponse.json({ error: "Максимум 60 месяцев" }, { status: 400 })
+    }
+  }
+
   await db.$transaction(async (tx) => {
     const updateData: any = {}
     if (data.categoryId) updateData.categoryId = data.categoryId
@@ -45,9 +62,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (data.comment !== undefined) updateData.comment = data.comment || null
     if (data.isVariable !== undefined) updateData.isVariable = data.isVariable
     if (data.isRecurring !== undefined) updateData.isRecurring = data.isRecurring
-    if (data.amortizationMonths !== undefined) {
-      updateData.amortizationMonths = data.amortizationMonths
-      updateData.amortizationStartDate = data.amortizationMonths ? (data.date ? new Date(data.date) : existing.date) : null
+
+    if (data.recognitionMode !== undefined) {
+      updateData.recognitionMode = data.recognitionMode
+      if (data.recognitionMode === "by_payment_date") {
+        updateData.amortizationMonths = null
+        updateData.amortizationStartDate = null
+      } else if (data.recognitionMode === "single_period") {
+        updateData.amortizationMonths = 1
+        updateData.amortizationStartDate = data.amortizationStartDate ? new Date(data.amortizationStartDate) : null
+      } else if (data.recognitionMode === "amortized") {
+        updateData.amortizationMonths = data.amortizationMonths ?? null
+        updateData.amortizationStartDate = data.amortizationStartDate ? new Date(data.amortizationStartDate) : null
+      }
     }
 
     // Если меняется сумма или счёт — корректируем балансы

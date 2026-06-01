@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
+import {
+  expenseAmountInWindow,
+  AMORTIZATION_LOOKBACK_MONTHS,
+} from "@/lib/expense-amortization"
 
 /** FIN-15: P&L по направлениям */
 export async function GET(req: NextRequest) {
@@ -60,10 +64,14 @@ export async function GET(req: NextRequest) {
   )
 
   // === Expenses ===
+  // Расширяем окно выборки на AMORTIZATION_LOOKBACK_MONTHS назад — расход с
+  // recognitionMode=amortized мог быть оплачен раньше окна, но его доли попадают сюда.
+  const expensesFrom = new Date(dateFrom)
+  expensesFrom.setUTCMonth(expensesFrom.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
   const expWhere: any = {
     tenantId,
     deletedAt: null,
-    date: { gte: dateFrom, lte: dateTo },
+    date: { gte: expensesFrom, lte: dateTo },
   }
   if (branchId) expWhere.branches = { some: { branchId } }
 
@@ -75,12 +83,18 @@ export async function GET(req: NextRequest) {
     },
   })
 
+  const fromY = dateFrom.getUTCFullYear()
+  const fromM = dateFrom.getUTCMonth() + 1
+  const toY = dateTo.getUTCFullYear()
+  const toM = dateTo.getUTCMonth() + 1
+
   // Split expenses: variable (linked to direction) vs fixed (to distribute)
   let totalFixed = 0
   const directExpensesByDir = new Map<string, number>()
 
   for (const e of expenses) {
-    const amount = Number(e.amount)
+    const amount = expenseAmountInWindow(e, fromY, fromM, toY, toM)
+    if (amount === 0) continue
     const isVariable = e.category.isVariable
 
     // Check if expense is linked to a specific direction
