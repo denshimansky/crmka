@@ -1629,6 +1629,7 @@ enum NotificationType {
   trial_reminder
   period_close
   linked_discount_warning
+  package_expiring
 }
 
 enum AdminBonusType {

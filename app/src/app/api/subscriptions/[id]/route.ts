@@ -13,6 +13,8 @@ const updateSchema = z.object({
   discountAmount: z.number().min(0).optional(),
   wardId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   withdrawalDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  // Продление срока пакетного абонемента (ISO-дата) — только для type='package'.
+  expiresAt: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
 })
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -139,6 +141,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     if (data.wardId !== undefined) {
       updateData.wardId = data.wardId
+    }
+
+    // Продление срока пакета — только для type='package'.
+    if (data.expiresAt !== undefined) {
+      if (existing.type !== "package") {
+        throw new Error("expiresAt доступно только для пакетного типа")
+      }
+      const parsed = new Date(data.expiresAt)
+      if (Number.isNaN(parsed.getTime())) {
+        throw new Error("Некорректная дата expiresAt")
+      }
+      updateData.expiresAt = parsed
+      // Если пакет был закрыт по истечении, и его продлили в будущее — реактивируем.
+      if (existing.status === "closed" && parsed > new Date()) {
+        updateData.status = "active"
+        updateData.endDate = null
+      }
     }
 
     const subscription = await tx.subscription.update({

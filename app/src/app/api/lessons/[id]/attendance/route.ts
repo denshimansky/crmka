@@ -217,10 +217,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     data.subscriptionId = virtualMakeup.subscriptionId
   }
 
-  // Fetch org setting for trial lesson instructor pay
+  // Fetch org setting for trial lesson instructor pay + subscription type
   const org = await db.organization.findUnique({
     where: { id: tenantId },
-    select: { payForTrialLessons: true },
+    select: { payForTrialLessons: true, subscriptionType: true },
   })
 
   // === Вся бизнес-логика в транзакции ===
@@ -295,18 +295,42 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     } else if (attendanceType.chargesSubscription && !subscriptionId) {
       const lessonDate = new Date(lesson.date)
-      const subscription = await tx.subscription.findFirst({
-        where: {
-          tenantId,
-          clientId: data.clientId,
-          groupId: lesson.groupId,
-          periodYear: lessonDate.getFullYear(),
-          periodMonth: lessonDate.getMonth() + 1,
-          deletedAt: null,
-          status: { in: ["active", "pending"] },
-          ...(data.wardId ? { wardId: data.wardId } : {}),
-        },
-      })
+      let subscription
+      if (org?.subscriptionType === "package") {
+        // Пакетный: FIFO — берём самый старый активный пакет, у которого:
+        //  - startDate <= дата занятия
+        //  - expiresAt не указан ИЛИ >= дата занятия
+        //  - есть остаток (balance > 0)
+        subscription = await tx.subscription.findFirst({
+          where: {
+            tenantId,
+            clientId: data.clientId,
+            groupId: lesson.groupId,
+            type: "package",
+            deletedAt: null,
+            status: { in: ["active", "pending"] },
+            startDate: { lte: lessonDate },
+            OR: [{ expiresAt: null }, { expiresAt: { gte: lessonDate } }],
+            balance: { gt: 0 },
+            ...(data.wardId ? { wardId: data.wardId } : {}),
+          },
+          orderBy: { startDate: "asc" },
+        })
+      } else {
+        // Календарный: поиск по месяцу занятия.
+        subscription = await tx.subscription.findFirst({
+          where: {
+            tenantId,
+            clientId: data.clientId,
+            groupId: lesson.groupId,
+            periodYear: lessonDate.getFullYear(),
+            periodMonth: lessonDate.getMonth() + 1,
+            deletedAt: null,
+            status: { in: ["active", "pending"] },
+            ...(data.wardId ? { wardId: data.wardId } : {}),
+          },
+        })
+      }
       if (subscription) {
         subscriptionId = subscription.id
         chargeAmount = subscription.lessonPrice

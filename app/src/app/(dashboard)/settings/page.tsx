@@ -3,10 +3,11 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Building2, MapPin, Megaphone, Palette, Shield, UserX, CalendarDays, ListChecks, Bell, UserCog, Landmark, ArrowDownUp } from "lucide-react"
+import { Building2, MapPin, Megaphone, Palette, Shield, UserX, CalendarDays, ListChecks, Bell, UserCog, Landmark, ArrowDownUp, Tag, Lock } from "lucide-react"
 import { getDirectionIcon } from "@/lib/direction-icons"
 import Link from "next/link"
 import { CreateDirectionDialog } from "./create-direction-dialog"
+import { PackageTemplatesContent } from "./package-templates-content"
 import { EditDirectionDialog } from "./edit-direction-dialog"
 import { CreateBranchDialog } from "./create-branch-dialog"
 import { PageHelp } from "@/components/page-help"
@@ -72,6 +73,10 @@ export default async function SettingsPage() {
         <div className="overflow-x-auto">
           <TabsList>
             <TabsTrigger value="org">Организация</TabsTrigger>
+            <TabsTrigger value="subscription-type">Тип абонемента</TabsTrigger>
+            {org.subscriptionType === "package" && (
+              <TabsTrigger value="package-templates">Шаблоны пакетов</TabsTrigger>
+            )}
             <TabsTrigger value="branches">Филиалы</TabsTrigger>
             <TabsTrigger value="directions">Направления</TabsTrigger>
             <TabsTrigger value="admin-bonus">Бонусы админов</TabsTrigger>
@@ -150,6 +155,76 @@ export default async function SettingsPage() {
             />
           </div>
         </TabsContent>
+
+        {/* Тип абонемента */}
+        <TabsContent value="subscription-type">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <Card>
+              <CardContent className="p-6 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Tag className="size-5 text-primary" />
+                  <h2 className="text-lg font-semibold">Модель работы с абонементами</h2>
+                </div>
+
+                <div className="rounded-md border bg-muted/40 p-4">
+                  <div className="text-xs text-muted-foreground">Текущий тип</div>
+                  <div className="mt-1 text-lg font-medium">
+                    {org.subscriptionType === "calendar" && "Календарный"}
+                    {org.subscriptionType === "package" && "Пакетный"}
+                    {org.subscriptionType === "fixed" && "Фикс"}
+                    {!org.subscriptionType && (
+                      <span className="text-muted-foreground">Не выбран</span>
+                    )}
+                  </div>
+                  {org.subscriptionType === "calendar" && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Каждый месяц — отдельный абонемент. Цена считается по числу
+                      занятий в группе на месяц.
+                    </p>
+                  )}
+                  {org.subscriptionType === "package" && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      N занятий на срок M дней. Клиент посещает в любое доступное
+                      время в выбранной группе.
+                    </p>
+                  )}
+                </div>
+
+                {org.subscriptionTypeLockedAt ? (
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="flex gap-2">
+                      <Lock className="size-4 shrink-0 text-muted-foreground" />
+                      <div className="space-y-1">
+                        <div className="text-sm font-medium">Тип заблокирован</div>
+                        <p className="text-xs text-muted-foreground">
+                          С {new Date(org.subscriptionTypeLockedAt).toLocaleDateString("ru-RU")}.
+                          Смена типа влияет на работу всей системы (отчёты, ЗП, биллинг)
+                          — поэтому разблокировать может только техподдержка.
+                          Напишите на <a href="mailto:support@umnayacrm.ru" className="text-primary hover:underline">support@umnayacrm.ru</a>.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Тип ещё не зафиксирован. Будет автоматически заблокирован после
+                    создания первого абонемента.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Шаблоны пакетов */}
+        {org.subscriptionType === "package" && (
+          <TabsContent value="package-templates">
+            <PackageTemplatesContent
+              initialDefaultValidDays={org.packageDefaultValidDays}
+              initialNotifyDaysBefore={org.packageExpiryNotifyDaysBefore}
+            />
+          </TabsContent>
+        )}
 
         {/* Филиалы */}
         <TabsContent value="branches">

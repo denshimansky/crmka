@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import {
   Building2, MapPin, BookOpen, UserCog, Wallet, PartyPopper,
   ChevronLeft, ChevronRight, SkipForward, Loader2, Check,
-  Plus, DoorOpen,
+  Plus, DoorOpen, Tag, Package, AlertTriangle, Trash2,
 } from "lucide-react"
 import {
   CreateBranchDialog, type CreatedBranch,
@@ -34,13 +34,33 @@ interface OnboardingWizardProps {
   orgInn: string | null
 }
 
-const STEPS = [
-  { title: "Добро пожаловать", icon: Building2 },
-  { title: "Филиалы", icon: MapPin },
-  { title: "Направления", icon: BookOpen },
-  { title: "Сотрудники", icon: UserCog },
-  { title: "Кассы", icon: Wallet },
-  { title: "Готово!", icon: PartyPopper },
+type SubscriptionType = "calendar" | "fixed" | "package"
+type StepKey =
+  | "org"
+  | "subscription-type"
+  | "package-templates"
+  | "branches"
+  | "directions"
+  | "employees"
+  | "accounts"
+  | "done"
+
+interface StepDef {
+  key: StepKey
+  title: string
+  icon: typeof Building2
+  hideWhen?: (state: { subscriptionType: SubscriptionType | null }) => boolean
+}
+
+const ALL_STEPS: readonly StepDef[] = [
+  { key: "org", title: "Добро пожаловать", icon: Building2 },
+  { key: "subscription-type", title: "Тип абонемента", icon: Tag },
+  { key: "package-templates", title: "Шаблоны пакетов", icon: Package, hideWhen: (s) => s.subscriptionType !== "package" },
+  { key: "branches", title: "Филиалы", icon: MapPin },
+  { key: "directions", title: "Направления", icon: BookOpen },
+  { key: "employees", title: "Сотрудники", icon: UserCog },
+  { key: "accounts", title: "Кассы", icon: Wallet },
+  { key: "done", title: "Готово!", icon: PartyPopper },
 ] as const
 
 interface BranchItem {
@@ -78,6 +98,11 @@ interface AccountItem {
   branch?: { id: string; name: string } | null
 }
 
+interface PackagePreset {
+  lessonsCount: number
+  validDays: number | ""
+}
+
 const ROLE_LABELS: Record<string, string> = {
   owner: "Владелец",
   manager: "Управляющий",
@@ -102,6 +127,14 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
   const [name, setName] = useState(orgName)
   const [inn, setInn] = useState(orgInn ?? "")
 
+  const [subscriptionType, setSubscriptionType] = useState<SubscriptionType | null>(null)
+  const [packageDefaultValidDays, setPackageDefaultValidDays] = useState(60)
+  const [packagePresets, setPackagePresets] = useState<PackagePreset[]>([
+    { lessonsCount: 4, validDays: "" },
+    { lessonsCount: 8, validDays: "" },
+    { lessonsCount: 12, validDays: "" },
+  ])
+
   const [branches, setBranches] = useState<BranchItem[]>([])
   const [directions, setDirections] = useState<DirectionItem[]>([])
   const [employees, setEmployees] = useState<EmployeeItem[]>([])
@@ -114,13 +147,24 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
   const [salaryDialogFor, setSalaryDialogFor] = useState<{ id: string; name: string } | null>(null)
   const [accountDialogOpen, setAccountDialogOpen] = useState(false)
 
+  const STEPS = useMemo(
+    () => ALL_STEPS.filter((s) => !s.hideWhen || !s.hideWhen({ subscriptionType })),
+    [subscriptionType],
+  )
+
+  // Если выбор типа изменился и текущий шаг ушёл за пределы — откатить на «package-templates».
+  useEffect(() => {
+    if (step >= STEPS.length) setStep(Math.max(0, STEPS.length - 1))
+  }, [STEPS.length, step])
+
   const loadAll = useCallback(async () => {
     try {
-      const [bRes, dRes, eRes, aRes] = await Promise.all([
+      const [bRes, dRes, eRes, aRes, oRes] = await Promise.all([
         fetch("/api/branches"),
         fetch("/api/directions"),
         fetch("/api/employees"),
         fetch("/api/accounts"),
+        fetch("/api/organization"),
       ])
       if (bRes.ok) setBranches(await bRes.json())
       if (dRes.ok) setDirections(await dRes.json())
@@ -139,6 +183,13 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
         )
       }
       if (aRes.ok) setAccounts(await aRes.json())
+      if (oRes.ok) {
+        const org = await oRes.json()
+        if (org?.subscriptionType) setSubscriptionType(org.subscriptionType as SubscriptionType)
+        if (typeof org?.packageDefaultValidDays === "number") {
+          setPackageDefaultValidDays(org.packageDefaultValidDays)
+        }
+      }
     } catch {
       /* ignore */
     }
@@ -166,7 +217,76 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
         setError(data.error || "Не удалось сохранить")
         return
       }
-      setStep(1)
+      goNext()
+    } catch {
+      setError("Ошибка сети")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveSubscriptionType() {
+    if (!subscriptionType) {
+      setError("Выберите тип абонемента")
+      return
+    }
+    setSaving(true)
+    setError("")
+    try {
+      const res = await fetch("/api/organization", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscriptionType,
+          packageDefaultValidDays:
+            subscriptionType === "package" ? packageDefaultValidDays : undefined,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Не удалось сохранить")
+        return
+      }
+      goNext()
+    } catch {
+      setError("Ошибка сети")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function savePackageTemplates() {
+    const templates = packagePresets
+      .filter((p) => Number.isFinite(p.lessonsCount) && p.lessonsCount > 0)
+      .map((p) => ({
+        lessonsCount: p.lessonsCount,
+        validDays: p.validDays === "" ? null : Number(p.validDays),
+      }))
+    if (templates.length === 0) {
+      // допустимо пропустить — настройка через Settings позже
+      goNext()
+      return
+    }
+    setSaving(true)
+    setError("")
+    try {
+      // Сохраним обновлённое default-значение (если пользователь его правил).
+      await fetch("/api/organization", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageDefaultValidDays }),
+      })
+      const res = await fetch("/api/package-templates/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templates }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Не удалось сохранить шаблоны")
+        return
+      }
+      goNext()
     } catch {
       setError("Ошибка сети")
     } finally {
@@ -217,7 +337,6 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
 
   function handleSalaryDialogChange(open: boolean) {
     if (!open && salaryDialogFor) {
-      // обновим число ставок у этого сотрудника
       const targetId = salaryDialogFor.id
       fetch(`/api/employees/${targetId}/salary-rates`)
         .then((res) => (res.ok ? res.json() : []))
@@ -237,8 +356,34 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
     setAccounts((prev) => [...prev, a])
   }
 
-  const progress = Math.round((step / (STEPS.length - 1)) * 100)
-  const currentStep = STEPS[step]
+  function goNext() {
+    setStep((s) => Math.min(STEPS.length - 1, s + 1))
+  }
+
+  function goBack() {
+    setStep((s) => Math.max(0, s - 1))
+  }
+
+  function handleNext() {
+    setError("")
+    switch (currentKey) {
+      case "org":
+        saveOrganization()
+        break
+      case "subscription-type":
+        saveSubscriptionType()
+        break
+      case "package-templates":
+        savePackageTemplates()
+        break
+      default:
+        goNext()
+    }
+  }
+
+  const progress = Math.round((step / Math.max(1, STEPS.length - 1)) * 100)
+  const currentStep = STEPS[step] ?? STEPS[0]
+  const currentKey = currentStep.key
   const Icon = currentStep.icon
 
   return (
@@ -271,8 +416,8 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
             </div>
           )}
 
-          {/* Шаг 0: Организация */}
-          {step === 0 && (
+          {/* Шаг: Организация */}
+          {currentKey === "org" && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Давайте начнём с базовой информации о вашей организации. Эти данные
@@ -297,8 +442,147 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
             </div>
           )}
 
-          {/* Шаг 1: Филиалы */}
-          {step === 1 && (
+          {/* Шаг: Тип абонемента */}
+          {currentKey === "subscription-type" && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Выберите модель работы с абонементами. Это решение определяет
+                логику расчёта выручки, ЗП инструкторов и большинства отчётов.
+              </p>
+
+              <div className="space-y-2">
+                <SubscriptionTypeCard
+                  active={subscriptionType === "calendar"}
+                  title="Календарный"
+                  subtitle="Рекомендуется для детских центров"
+                  description="Каждый месяц — отдельный абонемент. Цена считается по числу занятий в группе на месяц."
+                  onClick={() => setSubscriptionType("calendar")}
+                />
+                <SubscriptionTypeCard
+                  active={subscriptionType === "package"}
+                  title="Пакетный"
+                  subtitle="Для фитнес-студий, школ языков"
+                  description="N занятий на срок M дней. Клиент посещает в любое доступное время в выбранной группе."
+                  onClick={() => setSubscriptionType("package")}
+                />
+                <SubscriptionTypeCard
+                  active={false}
+                  disabled
+                  title="Фикс"
+                  subtitle="В разработке"
+                  description="Фиксированное расписание на длительный период (для школ)."
+                />
+              </div>
+
+              {subscriptionType === "package" && (
+                <div className="rounded-md border bg-muted/40 p-3 space-y-2">
+                  <Label className="text-xs">Срок действия пакета по умолчанию (дней)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={3650}
+                    value={packageDefaultValidDays}
+                    onChange={(e) => setPackageDefaultValidDays(Math.max(1, Number(e.target.value) || 60))}
+                    className="max-w-[160px]"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Можно переопределить для каждого шаблона пакета или конкретного абонемента.
+                  </p>
+                </div>
+              )}
+
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3">
+                <div className="flex gap-2">
+                  <AlertTriangle className="size-5 shrink-0 text-destructive" />
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium text-destructive">
+                      Тип абонемента нельзя сменить
+                    </div>
+                    <p className="text-xs text-destructive/90">
+                      После создания первого абонемента смена типа будет заблокирована.
+                      Разблокировать сможет только техподдержка. Этот выбор влияет
+                      на работу всей системы — отчёты, расчёт ЗП, биллинг.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Шаг: Шаблоны пакетов */}
+          {currentKey === "package-templates" && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Готовые пресеты количества занятий для быстрой продажи пакета.
+                Можно изменить позже в Настройках.
+              </p>
+
+              <div className="space-y-2">
+                {packagePresets.map((p, idx) => (
+                  <div key={idx} className="flex items-end gap-2">
+                    <div className="flex-1 space-y-1.5">
+                      <Label className="text-xs">Занятий</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={1000}
+                        value={p.lessonsCount}
+                        onChange={(e) => {
+                          const v = Math.max(1, Number(e.target.value) || 1)
+                          setPackagePresets((prev) =>
+                            prev.map((pp, i) => (i === idx ? { ...pp, lessonsCount: v } : pp)),
+                          )
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 space-y-1.5">
+                      <Label className="text-xs">Срок (дн)</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={3650}
+                        placeholder={`по умолч. ${packageDefaultValidDays}`}
+                        value={p.validDays}
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          const v = raw === "" ? "" : Math.max(1, Number(raw) || 1)
+                          setPackagePresets((prev) =>
+                            prev.map((pp, i) => (i === idx ? { ...pp, validDays: v } : pp)),
+                          )
+                        }}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() =>
+                        setPackagePresets((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      disabled={packagePresets.length === 1}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setPackagePresets((prev) => [...prev, { lessonsCount: 1, validDays: "" }])
+                }
+                className="w-full"
+              >
+                <Plus className="mr-1 size-4" />
+                Добавить пресет
+              </Button>
+            </div>
+          )}
+
+          {/* Шаг: Филиалы */}
+          {currentKey === "branches" && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Добавьте все ваши филиалы и кабинеты в них. Кабинеты используются
@@ -332,7 +616,6 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
                         </div>
                       </div>
 
-                      {/* Кабинеты */}
                       <div className="ml-6 mt-2 space-y-1">
                         {b.rooms.length === 0 ? (
                           <div className="text-xs text-muted-foreground">Нет кабинетов</div>
@@ -392,8 +675,8 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
             </div>
           )}
 
-          {/* Шаг 2: Направления */}
-          {step === 2 && (
+          {/* Шаг: Направления */}
+          {currentKey === "directions" && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Направления — это услуги, которые вы предлагаете (например, «Развивайка
@@ -443,8 +726,8 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
             </div>
           )}
 
-          {/* Шаг 3: Сотрудники */}
-          {step === 3 && (
+          {/* Шаг: Сотрудники */}
+          {currentKey === "employees" && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Добавьте сотрудников: администраторов, инструкторов, управляющих.
@@ -533,8 +816,8 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
             </div>
           )}
 
-          {/* Шаг 4: Кассы */}
-          {step === 4 && (
+          {/* Шаг: Кассы */}
+          {currentKey === "accounts" && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Касса — это любое место, где появляются деньги: наличная касса в филиале,
@@ -585,8 +868,8 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
             </div>
           )}
 
-          {/* Шаг 5: Готово */}
-          {step === 5 && (
+          {/* Шаг: Готово */}
+          {currentKey === "done" && (
             <div className="space-y-4 text-center">
               <PartyPopper className="mx-auto size-12 text-primary" />
               <div>
@@ -598,6 +881,12 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
               </div>
 
               <div className="mx-auto max-w-sm space-y-2 text-left text-sm">
+                {subscriptionType && (
+                  <SummaryLine
+                    done={true}
+                    text={`Тип абонемента: ${subscriptionType === "calendar" ? "Календарный" : subscriptionType === "package" ? "Пакетный" : "Фикс"}`}
+                  />
+                )}
                 <SummaryLine
                   done={branches.length > 0}
                   text={`${branches.length} ${pl(branches.length, "филиал", "филиала", "филиалов")} (${branches.reduce((s, b) => s + b.rooms.length, 0)} ${pl(branches.reduce((s, b) => s + b.rooms.length, 0), "кабинет", "кабинета", "кабинетов")})`}
@@ -626,12 +915,12 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
       </Card>
 
       {/* Навигация */}
-      {step < STEPS.length - 1 && (
+      {currentKey !== "done" && (
         <div className="mt-4 flex items-center justify-between gap-2">
           <Button
             type="button"
             variant="outline"
-            onClick={() => setStep(step - 1)}
+            onClick={goBack}
             disabled={step === 0}
           >
             <ChevronLeft className="mr-1 size-4" />
@@ -639,22 +928,20 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
           </Button>
 
           <div className="flex items-center gap-2">
-            {step > 0 && (
-              <Button type="button" variant="ghost" onClick={() => setStep(step + 1)}>
+            {step > 0 && currentKey !== "subscription-type" && (
+              <Button type="button" variant="ghost" onClick={goNext}>
                 <SkipForward className="mr-1 size-4" />
                 Пропустить
               </Button>
             )}
             <Button
               type="button"
-              onClick={() => {
-                if (step === 0) {
-                  saveOrganization()
-                } else {
-                  setStep(step + 1)
-                }
-              }}
-              disabled={saving || (step === 0 && !name.trim())}
+              onClick={handleNext}
+              disabled={
+                saving ||
+                (currentKey === "org" && !name.trim()) ||
+                (currentKey === "subscription-type" && !subscriptionType)
+              }
             >
               {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
               Далее
@@ -664,6 +951,44 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
         </div>
       )}
     </div>
+  )
+}
+
+function SubscriptionTypeCard({
+  active,
+  disabled,
+  title,
+  subtitle,
+  description,
+  onClick,
+}: {
+  active: boolean
+  disabled?: boolean
+  title: string
+  subtitle: string
+  description: string
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "w-full rounded-md border p-3 text-left transition-colors",
+        active ? "border-primary bg-primary/5" : "border-input",
+        disabled ? "cursor-not-allowed opacity-50" : "hover:bg-muted/50",
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="space-y-0.5">
+          <div className="font-medium">{title}</div>
+          <div className="text-xs text-muted-foreground">{subtitle}</div>
+        </div>
+        {active && <Check className="size-4 shrink-0 text-primary" />}
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">{description}</p>
+    </button>
   )
 }
 

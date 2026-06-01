@@ -24,7 +24,7 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Pencil, X, Ban, CalendarDays, Undo2, ArrowLeftRight } from "lucide-react"
+import { Plus, Pencil, X, Ban, CalendarDays, Undo2, ArrowLeftRight, CalendarPlus } from "lucide-react"
 import { AddWardForm } from "./add-ward-form"
 import { AttendanceTab } from "./attendance-tab"
 import { CommunicationFeed } from "@/components/communication-feed"
@@ -43,8 +43,10 @@ interface Ward {
 interface Subscription {
   id: string
   status: string
-  periodYear: number
-  periodMonth: number
+  type?: string
+  periodYear: number | null
+  periodMonth: number | null
+  expiresAt?: string | null
   lessonPrice: string
   totalLessons: number
   totalAmount: string
@@ -123,6 +125,23 @@ const METHOD_LABELS: Record<string, string> = {
   online_yukassa: "ЮKassa",
   online_robokassa: "Робокасса",
   sbp_qr: "СБП",
+}
+
+function formatSubPeriod(s: {
+  periodMonth: number | null
+  periodYear: number | null
+  expiresAt?: string | null
+  type?: string
+}): string {
+  if (s.type === "package") {
+    return s.expiresAt
+      ? `Пакет до ${new Date(s.expiresAt).toLocaleDateString("ru-RU")}`
+      : "Пакет"
+  }
+  if (s.periodMonth != null && s.periodYear != null) {
+    return `${MONTH_NAMES[s.periodMonth]} ${s.periodYear}`
+  }
+  return "—"
 }
 
 const MONTH_NAMES = [
@@ -232,7 +251,7 @@ function EditSubscriptionDialog({
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Период:</span>
-              <span>{MONTH_NAMES[subscription.periodMonth]} {subscription.periodYear}</span>
+              <span>{formatSubPeriod(subscription)}</span>
             </div>
           </div>
 
@@ -422,7 +441,7 @@ function RefundSubscriptionDialog({
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Период:</span>
-                <span>{MONTH_NAMES[subscription.periodMonth]} {subscription.periodYear}</span>
+                <span>{formatSubPeriod(subscription)}</span>
               </div>
             </div>
 
@@ -557,7 +576,7 @@ function CloseSubscriptionDialog({
             <div className="flex justify-between">
               <span className="text-muted-foreground">Период:</span>
               <span>
-                {MONTH_NAMES[subscription.periodMonth]} {subscription.periodYear}
+                {formatSubPeriod(subscription)}
               </span>
             </div>
             <div className="flex justify-between">
@@ -712,7 +731,7 @@ function WithdrawSubscriptionDialog({
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Период:</span>
                 <span>
-                  {MONTH_NAMES[subscription.periodMonth]} {subscription.periodYear}
+                  {formatSubPeriod(subscription)}
                 </span>
               </div>
             </div>
@@ -808,6 +827,116 @@ interface TransferInfo {
   available: number
   balance: number
   targets: TransferTarget[]
+}
+
+function ExtendPackageDialog({
+  subscription,
+  onSuccess,
+}: {
+  subscription: Subscription
+  onSuccess: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [newExpiresAt, setNewExpiresAt] = useState("")
+
+  function handleOpen(v: boolean) {
+    setOpen(v)
+    if (v) {
+      // Открываем диалог с текущей датой истечения как стартом.
+      const current = subscription.expiresAt
+        ? new Date(subscription.expiresAt)
+        : new Date()
+      setNewExpiresAt(current.toISOString().slice(0, 10))
+      setError(null)
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    if (!newExpiresAt) {
+      setError("Укажите новую дату истечения")
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresAt: newExpiresAt }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Не удалось продлить срок")
+        return
+      }
+      setOpen(false)
+      onSuccess()
+    } catch {
+      setError("Ошибка сети")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function shift(days: number) {
+    const base = subscription.expiresAt ? new Date(subscription.expiresAt) : new Date()
+    base.setDate(base.getDate() + days)
+    setNewExpiresAt(base.toISOString().slice(0, 10))
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger render={<Button variant="ghost" size="icon" className="size-7" title="Продлить срок пакета" />}>
+        <CalendarPlus className="size-3.5" />
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Продление пакета</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+          <div className="text-sm text-muted-foreground">
+            Текущая дата истечения:{" "}
+            <span className="font-medium text-foreground">
+              {subscription.expiresAt
+                ? new Date(subscription.expiresAt).toLocaleDateString("ru-RU")
+                : "—"}
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Новая дата истечения</Label>
+            <Input
+              type="date"
+              value={newExpiresAt}
+              onChange={(e) => setNewExpiresAt(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => shift(7)}>+7 дн</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => shift(14)}>+14 дн</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => shift(30)}>+30 дн</Button>
+          </div>
+          {subscription.status === "closed" && (
+            <p className="text-xs text-muted-foreground">
+              Пакет был закрыт по истечении. После продления он снова станет активным.
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="submit" disabled={loading}>
+              {loading ? "Сохранение..." : "Продлить"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 function TransferBalanceDialog({
@@ -1102,7 +1231,7 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                     </TableCell>
                     <TableCell className="font-medium">{s.direction.name}</TableCell>
                     <TableCell>{s.group.name}</TableCell>
-                    <TableCell>{MONTH_NAMES[s.periodMonth]} {s.periodYear}</TableCell>
+                    <TableCell>{formatSubPeriod(s)}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[s.status] || ""}`}>
                         {STATUS_LABELS[s.status] || s.status}
@@ -1127,6 +1256,9 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                       {canEdit && (
                         <div className="flex items-center justify-end gap-0.5">
                           <EditSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
+                          {s.type === "package" && (
+                            <ExtendPackageDialog subscription={s} onSuccess={handleSubUpdated} />
+                          )}
                           <TransferBalanceDialog subscription={s} onSuccess={handleSubUpdated} />
                           <RefundSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                           <CloseSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
@@ -1470,6 +1602,14 @@ interface GroupOption {
   templates: { dayOfWeek: number }[]
 }
 
+interface PackageTemplateOption {
+  id: string
+  lessonsCount: number
+  validDays: number | null
+}
+
+type SubscriptionTypeMode = "calendar" | "package"
+
 function AddSubscriptionDialog({
   clientId,
   wards,
@@ -1487,6 +1627,14 @@ function AddSubscriptionDialog({
   const [directions, setDirections] = useState<DirectionOption[]>([])
   const [groups, setGroups] = useState<GroupOption[]>([])
 
+  // Тип абонемента организации + связанные данные (для package).
+  const [subscriptionType, setSubscriptionType] = useState<SubscriptionTypeMode>("calendar")
+  const [packageTemplates, setPackageTemplates] = useState<PackageTemplateOption[]>([])
+  const [packageDefaultValidDays, setPackageDefaultValidDays] = useState(60)
+  const [packageTemplateId, setPackageTemplateId] = useState("")
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [validDays, setValidDays] = useState("")
+
   // SUB-12: абонементы с положительным балансом для авто-предложения переноса
   const subsWithBalance = subscriptions.filter(s =>
     Number(s.balance) > 0 && (s.status === "closed" || s.status === "churned")
@@ -1501,17 +1649,28 @@ function AddSubscriptionDialog({
   const [totalLessons, setTotalLessons] = useState("")
   const [discountAmount, setDiscountAmount] = useState("")
 
-  // Загрузка направлений и групп при открытии
+  // Загрузка направлений, групп, типа абонемента и шаблонов при открытии
   useEffect(() => {
     if (!open) return
     async function load() {
       try {
-        const [dirRes, grpRes] = await Promise.all([
+        const [dirRes, grpRes, orgRes, tplRes] = await Promise.all([
           fetch("/api/directions"),
           fetch("/api/groups"),
+          fetch("/api/organization"),
+          fetch("/api/package-templates"),
         ])
         if (dirRes.ok) setDirections(await dirRes.json())
         if (grpRes.ok) setGroups(await grpRes.json())
+        if (orgRes.ok) {
+          const org = await orgRes.json()
+          const t = org?.subscriptionType === "package" ? "package" : "calendar"
+          setSubscriptionType(t)
+          if (typeof org?.packageDefaultValidDays === "number") {
+            setPackageDefaultValidDays(org.packageDefaultValidDays)
+          }
+        }
+        if (tplRes.ok) setPackageTemplates(await tplRes.json())
       } catch { /* ignore */ }
     }
     load()
@@ -1525,8 +1684,9 @@ function AddSubscriptionDialog({
     if (dir) setLessonPrice(String(Number(dir.lessonPrice)))
   }
 
-  // Авто-подсчёт количества занятий: пересчитывается при смене группы, месяца или года
+  // Авто-подсчёт количества занятий: только для calendar — по календарному месяцу группы.
   useEffect(() => {
+    if (subscriptionType !== "calendar") return
     if (!groupId || !periodYear || !periodMonth) return
     const group = groups.find(g => g.id === groupId)
     if (!group) return
@@ -1542,7 +1702,18 @@ function AddSubscriptionDialog({
       if (scheduleDays.includes(ourDow)) count++
     }
     setTotalLessons(String(count || 1))
-  }, [groupId, periodYear, periodMonth, groups])
+  }, [subscriptionType, groupId, periodYear, periodMonth, groups])
+
+  // Для package: при выборе шаблона — автозаполнение totalLessons и validDays.
+  useEffect(() => {
+    if (subscriptionType !== "package") return
+    if (!packageTemplateId) return
+    const tpl = packageTemplates.find(t => t.id === packageTemplateId)
+    if (tpl) {
+      setTotalLessons(String(tpl.lessonsCount))
+      setValidDays(tpl.validDays ? String(tpl.validDays) : "")
+    }
+  }, [subscriptionType, packageTemplateId, packageTemplates])
 
   function reset() {
     setDirectionId("")
@@ -1553,6 +1724,9 @@ function AddSubscriptionDialog({
     setLessonPrice("")
     setTotalLessons("")
     setDiscountAmount("")
+    setPackageTemplateId("")
+    setStartDate(new Date().toISOString().slice(0, 10))
+    setValidDays("")
     setError(null)
   }
 
@@ -1567,20 +1741,27 @@ function AddSubscriptionDialog({
 
     setLoading(true)
     try {
+      const payload: Record<string, unknown> = {
+        clientId,
+        directionId,
+        groupId,
+        wardId: wardId || undefined,
+        lessonPrice: Number(lessonPrice),
+        totalLessons: Number(totalLessons),
+        discountAmount: Number(discountAmount) || 0,
+      }
+      if (subscriptionType === "package") {
+        payload.startDate = startDate
+        if (packageTemplateId) payload.packageTemplateId = packageTemplateId
+        if (validDays) payload.validDays = Number(validDays)
+      } else {
+        payload.periodYear = Number(periodYear)
+        payload.periodMonth = Number(periodMonth)
+      }
       const res = await fetch("/api/subscriptions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId,
-          directionId,
-          groupId,
-          wardId: wardId || undefined,
-          periodYear: Number(periodYear),
-          periodMonth: Number(periodMonth),
-          lessonPrice: Number(lessonPrice),
-          totalLessons: Number(totalLessons),
-          discountAmount: Number(discountAmount) || 0,
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (!res.ok) {
@@ -1630,7 +1811,10 @@ function AddSubscriptionDialog({
               <p className="font-medium">Есть остаток на предыдущих абонементах:</p>
               {subsWithBalance.map(s => (
                 <p key={s.id} className="mt-1">
-                  {s.direction.name} ({s.periodMonth}/{s.periodYear}) — <b>{formatMoney(Number(s.balance))}</b>
+                  {s.direction.name}
+                  {s.periodYear && s.periodMonth ? ` (${s.periodMonth}/${s.periodYear})` : ""}
+                  {" — "}
+                  <b>{formatMoney(Number(s.balance))}</b>
                 </p>
               ))}
               <p className="mt-1.5 text-xs text-blue-600 dark:text-blue-300">
@@ -1686,34 +1870,98 @@ function AddSubscriptionDialog({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Год *</Label>
-              <Select value={periodYear} onValueChange={(v) => { if (v) setPeriodYear(v) }}>
-                <SelectTrigger className="w-full">
-                  {periodYear}
-                </SelectTrigger>
-                <SelectContent>
-                  {[2025, 2026, 2027].map(y => (
-                    <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {subscriptionType === "calendar" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Год *</Label>
+                <Select value={periodYear} onValueChange={(v) => { if (v) setPeriodYear(v) }}>
+                  <SelectTrigger className="w-full">
+                    {periodYear}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[2025, 2026, 2027].map(y => (
+                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Месяц *</Label>
+                <Select value={periodMonth} onValueChange={(v) => { if (v) setPeriodMonth(v) }}>
+                  <SelectTrigger className="w-full">
+                    {MONTH_NAMES[Number(periodMonth)] || "Выберите"}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTH_NAMES.slice(1).map((name, i) => (
+                      <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Месяц *</Label>
-              <Select value={periodMonth} onValueChange={(v) => { if (v) setPeriodMonth(v) }}>
-                <SelectTrigger className="w-full">
-                  {MONTH_NAMES[Number(periodMonth)] || "Выберите"}
-                </SelectTrigger>
-                <SelectContent>
-                  {MONTH_NAMES.slice(1).map((name, i) => (
-                    <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          )}
+
+          {subscriptionType === "package" && (
+            <div className="space-y-3">
+              {packageTemplates.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>Шаблон пакета</Label>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {packageTemplates.map(tpl => (
+                      <button
+                        type="button"
+                        key={tpl.id}
+                        onClick={() => setPackageTemplateId(packageTemplateId === tpl.id ? "" : tpl.id)}
+                        className={[
+                          "rounded-md border p-2 text-left text-xs transition-colors",
+                          packageTemplateId === tpl.id
+                            ? "border-primary bg-primary/5"
+                            : "border-input hover:bg-muted/50",
+                        ].join(" ")}
+                      >
+                        <div className="font-medium">{tpl.lessonsCount} занятий</div>
+                        <div className="text-muted-foreground">
+                          {tpl.validDays ?? packageDefaultValidDays} дн.
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Дата начала *</Label>
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={e => setStartDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Срок (дн.)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="3650"
+                    placeholder={String(packageDefaultValidDays)}
+                    value={validDays}
+                    onChange={e => setValidDays(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                Истекает: {(() => {
+                  const days = Number(validDays) || packageDefaultValidDays
+                  const d = new Date(startDate)
+                  if (Number.isNaN(d.getTime())) return "—"
+                  d.setDate(d.getDate() + days)
+                  return d.toLocaleDateString("ru-RU")
+                })()}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">

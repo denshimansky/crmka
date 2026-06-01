@@ -12,14 +12,23 @@ const createSchema = z.object({
   clientId: z.string().uuid("Некорректный ID клиента"),
   directionId: z.string().uuid("Некорректный ID направления"),
   groupId: z.string().uuid("Некорректный ID группы"),
-  periodYear: z.number().int().min(2020, "Некорректный год").max(2100),
-  periodMonth: z.number().int().min(1, "Месяц от 1 до 12").max(12, "Месяц от 1 до 12"),
+  periodYear: z.number().int().min(2020, "Некорректный год").max(2100).optional(),
+  periodMonth: z.number().int().min(1, "Месяц от 1 до 12").max(12, "Месяц от 1 до 12").optional(),
   lessonPrice: z.number().min(0, "Цена не может быть отрицательной"),
   totalLessons: z.number().int().min(1, "Минимум 1 занятие"),
   wardId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   startDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   discountAmount: z.number().min(0).default(0),
+  // Поля только для пакетного типа
+  packageTemplateId: z.string().uuid().optional(),
+  validDays: z.number().int().min(1).max(3650).optional(),
 })
+
+function addDaysUtc(d: Date, days: number): Date {
+  const r = new Date(d.getTime())
+  r.setUTCDate(r.getUTCDate() + days)
+  return r
+}
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -90,14 +99,57 @@ export async function POST(req: NextRequest) {
   })
   if (!group) return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
 
+  // Достаём настройки организации для развилки по типу абонемента
+  const org = await db.organization.findUnique({
+    where: { id: session.user.tenantId },
+    select: {
+      subscriptionType: true,
+      subscriptionTypeLockedAt: true,
+      packageDefaultValidDays: true,
+    },
+  })
+  const orgType = org?.subscriptionType ?? "calendar"
+
+  // Для package — нужны srok годности и необязательно шаблон.
+  // Для calendar — нужны periodYear/periodMonth.
+  let resolvedValidDays: number | null = null
+  let packageTemplateId: string | null = null
+  if (orgType === "package") {
+    if (data.packageTemplateId) {
+      const tpl = await db.packageTemplate.findFirst({
+        where: { id: data.packageTemplateId, tenantId: session.user.tenantId, deletedAt: null },
+      })
+      if (!tpl) return NextResponse.json({ error: "Шаблон пакета не найден" }, { status: 404 })
+      packageTemplateId = tpl.id
+      resolvedValidDays = data.validDays ?? tpl.validDays ?? org!.packageDefaultValidDays
+    } else {
+      resolvedValidDays = data.validDays ?? org!.packageDefaultValidDays
+    }
+  } else {
+    // calendar / fixed — нужны period поля
+    if (data.periodYear === undefined || data.periodMonth === undefined) {
+      return NextResponse.json(
+        { error: "Для календарного типа нужны periodYear и periodMonth" },
+        { status: 400 },
+      )
+    }
+  }
+
   const totalAmount = data.lessonPrice * data.totalLessons
   const finalAmount = totalAmount - data.discountAmount
   const balance = finalAmount // Сколько ещё нужно оплатить
 
-  // Дата начала: startDate или 1-е число месяца
+  // Дата начала: startDate, либо для calendar — 1-е число месяца, либо сегодня (package).
   const startDate = data.startDate
     ? new Date(data.startDate)
-    : new Date(data.periodYear, data.periodMonth - 1, 1)
+    : orgType === "package"
+      ? new Date()
+      : new Date(data.periodYear!, data.periodMonth! - 1, 1)
+
+  const expiresAt =
+    orgType === "package" && resolvedValidDays !== null
+      ? addDaysUtc(startDate, resolvedValidDays)
+      : null
 
   const subscription = await db.$transaction(async (tx) => {
     const sub = await tx.subscription.create({
@@ -107,10 +159,10 @@ export async function POST(req: NextRequest) {
         wardId: data.wardId,
         directionId: data.directionId,
         groupId: data.groupId,
-        type: "calendar",
+        type: orgType === "package" ? "package" : "calendar",
         status: "pending",
-        periodYear: data.periodYear,
-        periodMonth: data.periodMonth,
+        periodYear: orgType === "package" ? null : data.periodYear!,
+        periodMonth: orgType === "package" ? null : data.periodMonth!,
         lessonPrice: data.lessonPrice,
         totalLessons: data.totalLessons,
         totalAmount,
@@ -118,6 +170,8 @@ export async function POST(req: NextRequest) {
         finalAmount,
         balance,
         startDate,
+        expiresAt,
+        packageTemplateId,
         createdBy: session.user.employeeId,
       },
       include: {
@@ -138,6 +192,17 @@ export async function POST(req: NextRequest) {
       refs: { subscriptionId: sub.id, directionId: data.directionId },
       createdBy: session.user.employeeId,
     })
+
+    // Автоблокировка типа абонемента после создания первого
+    if (!org!.subscriptionTypeLockedAt) {
+      await tx.organization.update({
+        where: { id: session.user.tenantId },
+        data: {
+          subscriptionType: orgType as "calendar" | "fixed" | "package",
+          subscriptionTypeLockedAt: new Date(),
+        },
+      })
+    }
 
     return sub
   })
