@@ -77,16 +77,16 @@ model Organization {
   email     String?
 
   // Настройки
-  salaryDay1         Int?     @default(15) @map("salary_day_1")
-  salaryDay2         Int?     @default(30) @map("salary_day_2")
-  payForAbsence      Boolean  @default(false) @map("pay_for_absence")
-  payForTrialLessons Boolean  @default(false) @map("pay_for_trial_lessons")
-  attendanceDeadline Int      @default(14) @map("attendance_deadline")
-  debtLimit          Decimal? @map("debt_limit") @db.Decimal(12, 2)
-  makeupDaysLimit    Int?     @map("makeup_days_limit")
-  makeupDeadlineDays Int?     @map("makeup_deadline_days")
-  roleDisplayNames   Json?    @map("role_display_names")
-  rolePermissions    Json?    @map("role_permissions")
+  salaryDay1          Int?     @default(15) @map("salary_day_1")
+  salaryDay2          Int?     @default(30) @map("salary_day_2")
+  payForAbsence       Boolean  @default(false) @map("pay_for_absence")
+  payForTrialLessons  Boolean  @default(false) @map("pay_for_trial_lessons")
+  attendanceDeadline  Int      @default(14) @map("attendance_deadline")
+  debtLimit           Decimal? @map("debt_limit") @db.Decimal(12, 2)
+  makeupDaysLimit     Int?     @map("makeup_days_limit")
+  makeupDeadlineDays  Int?     @map("makeup_deadline_days")
+  roleDisplayNames    Json?    @map("role_display_names")
+  rolePermissions     Json?    @map("role_permissions")
   onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
 
   // Ф6: Безопасность данных
@@ -211,11 +211,19 @@ model Employee {
   fireDate         DateTime?        @map("fire_date") @db.Date
   canViewOwnSalary Boolean          @default(true) @map("can_view_own_salary")
 
+  // Окладники: фикс в месяц + основное направление для разнесения в ОПИУ.
+  // При выборе сотрудника на странице выплаты ЗП «Заполнить» подтянет одну строку
+  // (monthlySalary, defaultDirectionId) — преподаватели начисляются по факту посещений.
+  monthlySalary      Decimal? @map("monthly_salary") @db.Decimal(12, 2)
+  defaultDirectionId String?  @map("default_direction_id") @db.Uuid
+
   organization               Organization         @relation(fields: [tenantId], references: [id])
+  defaultDirection           Direction?           @relation("EmployeeDefaultDirection", fields: [defaultDirectionId], references: [id])
   user                       User?
   employeeBranches           EmployeeBranch[]
   salaryRates                SalaryRate[]
   salaryPayments             SalaryPayment[]
+  salaryPaymentItems         SalaryPaymentItem[]
   salaryAdjustments          SalaryAdjustment[]
   assignedClients            Client[]             @relation("AssignedClients")
   assignedTasks              Task[]               @relation("TaskAssignee")
@@ -303,17 +311,17 @@ model Client {
 }
 
 model Ward {
-  id           String          @id @default(uuid()) @db.Uuid
-  tenantId     String          @map("tenant_id") @db.Uuid
-  clientId     String          @map("client_id") @db.Uuid
-  firstName    String          @map("first_name")
-  lastName     String?         @map("last_name")
-  birthDate    DateTime?       @map("birth_date") @db.Date
+  id           String         @id @default(uuid()) @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  clientId     String         @map("client_id") @db.Uuid
+  firstName    String         @map("first_name")
+  lastName     String?        @map("last_name")
+  birthDate    DateTime?      @map("birth_date") @db.Date
   notes        String?
-  salesStage   WardSalesStage  @default(none) @map("sales_stage")
-  salesStageAt DateTime?       @map("sales_stage_at")
-  createdAt    DateTime        @default(now()) @map("created_at")
-  updatedAt    DateTime        @updatedAt @map("updated_at")
+  salesStage   WardSalesStage @default(none) @map("sales_stage")
+  salesStageAt DateTime?      @map("sales_stage_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
 
   client        Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
   enrollments   GroupEnrollment[]
@@ -329,20 +337,20 @@ model Ward {
 // === НАПРАВЛЕНИЯ ===
 
 model Direction {
-  id                String    @id @default(uuid()) @db.Uuid
-  tenantId          String    @map("tenant_id") @db.Uuid
-  name              String
-  lessonPrice       Decimal   @map("lesson_price") @db.Decimal(12, 2)
-  lessonDuration    Int       @default(45) @map("lesson_duration")
-  trialPrice        Decimal?  @map("trial_price") @db.Decimal(12, 2)
-  trialFree         Boolean   @default(false) @map("trial_free")
-  singleVisitPrice  Decimal?  @map("single_visit_price") @db.Decimal(12, 2)
-  color             String?
-  icon              String?
-  sortOrder         Int       @default(0) @map("sort_order")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-  deletedAt         DateTime? @map("deleted_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  name             String
+  lessonPrice      Decimal   @map("lesson_price") @db.Decimal(12, 2)
+  lessonDuration   Int       @default(45) @map("lesson_duration")
+  trialPrice       Decimal?  @map("trial_price") @db.Decimal(12, 2)
+  trialFree        Boolean   @default(false) @map("trial_free")
+  singleVisitPrice Decimal?  @map("single_visit_price") @db.Decimal(12, 2)
+  color            String?
+  icon             String?
+  sortOrder        Int       @default(0) @map("sort_order")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
 
   organization              Organization               @relation(fields: [tenantId], references: [id])
   salaryRates               SalaryRate[]
@@ -352,6 +360,8 @@ model Direction {
   trialLessons              TrialLesson[]
   applications              Application[]
   clientBalanceTransactions ClientBalanceTransaction[]
+  defaultForEmployees       Employee[]                 @relation("EmployeeDefaultDirection")
+  salaryPaymentItems        SalaryPaymentItem[]
 
   @@index([tenantId])
   @@map("directions")
@@ -418,31 +428,31 @@ model GroupScheduleTemplate {
 }
 
 model Lesson {
-  id              String       @id @default(uuid()) @db.Uuid
-  tenantId        String       @map("tenant_id") @db.Uuid
-  groupId         String       @map("group_id") @db.Uuid
-  date            DateTime     @db.Date
-  startTime       String       @map("start_time")
-  durationMinutes Int          @map("duration_minutes")
-  instructorId    String       @map("instructor_id") @db.Uuid
-  isTrial         Boolean      @default(false) @map("is_trial")
-  status          LessonStatus @default(scheduled)
-  cancelReason    String?      @map("cancel_reason")
-  isMakeup        Boolean      @default(false) @map("is_makeup")
-  topic                   String?
-  homework                String?
-  substituteInstructorId  String?      @map("substitute_instructor_id") @db.Uuid
-  createdAt               DateTime     @default(now()) @map("created_at")
-  updatedAt               DateTime     @updatedAt @map("updated_at")
+  id                     String       @id @default(uuid()) @db.Uuid
+  tenantId               String       @map("tenant_id") @db.Uuid
+  groupId                String       @map("group_id") @db.Uuid
+  date                   DateTime     @db.Date
+  startTime              String       @map("start_time")
+  durationMinutes        Int          @map("duration_minutes")
+  instructorId           String       @map("instructor_id") @db.Uuid
+  isTrial                Boolean      @default(false) @map("is_trial")
+  status                 LessonStatus @default(scheduled)
+  cancelReason           String?      @map("cancel_reason")
+  isMakeup               Boolean      @default(false) @map("is_makeup")
+  topic                  String?
+  homework               String?
+  substituteInstructorId String?      @map("substitute_instructor_id") @db.Uuid
+  createdAt              DateTime     @default(now()) @map("created_at")
+  updatedAt              DateTime     @updatedAt @map("updated_at")
 
-  group                     Group                      @relation(fields: [groupId], references: [id])
-  instructor                Employee                   @relation("LessonInstructor", fields: [instructorId], references: [id])
-  substituteInstructor      Employee?                  @relation("SubstituteInstructor", fields: [substituteInstructorId], references: [id])
-  attendances               Attendance[]
-  makeupAttendances         Attendance[]               @relation("MakeupOfLesson")
-  scheduledMakeupAttendances Attendance[]              @relation("ScheduledMakeupLesson")
-  trialLessons              TrialLesson[]
-  clientBalanceTransactions ClientBalanceTransaction[]
+  group                      Group                      @relation(fields: [groupId], references: [id])
+  instructor                 Employee                   @relation("LessonInstructor", fields: [instructorId], references: [id])
+  substituteInstructor       Employee?                  @relation("SubstituteInstructor", fields: [substituteInstructorId], references: [id])
+  attendances                Attendance[]
+  makeupAttendances          Attendance[]               @relation("MakeupOfLesson")
+  scheduledMakeupAttendances Attendance[]               @relation("ScheduledMakeupLesson")
+  trialLessons               TrialLesson[]
+  clientBalanceTransactions  ClientBalanceTransaction[]
 
   @@index([tenantId, date])
   @@index([groupId, date])
@@ -582,6 +592,11 @@ model SalaryBracket {
 
 // === ВЫПЛАТЫ ЗП ===
 
+// Шапка документа выплаты зарплаты. До фазы 1 (план «ДДС-журнал и ОПИУ»)
+// `employeeId/accountId/amount` были обязательными — оставлены как «итоговые»
+// (репрезентативные) поля для обратной совместимости со старыми эндпоинтами/выборками.
+// Новый flow выплат пишет одну строку в `items` (или несколько) и одновременно
+// заполняет шапку: employeeId = первый item, accountId = первый item, amount = sum(items).
 model SalaryPayment {
   id          String   @id @default(uuid()) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
@@ -596,11 +611,37 @@ model SalaryPayment {
   createdBy   String?  @map("created_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
 
-  employee Employee         @relation(fields: [employeeId], references: [id])
-  account  FinancialAccount @relation(fields: [accountId], references: [id])
+  employee Employee            @relation(fields: [employeeId], references: [id])
+  account  FinancialAccount    @relation(fields: [accountId], references: [id])
+  items    SalaryPaymentItem[]
 
   @@index([tenantId, periodYear, periodMonth])
   @@map("salary_payments")
+}
+
+// Строка выплаты зарплаты: сотрудник × счёт × направление × сумма. Одна выплата может
+// быть разнесена по нескольким счетам и/или направлениям (для корректного разнесения
+// в ОПИУ по направлениям). В ДДС идут строки по `(date, account, amount)`, в ОПИУ —
+// агрегируются по `(periodYear, periodMonth, directionId)` родительского документа.
+model SalaryPaymentItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  salaryPaymentId String   @map("salary_payment_id") @db.Uuid
+  employeeId      String   @map("employee_id") @db.Uuid
+  accountId       String   @map("account_id") @db.Uuid
+  directionId     String?  @map("direction_id") @db.Uuid
+  amount          Decimal  @db.Decimal(12, 2)
+  comment         String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  salaryPayment SalaryPayment    @relation(fields: [salaryPaymentId], references: [id], onDelete: Cascade)
+  employee      Employee         @relation(fields: [employeeId], references: [id])
+  account       FinancialAccount @relation(fields: [accountId], references: [id])
+  direction     Direction?       @relation(fields: [directionId], references: [id])
+
+  @@index([tenantId, employeeId])
+  @@index([salaryPaymentId])
+  @@map("salary_payment_items")
 }
 
 model SalaryAdjustment {
@@ -682,13 +723,14 @@ model FinancialAccount {
   updatedAt DateTime    @updatedAt @map("updated_at")
   deletedAt DateTime?   @map("deleted_at")
 
-  organization   Organization       @relation(fields: [tenantId], references: [id])
-  branch         Branch?            @relation(fields: [branchId], references: [id])
-  payments       Payment[]
-  expenses       Expense[]
-  salaryPayments SalaryPayment[]
-  operationsFrom AccountOperation[] @relation("OperationFrom")
-  operationsTo   AccountOperation[] @relation("OperationTo")
+  organization       Organization        @relation(fields: [tenantId], references: [id])
+  branch             Branch?             @relation(fields: [branchId], references: [id])
+  payments           Payment[]
+  expenses           Expense[]
+  salaryPayments     SalaryPayment[]
+  salaryPaymentItems SalaryPaymentItem[]
+  operationsFrom     AccountOperation[]  @relation("OperationFrom")
+  operationsTo       AccountOperation[]  @relation("OperationTo")
 
   @@index([tenantId])
   @@map("financial_accounts")
@@ -697,26 +739,30 @@ model FinancialAccount {
 // === ОПЛАТЫ ===
 
 model Payment {
-  id              String        @id @default(uuid()) @db.Uuid
-  tenantId        String        @map("tenant_id") @db.Uuid
-  clientId        String        @map("client_id") @db.Uuid
-  subscriptionId  String?       @map("subscription_id") @db.Uuid
-  accountId       String        @map("account_id") @db.Uuid
-  amount          Decimal       @db.Decimal(12, 2)
-  type            PaymentType   @default(incoming)
-  method          PaymentMethod
-  date            DateTime      @db.Date
-  comment         String?
-  isFirstPayment  Boolean       @default(false) @map("is_first_payment")
-  onlinePaymentId String?       @map("online_payment_id")
-  createdBy       String?       @map("created_by") @db.Uuid
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
-  deletedAt       DateTime?     @map("deleted_at")
+  id               String        @id @default(uuid()) @db.Uuid
+  tenantId         String        @map("tenant_id") @db.Uuid
+  clientId         String?       @map("client_id") @db.Uuid
+  subscriptionId   String?       @map("subscription_id") @db.Uuid
+  accountId        String        @map("account_id") @db.Uuid
+  // Категория дохода для поступлений без абонемента (проценты банка, продажа товаров и т.п.).
+  // Для оплат абонемента остаётся null — категория подразумевается «Оплата абонементов».
+  incomeCategoryId String?       @map("income_category_id") @db.Uuid
+  amount           Decimal       @db.Decimal(12, 2)
+  type             PaymentType   @default(incoming)
+  method           PaymentMethod
+  date             DateTime      @db.Date
+  comment          String?
+  isFirstPayment   Boolean       @default(false) @map("is_first_payment")
+  onlinePaymentId  String?       @map("online_payment_id")
+  createdBy        String?       @map("created_by") @db.Uuid
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  deletedAt        DateTime?     @map("deleted_at")
 
-  client              Client                     @relation(fields: [clientId], references: [id])
+  client              Client?                    @relation(fields: [clientId], references: [id])
   subscription        Subscription?              @relation(fields: [subscriptionId], references: [id])
   account             FinancialAccount           @relation(fields: [accountId], references: [id])
+  incomeCategory      IncomeCategory?            @relation(fields: [incomeCategoryId], references: [id])
   balanceTransactions ClientBalanceTransaction[]
 
   @@index([tenantId, date])
@@ -751,31 +797,31 @@ model Discount {
 // === ПОСЕЩЕНИЯ ===
 
 model Attendance {
-  id                   String    @id @default(uuid()) @db.Uuid
-  tenantId             String    @map("tenant_id") @db.Uuid
-  lessonId             String    @map("lesson_id") @db.Uuid
-  subscriptionId       String?   @map("subscription_id") @db.Uuid
-  clientId             String    @map("client_id") @db.Uuid
-  wardId               String?   @map("ward_id") @db.Uuid
-  attendanceTypeId     String    @map("attendance_type_id") @db.Uuid
-  absenceReasonId      String?   @map("absence_reason_id") @db.Uuid
-  chargeAmount         Decimal   @default(0) @map("charge_amount") @db.Decimal(12, 2)
-  instructorPayAmount  Decimal   @default(0) @map("instructor_pay_amount") @db.Decimal(12, 2)
-  instructorPayEnabled Boolean   @default(true) @map("instructor_pay_enabled")
-  isTrial              Boolean   @default(false) @map("is_trial")
-  isMakeup             Boolean   @default(false) @map("is_makeup")
-  makeupOfLessonId     String?   @map("makeup_of_lesson_id") @db.Uuid
+  id                      String    @id @default(uuid()) @db.Uuid
+  tenantId                String    @map("tenant_id") @db.Uuid
+  lessonId                String    @map("lesson_id") @db.Uuid
+  subscriptionId          String?   @map("subscription_id") @db.Uuid
+  clientId                String    @map("client_id") @db.Uuid
+  wardId                  String?   @map("ward_id") @db.Uuid
+  attendanceTypeId        String    @map("attendance_type_id") @db.Uuid
+  absenceReasonId         String?   @map("absence_reason_id") @db.Uuid
+  chargeAmount            Decimal   @default(0) @map("charge_amount") @db.Decimal(12, 2)
+  instructorPayAmount     Decimal   @default(0) @map("instructor_pay_amount") @db.Decimal(12, 2)
+  instructorPayEnabled    Boolean   @default(true) @map("instructor_pay_enabled")
+  isTrial                 Boolean   @default(false) @map("is_trial")
+  isMakeup                Boolean   @default(false) @map("is_makeup")
+  makeupOfLessonId        String?   @map("makeup_of_lesson_id") @db.Uuid
   scheduledMakeupLessonId String?   @map("scheduled_makeup_lesson_id") @db.Uuid
-  markedBy             String?   @map("marked_by") @db.Uuid
-  markedAt             DateTime? @map("marked_at")
-  isAfterPeriodClose   Boolean   @default(false) @map("is_after_period_close")
+  markedBy                String?   @map("marked_by") @db.Uuid
+  markedAt                DateTime? @map("marked_at")
+  isAfterPeriodClose      Boolean   @default(false) @map("is_after_period_close")
   // Placeholder для разовых посещений: ребёнок добавлен через «+ Добавить ученика»
   // с чекбоксом «Разовое», но реальной отметки ещё нет. attendance_type_id здесь —
   // заглушка ('present'), charge_amount/instructor_pay_amount = 0, marked_at = null.
   // При первой настоящей отметке («Был» и т.п.) флаг сбрасывается, тип и суммы пересчитываются.
-  isPending            Boolean   @default(false) @map("is_pending")
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
+  isPending               Boolean   @default(false) @map("is_pending")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
 
   lesson                    Lesson                     @relation(fields: [lessonId], references: [id])
   subscription              Subscription?              @relation(fields: [subscriptionId], references: [id])
@@ -864,6 +910,26 @@ model CallCampaignItem {
   @@map("call_campaign_items")
 }
 
+// === КАТЕГОРИИ ДОХОДОВ ===
+
+// Справочник статей дохода для прочих поступлений (проценты банка, продажа товаров,
+// прочее). Системная категория «Оплата абонементов» (tenantId = null, isSystem = true)
+// присваивается оплатам, привязанным к абонементу. Партнёр может добавлять свои.
+model IncomeCategory {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  name      String
+  isSystem  Boolean  @default(false) @map("is_system")
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  payments Payment[]
+
+  @@index([tenantId])
+  @@map("income_categories")
+}
+
 // === РАСХОДЫ ===
 
 model ExpenseCategory {
@@ -885,22 +951,25 @@ model ExpenseCategory {
 }
 
 model Expense {
-  id                    String    @id @default(uuid()) @db.Uuid
-  tenantId              String    @map("tenant_id") @db.Uuid
-  categoryId            String    @map("category_id") @db.Uuid
-  accountId             String    @map("account_id") @db.Uuid
-  amount                Decimal   @db.Decimal(12, 2)
-  date                  DateTime  @db.Date
+  id                    String                 @id @default(uuid()) @db.Uuid
+  tenantId              String                 @map("tenant_id") @db.Uuid
+  categoryId            String                 @map("category_id") @db.Uuid
+  accountId             String                 @map("account_id") @db.Uuid
+  amount                Decimal                @db.Decimal(12, 2)
+  date                  DateTime               @db.Date
   comment               String?
-  amortizationMonths    Int?      @map("amortization_months")
-  amortizationStartDate DateTime? @map("amortization_start_date") @db.Date
-  isVariable            Boolean   @default(false) @map("is_variable")
-  isRecurring           Boolean   @default(false) @map("is_recurring")
-  recurringGroupId      String?   @map("recurring_group_id") @db.Uuid
-  createdBy             String?   @map("created_by") @db.Uuid
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
-  deletedAt             DateTime? @map("deleted_at")
+  // Режим признания расхода в ОПИУ: by_payment_date — в месяц `date`; single_period —
+  // одной суммой в `amortizationStartDate`; amortized — равными долями по `amortizationMonths`.
+  recognitionMode       ExpenseRecognitionMode @default(by_payment_date) @map("recognition_mode")
+  amortizationMonths    Int?                   @map("amortization_months")
+  amortizationStartDate DateTime?              @map("amortization_start_date") @db.Date
+  isVariable            Boolean                @default(false) @map("is_variable")
+  isRecurring           Boolean                @default(false) @map("is_recurring")
+  recurringGroupId      String?                @map("recurring_group_id") @db.Uuid
+  createdBy             String?                @map("created_by") @db.Uuid
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  deletedAt             DateTime?              @map("deleted_at")
 
   category ExpenseCategory  @relation(fields: [categoryId], references: [id])
   account  FinancialAccount @relation(fields: [accountId], references: [id])
@@ -975,13 +1044,13 @@ model AuditLog {
 // === СПРАВОЧНИК КАНАЛОВ ПРИВЛЕЧЕНИЯ ===
 
 model LeadChannel {
-  id        String    @id @default(uuid()) @db.Uuid
-  tenantId  String    @map("tenant_id") @db.Uuid
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
   name      String
-  isSystem  Boolean   @default(false) @map("is_system")
-  isActive  Boolean   @default(true) @map("is_active")
-  sortOrder Int       @default(0) @map("sort_order")
-  createdAt DateTime  @default(now()) @map("created_at")
+  isSystem  Boolean  @default(false) @map("is_system")
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [tenantId], references: [id])
   clients      Client[]
@@ -993,13 +1062,13 @@ model LeadChannel {
 // === СПРАВОЧНИК ПРИЧИН ПРОПУСКОВ ===
 
 model AbsenceReason {
-  id        String    @id @default(uuid()) @db.Uuid
-  tenantId  String    @map("tenant_id") @db.Uuid
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
   name      String
-  isSystem  Boolean   @default(false) @map("is_system")
-  isActive  Boolean   @default(true) @map("is_active")
-  sortOrder Int       @default(0) @map("sort_order")
-  createdAt DateTime  @default(now()) @map("created_at")
+  isSystem  Boolean  @default(false) @map("is_system")
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [tenantId], references: [id])
   attendances  Attendance[]
@@ -1015,7 +1084,7 @@ model PageView {
   tenantId   String?  @map("tenant_id") @db.Uuid
   employeeId String?  @map("employee_id") @db.Uuid
   path       String
-  duration   Int?     // секунды на странице
+  duration   Int? // секунды на странице
   createdAt  DateTime @default(now()) @map("created_at")
 
   organization Organization? @relation(fields: [tenantId], references: [id])
@@ -1030,13 +1099,13 @@ model PageView {
 
 model LoginAttempt {
   id         String   @id @default(uuid()) @db.Uuid
-  login      String   // логин или email
+  login      String // логин или email
   success    Boolean
   ipAddress  String?  @map("ip_address")
   userAgent  String?  @map("user_agent")
   tenantId   String?  @map("tenant_id") @db.Uuid
   employeeId String?  @map("employee_id") @db.Uuid
-  reason     String?  // "invalid_password", "user_not_found", "blocked_brute_force"
+  reason     String? // "invalid_password", "user_not_found", "blocked_brute_force"
   createdAt  DateTime @default(now()) @map("created_at")
 
   organization Organization? @relation(fields: [tenantId], references: [id])
@@ -1142,6 +1211,18 @@ enum PaymentMethod {
   sbp_qr
 }
 
+// Режим признания расхода в ОПИУ. ДДС всегда учитывает расход по `date` (факт платежа).
+//   by_payment_date — ОПИУ тот же месяц, что и `date` (поведение по умолчанию).
+//   single_period   — ОПИУ месяц `amortization_start_date` (например, аренда июня
+//                     оплачена 25 мая → ДДС 25.05, ОПИУ 01.06).
+//   amortized       — ОПИУ равными долями по `amortization_months` месяцев начиная с
+//                     `amortization_start_date` (принтер 30 000 на 3 месяца → 10 000/мес).
+enum ExpenseRecognitionMode {
+  by_payment_date
+  single_period
+  amortized
+}
+
 enum DiscountType {
   permanent
   one_time
@@ -1240,21 +1321,21 @@ model BillingPlan {
 
 // Подписки партнёров
 model BillingSubscription {
-  id              String                    @id @default(uuid()) @db.Uuid
-  organizationId  String                    @map("organization_id") @db.Uuid
-  planId          String                    @map("plan_id") @db.Uuid
-  status          BillingSubscriptionStatus @default(active)
-  branchCount     Int                       @default(1) @map("branch_count")
+  id                  String                    @id @default(uuid()) @db.Uuid
+  organizationId      String                    @map("organization_id") @db.Uuid
+  planId              String                    @map("plan_id") @db.Uuid
+  status              BillingSubscriptionStatus @default(active)
+  branchCount         Int                       @default(1) @map("branch_count")
   monthlyAmount       Decimal                   @map("monthly_amount") @db.Decimal(12, 2)
   billingPeriodMonths Int                       @default(1) @map("billing_period_months")
   nextPaymentDate     DateTime                  @map("next_payment_date") @db.Date
   periodEndDate       DateTime?                 @map("period_end_date") @db.Date
   gracePeriodEnd      DateTime?                 @map("grace_period_end") @db.Date
-  blockedAt       DateTime?                 @map("blocked_at")
-  startDate       DateTime                  @map("start_date") @db.Date
-  endDate         DateTime?                 @map("end_date") @db.Date
-  createdAt       DateTime                  @default(now()) @map("created_at")
-  updatedAt       DateTime                  @updatedAt @map("updated_at")
+  blockedAt           DateTime?                 @map("blocked_at")
+  startDate           DateTime                  @map("start_date") @db.Date
+  endDate             DateTime?                 @map("end_date") @db.Date
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
 
   organization Organization     @relation(fields: [organizationId], references: [id])
   plan         BillingPlan      @relation(fields: [planId], references: [id])
@@ -1283,11 +1364,11 @@ model BillingInvoice {
   comment        String?
 
   // Т-Банк API
-  tbankInvoiceId String?              @map("tbank_invoice_id")
-  paymentUrl     String?              @map("payment_url")
+  tbankInvoiceId String? @map("tbank_invoice_id")
+  paymentUrl     String? @map("payment_url")
 
-  createdAt      DateTime             @default(now()) @map("created_at")
-  updatedAt      DateTime             @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   subscription BillingSubscription @relation(fields: [subscriptionId], references: [id])
   organization Organization        @relation(fields: [organizationId], references: [id])

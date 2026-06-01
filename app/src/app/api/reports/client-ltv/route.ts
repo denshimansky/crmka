@@ -89,6 +89,8 @@ export async function GET(req: NextRequest) {
   }
 
   for (const p of payments) {
+    // Прочие доходы (без клиента) не учитываются в LTV клиентов.
+    if (!p.clientId) continue
     let stats = clientStats.get(p.clientId)
     if (!stats) {
       stats = {

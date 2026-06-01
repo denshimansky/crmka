@@ -4,14 +4,14 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 
-// GET /api/expense-categories — системные (tenantId = null) + кастомные категории тенанта.
+// GET /api/income-categories — системные (tenantId = null) + кастомные категории тенанта.
 export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const tenantId = (session.user as any).tenantId
 
-  const categories = await db.expenseCategory.findMany({
+  const categories = await db.incomeCategory.findMany({
     where: {
       OR: [{ tenantId: null }, { tenantId }],
       isActive: true,
@@ -24,13 +24,11 @@ export async function GET() {
 
 const createSchema = z.object({
   name: z.string().min(1, "Название обязательно").max(100),
-  isVariable: z.boolean().default(false),
-  isSalary: z.boolean().default(false),
   isActive: z.boolean().default(true),
   sortOrder: z.number().int().default(0),
 })
 
-// POST /api/expense-categories — создать пользовательскую категорию (isSystem=false).
+// POST /api/income-categories — создать пользовательскую категорию (isSystem=false).
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -51,12 +49,10 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const category = await db.expenseCategory.create({
+  const category = await db.incomeCategory.create({
     data: {
       tenantId,
       name: parsed.data.name,
-      isVariable: parsed.data.isVariable,
-      isSalary: parsed.data.isSalary,
       isActive: parsed.data.isActive,
       sortOrder: parsed.data.sortOrder,
       isSystem: false,

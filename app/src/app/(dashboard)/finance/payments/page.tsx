@@ -88,6 +88,16 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
     orderBy: { createdAt: "asc" },
   })
 
+  // Категории доходов для прочих поступлений (без клиента/абонемента).
+  const incomeCategories = await db.incomeCategory.findMany({
+    where: {
+      OR: [{ tenantId: null }, { tenantId }],
+      isActive: true,
+    },
+    select: { id: true, name: true, isSystem: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+  })
+
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   return (
@@ -106,6 +116,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
           <AddPaymentDialog
             clients={clients.map(c => ({ id: c.id, name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени" }))}
             accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
+            incomeCategories={incomeCategories.map(c => ({ id: c.id, name: c.name }))}
           />
         </div>
       </div>
@@ -152,7 +163,9 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
             </TableHeader>
             <TableBody>
               {payments.map((p) => {
-                const clientName = [p.client.lastName, p.client.firstName].filter(Boolean).join(" ") || "Без имени"
+                const clientName = p.client
+                  ? [p.client.lastName, p.client.firstName].filter(Boolean).join(" ") || "Без имени"
+                  : "Прочий доход"
                 const isRefund = p.type === "refund"
                 const subInfo = p.subscription
                   ? `${p.subscription.direction.name} (${String(p.subscription.periodMonth).padStart(2, "0")}.${p.subscription.periodYear})`

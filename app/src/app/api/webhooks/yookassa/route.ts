@@ -317,6 +317,14 @@ async function handleRefundSucceeded(
     return
   }
 
+  // Онлайн-оплаты через ЮKassa всегда привязаны к клиенту. Прочие доходы без клиента
+  // через ЮKassa не проходят, поэтому возврат для такого случая не имеет смысла.
+  if (!originalPayment.clientId) {
+    console.error(`[yookassa webhook] Original payment has no clientId, refund skipped: ${refund.payment_id}`)
+    return
+  }
+  const originalClientId = originalPayment.clientId
+
   const amount = parseFloat(refund.amount.value)
   if (isNaN(amount) || amount <= 0) {
     console.error(`[yookassa webhook] Invalid refund amount: ${refund.amount.value}`)
@@ -327,7 +335,7 @@ async function handleRefundSucceeded(
     await tx.payment.create({
       data: {
         tenantId,
-        clientId: originalPayment.clientId,
+        clientId: originalClientId,
         accountId: originalPayment.accountId,
         subscriptionId: originalPayment.subscriptionId,
         amount: new Prisma.Decimal(amount),
@@ -348,7 +356,7 @@ async function handleRefundSucceeded(
 
     // Уменьшаем баланс клиента
     await tx.client.update({
-      where: { id: originalPayment.clientId },
+      where: { id: originalClientId },
       data: { clientBalance: { decrement: amount } },
     })
 
