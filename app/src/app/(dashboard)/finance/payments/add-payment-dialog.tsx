@@ -37,6 +37,7 @@ interface AccountOption {
 interface SubOption {
   id: string
   label: string
+  balance: number
 }
 
 interface IncomeCategoryOption {
@@ -77,6 +78,8 @@ export function AddPaymentDialog({
   const [comment, setComment] = useState("")
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [clientSubs, setClientSubs] = useState<SubOption[]>([])
+  const [distributeMode, setDistributeMode] = useState(false)
+  const [distribution, setDistribution] = useState<Record<string, string>>({})
 
   function reset() {
     setIsOtherIncome(false)
@@ -89,12 +92,16 @@ export function AddPaymentDialog({
     setComment("")
     setDate(new Date().toISOString().slice(0, 10))
     setClientSubs([])
+    setDistributeMode(false)
+    setDistribution({})
     setError(null)
   }
 
   async function loadClientSubs(cid: string) {
     setClientId(cid)
     setSubscriptionId("")
+    setDistributeMode(false)
+    setDistribution({})
     if (!cid) {
       setClientSubs([])
       return
@@ -110,6 +117,7 @@ export function AddPaymentDialog({
             .map((s: any) => ({
               id: s.id,
               label: `${s.direction?.name || "?"} — ${MONTH_NAMES[s.periodMonth]} ${s.periodYear}`,
+              balance: Number(s.balance),
             }))
         )
       }
@@ -132,6 +140,26 @@ export function AddPaymentDialog({
     if (!accountId) { setError("Выберите счёт"); return }
     if (!date) { setError("Укажите дату"); return }
 
+    let distributionPayload: { subscriptionId: string; amount: number }[] | undefined
+    if (!isOtherIncome && distributeMode) {
+      distributionPayload = Object.entries(distribution)
+        .map(([sid, raw]) => ({ subscriptionId: sid, amount: Number(raw) }))
+        .filter((d) => d.amount > 0)
+      const distSum = distributionPayload.reduce((s, d) => s + d.amount, 0)
+      if (distSum > Number(amount) + 1e-6) {
+        setError("Сумма распределения больше суммы платежа")
+        return
+      }
+      for (const d of distributionPayload) {
+        const sub = clientSubs.find((s) => s.id === d.subscriptionId)
+        if (sub && d.amount > sub.balance + 1e-6) {
+          setError(`Сумма по «${sub.label}» больше долга (${sub.balance.toLocaleString("ru-RU")} ₽)`)
+          return
+        }
+      }
+      if (distributionPayload.length === 0) distributionPayload = undefined
+    }
+
     setLoading(true)
     try {
       const res = await fetch("/api/payments", {
@@ -144,7 +172,9 @@ export function AddPaymentDialog({
           amount: Number(amount),
           method,
           date,
-          subscriptionId: isOtherIncome ? undefined : (subscriptionId || undefined),
+          subscriptionId:
+            isOtherIncome || distributeMode ? undefined : (subscriptionId || undefined),
+          distribution: distributionPayload,
           comment: comment || undefined,
         }),
       })
@@ -285,19 +315,76 @@ export function AddPaymentDialog({
           </div>
 
           {!isOtherIncome && clientId && clientSubs.length > 0 && (
-            <div className="space-y-1.5">
-              <Label>Абонемент</Label>
-              <Select value={subscriptionId} onValueChange={(v) => { if (v !== null) setSubscriptionId(v) }}>
-                <SelectTrigger className="w-full">
-                  {selectedSub ? selectedSub.label : "Без привязки к абонементу"}
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Без привязки</SelectItem>
-                  {clientSubs.map(s => (
-                    <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="space-y-2">
+              {!distributeMode ? (
+                <div className="space-y-1.5">
+                  <Label>Абонемент</Label>
+                  <Select value={subscriptionId} onValueChange={(v) => { if (v !== null) setSubscriptionId(v) }}>
+                    <SelectTrigger className="w-full">
+                      {selectedSub ? selectedSub.label : "Без привязки к абонементу"}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Без привязки</SelectItem>
+                      {clientSubs.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label>Распределение по абонементам</Label>
+                  <div className="rounded-md border divide-y">
+                    {clientSubs.filter((s) => s.balance > 0).length === 0 && (
+                      <div className="p-2.5 text-xs text-muted-foreground">
+                        У клиента нет абонементов с долгом — распределять некуда.
+                      </div>
+                    )}
+                    {clientSubs.filter((s) => s.balance > 0).map((s) => (
+                      <div key={s.id} className="flex items-center justify-between gap-3 p-2.5">
+                        <div className="text-sm min-w-0">
+                          <div className="truncate font-medium">{s.label}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Долг: {s.balance.toLocaleString("ru-RU")} ₽
+                          </div>
+                        </div>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max={s.balance}
+                          value={distribution[s.id] ?? ""}
+                          onChange={(e) => setDistribution((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                          className="w-28"
+                          placeholder="0"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {(() => {
+                    const used = Object.values(distribution).reduce((s, v) => s + (Number(v) || 0), 0)
+                    const amt = Number(amount) || 0
+                    const rest = Math.max(0, amt - used)
+                    return (
+                      <div className="text-xs text-muted-foreground">
+                        Распределено: {used.toLocaleString("ru-RU")} ₽ из {amt.toLocaleString("ru-RU")} ₽ ·
+                        остаток на баланс родителя: <b>{rest.toLocaleString("ru-RU")} ₽</b>
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={distributeMode}
+                  onCheckedChange={(v) => {
+                    setDistributeMode(v === true)
+                    if (v === true) setSubscriptionId("")
+                    else setDistribution({})
+                  }}
+                />
+                Распределить на несколько абонементов
+              </label>
             </div>
           )}
 

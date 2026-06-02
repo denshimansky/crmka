@@ -27,6 +27,7 @@ import {
 import { Plus, Pencil, X, Ban, CalendarDays, Undo2, ArrowLeftRight, CalendarPlus } from "lucide-react"
 import { AddWardForm } from "./add-ward-form"
 import { AttendanceTab } from "./attendance-tab"
+import { PayFromBalanceDialog } from "./pay-from-balance-dialog"
 import { CommunicationFeed } from "@/components/communication-feed"
 import { ClientHistory } from "./client-history"
 import { formatWardName } from "@/lib/format-name"
@@ -1255,6 +1256,13 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                     <TableCell>
                       {canEdit && (
                         <div className="flex items-center justify-end gap-0.5">
+                          {balance > 0 && (s.status === "pending" || s.status === "active") && (
+                            <PayFromBalanceDialog
+                              subscription={s}
+                              clientId={clientId}
+                              onSuccess={handleSubUpdated}
+                            />
+                          )}
                           <EditSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                           {s.type === "package" && (
                             <ExtendPackageDialog subscription={s} onSuccess={handleSubUpdated} />
