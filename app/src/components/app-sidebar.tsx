@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
   Settings, Sparkles, ChevronDown, LogOut, Crown,
-  Target, Plug, Baby,
+  Target, Plug, Baby, Ticket,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import {
@@ -45,6 +45,7 @@ const crmItems: NavItem[] = [
   { title: "Контакты", href: "/crm/contacts", icon: Users, permission: "clients.view" },
   { title: "Продажи", href: "/crm/sales", icon: Filter, permission: "clients.view" },
   { title: "Дети", href: "/crm/children", icon: Baby, permission: "clients.view" },
+  { title: "Абонементы", href: "/crm/subscriptions", icon: Ticket, permission: "clients.view" },
   { title: "Обзвон", href: "/crm/calls", icon: Phone, permission: "clients.view" },
 ]
 
