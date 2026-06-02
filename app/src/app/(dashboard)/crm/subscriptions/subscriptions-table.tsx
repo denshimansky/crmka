@@ -10,7 +10,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@/components/ui/select"
-import { Search } from "lucide-react"
+import { Search, ArrowDown, ArrowUp } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { RenewButton } from "./renew-button"
 
@@ -66,6 +66,7 @@ export function SubscriptionsTable({
   initialQuery,
   initialBranchId,
   initialDirectionId,
+  initialSort,
   canRenew,
 }: {
   tab: SubsTabKey
@@ -76,6 +77,7 @@ export function SubscriptionsTable({
   initialQuery: string
   initialBranchId: string
   initialDirectionId: string
+  initialSort: "asc" | "desc"
   canRenew: boolean
 }) {
   const router = useRouter()
@@ -107,6 +109,15 @@ export function SubscriptionsTable({
     const params = new URLSearchParams(searchParams.toString())
     if (value && value !== "all") params.set(name, value)
     else params.delete(name)
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+  }
+
+  function toggleSortByPeriod() {
+    const next: "asc" | "desc" = initialSort === "asc" ? "desc" : "asc"
+    const params = new URLSearchParams(searchParams.toString())
+    // asc — дефолт; чтобы URL не пух, удаляем параметр для дефолта.
+    if (next === "asc") params.delete("sort")
+    else params.set("sort", "desc")
     router.replace(`${pathname}?${params.toString()}`, { scroll: false })
   }
 
@@ -208,7 +219,18 @@ export function SubscriptionsTable({
                 <TableHead>Группа</TableHead>
                 <TableHead className="text-right">Сумма к оплате</TableHead>
                 <TableHead className="text-right">Оплачено</TableHead>
-                <TableHead>Срок</TableHead>
+                <TableHead>
+                  <button
+                    type="button"
+                    onClick={toggleSortByPeriod}
+                    className="inline-flex items-center gap-1 hover:text-foreground"
+                  >
+                    Срок
+                    {initialSort === "asc"
+                      ? <ArrowUp className="size-3" />
+                      : <ArrowDown className="size-3" />}
+                  </button>
+                </TableHead>
                 <TableHead>Скидка</TableHead>
               </TableRow>
             </TableHeader>

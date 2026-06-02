@@ -48,7 +48,13 @@ function buildWhere(
 export default async function SubscriptionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; q?: string; branch?: string; direction?: string }>
+  searchParams: Promise<{
+    tab?: string
+    q?: string
+    branch?: string
+    direction?: string
+    sort?: string
+  }>
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
@@ -59,6 +65,7 @@ export default async function SubscriptionsPage({
   const query = (sp.q ?? "").trim()
   const branchId = sp.branch && sp.branch !== "all" ? sp.branch : undefined
   const directionId = sp.direction && sp.direction !== "all" ? sp.direction : undefined
+  const sortDir: "asc" | "desc" = sp.sort === "desc" ? "desc" : "asc"
 
   const baseFilters = { branchId, directionId, query }
   const [branches, directions, countActive, countPending, countFinished, rows] = await Promise.all([
@@ -97,7 +104,7 @@ export default async function SubscriptionsPage({
           select: { id: true, calculatedAmount: true, type: true, valueType: true, value: true },
         },
       },
-      orderBy: { startDate: "asc" },
+      orderBy: { startDate: sortDir },
       take: 500,
     }),
   ])
@@ -164,6 +171,7 @@ export default async function SubscriptionsPage({
         initialQuery={query}
         initialBranchId={branchId ?? "all"}
         initialDirectionId={directionId ?? "all"}
+        initialSort={sortDir}
         canRenew={canRenew}
       />
     </div>
