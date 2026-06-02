@@ -29,6 +29,12 @@ export interface NeedsReview {
   phone: string
 }
 
+export interface CreatedWithoutPhone {
+  rowIdx: number
+  parent: string
+  child: string
+}
+
 export interface SyncReport {
   ok: true
   leadsParsed: number
@@ -36,6 +42,8 @@ export interface SyncReport {
   clientsCreated: number
   clientsMerged: number
   wardsCreated: number
+  clientsCreatedWithoutPhone: number
+  withoutPhone: CreatedWithoutPhone[]
   totalBalance: number
   balanceMissing: number
   warnings: string[]
@@ -243,6 +251,7 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
   const existingByPhone = new Map(existingClients.map((c) => [c.phone ?? "", c]))
 
   const warnings: string[] = []
+  const withoutPhone: CreatedWithoutPhone[] = []
   let clientsCreated = 0
   let clientsMerged = 0
   let wardsCreated = 0
@@ -312,6 +321,16 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
         })
         clientId = created.id
         clientsCreated++
+        if (!group.phone) {
+          for (const r of group.rows) {
+            withoutPhone.push({ rowIdx: r.rowIdx, parent: parentName, child: r.child })
+          }
+          warnings.push(
+            `Клиент создан без телефона: ${parentName || "(без имени)"} — ` +
+              `подопечный «${group.rows.map((r) => r.child).join(", ")}», ` +
+              `строка${group.rows.length > 1 ? "и" : ""} файла ${group.rows.map((r) => r.rowIdx).join(", ")}.`,
+          )
+        }
       }
       totalBalance += groupBalance
 
@@ -349,7 +368,15 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
         action: "leads_import_sync",
         entityType: "system",
         entityId: opts.tenantId,
-        changes: { clientsCreated, clientsMerged, wardsCreated, totalBalance },
+        changes: {
+          clientsCreated,
+          clientsMerged,
+          wardsCreated,
+          totalBalance,
+          clientsCreatedWithoutPhone: withoutPhone.length,
+          withoutPhone: withoutPhone.slice(0, 200),
+          warnings: warnings.slice(0, 200),
+        } as unknown as Prisma.InputJsonValue,
       },
     })
   }
@@ -361,6 +388,8 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
     clientsCreated,
     clientsMerged,
     wardsCreated,
+    clientsCreatedWithoutPhone: withoutPhone.length,
+    withoutPhone,
     totalBalance,
     balanceMissing,
     warnings,

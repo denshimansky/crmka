@@ -16,12 +16,20 @@ interface NeedsReview {
   phone: string
 }
 
+interface CreatedWithoutPhone {
+  rowIdx: number
+  parent: string
+  child: string
+}
+
 interface SyncReport {
   leadsParsed: number
   moneyParsed: number
   clientsCreated: number
   clientsMerged: number
   wardsCreated: number
+  clientsCreatedWithoutPhone: number
+  withoutPhone: CreatedWithoutPhone[]
   totalBalance: number
   balanceMissing: number
   warnings: string[]
@@ -163,6 +171,34 @@ export function SyncBalanceButton() {
                   Суммарный баланс: {report.totalBalance.toLocaleString("ru-RU")} ₽ · без баланса:{" "}
                   {report.balanceMissing}
                 </div>
+                {report.clientsCreatedWithoutPhone > 0 && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-200">
+                    <div className="font-medium">
+                      Создано без телефона: {report.clientsCreatedWithoutPhone}
+                    </div>
+                    <div className="text-amber-800/80 dark:text-amber-200/80">
+                      В файле у этих строк колонка «Номер_телефона» была пустой. Проверьте исходник
+                      и поправьте вручную, иначе клиентов нельзя будет найти по номеру.
+                    </div>
+                    {report.withoutPhone.length > 0 && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer">Показать ({report.withoutPhone.length})</summary>
+                        <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                          {report.withoutPhone.slice(0, 50).map((w, i) => (
+                            <li key={i}>
+                              Строка {w.rowIdx}: {w.parent || "(без имени)"} — «{w.child}»
+                            </li>
+                          ))}
+                          {report.withoutPhone.length > 50 && (
+                            <li className="text-amber-800/60 dark:text-amber-200/60">
+                              … и ещё {report.withoutPhone.length - 50}
+                            </li>
+                          )}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                )}
                 {report.warnings.length > 0 && (
                   <details className="text-xs text-muted-foreground mt-1">
                     <summary className="cursor-pointer">Предупреждения ({report.warnings.length})</summary>
