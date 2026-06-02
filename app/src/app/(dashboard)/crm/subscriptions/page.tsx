@@ -9,7 +9,7 @@ const TAB_LABELS: Record<SubsTabKey, string> = {
   pending: "Ожидающие оплаты",
   finished: "Закончившиеся",
 }
-const TAB_ORDER: SubsTabKey[] = ["active", "pending", "finished"]
+const TAB_ORDER: SubsTabKey[] = ["active", "finished", "pending"]
 
 function buildWhere(
   tab: SubsTabKey,
