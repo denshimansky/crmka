@@ -35,9 +35,8 @@ import { PageHelp } from "@/components/page-help"
 interface DiscountTemplate {
   id: string
   name: string
-  // На бэке хранится семантический тип (permanent/one_time/linked) и тип
-  // величины (valueType: percent/fixed). В этом UI пока показываем только
-  // единицу — она для пользователя и есть «тип скидки».
+  kind: "permanent" | "linked_sibling" | "linked_second_direction"
+  systemKey: string | null
   valueType: "percent" | "fixed"
   value: number
   isActive: boolean
@@ -46,6 +45,12 @@ interface DiscountTemplate {
 const TYPE_LABELS: Record<string, string> = {
   percent: "Процент",
   fixed: "Фиксированная сумма",
+}
+
+const KIND_LABELS: Record<DiscountTemplate["kind"], string> = {
+  permanent: "Постоянная",
+  linked_sibling: "За 2-го ребёнка",
+  linked_second_direction: "За 2-е направление",
 }
 
 function formatValue(valueType: string, value: number): string {
@@ -126,18 +131,22 @@ export default function DiscountTemplatesPage() {
       // У API на [id] есть PUT, не PATCH — раньше edit молча падал бы 405-кой.
       const method = editTemplate ? "PUT" : "POST"
 
+      const isSystem = !!editTemplate?.systemKey
+      const body: Record<string, unknown> = {
+        valueType: formType,
+        value: Number(formValue),
+        isActive: formIsActive,
+      }
+      // Системным шаблонам нельзя менять name, новым — kind не выбирается (только permanent).
+      if (!isSystem) {
+        body.name = formName.trim()
+        if (!editTemplate) body.kind = "permanent"
+      }
+
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: formName.trim(),
-          // Семантика (постоянная/разовая/связанная) в UI пока не выбирается,
-          // ставим permanent по умолчанию — UI отображает только единицу.
-          type: "permanent",
-          valueType: formType,
-          value: Number(formValue),
-          isActive: formIsActive,
-        }),
+        body: JSON.stringify(body),
       })
 
       if (!res.ok) {
@@ -205,9 +214,9 @@ export default function DiscountTemplatesPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Название</TableHead>
+              <TableHead>Категория</TableHead>
               <TableHead>Тип</TableHead>
               <TableHead>Значение</TableHead>
-              <TableHead>Описание</TableHead>
               <TableHead>Статус</TableHead>
               <TableHead className="w-[80px]" />
             </TableRow>
@@ -215,15 +224,20 @@ export default function DiscountTemplatesPage() {
           <TableBody>
             {templates.map(t => (
               <TableRow key={t.id}>
-                <TableCell className="font-medium">{t.name}</TableCell>
+                <TableCell className="font-medium">
+                  {t.name}
+                  {t.systemKey && (
+                    <Badge variant="secondary" className="ml-2">Системный</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline">{KIND_LABELS[t.kind]}</Badge>
+                </TableCell>
                 <TableCell>
                   <Badge variant="outline">{TYPE_LABELS[t.valueType] || t.valueType}</Badge>
                 </TableCell>
                 <TableCell className="font-medium">
                   {formatValue(t.valueType, t.value)}
-                </TableCell>
-                <TableCell className="text-muted-foreground max-w-[200px] truncate">
-                  —
                 </TableCell>
                 <TableCell>
                   {t.isActive ? (
@@ -242,14 +256,16 @@ export default function DiscountTemplatesPage() {
                     >
                       <Pencil className="size-4 text-muted-foreground" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8"
-                      onClick={() => handleDelete(t.id)}
-                    >
-                      <Trash2 className="size-4 text-muted-foreground" />
-                    </Button>
+                    {!t.systemKey && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => handleDelete(t.id)}
+                      >
+                        <Trash2 className="size-4 text-muted-foreground" />
+                      </Button>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>
@@ -283,7 +299,13 @@ export default function DiscountTemplatesPage() {
                 placeholder="Скидка многодетным"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
+                disabled={!!editTemplate?.systemKey}
               />
+              {editTemplate?.systemKey && (
+                <p className="text-xs text-muted-foreground">
+                  Системный шаблон — название изменить нельзя.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-4">
@@ -307,12 +329,20 @@ export default function DiscountTemplatesPage() {
                   step="0.01"
                   min="0"
                   max={formType === "percent" ? 100 : undefined}
-                  placeholder={formType === "percent" ? "10" : "500"}
+                  placeholder={formType === "percent" ? "10" : "250"}
                   value={formValue}
                   onChange={(e) => setFormValue(e.target.value)}
                 />
               </div>
             </div>
+
+            {formType === "fixed" && (
+              <p className="text-xs text-muted-foreground">
+                Для типа «Фиксированная сумма» укажите <b>стоимость занятия СО
+                скидкой</b> (а не размер скидки). Например, если занятие
+                стоит 350 ₽ и со скидкой должно стоить 250 ₽ — введите 250.
+              </p>
+            )}
 
             <div className="space-y-2">
               <Label>Описание</Label>

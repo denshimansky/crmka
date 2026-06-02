@@ -13,6 +13,8 @@ import { UnprolongedCommentsSection } from "../clients/[id]/unprolonged-comments
 import { LeadStatusActions } from "./lead-status-actions"
 import { ApplicationsSection } from "./applications-section"
 import { PortalLinkButton } from "./portal-link-button"
+import { ClientDiscountSelect } from "./client-discount-select"
+import { BonusDiscountDialog } from "./bonus-discount-dialog"
 
 const SEGMENT_LABELS: Record<string, string> = {
   new_client: "Новый",
@@ -66,6 +68,9 @@ export async function ClientCardContent({
       branch: true,
       channel: { select: { name: true } },
       assignee: { select: { firstName: true, lastName: true } },
+      discountTemplate: {
+        select: { id: true, name: true, kind: true, valueType: true, value: true },
+      },
     },
   })
 
@@ -216,12 +221,25 @@ export async function ClientCardContent({
                 </Badge>
               )}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {visiblePhone || "—"} · {client.email || "—"}
-          </p>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+            <span>{visiblePhone || "—"}</span>
+            <span>·</span>
+            <span>{client.email || "—"}</span>
+            <span>·</span>
+            <ClientDiscountSelect
+              clientId={client.id}
+              initialTemplateId={client.discountTemplateId ?? null}
+            />
+          </div>
         </div>
         <div className="text-right">
-          <div className="text-sm text-muted-foreground">Баланс</div>
+          <div className="flex items-center justify-end gap-2">
+            <div className="text-sm text-muted-foreground">Баланс</div>
+            <BonusDiscountDialog
+              clientId={client.id}
+              defaultResponsibleId={session.user.employeeId ?? null}
+            />
+          </div>
           <div
             className={`text-2xl font-bold ${
               balance > 0

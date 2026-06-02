@@ -39,6 +39,7 @@ const reportGroups: ReportGroup[] = [
       { name: "Конверсия пробных", href: "/reports/crm/trial-conversion", description: "Пробные → клиенты по педагогам", source: "trials" },
       { name: "Средний чек", href: "/reports/crm/avg-check", description: "Оплачено / кол-во платежей", source: "payments" },
       { name: "Допродажи", href: "/reports/crm/upsell", description: "Одно направление, истекающие, снизили активность", source: "subscriptions" },
+      { name: "Разовые скидки", href: "/reports/crm/marketing-bonuses", description: "Начисленные бонусы на баланс клиентов с разбивкой по каналам и ответственным", source: "clients" },
     ],
   },
   {

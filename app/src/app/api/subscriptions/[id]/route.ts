@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { recalcLinkedDiscounts } from "@/lib/linked-discount"
+import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 
 const updateSchema = z.object({
@@ -171,6 +172,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     })
 
     // SUB-07: при отчислении/закрытии пересчитать связанные скидки
+    // (старая логика для записей без templateId).
     let linkedDiscountChanges: Awaited<ReturnType<typeof recalcLinkedDiscounts>> = []
     if (data.status === "withdrawn" || data.status === "closed") {
       linkedDiscountChanges = await recalcLinkedDiscounts(
@@ -179,6 +181,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         existing.clientId,
         id
       )
+      // Новая логика: пересчитать шаблонные скидки клиента — состав
+      // активных абонементов изменился, для linked может смениться адресат.
+      await recalculateDiscountsForClient(tx, {
+        tenantId: session.user.tenantId,
+        clientId: existing.clientId,
+        createdBy: session.user.employeeId ?? null,
+      })
     }
 
     return { subscription, linkedDiscountChanges, refundedAmount }

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
@@ -203,6 +204,14 @@ export async function POST(req: NextRequest) {
         },
       })
     }
+
+    // Применяем шаблон скидки клиента к новому абонементу (и пересчитываем
+    // другие pending/active, т.к. для linked нужен «самый дешёвый среди всех»).
+    await recalculateDiscountsForClient(tx, {
+      tenantId: session.user.tenantId,
+      clientId: data.clientId,
+      createdBy: session.user.employeeId ?? null,
+    })
 
     return sub
   })

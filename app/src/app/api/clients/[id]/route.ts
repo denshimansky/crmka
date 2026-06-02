@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
+import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 import { z } from "zod"
 
 const updateSchema = z.object({
@@ -22,6 +23,8 @@ const updateSchema = z.object({
   blacklistReason: z.string().optional(),
   promisedPaymentDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   firstPaidLessonDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  // Включённый родителем шаблон скидки (или null — выключить).
+  discountTemplateId: z.string().uuid().nullable().optional(),
 })
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -136,9 +139,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(data.blacklistReason && { blacklistReason: data.blacklistReason, blacklistedBy: session.user.employeeId }),
       ...(data.promisedPaymentDate !== undefined && { promisedPaymentDate: data.promisedPaymentDate ? new Date(data.promisedPaymentDate) : null }),
       ...(data.firstPaidLessonDate !== undefined && { firstPaidLessonDate: data.firstPaidLessonDate ? new Date(data.firstPaidLessonDate) : null }),
+      ...(data.discountTemplateId !== undefined && { discountTemplateId: data.discountTemplateId }),
     },
     include: { wards: true, branch: { select: { id: true, name: true } } },
   })
+
+  // Смена шаблона скидки → пересчитать pending/active абонементы.
+  if (
+    data.discountTemplateId !== undefined &&
+    data.discountTemplateId !== existing.discountTemplateId
+  ) {
+    await db.$transaction(async (tx) => {
+      await recalculateDiscountsForClient(tx, {
+        tenantId: session.user.tenantId,
+        clientId: id,
+        createdBy: session.user.employeeId ?? null,
+      })
+    })
+  }
 
   return NextResponse.json(client)
 }

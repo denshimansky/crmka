@@ -250,6 +250,7 @@ model Employee {
   pageViews                  PageView[]
   loginAttempts              LoginAttempt[]
   applicationsProcessed      Application[]        @relation("ApplicationProcessor")
+  bonusDiscountsResponsible  BonusDiscount[]      @relation("BonusDiscountResponsible")
 
   @@unique([tenantId, login])
   @@index([tenantId])
@@ -288,6 +289,9 @@ model Client {
   moneyLtv                Decimal           @default(0) @map("money_ltv") @db.Decimal(12, 2)
   monthsLtv               Int               @default(0) @map("months_ltv")
   comment                 String?
+  // Включённый родителем шаблон скидки (постоянная или связанная). NULL — скидки
+  // не применяются. Смена пересчитывает не оплаченные pending/active абонементы.
+  discountTemplateId      String?           @map("discount_template_id") @db.Uuid
   createdBy               String?           @map("created_by") @db.Uuid
   createdAt               DateTime          @default(now()) @map("created_at")
   updatedAt               DateTime          @updatedAt @map("updated_at")
@@ -297,6 +301,7 @@ model Client {
   branch              Branch?                    @relation(fields: [branchId], references: [id])
   assignee            Employee?                  @relation("AssignedClients", fields: [assignedTo], references: [id])
   channel             LeadChannel?               @relation(fields: [channelId], references: [id])
+  discountTemplate    DiscountTemplate?          @relation("ClientDiscountTemplate", fields: [discountTemplateId], references: [id])
   wards               Ward[]
   enrollments         GroupEnrollment[]
   subscriptions       Subscription[]
@@ -310,6 +315,7 @@ model Client {
   unprolongedComments UnprolongedComment[]
   communications      Communication[]
   applications        Application[]
+  bonusDiscounts      BonusDiscount[]
 
   @@index([tenantId, funnelStatus])
   @@index([tenantId, clientStatus])
@@ -808,6 +814,9 @@ model Discount {
   id               String            @id @default(uuid()) @db.Uuid
   tenantId         String            @map("tenant_id") @db.Uuid
   subscriptionId   String            @map("subscription_id") @db.Uuid
+  // FK на шаблон, по которому скидка применена. NULL — историческая запись из
+  // старой логики (recalcLinkedDiscounts); новые скидки всегда с templateId.
+  templateId       String?           @map("template_id") @db.Uuid
   type             DiscountType
   valueType        DiscountValueType @map("value_type")
   value            Decimal           @db.Decimal(12, 2)
@@ -820,9 +829,11 @@ model Discount {
   createdBy        String?           @map("created_by") @db.Uuid
   createdAt        DateTime          @default(now()) @map("created_at")
 
-  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+  subscription Subscription      @relation(fields: [subscriptionId], references: [id])
+  template     DiscountTemplate? @relation("DiscountByTemplate", fields: [templateId], references: [id])
 
   @@index([tenantId])
+  @@index([subscriptionId, isActive])
   @@map("discounts")
 }
 
@@ -1084,8 +1095,9 @@ model LeadChannel {
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
 
-  organization Organization @relation(fields: [tenantId], references: [id])
-  clients      Client[]
+  organization   Organization    @relation(fields: [tenantId], references: [id])
+  clients        Client[]
+  bonusDiscounts BonusDiscount[]
 
   @@index([tenantId])
   @@map("lead_channels")
@@ -1264,6 +1276,13 @@ enum DiscountType {
 enum DiscountValueType {
   percent
   fixed
+}
+
+// Поведенческая категория шаблона. Определяет условие применения и круг абонов.
+enum DiscountKind {
+  permanent
+  linked_sibling
+  linked_second_direction
 }
 
 enum EnrollmentPaymentStatus {
@@ -1656,12 +1675,24 @@ model ProductionCalendar {
   @@map("production_calendar")
 }
 
-// Шаблон скидки — предопределённые типы скидок организации
+// Шаблон скидки — предопределённые типы скидок организации.
+// kind определяет область действия и условие применения:
+//   permanent — на все pending/active абоны клиента, без условий.
+//   linked_sibling — нужно ≥ 2 разных wardId с pending/active абонами; скидка
+//     применяется к одному самому дешёвому (по finalAmount) среди ВСЕХ абонов.
+//   linked_second_direction — у хотя бы одного wardId ≥ 2 разных directionId;
+//     скидка тоже на один самый дешёвый абон клиента.
+// systemKey фиксирует системные шаблоны («за 2-го ребёнка», «за 2-е направление»):
+// их нельзя удалить и переименовать, можно только менять valueType/value/isActive.
+// isStackable — историческое поле, новой логикой не используется (правило «один
+// шаблон на родителя» делает стек неактуальным).
 model DiscountTemplate {
   id          String            @id @default(uuid()) @db.Uuid
   tenantId    String            @map("tenant_id") @db.Uuid
   name        String
   type        DiscountType
+  kind        DiscountKind      @default(permanent)
+  systemKey   String?           @map("system_key")
   valueType   DiscountValueType @map("value_type")
   value       Decimal           @db.Decimal(12, 2)
   isStackable Boolean           @default(false) @map("is_stackable")
@@ -1669,10 +1700,39 @@ model DiscountTemplate {
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [tenantId], references: [id])
+  organization     Organization @relation(fields: [tenantId], references: [id])
+  appliedDiscounts Discount[]   @relation("DiscountByTemplate")
+  clientsAttached  Client[]     @relation("ClientDiscountTemplate")
 
+  @@unique([tenantId, systemKey])
   @@index([tenantId])
   @@map("discount_templates")
+}
+
+// Маркетинговая разовая скидка-бонус. Начисляет +amount на Client.clientBalance
+// через applyBalanceDelta(type=correction). В ДДС не попадает, видна в отчётах.
+model BonusDiscount {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  clientId       String   @map("client_id") @db.Uuid
+  amount         Decimal  @db.Decimal(12, 2)
+  date           DateTime @db.Date
+  comment        String?
+  reason         String
+  responsibleId  String?  @map("responsible_id") @db.Uuid
+  isMarketing    Boolean  @default(false) @map("is_marketing")
+  channelId      String?  @map("channel_id") @db.Uuid
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  client      Client       @relation(fields: [clientId], references: [id])
+  responsible Employee?    @relation("BonusDiscountResponsible", fields: [responsibleId], references: [id])
+  channel     LeadChannel? @relation(fields: [channelId], references: [id])
+
+  @@index([tenantId, date])
+  @@index([tenantId, clientId])
+  @@map("bonus_discounts")
 }
 
 // Плановый расход — план платежей по категории за месяц

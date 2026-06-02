@@ -14,6 +14,7 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { countLessonsForGroup } from "@/lib/schedule/count-lessons"
+import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 
 export interface BulkRenewInput {
   tenantId: string
@@ -308,6 +309,17 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
       })
       created++
       totalIssuedAmount = totalIssuedAmount.add(finalAmount)
+    }
+
+    // После создания всех новых pending — пересчёт скидок по каждому
+    // затронутому клиенту (linked ищет «самый дешёвый» среди всех).
+    const touchedClients = new Set(preview.toCreate.map((c) => c.clientId))
+    for (const clientId of touchedClients) {
+      await recalculateDiscountsForClient(tx, {
+        tenantId: opts.tenantId,
+        clientId,
+        createdBy: opts.createdBy ?? null,
+      })
     }
   })
 

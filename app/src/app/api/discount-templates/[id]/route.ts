@@ -6,10 +6,8 @@ import { z } from "zod"
 
 const updateSchema = z.object({
   name: z.string().min(1, "Название обязательно").optional(),
-  type: z.enum(["permanent", "one_time", "linked"]).optional(),
   valueType: z.enum(["percent", "fixed"]).optional(),
   value: z.number().min(0).optional(),
-  isStackable: z.boolean().optional(),
   isActive: z.boolean().optional(),
 })
 
@@ -45,7 +43,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   })
   if (!existing) return NextResponse.json({ error: "Шаблон скидки не найден" }, { status: 404 })
 
-  const item = await db.discountTemplate.update({ where: { id }, data: parsed.data })
+  // Системные шаблоны (systemKey != null) защищаем от переименования:
+  // меняются только valueType/value/isActive.
+  const isSystem = existing.systemKey !== null
+  const data: typeof parsed.data = { ...parsed.data }
+  if (isSystem && parsed.data.name !== undefined && parsed.data.name !== existing.name) {
+    return NextResponse.json(
+      { error: "Системный шаблон нельзя переименовать" },
+      { status: 400 },
+    )
+  }
+
+  const item = await db.discountTemplate.update({ where: { id }, data })
   return NextResponse.json(item)
 }
 
@@ -61,6 +70,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     where: { id, tenantId: session.user.tenantId },
   })
   if (!existing) return NextResponse.json({ error: "Шаблон скидки не найден" }, { status: 404 })
+
+  if (existing.systemKey !== null) {
+    return NextResponse.json(
+      { error: "Системный шаблон нельзя удалить, можно деактивировать через isActive=false" },
+      { status: 400 },
+    )
+  }
 
   await db.discountTemplate.update({ where: { id }, data: { isActive: false } })
   return NextResponse.json({ ok: true })
