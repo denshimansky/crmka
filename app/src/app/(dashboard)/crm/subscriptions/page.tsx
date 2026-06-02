@@ -97,7 +97,7 @@ export default async function SubscriptionsPage({
           select: { id: true, calculatedAmount: true, type: true, valueType: true, value: true },
         },
       },
-      orderBy: { startDate: "desc" },
+      orderBy: { startDate: "asc" },
       take: 500,
     }),
   ])
