@@ -18,6 +18,7 @@ import { RoleDisplayNamesForm } from "./role-display-names-form"
 import { AdminBonusContent } from "./admin-bonus/admin-bonus-content"
 import { ProcessLeadsButton } from "./leads-import/process-button"
 import { SyncBalanceButton } from "./leads-import/sync-button"
+import { SyncBalancesButton } from "./leads-import/sync-balances-button"
 import { WipeDatabaseButton } from "./leads-import/wipe-button"
 import { isWipeAvailable } from "@/lib/leads-import/sync-leads"
 
@@ -410,13 +411,16 @@ export default async function SettingsPage() {
                 <div>
                   <h3 className="font-medium">Импорт из 1С</h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Двухэтапная миграция базы: сначала обработка выгрузки лидов, затем синхронизация
-                    балансов и заливка контактов в CRM. Доступно только владельцу.
+                    Двухэтапная миграция базы: сначала обработка выгрузки лидов, затем заливка
+                    контактов в CRM. Если клиенты уже залиты без денег — обновите балансы
+                    отдельной кнопкой «Синхронизировать остатки» (в ДДС не пишется).
+                    Доступно только владельцу.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <ProcessLeadsButton />
                   <SyncBalanceButton />
+                  <SyncBalancesButton />
                   {wipeGate?.available && wipeGate.expiresAt && (
                     <WipeDatabaseButton
                       orgName={org.name}
