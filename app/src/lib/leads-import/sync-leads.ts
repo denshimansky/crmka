@@ -121,14 +121,19 @@ function loadLeadsFile(buffer: Buffer): { rows: LeadFileRow[]; headers: string[]
   return { rows: out, headers }
 }
 
-function loadMoneyFile(buffer: Buffer): { balances: Map<string, number>; rowsParsed: number } {
+function loadMoneyFile(buffer: Buffer): {
+  balances: Map<string, number>
+  rowsParsed: number
+  duplicates: { display: string; total: number; count: number }[]
+} {
   const sheet = readSheet(buffer, { headerRow: 0 })
-  if (sheet.length === 0) return { balances: new Map(), rowsParsed: 0 }
+  if (sheet.length === 0) return { balances: new Map(), rowsParsed: 0, duplicates: [] }
   const headers = Object.keys(sheet[0])
   const normMap = new Map<string, string>()
   for (const h of headers) normMap.set(normColKey(h), h)
 
   const out = new Map<string, number>()
+  const dupes = new Map<string, { display: string; count: number; total: number }>()
   let rowsParsed = 0
   for (const row of sheet) {
     const contractor = String(pickValue(row, normMap, "Контрагент", "ФИО", "Ребёнок", "Ребенок") ?? "").trim()
@@ -137,10 +142,14 @@ function loadMoneyFile(buffer: Buffer): { balances: Map<string, number>; rowsPar
     const bal = Number(balRaw)
     if (!Number.isFinite(bal)) continue
     const key = normName(contractor)
+    if (out.has(key)) {
+      const prev = dupes.get(key) ?? { display: contractor, count: 1, total: out.get(key) ?? 0 }
+      dupes.set(key, { display: contractor, count: prev.count + 1, total: prev.total + bal })
+    }
     out.set(key, (out.get(key) ?? 0) + bal)
     rowsParsed++
   }
-  return { balances: out, rowsParsed }
+  return { balances: out, rowsParsed, duplicates: [...dupes.values()] }
 }
 
 function parseDob(raw: string): Date | null {
@@ -209,11 +218,54 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
 
   // Подмержим балансы из деньги.xlsx по нормализованному ФИО ребёнка.
   // Если файл деньги не передан — все балансы = 0.
-  const moneyParsed = opts.moneyBuffer ? loadMoneyFile(opts.moneyBuffer) : { balances: new Map(), rowsParsed: 0 }
+  const moneyParsed = opts.moneyBuffer
+    ? loadMoneyFile(opts.moneyBuffer)
+    : { balances: new Map<string, number>(), rowsParsed: 0, duplicates: [] as { display: string; total: number; count: number }[] }
   const balances = moneyParsed.balances
-  let balanceMissing = 0
+
+  // Подсчитываем, сколько детей в Список лидов имеют одинаковое нормализованное ФИО.
+  // Если на один ключ из деньги.xlsx приходится >1 ребёнка — баланс никому не зачисляем
+  // (нельзя угадать, кому он принадлежит), вместо этого пишем warning. Точные суммы
+  // потом проставит «Синхронизировать остатки» — она матчит по телефону, не по ФИО.
+  const childOccurrences = new Map<string, number>()
   for (const r of leads) {
-    const fromMoney = balances.get(normName(r.child))
+    const key = normName(r.child)
+    childOccurrences.set(key, (childOccurrences.get(key) ?? 0) + 1)
+  }
+
+  const collectedWarnings: string[] = []
+  if (moneyParsed.duplicates.length > 0) {
+    const sample = moneyParsed.duplicates
+      .slice(0, 10)
+      .map((d) => `«${d.display}» (${d.count} строк, сумма ${d.total.toFixed(2)} ₽)`)
+      .join("; ")
+    collectedWarnings.push(
+      `В «деньги.xlsx» строки с одинаковым ФИО — балансы просуммированы: ${sample}` +
+        (moneyParsed.duplicates.length > 10 ? `; … ещё ${moneyParsed.duplicates.length - 10}` : ""),
+    )
+  }
+
+  let balanceMissing = 0
+  const ambiguousReported = new Set<string>()
+  for (const r of leads) {
+    const key = normName(r.child)
+    const fromMoney = balances.get(key)
+    const occurrences = childOccurrences.get(key) ?? 0
+    if (fromMoney !== undefined && occurrences > 1) {
+      if (!ambiguousReported.has(key)) {
+        const parents = leads
+          .filter((x) => normName(x.child) === key)
+          .map((x) => `${x.parent || "(без имени)"} — ${x.phone || "без тел."}`)
+        collectedWarnings.push(
+          `Баланс ${fromMoney.toFixed(2)} ₽ для «${r.child}» НЕ зачислен: имя встречается ` +
+            `у ${occurrences} разных родителей (${parents.join("; ")}). ` +
+            `Уточните вручную через «Синхронизировать остатки» с телефоном в файле.`,
+        )
+        ambiguousReported.add(key)
+      }
+      if (!r.balance) balanceMissing++
+      continue
+    }
     if (fromMoney !== undefined) {
       r.balance = (r.balance ?? 0) + fromMoney
     } else if (!r.balance) {
@@ -250,7 +302,7 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
     : []
   const existingByPhone = new Map(existingClients.map((c) => [c.phone ?? "", c]))
 
-  const warnings: string[] = []
+  const warnings: string[] = [...collectedWarnings]
   const withoutPhone: CreatedWithoutPhone[] = []
   let clientsCreated = 0
   let clientsMerged = 0
