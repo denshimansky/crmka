@@ -136,6 +136,35 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Запрет дублей абонементов (баг #52): у одного подопечного не должно быть
+  // двух «живых» (pending/active) абонементов на одну и ту же группу в один и
+  // тот же период (год+месяц). closed/withdrawn — нормально, это история.
+  // Для package период не задан — проверку пропускаем.
+  if (orgType !== "package" && data.periodYear !== undefined && data.periodMonth !== undefined) {
+    const duplicateSub = await db.subscription.findFirst({
+      where: {
+        tenantId: session.user.tenantId,
+        groupId: data.groupId,
+        periodYear: data.periodYear,
+        periodMonth: data.periodMonth,
+        status: { in: ["pending", "active"] },
+        deletedAt: null,
+        // wardId сравниваем строго: null совпадает с null, uuid с uuid.
+        wardId: data.wardId ?? null,
+        // На взрослые абонементы (без подопечного) дублирование тоже не нужно —
+        // привязка идёт к клиенту в этом случае.
+        ...(data.wardId ? {} : { clientId: data.clientId }),
+      },
+      select: { id: true },
+    })
+    if (duplicateSub) {
+      return NextResponse.json(
+        { error: "У подопечного уже есть абонемент в эту группу на выбранный период." },
+        { status: 409 },
+      )
+    }
+  }
+
   const totalAmount = data.lessonPrice * data.totalLessons
   const finalAmount = totalAmount - data.discountAmount
   const balance = finalAmount // Сколько ещё нужно оплатить

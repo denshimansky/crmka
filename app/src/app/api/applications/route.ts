@@ -78,6 +78,27 @@ export async function POST(req: NextRequest) {
   if (!branch) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
   if (!direction) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
 
+  // Запрет дублей заявок (баг #52): у одного подопечного не должно быть двух
+  // активных заявок с одинаковой парой (филиал, направление). Группа в схеме
+  // Application не хранится, поэтому проверяем только эти два поля.
+  const duplicateApp = await db.application.findFirst({
+    where: {
+      tenantId,
+      wardId: data.wardId,
+      branchId: data.branchId,
+      directionId: data.directionId,
+      status: "active",
+      deletedAt: null,
+    },
+    select: { id: true },
+  })
+  if (duplicateApp) {
+    return NextResponse.json(
+      { error: "У подопечного уже есть активная заявка на этот филиал и направление." },
+      { status: 409 },
+    )
+  }
+
   const application = await db.$transaction(async (tx) => {
     const created = await tx.application.create({
       data: {

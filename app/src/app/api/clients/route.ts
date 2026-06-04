@@ -16,7 +16,7 @@ const createSchema = z.object({
   email: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined).pipe(z.string().email("Некорректный email").optional()),
   socialLink: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   funnelStatus: z.enum(["new", "trial_scheduled", "trial_attended", "awaiting_payment", "active_client", "potential", "non_target", "blacklisted", "archived"]).default("new"),
-  clientStatus: z.enum(["active", "upsell", "churned", "returning", "archived"]).nullable().optional(),
+  clientStatus: z.enum(["active", "churned", "archived"]).nullable().optional(),
   branchId: z.string().uuid().optional(),
   channelId: z.string().uuid().optional(),
   assignedTo: z.string().uuid().optional(),
@@ -159,6 +159,45 @@ export async function POST(req: NextRequest) {
   // Хотя бы телефон или соцсеть
   if (!data.phone && !data.socialLink) {
     return NextResponse.json({ error: "Укажите телефон или ссылку на соцсеть" }, { status: 400 })
+  }
+
+  // Запрет дублей по телефону (баг #52). Сравниваем по последним 10 цифрам
+  // (российский формат) — так "+7 999 765-43-21" и "89997654321" — один номер.
+  // Проверяем оба поля (phone и phone2): новый клиент не должен совпадать ни
+  // как основной, ни как запасной номер существующего.
+  if (data.phone) {
+    const digits = data.phone.replace(/\D/g, "")
+    if (digits.length >= 7) {
+      const tail = digits.slice(-10)
+      const candidates = await db.client.findMany({
+        where: {
+          tenantId: session.user.tenantId,
+          deletedAt: null,
+          OR: [
+            { phone: { contains: tail } },
+            { phone2: { contains: tail } },
+          ],
+        },
+        select: { id: true, phone: true, phone2: true, firstName: true, lastName: true },
+        take: 5,
+      })
+      const matchLen = Math.min(digits.length, 10)
+      const dup = candidates.find((c) => {
+        const p1 = (c.phone ?? "").replace(/\D/g, "")
+        const p2 = (c.phone2 ?? "").replace(/\D/g, "")
+        return (
+          (p1.length >= matchLen && p1.slice(-matchLen) === digits.slice(-matchLen)) ||
+          (p2.length >= matchLen && p2.slice(-matchLen) === digits.slice(-matchLen))
+        )
+      })
+      if (dup) {
+        const name = [dup.lastName, dup.firstName].filter(Boolean).join(" ") || "(без имени)"
+        return NextResponse.json(
+          { error: `Клиент с таким телефоном уже есть: ${name}` },
+          { status: 409 },
+        )
+      }
+    }
   }
 
   // Автоназначение ответственного: если не указан — создатель (если он сотрудник)

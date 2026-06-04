@@ -134,6 +134,27 @@ export async function POST(
     )
   }
 
+  // Запрет дублей абонементов (баг #52): подопечный не может получить второй
+  // «живой» (pending/active) абонемент в ту же группу за тот же месяц.
+  const duplicateSub = await db.subscription.findFirst({
+    where: {
+      tenantId,
+      wardId: ward.id,
+      groupId: data.groupId,
+      periodYear,
+      periodMonth,
+      status: { in: ["pending", "active"] },
+      deletedAt: null,
+    },
+    select: { id: true },
+  })
+  if (duplicateSub) {
+    return NextResponse.json(
+      { error: "У подопечного уже есть абонемент в эту группу на выбранный период." },
+      { status: 409 },
+    )
+  }
+
   const lessonPrice = new Prisma.Decimal(direction.lessonPrice)
   const totalAmount = lessonPrice.mul(totalLessons)
   const finalAmount = totalAmount
