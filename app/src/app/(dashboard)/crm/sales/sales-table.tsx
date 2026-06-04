@@ -116,12 +116,16 @@ export function SalesTable({
   employees,
   branches,
   branchId,
+  directions,
+  directionId,
 }: {
   tab: SalesTabKey
   rows: SalesRow[]
   employees: EmployeeOption[]
   branches: { id: string; name: string }[]
   branchId: string | null
+  directions: { id: string; name: string }[]
+  directionId: string | null
 }) {
   const router = useRouter()
   const [processing, setProcessing] = useState<SalesRow | null>(null)
@@ -267,7 +271,16 @@ export function SalesTable({
     )
   }
 
-  const showBranchFilter = tab === "trial" && branches.length > 1
+  // Фильтры по филиалу и направлению — на всех вкладках Продаж (баг #48).
+  // Счётчики в табах пересчитываются на сервере с учётом этих фильтров (баг #46).
+  const showBranchFilter = branches.length > 1
+  const showDirectionFilter = directions.length > 1
+  function setParam(key: string, value: string) {
+    const params = new URLSearchParams(window.location.search)
+    if (value === "all") params.delete(key)
+    else params.set(key, value)
+    router.push(`?${params.toString()}`)
+  }
   const searchBar = (
     <div className="flex items-center gap-2">
       <div className="relative flex-1">
@@ -282,18 +295,27 @@ export function SalesTable({
       {showBranchFilter && (
         <select
           value={branchId ?? "all"}
-          onChange={(e) => {
-            const params = new URLSearchParams(window.location.search)
-            if (e.target.value === "all") params.delete("branchId")
-            else params.set("branchId", e.target.value)
-            router.push(`?${params.toString()}`)
-          }}
+          onChange={(e) => setParam("branchId", e.target.value)}
           className="h-9 rounded-md border bg-background px-3 text-sm"
         >
           <option value="all">Все филиалы</option>
           {branches.map((b) => (
             <option key={b.id} value={b.id}>
               {b.name}
+            </option>
+          ))}
+        </select>
+      )}
+      {showDirectionFilter && (
+        <select
+          value={directionId ?? "all"}
+          onChange={(e) => setParam("directionId", e.target.value)}
+          className="h-9 rounded-md border bg-background px-3 text-sm"
+        >
+          <option value="all">Все направления</option>
+          {directions.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
             </option>
           ))}
         </select>

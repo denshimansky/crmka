@@ -3,10 +3,12 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 
-// GET /api/groups/{id}/lessons?from=YYYY-MM-DD
+// GET /api/groups/{id}/lessons?from=YYYY-MM-DD&includePast=1
 // Возвращает неотменённые занятия группы начиная с указанной даты (по умолчанию — сегодня).
 // Используется в формах записи на пробное, чтобы предлагать только реальные даты группы
 // и не получать «У группы нет занятия на эту дату» при сабмите.
+// includePast=1 — добавляет последние 90 дней к выдаче (баг #51: разрешить пробное
+// задним числом, если ребёнок реально пришёл).
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -18,8 +20,12 @@ export async function GET(
   const tenantId = session.user.tenantId
   const url = new URL(req.url)
   const fromParam = url.searchParams.get("from")
+  const includePast = url.searchParams.get("includePast") === "1"
   const from = fromParam ? new Date(fromParam) : new Date()
   from.setHours(0, 0, 0, 0)
+  if (includePast && !fromParam) {
+    from.setDate(from.getDate() - 90)
+  }
 
   const group = await db.group.findFirst({
     where: { id, tenantId, deletedAt: null },
@@ -36,7 +42,7 @@ export async function GET(
     },
     select: { id: true, date: true, startTime: true, durationMinutes: true },
     orderBy: { date: "asc" },
-    take: 60,
+    take: includePast ? 200 : 60,
   })
 
   return NextResponse.json(lessons)

@@ -156,7 +156,9 @@ export function TrialLessonForm({
     let cancelled = false
     async function load() {
       try {
-        const res = await fetch(`/api/groups/${groupId}/lessons`)
+        // includePast=1 — на пробное можно записать задним числом, если ребёнок
+        // фактически пришёл и его нужно отметить (баг #51).
+        const res = await fetch(`/api/groups/${groupId}/lessons?includePast=1`)
         if (!res.ok) {
           setGroupLessonDates([])
           return

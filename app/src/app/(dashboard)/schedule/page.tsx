@@ -173,6 +173,61 @@ export default async function SchedulePage({
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
   })
 
+  // Доп. пассажиры занятий — пробные ученики и отработки, которые приходят в эту
+  // конкретную дату. Группа сама по себе про них не знает (они не в enrollments),
+  // поэтому счётчик «N/max» без них врёт (баг #50).
+  const lessonIds = lessons.map((l) => l.id)
+  const [trialRowsForLessons, scheduledMakeupRows, markedMakeupRows] =
+    lessonIds.length === 0
+      ? [[], [], []]
+      : await Promise.all([
+          db.trialLesson.findMany({
+            where: {
+              tenantId,
+              lessonId: { in: lessonIds },
+              status: { in: ["scheduled", "attended"] },
+            },
+            select: { lessonId: true, clientId: true, wardId: true },
+          }),
+          db.attendance.findMany({
+            where: {
+              tenantId,
+              scheduledMakeupLessonId: { in: lessonIds },
+              attendanceType: { code: "makeup_scheduled" },
+            },
+            select: {
+              scheduledMakeupLessonId: true,
+              clientId: true,
+              wardId: true,
+            },
+          }),
+          db.attendance.findMany({
+            where: {
+              tenantId,
+              lessonId: { in: lessonIds },
+              isMakeup: true,
+            },
+            select: { lessonId: true, clientId: true, wardId: true },
+          }),
+        ])
+
+  // dedup по (clientId, wardId) — иначе ребёнок с уже отмеченной отработкой
+  // (и сохранившейся записью makeup_scheduled на источнике) посчитается дважды.
+  const extraAttendeesByLesson = new Map<string, Set<string>>()
+  function addExtra(lessonId: string | null, clientId: string, wardId: string | null) {
+    if (!lessonId) return
+    const key = `${clientId}:${wardId || ""}`
+    let set = extraAttendeesByLesson.get(lessonId)
+    if (!set) {
+      set = new Set()
+      extraAttendeesByLesson.set(lessonId, set)
+    }
+    set.add(key)
+  }
+  for (const t of trialRowsForLessons) addExtra(t.lessonId, t.clientId, t.wardId)
+  for (const s of scheduledMakeupRows) addExtra(s.scheduledMakeupLessonId, s.clientId, s.wardId)
+  for (const m of markedMakeupRows) addExtra(m.lessonId, m.clientId, m.wardId)
+
   // Индивидуальные пробные (без группы) — отображаются в общем расписании
   const individualTrials = await db.trialLesson.findMany({
     where: {
@@ -286,7 +341,13 @@ export default async function SchedulePage({
       maxStudents: l.group.maxStudents,
       room: { id: l.group.room.id, name: l.group.room.name },
       direction: { id: l.group.direction.id, name: l.group.direction.name },
-      _count: { enrollments: l.group._count.enrollments },
+      _count: {
+        // «На занятие записано» = постоянные ученики группы + пробные + отработки.
+        // Дедуплицировано по (clientId, wardId) выше — баг #50.
+        enrollments:
+          l.group._count.enrollments +
+          (extraAttendeesByLesson.get(l.id)?.size ?? 0),
+      },
     },
     instructor: {
       firstName: l.instructor.firstName,

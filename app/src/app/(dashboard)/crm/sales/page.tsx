@@ -39,6 +39,73 @@ function wardSalesWhere(tenantId: string, stage: WardSalesStage): Prisma.WardWhe
   }
 }
 
+// Фильтр пробного занятия по филиалу + направлению. Возвращает {} если оба пусты.
+// AND нужен, когда заданы оба фильтра — без него Prisma переписала бы вторую OR
+// поверх первой.
+function trialFilter(
+  branchFilter: string | null,
+  directionFilter: string | null,
+): Prisma.TrialLessonWhereInput {
+  const groups: Prisma.TrialLessonWhereInput[] = []
+  if (branchFilter) {
+    groups.push({
+      OR: [
+        { group: { branchId: branchFilter } },
+        { room: { branchId: branchFilter } },
+      ],
+    })
+  }
+  if (directionFilter) {
+    groups.push({
+      OR: [
+        { directionId: directionFilter },
+        { group: { directionId: directionFilter } },
+      ],
+    })
+  }
+  if (groups.length === 0) return {}
+  if (groups.length === 1) return groups[0]
+  return { AND: groups }
+}
+
+// Сужает Ward по фильтрам бранч+направление с учётом текущей стадии.
+// На application — фильтр идёт по active Application; на trial-стадиях — по TrialLesson.
+function wardSalesWhereWithFilters(
+  tenantId: string,
+  stage: WardSalesStage,
+  branchFilter: string | null,
+  directionFilter: string | null,
+): Prisma.WardWhereInput {
+  const base = wardSalesWhere(tenantId, stage)
+  if (!branchFilter && !directionFilter) return base
+
+  if (stage === "application") {
+    return {
+      ...base,
+      applications: {
+        some: {
+          status: "active",
+          deletedAt: null,
+          ...(branchFilter ? { branchId: branchFilter } : {}),
+          ...(directionFilter ? { directionId: directionFilter } : {}),
+        },
+      },
+    }
+  }
+
+  const tlStatus: Prisma.TrialLessonWhereInput =
+    stage === "trial_scheduled"
+      ? { status: "scheduled" }
+      : { status: { in: ["attended", "scheduled"] } }
+
+  return {
+    ...base,
+    trialLessons: {
+      some: { ...tlStatus, ...trialFilter(branchFilter, directionFilter) },
+    },
+  }
+}
+
 function fmtMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
 }
@@ -46,19 +113,23 @@ function fmtMoney(amount: number): string {
 export default async function SalesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; branchId?: string }>
+  searchParams: Promise<{ tab?: string; branchId?: string; directionId?: string }>
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
   const role = session.user.role
-  const { tab: rawTab, branchId: rawBranchId } = await searchParams
+  const { tab: rawTab, branchId: rawBranchId, directionId: rawDirectionId } =
+    await searchParams
   const tab: SalesTabKey = TAB_ORDER.includes(rawTab as SalesTabKey)
     ? (rawTab as SalesTabKey)
     : "application"
   const branchFilter = rawBranchId && rawBranchId !== "all" ? rawBranchId : null
+  const directionFilter =
+    rawDirectionId && rawDirectionId !== "all" ? rawDirectionId : null
 
   const [
     branches,
+    directions,
     employees,
     countApplication,
     countTrial,
@@ -70,15 +141,38 @@ export default async function SalesPage({
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    db.direction.findMany({
+      where: { tenantId, deletedAt: null },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
     db.employee.findMany({
       where: { tenantId, deletedAt: null, role: { not: "readonly" } },
       select: { id: true, firstName: true, lastName: true },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
-    db.ward.count({ where: wardSalesWhere(tenantId, "application") }),
-    db.ward.count({ where: wardSalesWhere(tenantId, "trial_scheduled") }),
-    db.ward.count({ where: wardSalesWhere(tenantId, "trial_attended") }),
-    db.ward.count({ where: wardSalesWhere(tenantId, "awaiting_payment") }),
+    // Счётчики во ВСЕХ табах учитывают активные фильтры (баг #46): по филиалу и
+    // направлению — пользователь видит, сколько контактов в каждой стадии после
+    // применения фильтра. Для «trial» считаем пробные (а не подопечных) — один
+    // ребёнок с 2 пробными даст 2, чтобы число совпадало со списком (баг #49).
+    db.ward.count({
+      where: wardSalesWhereWithFilters(tenantId, "application", branchFilter, directionFilter),
+    }),
+    db.trialLesson.count({
+      where: {
+        tenantId,
+        status: "scheduled",
+        ward: { salesStage: "trial_scheduled" },
+        client: notArchivedClient(),
+        ...trialFilter(branchFilter, directionFilter),
+      },
+    }),
+    db.ward.count({
+      where: wardSalesWhereWithFilters(tenantId, "trial_attended", branchFilter, directionFilter),
+    }),
+    db.ward.count({
+      where: wardSalesWhereWithFilters(tenantId, "awaiting_payment", branchFilter, directionFilter),
+    }),
   ])
 
   const counts: Record<SalesTabKey, number> = {
@@ -97,7 +191,7 @@ export default async function SalesPage({
     // даже если у подопечного никогда не было Application. Activной Application
     // (если есть) даёт филиал/направление и applicationId для «Обработать заявку».
     const wards = await db.ward.findMany({
-      where: wardSalesWhere(tenantId, "application"),
+      where: wardSalesWhereWithFilters(tenantId, "application", branchFilter, directionFilter),
       include: {
         client: {
           select: {
@@ -162,43 +256,133 @@ export default async function SalesPage({
         assignedTo: w.client.assignedTo,
       }
     })
-  } else {
-    // tab in ('trial', 'trial_done', 'awaiting_payment') — все три читаются по Ward.
-    // Один Ward = одна строка. salesStage определяет вкладку; для отображения подтягиваем
-    // одно «представительное» пробное (запланированное для trial, последнее attended для остальных).
-    const stage = TAB_TO_STAGE[tab]
-    // На trial_done / awaiting_payment основной кейс — attended-пробное,
-    // но если стадия Ward была сдвинута вручную (через ПКМ-меню) без отметки
-    // в Расписании, scheduled-пробное всё ещё актуально и его данные нужно
-    // показать в строке. Берём любой не-cancelled, attended приоритизируем.
-    const trialLessonFilter: Prisma.TrialLessonWhereInput =
-      tab === "trial"
-        ? { status: "scheduled" }
-        : { status: { in: ["attended", "scheduled"] } }
-    const trialLessonOrder: Prisma.TrialLessonOrderByWithRelationInput[] =
-      tab === "trial"
-        ? [{ scheduledDate: "asc" }]
-        // status asc: 'attended' < 'scheduled' алфавитно → attended вперёд.
-        : [{ status: "asc" }, { scheduledDate: "desc" }]
+  } else if (tab === "trial") {
+    // Один TrialLesson (status='scheduled') = одна строка. У одного ребёнка
+    // может быть несколько запланированных пробных — каждый показываем отдельно
+    // (баг #49). Фильтр по Ward.salesStage='trial_scheduled' оставляем, чтобы
+    // показывать только тех детей, для кого пробное реально на повестке.
+    const trials = await db.trialLesson.findMany({
+      where: {
+        tenantId,
+        status: "scheduled",
+        ward: { salesStage: "trial_scheduled" },
+        client: notArchivedClient(),
+        ...trialFilter(branchFilter, directionFilter),
+      },
+      include: {
+        client: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            socialLink: true,
+            comment: true,
+            nextContactDate: true,
+            assignedTo: true,
+            firstPaidLessonDate: true,
+            branch: { select: { id: true, name: true } },
+            channel: { select: { id: true, name: true } },
+            _count: { select: { payments: true } },
+          },
+        },
+        ward: { select: { id: true, firstName: true, lastName: true } },
+        group: {
+          select: {
+            id: true,
+            name: true,
+            branch: { select: { id: true, name: true } },
+            direction: { select: { id: true, name: true, lessonPrice: true } },
+          },
+        },
+        direction: { select: { id: true, name: true, lessonPrice: true } },
+        room: {
+          select: {
+            id: true,
+            name: true,
+            branch: { select: { id: true, name: true } },
+          },
+        },
+        lesson: { select: { startTime: true } },
+      },
+      orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
+    })
 
-    // Branch filter: фильтр работает по филиалу пробного занятия (группы или
-    // кабинета индивидуального). Применяется только когда пользователь выбрал
-    // филиал в шапке вкладки «Пробное» (для других вкладок фильтр пока не показан).
-    const wardWhereWithBranch: Prisma.WardWhereInput =
-      branchFilter && tab === "trial"
-        ? {
-            ...wardSalesWhere(tenantId, stage),
-            trialLessons: {
-              some: {
-                ...trialLessonFilter,
-                OR: [{ group: { branchId: branchFilter } }, { room: { branchId: branchFilter } }],
-              },
-            },
-          }
-        : wardSalesWhere(tenantId, stage)
+    // Заявки подтянем отдельным запросом — нужны для столбца «комментарий»
+    const trialClientIds = [...new Set(trials.map((t) => t.clientId))]
+    const apps = trialClientIds.length
+      ? await db.application.findMany({
+          where: { tenantId, clientId: { in: trialClientIds }, deletedAt: null },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, clientId: true, comment: true },
+        })
+      : []
+    const appByClient = new Map<string, (typeof apps)[number]>()
+    for (const a of apps) if (!appByClient.has(a.clientId)) appByClient.set(a.clientId, a)
+
+    rows = trials.map((t) => {
+      const app = appByClient.get(t.clientId)
+      const direction = t.group?.direction ?? t.direction ?? null
+      return {
+        rowId: t.id,
+        applicationId: app?.id,
+        clientId: t.client.id,
+        state: t.client._count.payments > 0 ? "client" : "lead",
+        firstName: t.client.firstName,
+        lastName: t.client.lastName,
+        phone: maskPhone(t.client.phone, role),
+        socialLink: t.client.socialLink,
+        channelName: t.client.channel?.name ?? null,
+        ward: t.ward
+          ? { id: t.ward.id, firstName: t.ward.firstName, lastName: t.ward.lastName }
+          : { id: t.clientId, firstName: "—", lastName: null },
+        branchId:
+          t.group?.branch?.id ?? t.room?.branch?.id ?? t.client.branch?.id ?? null,
+        branchName:
+          t.group?.branch?.name ?? t.room?.branch?.name ?? t.client.branch?.name ?? null,
+        directionId: direction?.id ?? null,
+        directionName: direction?.name ?? null,
+        groupId: t.group?.id ?? null,
+        groupOrTimeLabel:
+          t.group?.name ??
+          (t.startTime
+            ? `Индив. ${t.startTime}${t.durationMinutes ? `, ${t.durationMinutes}мин` : ""}`
+            : null),
+        scheduledDate: t.scheduledDate ? t.scheduledDate.toISOString() : null,
+        startTime: t.startTime ?? t.lesson?.startTime ?? null,
+        lessonId: t.lessonId ?? null,
+        trialLessonId: t.id,
+        firstPaidLessonDate: t.client.firstPaidLessonDate
+          ? t.client.firstPaidLessonDate.toISOString()
+          : null,
+        expectedSubscriptionAmount: null,
+        createdAt: t.createdAt ? t.createdAt.toISOString() : null,
+        nextContactDate: t.client.nextContactDate
+          ? t.client.nextContactDate.toISOString()
+          : null,
+        comment: app?.comment ?? null,
+        assignedTo: t.client.assignedTo,
+      }
+    })
+  } else {
+    // tab in ('trial_done', 'awaiting_payment') — читаются по Ward.
+    // Один Ward = одна строка. salesStage определяет вкладку; для отображения
+    // подтягиваем последнее «представительное» пробное.
+    const stage = TAB_TO_STAGE[tab]
+    // attended-пробное основной кейс, но если стадия Ward была сдвинута вручную
+    // (через ПКМ-меню) без отметки в Расписании, scheduled-пробное всё ещё
+    // актуально и его данные нужно показать в строке.
+    const trialLessonFilter: Prisma.TrialLessonWhereInput = {
+      status: { in: ["attended", "scheduled"] },
+    }
+    // status asc: 'attended' < 'scheduled' алфавитно → attended вперёд.
+    const trialLessonOrder: Prisma.TrialLessonOrderByWithRelationInput[] = [
+      { status: "asc" },
+      { scheduledDate: "desc" },
+    ]
 
     const wards = await db.ward.findMany({
-      where: wardWhereWithBranch,
+      where: wardSalesWhereWithFilters(tenantId, stage, branchFilter, directionFilter),
       include: {
         client: {
           select: {
@@ -246,10 +430,7 @@ export default async function SalesPage({
           select: { id: true, comment: true },
         },
       },
-      orderBy:
-        tab === "trial"
-          ? { salesStageAt: "asc" }
-          : { salesStageAt: "desc" },
+      orderBy: { salesStageAt: "desc" },
     })
 
     rows = wards.map((w) => {
@@ -326,6 +507,8 @@ export default async function SalesPage({
         employees={employees}
         branches={branches}
         branchId={branchFilter}
+        directions={directions}
+        directionId={directionFilter}
       />
     </div>
   )
