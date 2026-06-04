@@ -92,7 +92,7 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
           where: {
             id: clientId,
             tenantId: t.id,
-            clientStatus: { in: ["active", "upsell"] },
+            clientStatus: "active",
           },
           data: { clientStatus: "churned", withdrawalDate: today },
         })

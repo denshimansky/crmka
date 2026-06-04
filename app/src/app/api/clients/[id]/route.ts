@@ -15,7 +15,7 @@ const updateSchema = z.object({
   email: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).pipe(z.string().email("Некорректный email").nullable()),
   socialLink: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   funnelStatus: z.enum(["new", "trial_scheduled", "trial_attended", "awaiting_payment", "active_client", "potential", "non_target", "blacklisted", "archived"]).optional(),
-  clientStatus: z.enum(["active", "upsell", "churned", "returning", "archived"]).nullable().optional(),
+  clientStatus: z.enum(["active", "churned", "archived"]).nullable().optional(),
   branchId: z.string().uuid().nullable().optional(),
   assignedTo: z.string().uuid().nullable().optional(),
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),

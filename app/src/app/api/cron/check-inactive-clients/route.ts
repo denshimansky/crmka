@@ -28,12 +28,12 @@ export async function POST(req: NextRequest) {
   const threshold = new Date()
   threshold.setDate(threshold.getDate() - thresholdDays)
 
-  // Кандидаты: clientStatus IN (active, upsell) И нет активных абонементов.
+  // Кандидаты: активные клиенты без активных абонементов.
   // Архив/ЧС/уже churned не трогаем.
   const candidates = await db.client.findMany({
     where: {
       deletedAt: null,
-      clientStatus: { in: ["active", "upsell"] },
+      clientStatus: "active",
       subscriptions: { none: { status: "active", deletedAt: null } },
     },
     select: {

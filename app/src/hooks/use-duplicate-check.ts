@@ -10,24 +10,21 @@ export interface DuplicateMatch {
   clientStatus: string | null
 }
 
+// Ярлыки совпадают с табами «Контакты» (/crm/contacts).
 const STATUS_LABELS: Record<string, string> = {
-  new: "Новый лид",
+  new: "Лид",
   trial_scheduled: "Пробное записано",
   trial_attended: "Пробное пройдено",
   awaiting_payment: "Ожидание оплаты",
-  active_client: "Активный клиент",
-  potential: "Потенциальный",
-  non_target: "Не целевой",
+  active_client: "Активный",
+  potential: "Потенциал",
+  non_target: "Нецелевой",
   blacklisted: "Чёрный список",
   archived: "Архив",
-  active: "Активный клиент",
-  upsell: "Допродажа",
-  churned: "Отток",
-  returning: "Возврат",
 }
 
 export function getStatusLabel(match: DuplicateMatch): string {
-  if (match.clientStatus) return STATUS_LABELS[match.clientStatus] || match.clientStatus
+  if (match.clientStatus === "churned") return "Выбывший"
   return STATUS_LABELS[match.funnelStatus] || match.funnelStatus
 }
 

@@ -1206,9 +1206,7 @@ enum WardSalesStage {
 
 enum ClientWorkStatus {
   active
-  upsell
   churned
-  returning
   archived
 }
 

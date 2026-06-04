@@ -17,6 +17,7 @@ import { ClientDiscountSelect } from "./client-discount-select"
 import { BonusDiscountDialog } from "./bonus-discount-dialog"
 import { QuickRenewSubscriptionDialog } from "./quick-renew-subscription-dialog"
 import { CreateApplicationDialog } from "./create-application-dialog"
+import { TrialLessonDialog } from "./trial-lesson-dialog"
 
 const SEGMENT_LABELS: Record<string, string> = {
   new_client: "Новый",
@@ -34,9 +35,7 @@ const SEGMENT_COLORS: Record<string, string> = {
 
 const CLIENT_STATUS_LABELS: Record<string, string> = {
   active: "Активный",
-  upsell: "Допродажа",
   churned: "Выбывший",
-  returning: "Возврат",
   archived: "Архив",
 }
 
@@ -291,6 +290,15 @@ export async function ClientCardContent({
               }))}
               triggerLabel="Заявка"
             />
+            <TrialLessonDialog
+              clientId={client.id}
+              wards={client.wards.map((w) => ({
+                id: w.id,
+                firstName: w.firstName,
+                lastName: w.lastName,
+              }))}
+              disabledReason={trialDisabledReason}
+            />
             {client.clientStatus && (
               <>
                 <Button disabled>
@@ -307,15 +315,8 @@ export async function ClientCardContent({
           currentStatus={client.funnelStatus}
           isActiveClient={
             activeSubscriptions.length > 0 ||
-            client.clientStatus === "active" ||
-            client.clientStatus === "upsell"
+            client.clientStatus === "active"
           }
-          wards={client.wards.map((w) => ({
-            id: w.id,
-            firstName: w.firstName,
-            lastName: w.lastName,
-          }))}
-          trialDisabledReason={trialDisabledReason}
         />
       </div>
 

@@ -8,7 +8,6 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select"
-import { TrialLessonDialog } from "./trial-lesson-dialog"
 
 // Этапы воронки продаж (Пробное / Прошёл пробное / Ожидание оплаты) переехали
 // на подопечного (Ward.salesStage) — селектор статуса родителя описывает только
@@ -21,12 +20,6 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "archived", label: "Архив" },
 ]
 
-interface WardLite {
-  id: string
-  firstName: string
-  lastName: string | null
-}
-
 // Доступные переходы для активного клиента (есть активный абонемент).
 // Перевести в Лиды/Потенциал/etc. нельзя — клиент уже «прошёл» воронку.
 const ACTIVE_TRANSITIONS: { value: string; label: string }[] = [
@@ -38,19 +31,13 @@ const ACTIVE_TRANSITIONS: { value: string; label: string }[] = [
 export function LeadStatusActions({
   clientId,
   currentStatus,
-  wards,
   isActiveClient = false,
-  trialDisabledReason,
 }: {
   clientId: string
   currentStatus: string
-  wards: WardLite[]
   // Активный клиент — селектор воронки заменяем на ограниченный набор
-  // переходов (Выбывшие/Архив/ЧС); запись на пробное по-прежнему доступна
+  // переходов (Выбывшие/Архив/ЧС).
   isActiveClient?: boolean
-  // Если у клиента нет ни одного ward с открытой заявкой — кнопка пробного
-  // блокируется (см. PRD: пробное без заявки запрещено).
-  trialDisabledReason?: string
 }) {
   const router = useRouter()
   const [statusLoading, setStatusLoading] = useState(false)
@@ -144,14 +131,6 @@ export function LeadStatusActions({
             ))}
           </SelectContent>
         </Select>
-      )}
-
-      {currentStatus !== "archived" && currentStatus !== "blacklisted" && (
-        <TrialLessonDialog
-          clientId={clientId}
-          wards={wards}
-          disabledReason={trialDisabledReason}
-        />
       )}
     </div>
   )

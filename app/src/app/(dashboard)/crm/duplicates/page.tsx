@@ -49,9 +49,7 @@ const SEGMENT_LABELS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   active: "Активный",
-  upsell: "Допродажа",
-  churned: "Отчислен",
-  returning: "Возвращается",
+  churned: "Выбывший",
   archived: "Архив",
 }
 

@@ -22,6 +22,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog"
 import { Plus, Trash2, Wallet, AlertTriangle } from "lucide-react"
+import { ClientCombobox } from "@/components/client-combobox"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 import {
   SalaryRateForm,
@@ -377,25 +378,24 @@ export function CreateGroupDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Педагог</Label>
-              <Select value={instructorId} onValueChange={(v) => { if (v) setInstructorId(v) }}>
-                <SelectTrigger className="w-full">
-                  {instructorId ? instructors.find(i => i.id === instructorId)?.name : <span className="text-muted-foreground">Педагог</span>}
-                </SelectTrigger>
-                <SelectContent>
-                  {(() => {
-                    const filtered = filterEmployeesByBranch(instructors, branchId)
-                    const selected = instructors.find((x) => x.id === instructorId)
-                    const showOutOfBranch =
-                      selected && !isEmployeeAvailableInBranch(selected, branchId)
-                    const visible = showOutOfBranch
-                      ? [selected!, ...filtered.filter((x) => x.id !== selected!.id)]
-                      : filtered
-                    return visible.map((i) => (
-                      <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
-                    ))
-                  })()}
-                </SelectContent>
-              </Select>
+              {(() => {
+                const filtered = filterEmployeesByBranch(instructors, branchId)
+                const selected = instructors.find((x) => x.id === instructorId)
+                const showOutOfBranch =
+                  selected && !isEmployeeAvailableInBranch(selected, branchId)
+                const visible = showOutOfBranch
+                  ? [selected!, ...filtered.filter((x) => x.id !== selected!.id)]
+                  : filtered
+                return (
+                  <ClientCombobox
+                    options={visible.map((i) => ({ id: i.id, name: i.name }))}
+                    value={instructorId}
+                    onChange={setInstructorId}
+                    placeholder="Педагог"
+                    className="w-full"
+                  />
+                )
+              })()}
             </div>
 
             <div className="space-y-2">
