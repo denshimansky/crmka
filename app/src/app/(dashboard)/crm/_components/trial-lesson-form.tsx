@@ -251,7 +251,6 @@ export function TrialLessonForm({
               setRoomId("")
             }
           }}
-          disabled={!!lockedBranchId}
         >
           <SelectTrigger className="w-full">
             {branchId ? (
@@ -280,7 +279,6 @@ export function TrialLessonForm({
               setGroupId("")
             }
           }}
-          disabled={!!lockedDirectionId}
         >
           <SelectTrigger className="w-full">
             {selectedDirection ? selectedDirection.name : <span className="text-muted-foreground">Выберите направление</span>}
