@@ -4,6 +4,15 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 
+// startDate/endDate приходят как "YYYY-MM-DD" или null (снять дату).
+// Если ключа нет в payload — поле не трогаем.
+const dateOrNull = z
+  .union([
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата формата YYYY-MM-DD"),
+    z.null(),
+  ])
+  .optional()
+
 const updateSchema = z.object({
   name: z.string().min(1, "Название обязательно").optional(),
   directionId: z.string().uuid().optional(),
@@ -13,6 +22,8 @@ const updateSchema = z.object({
   maxStudents: z.number().min(1).optional(),
   isActive: z.boolean().optional(),
   archive: z.boolean().optional(),
+  startDate: dateOrNull,
+  endDate: dateOrNull,
 })
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -54,7 +65,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const existing = await db.group.findFirst({ where: { id, tenantId: session.user.tenantId } })
   if (!existing) return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
 
-  const { archive, ...updateData } = parsed.data
+  const { archive, startDate, endDate, ...rest } = parsed.data
 
   // Архивирование / восстановление
   if (archive === true) {
@@ -73,6 +84,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     })
     return NextResponse.json(group)
   }
+
+  const updateData: Record<string, unknown> = { ...rest }
+  if (startDate !== undefined) updateData.startDate = startDate ? new Date(startDate) : null
+  if (endDate !== undefined) updateData.endDate = endDate ? new Date(endDate) : null
 
   const group = await db.group.update({
     where: { id },

@@ -94,6 +94,9 @@ interface GroupInfo {
   roomId: string
   instructorId: string
   maxStudents: number
+  // ISO YYYY-MM-DD или null — период жизни группы для автогенерации.
+  startDate: string | null
+  endDate: string | null
 }
 
 interface TransferGroupOption {
@@ -609,8 +612,13 @@ function SettingsTab({
   const [infoRoomId, setInfoRoomId] = useState(groupInfo.roomId)
   const [infoInstructorId, setInfoInstructorId] = useState(groupInfo.instructorId)
   const [infoMaxStudents, setInfoMaxStudents] = useState(groupInfo.maxStudents)
+  const [infoStartDate, setInfoStartDate] = useState(groupInfo.startDate ?? "")
+  const [infoEndDate, setInfoEndDate] = useState(groupInfo.endDate ?? "")
   const [infoSaving, setInfoSaving] = useState(false)
   const [infoResult, setInfoResult] = useState<{ type: "success" | "error"; message: string } | null>(null)
+  // Перегенерация по диапазону группы (баг #45) — independent от ручной по месяцу.
+  const [rangeRegenLoading, setRangeRegenLoading] = useState(false)
+  const [rangeRegenMessage, setRangeRegenMessage] = useState<string | null>(null)
 
   const selectedBranch = branches.find((b) => b.id === infoBranchId)
   const availableRooms = selectedBranch?.rooms ?? []
@@ -629,6 +637,8 @@ function SettingsTab({
           roomId: infoRoomId,
           instructorId: infoInstructorId,
           maxStudents: infoMaxStudents,
+          startDate: infoStartDate || null,
+          endDate: infoEndDate || null,
         }),
       })
       const data = await res.json()
@@ -642,6 +652,48 @@ function SettingsTab({
       setInfoResult({ type: "error", message: "Не удалось сохранить данные" })
     } finally {
       setInfoSaving(false)
+    }
+  }
+
+  // Перегенерация по диапазону группы — сначала фиксируем даты, потом дёргаем
+  // /regenerate. Поведение additive: уже отмеченные занятия не трогаем,
+  // только добиваем недостающие в [startDate, endDate].
+  async function handleRangeRegenerate() {
+    setRangeRegenLoading(true)
+    setRangeRegenMessage(null)
+    setInfoResult(null)
+    try {
+      const saveRes = await fetch(`/api/groups/${groupId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: infoStartDate || null,
+          endDate: infoEndDate || null,
+        }),
+      })
+      if (!saveRes.ok) {
+        const data = await saveRes.json().catch(() => ({}))
+        setRangeRegenMessage(data.error || "Не удалось сохранить даты")
+        return
+      }
+      const regenRes = await fetch(`/api/groups/${groupId}/regenerate`, {
+        method: "POST",
+      })
+      const data = await regenRes.json()
+      if (!regenRes.ok) {
+        setRangeRegenMessage(data.error || "Ошибка перегенерации")
+        return
+      }
+      setRangeRegenMessage(
+        data.created === 0
+          ? `Все занятия уже существуют (${data.rangeStart} – ${data.rangeEnd})`
+          : `Создано ${data.created} занятий (${data.rangeStart} – ${data.rangeEnd})${data.skipped > 0 ? `, пропущено ${data.skipped} нерабочих` : ""}`,
+      )
+      onRefresh()
+    } catch {
+      setRangeRegenMessage("Ошибка сети")
+    } finally {
+      setRangeRegenLoading(false)
     }
   }
 
@@ -851,6 +903,56 @@ function SettingsTab({
                 onChange={(e) => setInfoMaxStudents(parseInt(e.target.value) || 1)}
               />
             </div>
+
+            <div className="space-y-2">
+              <Label>Дата старта</Label>
+              <Input
+                type="date"
+                value={infoStartDate}
+                onChange={(e) => setInfoStartDate(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Можно задним числом — потом перегенерируйте расписание.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Дата окончания</Label>
+              <Input
+                type="date"
+                value={infoEndDate}
+                onChange={(e) => setInfoEndDate(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Пусто = бессрочная (при генерации — год от старта).
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-md border p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm">
+                <div className="font-medium">Перегенерировать расписание по диапазону группы</div>
+                <div className="text-xs text-muted-foreground">
+                  Сохранит уже отмеченные занятия, добавит недостающие в [старт, окончание].
+                  Используйте после смены дат или backdating старта.
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleRangeRegenerate}
+                disabled={rangeRegenLoading || infoSaving}
+              >
+                {rangeRegenLoading ? "Идёт..." : "Перегенерировать"}
+              </Button>
+            </div>
+            {rangeRegenMessage && (
+              <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
+                {rangeRegenMessage}
+              </p>
+            )}
           </div>
 
           {infoResult && (

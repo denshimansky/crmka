@@ -237,6 +237,12 @@ export default async function GroupCardPage({
           roomId: group.roomId,
           instructorId: group.instructorId,
           maxStudents: group.maxStudents,
+          startDate: group.startDate
+            ? group.startDate.toISOString().slice(0, 10)
+            : null,
+          endDate: group.endDate
+            ? group.endDate.toISOString().slice(0, 10)
+            : null,
         }}
         groupsForTransfer={allGroups
           .filter((g) => g.id !== id)
