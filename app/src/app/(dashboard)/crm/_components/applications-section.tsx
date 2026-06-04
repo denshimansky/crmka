@@ -60,8 +60,16 @@ export function ApplicationsSection({
       }
     }
     load()
+    // Перезагружаем список при создании/обработке заявки в этой же карточке —
+    // CreateApplicationDialog диспатчит событие после успешного POST.
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ clientId: string }>).detail
+      if (!detail || detail.clientId === clientId) load()
+    }
+    window.addEventListener("crm:applications-changed", onChange)
     return () => {
       cancelled = true
+      window.removeEventListener("crm:applications-changed", onChange)
     }
   }, [clientId])
 

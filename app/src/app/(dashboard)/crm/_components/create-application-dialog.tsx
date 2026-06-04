@@ -152,6 +152,9 @@ export function CreateApplicationDialog({
         return
       }
       setOpen(false)
+      window.dispatchEvent(
+        new CustomEvent("crm:applications-changed", { detail: { clientId } }),
+      )
       router.refresh()
     } catch {
       setError("Ошибка сети")

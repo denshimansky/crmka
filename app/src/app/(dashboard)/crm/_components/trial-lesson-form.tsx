@@ -86,6 +86,18 @@ export function TrialLessonForm({
   const [wardId, setWardId] = useState(lockedWardId || (wards.length === 1 ? wards[0].id : ""))
   const [directionId, setDirectionId] = useState(lockedDirectionId || "")
   const [branchId, setBranchId] = useState(lockedBranchId || "")
+
+  // locked-значения приходят асинхронно из родителя (после fetch активных заявок).
+  // useState инициализируется один раз — синхронизируем по приходу новых locked-значений.
+  useEffect(() => {
+    if (lockedWardId) setWardId(lockedWardId)
+  }, [lockedWardId])
+  useEffect(() => {
+    if (lockedDirectionId) setDirectionId(lockedDirectionId)
+  }, [lockedDirectionId])
+  useEffect(() => {
+    if (lockedBranchId) setBranchId(lockedBranchId)
+  }, [lockedBranchId])
   const [kind, setKind] = useState<"group" | "individual">("group")
   const [groupId, setGroupId] = useState("")
   const [instructorId, setInstructorId] = useState("")
