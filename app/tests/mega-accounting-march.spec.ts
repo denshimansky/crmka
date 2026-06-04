@@ -277,12 +277,16 @@ test.describe.serial("Mega-тест: Учёт за март 2026", () => {
           amount,
           method: i % 3 === 0 ? "cash" : i % 3 === 1 ? "bank_transfer" : "acquiring",
           date: "2026-02-27",
-          subscriptionId: sub.id,
           comment: i === overpayIdx ? "Переплата — оплатил с запасом" : undefined,
         },
       })
 
       if (res.ok()) {
+        // Деньги легли на баланс родителя. Списываем в счёт абонемента руками
+        // (автосписания нет — оплата абонемента всегда ручная).
+        await page.request.post(`/api/subscriptions/${sub.id}/pay-from-balance`, {
+          data: { amount: Number(sub.finalAmount) },
+        })
         paid++
         if (i === overpayIdx) {
           log(`Оплата ${i + 1}: ПЕРЕПЛАТА +3000₽ (итого ${amount}₽)`, "OK")

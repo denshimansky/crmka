@@ -909,9 +909,11 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
               amount: partialAmount,
               method: methods[i % methods.length],
               date: `2026-${String(sub.month).padStart(2, "0")}-01`,
-              subscriptionId: sub.id,
               comment: "Частичная оплата",
             })
+            await apiPost(page, `/api/subscriptions/${sub.id}/pay-from-balance`, {
+              amount: partialAmount,
+            }).catch(() => {})
             counters.payments++
           } catch {}
         }
@@ -936,9 +938,12 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
           amount,
           method: methods[i % methods.length],
           date: payDate,
-          subscriptionId: sub.id,
           comment: overpayIndices.has(i) ? "Переплата" : undefined,
         })
+        // Списываем полную стоимость абонемента; переплата остаётся на балансе родителя.
+        await apiPost(page, `/api/subscriptions/${sub.id}/pay-from-balance`, {
+          amount: sub.finalAmount,
+        }).catch(() => {})
         counters.payments++
       } catch (e: any) {
         // Some may fail due to period lock etc — acceptable
@@ -950,15 +955,18 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     for (const sub of refundSubs) {
       try {
         const account = state.accountIds[0]
+        const partial = Math.round(sub.finalAmount * 0.5)
         await apiPost(page, "/api/payments", {
           clientId: sub.clientId,
           accountId: account.id,
-          amount: Math.round(sub.finalAmount * 0.5),
+          amount: partial,
           method: "cash",
           date: `2026-${String(sub.month).padStart(2, "0")}-20`,
-          subscriptionId: sub.id,
           comment: "Возврат (частичный)",
         })
+        await apiPost(page, `/api/subscriptions/${sub.id}/pay-from-balance`, {
+          amount: partial,
+        }).catch(() => {})
         counters.payments++
       } catch {}
     }

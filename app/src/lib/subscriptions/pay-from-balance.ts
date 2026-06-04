@@ -5,8 +5,9 @@
 // chargedAmount, при полной оплате pending → active. На стороне родителя —
 // applyBalanceDelta(type=transfer_to_subscription).
 //
-// Используется кнопкой «Оплатить» в карточке ребёнка и блоком распределения
-// в форме «Добавить оплату» (через POST /api/payments с distribution[]).
+// Единственный путь списания денег с баланса родителя в счёт абонемента —
+// кнопка «Оплатить с баланса» в карточке абонемента (POST /api/subscriptions/[id]/pay-from-balance).
+// Поступление денег (/api/payments, webhook ЮKassa) на абонемент НЕ списывает.
 
 import { db } from "@/lib/db"
 import { Prisma, type PrismaClient } from "@prisma/client"

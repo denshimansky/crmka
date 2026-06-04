@@ -218,14 +218,15 @@ async function handlePaymentSucceeded(
     ? new Date(payment.captured_at)
     : new Date(payment.created_at)
 
-  // Создаём оплату и обновляем связанные сущности в транзакции
+  // Создаём оплату и обновляем связанные сущности в транзакции.
+  // Онлайн-оплата ЮKassa, как и наличная, всегда падает только на баланс родителя.
+  // Списание в счёт абонемента — отдельный шаг через POST /api/subscriptions/[id]/pay-from-balance.
   await db.$transaction(async (tx) => {
     await tx.payment.create({
       data: {
         tenantId,
         clientId,
         accountId,
-        subscriptionId: subscriptionId || null,
         amount,
         type: "incoming",
         method: "online_yukassa",
@@ -247,24 +248,6 @@ async function handlePaymentSucceeded(
       where: { id: clientId },
       data: { clientBalance: { increment: amount } },
     })
-
-    // Если привязан абонемент — уменьшаем остаток и активируем если pending
-    if (subscriptionId) {
-      const sub = await tx.subscription.findUnique({ where: { id: subscriptionId } })
-      if (sub) {
-        const updateSubData: Prisma.SubscriptionUpdateInput = {
-          balance: { decrement: amount },
-        }
-        if (sub.status === "pending") {
-          updateSubData.status = "active"
-          updateSubData.activatedAt = new Date()
-        }
-        await tx.subscription.update({
-          where: { id: subscriptionId },
-          data: updateSubData,
-        })
-      }
-    }
 
     // Если первая оплата — переводим клиента в active_client
     if (isFirstPayment) {

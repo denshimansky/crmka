@@ -6,11 +6,13 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
-import { payFromBalance, PayFromBalanceError } from "@/lib/subscriptions/pay-from-balance"
 import { requirePermission } from "@/lib/api-permissions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
+// Поступление денег от клиента всегда падает только на баланс родителя.
+// Списание в счёт конкретного абонемента — отдельная операция через кнопку
+// «Оплатить с баланса» в карточке абонемента (POST /api/subscriptions/[id]/pay-from-balance).
 const createSchema = z.object({
   // Для обычной оплаты от клиента — clientId. Для прочих доходов (проценты банка,
   // продажа товаров) — incomeCategoryId. Хотя бы одно из них обязательно.
@@ -22,21 +24,7 @@ const createSchema = z.object({
     errorMap: () => ({ message: "Выберите способ оплаты" }),
   }),
   date: z.string().min(1, "Укажите дату"),
-  subscriptionId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
-  // Ручное распределение поступившего платежа на N абонементов клиента.
-  // Каждый элемент создаёт Payment type=transfer_in + transfer_to_subscription
-  // ledger-запись через тот же сервис, что у кнопки «Оплатить».
-  // Σ distribution[].amount должно быть ≤ amount; остаток остаётся на балансе.
-  // Несовместимо с одиночным subscriptionId.
-  distribution: z
-    .array(
-      z.object({
-        subscriptionId: z.string().uuid(),
-        amount: z.number().positive(),
-      }),
-    )
-    .optional(),
 })
 
 export async function GET(req: NextRequest) {
@@ -147,55 +135,6 @@ export async function POST(req: NextRequest) {
   })
   if (!account) return NextResponse.json({ error: "Счёт не найден" }, { status: 404 })
 
-  // Проверяем абонемент если указан (только для платежей с клиентом).
-  if (data.subscriptionId && data.clientId) {
-    const sub = await db.subscription.findFirst({
-      where: { id: data.subscriptionId, tenantId: session.user.tenantId, clientId: data.clientId, deletedAt: null },
-    })
-    if (!sub) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
-  }
-
-  // Валидация distribution[]: только при платеже с клиентом, несовместимо с
-  // одиночным subscriptionId, абонементы принадлежат тому же клиенту,
-  // Σ amount ≤ total amount.
-  if (data.distribution && data.distribution.length > 0) {
-    if (!data.clientId) {
-      return NextResponse.json(
-        { error: "Распределение возможно только для платежа с клиентом" },
-        { status: 400 },
-      )
-    }
-    if (data.subscriptionId) {
-      return NextResponse.json(
-        { error: "Нельзя одновременно выбрать один абонемент и распределить на несколько" },
-        { status: 400 },
-      )
-    }
-    const distSum = data.distribution.reduce((s, d) => s + d.amount, 0)
-    if (distSum > data.amount + 1e-6) {
-      return NextResponse.json(
-        { error: "Сумма распределения больше суммы платежа" },
-        { status: 400 },
-      )
-    }
-    const ids = data.distribution.map((d) => d.subscriptionId)
-    const found = await db.subscription.findMany({
-      where: {
-        id: { in: ids },
-        tenantId: session.user.tenantId,
-        clientId: data.clientId,
-        deletedAt: null,
-      },
-      select: { id: true },
-    })
-    if (found.length !== new Set(ids).size) {
-      return NextResponse.json(
-        { error: "Один из выбранных абонементов не найден или принадлежит другому клиенту" },
-        { status: 400 },
-      )
-    }
-  }
-
   // Первая ли оплата клиента?
   const priorPayments = data.clientId
     ? await db.payment.count({
@@ -205,17 +144,15 @@ export async function POST(req: NextRequest) {
   const isFirstPayment = !!data.clientId && priorPayments === 0
 
   // Создаём оплату и обновляем связанные сущности в транзакции
-  let payment
-  try {
-    payment = await db.$transaction(async (tx) => {
-    // Создаём оплату
+  const payment = await db.$transaction(async (tx) => {
+    // Создаём оплату (subscriptionId всегда null — привязка к абонементу
+    // делается отдельной операцией через POST /api/subscriptions/[id]/pay-from-balance).
     const p = await tx.payment.create({
       data: {
         tenantId: session.user.tenantId,
         clientId: data.clientId,
         incomeCategoryId: data.incomeCategoryId,
         accountId: data.accountId,
-        subscriptionId: data.clientId ? data.subscriptionId : undefined,
         amount: data.amount,
         type: "incoming",
         method: data.method,
@@ -226,14 +163,6 @@ export async function POST(req: NextRequest) {
       },
       include: {
         client: { select: { id: true, firstName: true, lastName: true } },
-        subscription: {
-          select: {
-            id: true,
-            periodYear: true,
-            periodMonth: true,
-            direction: { select: { name: true } },
-          },
-        },
         account: { select: { id: true, name: true } },
       },
     })
@@ -250,88 +179,16 @@ export async function POST(req: NextRequest) {
       return p
     }
 
-    // Обновляем баланс клиента через единый ledger
+    // Обновляем баланс родителя через единый ledger. Деньги ложатся на
+    // clientBalance; распределение по абонементам — отдельная операция.
     await applyBalanceDelta(tx, {
       tenantId: session.user.tenantId,
       clientId: data.clientId,
       delta: data.amount,
       type: "payment_received",
-      refs: { paymentId: p.id, subscriptionId: data.subscriptionId ?? null },
+      refs: { paymentId: p.id, subscriptionId: null },
       createdBy: session.user.employeeId,
     })
-
-    // Если привязан абонемент — уменьшаем остаток и активируем если pending
-    if (data.subscriptionId) {
-      const sub = await tx.subscription.findUnique({ where: { id: data.subscriptionId } })
-      if (sub) {
-        const updateSubData: any = {
-          balance: { decrement: data.amount },
-        }
-        const becomesActive = sub.status === "pending"
-        if (becomesActive) {
-          updateSubData.status = "active"
-          updateSubData.activatedAt = new Date()
-        }
-        await tx.subscription.update({
-          where: { id: data.subscriptionId },
-          data: updateSubData,
-        })
-        // Подопечный конкретного абонемента уходит из воронки продаж: подписка стала
-        // активной, его место — в активной базе клиентов, а не в /crm/sales.
-        if (becomesActive && sub.wardId) {
-          await tx.ward.update({
-            where: { id: sub.wardId },
-            data: { salesStage: "none", salesStageAt: new Date() },
-          })
-          await tx.groupEnrollment.updateMany({
-            where: {
-              tenantId: session.user.tenantId,
-              groupId: sub.groupId,
-              clientId: data.clientId,
-              wardId: sub.wardId,
-              isActive: true,
-            },
-            data: { paymentStatus: "active" },
-          })
-        }
-      }
-    }
-
-    // Ручное распределение поступления на абонементы (если задано админом).
-    // Используем тот же сервис, что у кнопки «Оплатить»: создаёт по Payment
-    // type=transfer_in на каждую позицию и пишет ledger через
-    // applyBalanceDelta(transfer_to_subscription).
-    let distributedAny = false
-    if (data.distribution && data.distribution.length > 0 && data.clientId) {
-      for (const item of data.distribution) {
-        await payFromBalance(
-          {
-            tenantId: session.user.tenantId,
-            subscriptionId: item.subscriptionId,
-            amount: item.amount,
-            createdBy: session.user.employeeId ?? null,
-            comment: "Распределение поступления",
-          },
-          tx,
-        )
-        distributedAny = true
-      }
-    }
-    if (distributedAny) {
-      await tx.client.updateMany({
-        where: {
-          id: data.clientId,
-          OR: [
-            { clientStatus: { not: "active" } },
-            { funnelStatus: { not: "active_client" } },
-          ],
-        },
-        data: {
-          clientStatus: "active",
-          funnelStatus: "active_client",
-        },
-      })
-    }
 
     // Если первая оплата — переводим клиента в active_client
     if (isFirstPayment) {
@@ -347,13 +204,7 @@ export async function POST(req: NextRequest) {
     }
 
     return p
-    })
-  } catch (e) {
-    if (e instanceof PayFromBalanceError) {
-      return NextResponse.json({ error: e.message }, { status: e.httpStatus })
-    }
-    throw e
-  }
+  })
 
   // Аудит (после транзакции, не блокирует)
   logAudit({

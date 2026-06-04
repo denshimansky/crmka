@@ -25,8 +25,9 @@ const moveSchema = z.object({
  *  3) закрывает активную заявку,
  *  4) переводит Ward.salesStage в 'awaiting_payment'.
  *
- * Если на балансе клиента уже хватает (положительный баланс ≥ finalAmount) —
- * абонемент тут же активируется (через ту же логику, что и в /api/payments).
+ * Списание с баланса родителя не производится даже если денег достаточно —
+ * оплата абонемента всегда ручная, через кнопку «Оплатить с баланса» в
+ * карточке абонемента (POST /api/subscriptions/[id]/pay-from-balance).
  *
  * totalLessons рассчитывается как количество не отменённых занятий группы
  * с firstPaidLessonDate до конца месяца (включительно). Если занятия ещё не
@@ -219,68 +220,14 @@ export async function POST(
       },
     })
 
-    // Стадия — awaiting_payment.
+    // Стадия — awaiting_payment. Автоактивация по балансу отключена:
+    // оплата абонемента всегда ручная, через кнопку «Оплатить с баланса».
     await tx.ward.update({
       where: { id: ward.id },
       data: { salesStage: "awaiting_payment", salesStageAt: now },
     })
 
-    // Если на балансе уже есть деньги — пытаемся активировать абонемент
-    // прямо сейчас (по правилу: списываем полную стоимость, баланс может
-    // уйти в минус). Этот же блок повторно срабатывает на /api/payments.
-    const refreshedClient = await tx.client.findUnique({
-      where: { id: ward.clientId },
-      select: { clientBalance: true, clientStatus: true, funnelStatus: true },
-    })
-    let activated = false
-    if (refreshedClient && refreshedClient.clientBalance.greaterThan(0)) {
-      await tx.subscription.update({
-        where: { id: subscription.id },
-        data: {
-          status: "active",
-          activatedAt: now,
-          balance: new Prisma.Decimal(0),
-          chargedAmount: finalAmount,
-        },
-      })
-      await applyBalanceDelta(tx, {
-        tenantId,
-        clientId: ward.clientId,
-        delta: finalAmount.negated(),
-        type: "transfer_to_subscription",
-        refs: { subscriptionId: subscription.id, directionId: data.directionId },
-        createdBy: session.user.employeeId,
-      })
-      await tx.groupEnrollment.updateMany({
-        where: {
-          tenantId,
-          groupId: data.groupId,
-          clientId: ward.clientId,
-          wardId: ward.id,
-        },
-        data: { paymentStatus: "active" },
-      })
-      await tx.ward.update({
-        where: { id: ward.id },
-        data: { salesStage: "none", salesStageAt: now },
-      })
-      if (
-        refreshedClient.clientStatus !== "active" &&
-        refreshedClient.funnelStatus !== "active_client"
-      ) {
-        await tx.client.update({
-          where: { id: ward.clientId },
-          data: {
-            clientStatus: "active",
-            funnelStatus: "active_client",
-            saleDate: now,
-          },
-        })
-      }
-      activated = true
-    }
-
-    return { subscription, activated }
+    return { subscription }
   })
 
   if (session.user.employeeId) {
@@ -294,7 +241,7 @@ export async function POST(
         changes: {
           salesStage: {
             old: ward.salesStage,
-            new: result.activated ? "none" : "awaiting_payment",
+            new: "awaiting_payment",
           },
           subscriptionId: { new: result.subscription.id },
         },
@@ -305,6 +252,5 @@ export async function POST(
   return NextResponse.json({
     ok: true,
     subscriptionId: result.subscription.id,
-    activated: result.activated,
   })
 }
