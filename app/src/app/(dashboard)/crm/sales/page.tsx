@@ -46,15 +46,16 @@ function fmtMoney(amount: number): string {
 export default async function SalesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>
+  searchParams: Promise<{ tab?: string; branchId?: string }>
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
   const role = session.user.role
-  const { tab: rawTab } = await searchParams
+  const { tab: rawTab, branchId: rawBranchId } = await searchParams
   const tab: SalesTabKey = TAB_ORDER.includes(rawTab as SalesTabKey)
     ? (rawTab as SalesTabKey)
     : "application"
+  const branchFilter = rawBranchId && rawBranchId !== "all" ? rawBranchId : null
 
   const [
     branches,
@@ -180,8 +181,24 @@ export default async function SalesPage({
         // status asc: 'attended' < 'scheduled' алфавитно → attended вперёд.
         : [{ status: "asc" }, { scheduledDate: "desc" }]
 
+    // Branch filter: фильтр работает по филиалу пробного занятия (группы или
+    // кабинета индивидуального). Применяется только когда пользователь выбрал
+    // филиал в шапке вкладки «Пробное» (для других вкладок фильтр пока не показан).
+    const wardWhereWithBranch: Prisma.WardWhereInput =
+      branchFilter && tab === "trial"
+        ? {
+            ...wardSalesWhere(tenantId, stage),
+            trialLessons: {
+              some: {
+                ...trialLessonFilter,
+                OR: [{ group: { branchId: branchFilter } }, { room: { branchId: branchFilter } }],
+              },
+            },
+          }
+        : wardSalesWhere(tenantId, stage)
+
     const wards = await db.ward.findMany({
-      where: wardSalesWhere(tenantId, stage),
+      where: wardWhereWithBranch,
       include: {
         client: {
           select: {
@@ -298,12 +315,18 @@ export default async function SalesPage({
           <h1 className="text-2xl font-bold">Продажи</h1>
           <PageHelp pageKey="crm/sales" />
         </div>
-        <CreateClientDialog branches={branches} />
+        <CreateClientDialog />
       </div>
 
       <SalesTabs tabs={tabs} current={tab} />
 
-      <SalesTable tab={tab} rows={rows} employees={employees} />
+      <SalesTable
+        tab={tab}
+        rows={rows}
+        employees={employees}
+        branches={branches}
+        branchId={branchFilter}
+      />
     </div>
   )
 }

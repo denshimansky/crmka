@@ -15,8 +15,16 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
-import { ClipboardPlus } from "lucide-react"
+import { AlertTriangle, ClipboardPlus } from "lucide-react"
 import { formatWardName } from "@/lib/format-name"
+
+interface DuplicateApplication {
+  id: string
+  createdAt: string
+  comment: string | null
+  directionName: string
+  branchName: string
+}
 
 interface WardLite {
   id: string
@@ -62,6 +70,7 @@ export function CreateApplicationDialog({
   const [branchId, setBranchId] = useState("")
   const [directionId, setDirectionId] = useState("")
   const [comment, setComment] = useState("")
+  const [duplicates, setDuplicates] = useState<DuplicateApplication[]>([])
 
   useEffect(() => {
     if (!open) return
@@ -71,6 +80,7 @@ export function CreateApplicationDialog({
     setBranchId("")
     setDirectionId("")
     setComment("")
+    setDuplicates([])
     ;(async () => {
       try {
         const [bRes, dRes] = await Promise.all([fetch("/api/branches"), fetch("/api/directions")])
@@ -85,6 +95,34 @@ export function CreateApplicationDialog({
       cancelled = true
     }
   }, [open, wards])
+
+  // Проверка дубля заявки: после выбора Ward + филиала + направления.
+  // Дублем считаем активную заявку с теми же параметрами.
+  useEffect(() => {
+    if (!open || !wardId || !branchId || !directionId) {
+      setDuplicates([])
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/applications/check-duplicate?wardId=${wardId}&directionId=${directionId}&branchId=${branchId}`,
+        )
+        if (cancelled) return
+        if (res.ok) {
+          const data = await res.json()
+          setDuplicates(data.duplicates || [])
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 300)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [open, wardId, branchId, directionId])
 
   const noWards = wards.length === 0
 
@@ -148,6 +186,22 @@ export function CreateApplicationDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+
+          {duplicates.length > 0 && (
+            <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-200">
+              <div className="flex items-center gap-1.5 font-medium mb-1">
+                <AlertTriangle className="size-4" />
+                У ребёнка уже есть активная заявка
+              </div>
+              {duplicates.map((d) => (
+                <div key={d.id} className="ml-5.5 text-xs">
+                  {d.directionName} · {d.branchName} · от {new Date(d.createdAt).toLocaleDateString("ru-RU")}
+                  {d.comment ? ` — ${d.comment}` : ""}
+                </div>
+              ))}
+              <div className="ml-5.5 mt-1 text-xs">Можно продолжить — будет создана ещё одна.</div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Подопечный *</Label>

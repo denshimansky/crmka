@@ -16,12 +16,6 @@ import {
 } from "@/components/ui/select"
 import { AlertTriangle, Plus, Trash2 } from "lucide-react"
 import { useDuplicateCheck, getStatusLabel } from "@/hooks/use-duplicate-check"
-import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
-
-interface Branch {
-  id: string
-  name: string
-}
 
 interface ChannelOption {
   id: string
@@ -42,8 +36,6 @@ interface WardInput {
 }
 
 interface CreateClientDialogProps {
-  /** Если не передан — компонент загрузит сам через /api/branches при открытии */
-  branches?: Branch[]
   /** Кастомный триггер вместо стандартной кнопки «Клиент». */
   trigger?: React.ReactNode
   /** Заголовок диалога — по умолчанию «Новый клиент». */
@@ -57,7 +49,6 @@ interface CreateClientDialogProps {
 }
 
 export function CreateClientDialog({
-  branches: branchesProp,
   trigger,
   title = "Новый клиент",
   description = "Заполните данные клиента. Телефон или соцсеть обязательны.",
@@ -70,7 +61,6 @@ export function CreateClientDialog({
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [branches, setBranches] = useState<Branch[]>(branchesProp || [])
 
   const [lastName, setLastName] = useState("")
   const [firstName, setFirstName] = useState("")
@@ -79,7 +69,6 @@ export function CreateClientDialog({
   const [phone2, setPhone2] = useState("")
   const [email, setEmail] = useState("")
   const [socialLink, setSocialLink] = useState("")
-  const [branchId, setBranchId] = useState<string>("")
   const [channelId, setChannelId] = useState<string>("")
   const [channels, setChannels] = useState<ChannelOption[]>([])
   const [assignedTo, setAssignedTo] = useState<string>(myEmployeeId || "")
@@ -96,27 +85,19 @@ export function CreateClientDialog({
     }
   }, [myEmployeeId, assignedTo])
 
-  // Load channels + employees (+ branches, если не переданы) on open
+  // Load channels + employees on open
   const loadOptions = async () => {
     try {
-      const requests: Promise<Response>[] = [
+      const [channelsRes, employeesRes] = await Promise.all([
         fetch("/api/lead-channels"),
         fetch("/api/employees"),
-      ]
-      const needBranches = !branchesProp
-      if (needBranches) requests.push(fetch("/api/branches"))
-
-      const [channelsRes, employeesRes, branchesRes] = await Promise.all(requests)
+      ])
       if (channelsRes.ok) {
         const data = await channelsRes.json()
         setChannels(data.filter((c: any) => c.isActive))
       }
       if (employeesRes.ok) {
         setEmployees(await employeesRes.json())
-      }
-      if (needBranches && branchesRes && branchesRes.ok) {
-        const data = await branchesRes.json()
-        setBranches(data.map((b: any) => ({ id: b.id, name: b.name })))
       }
     } catch { /* ignore */ }
   }
@@ -129,7 +110,6 @@ export function CreateClientDialog({
     setPhone2("")
     setEmail("")
     setSocialLink("")
-    setBranchId("")
     setChannelId("")
     setAssignedTo(myEmployeeId || "")
     setComment("")
@@ -180,7 +160,6 @@ export function CreateClientDialog({
           phone2: phone2.trim() || undefined,
           email: email.trim() || undefined,
           socialLink: socialLink.trim() || undefined,
-          branchId: branchId || undefined,
           channelId: channelId || undefined,
           assignedTo: assignedTo || undefined,
           comment: comment.trim() || undefined,
@@ -345,25 +324,6 @@ export function CreateClientDialog({
               </div>
             </div>
 
-            {/* Филиал */}
-            {branches.length > 0 && (
-              <div>
-                <Label>Филиал</Label>
-                <Select value={branchId} onValueChange={(v) => { if (v) setBranchId(v) }}>
-                  <SelectTrigger className="w-full">
-                    {branchId ? branches.find(b => b.id === branchId)?.name : <span className="text-muted-foreground">Выберите филиал</span>}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {branches.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
             {/* Канал привлечения */}
             {channels.length > 0 && (
               <div>
@@ -396,19 +356,10 @@ export function CreateClientDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="">Не назначен</SelectItem>
-                  {(() => {
-                    const filtered = filterEmployeesByBranch(employees, branchId)
-                    const selected = employees.find((x) => x.id === assignedTo)
-                    const showSelectedOutOfBranch =
-                      selected && !isEmployeeAvailableInBranch(selected, branchId)
-                    const visible = showSelectedOutOfBranch
-                      ? [selected!, ...filtered.filter((e) => e.id !== selected!.id)]
-                      : filtered
-                    return visible.map((e) => {
-                      const name = [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"
-                      return <SelectItem key={e.id} value={e.id}>{name}</SelectItem>
-                    })
-                  })()}
+                  {employees.map((e) => {
+                    const name = [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"
+                    return <SelectItem key={e.id} value={e.id}>{name}</SelectItem>
+                  })}
                 </SelectContent>
               </Select>
             </div>

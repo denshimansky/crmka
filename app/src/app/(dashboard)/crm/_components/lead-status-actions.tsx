@@ -8,7 +8,6 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select"
-import { CreateApplicationDialog } from "./create-application-dialog"
 import { TrialLessonDialog } from "./trial-lesson-dialog"
 
 // Этапы воронки продаж (Пробное / Прошёл пробное / Ожидание оплаты) переехали
@@ -147,13 +146,13 @@ export function LeadStatusActions({
         </Select>
       )}
 
-      <CreateApplicationDialog clientId={clientId} wards={wards} />
-
-      <TrialLessonDialog
-        clientId={clientId}
-        wards={wards}
-        disabledReason={trialDisabledReason}
-      />
+      {currentStatus !== "archived" && currentStatus !== "blacklisted" && (
+        <TrialLessonDialog
+          clientId={clientId}
+          wards={wards}
+          disabledReason={trialDisabledReason}
+        />
+      )}
     </div>
   )
 }

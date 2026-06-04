@@ -43,12 +43,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       clientId: true,
       wardId: true,
       status: true,
-      client: { select: { id: true, clientStatus: true } },
+      client: { select: { id: true, clientStatus: true, funnelStatus: true } },
     },
   })
   if (!application) return NextResponse.json({ error: "Заявка не найдена" }, { status: 404 })
   if (application.status !== "active") {
     return NextResponse.json({ error: "Заявка уже обработана" }, { status: 409 })
+  }
+  if (
+    data.outcome === "trial" &&
+    (application.client.funnelStatus === "archived" ||
+      application.client.funnelStatus === "blacklisted")
+  ) {
+    return NextResponse.json(
+      { error: "Клиент в архиве/ЧС — снимите статус, чтобы записать на пробное." },
+      { status: 403 },
+    )
   }
 
   if (data.outcome === "trial") {

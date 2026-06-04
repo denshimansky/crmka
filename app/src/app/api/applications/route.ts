@@ -59,12 +59,21 @@ export async function POST(req: NextRequest) {
   const tenantId = session.user.tenantId
 
   const [client, ward, branch, direction] = await Promise.all([
-    db.client.findFirst({ where: { id: data.clientId, tenantId, deletedAt: null }, select: { id: true } }),
+    db.client.findFirst({
+      where: { id: data.clientId, tenantId, deletedAt: null },
+      select: { id: true, funnelStatus: true },
+    }),
     db.ward.findFirst({ where: { id: data.wardId, clientId: data.clientId, tenantId }, select: { id: true } }),
     db.branch.findFirst({ where: { id: data.branchId, tenantId, deletedAt: null }, select: { id: true } }),
     db.direction.findFirst({ where: { id: data.directionId, tenantId, deletedAt: null }, select: { id: true } }),
   ])
   if (!client) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
+  if (client.funnelStatus === "archived" || client.funnelStatus === "blacklisted") {
+    return NextResponse.json(
+      { error: "Клиент в архиве/ЧС — снимите статус, чтобы создать заявку." },
+      { status: 403 },
+    )
+  }
   if (!ward) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
   if (!branch) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
   if (!direction) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })

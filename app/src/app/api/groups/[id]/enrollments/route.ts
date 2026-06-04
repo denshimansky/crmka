@@ -36,6 +36,14 @@ export async function GET(
 }
 
 // POST /api/groups/[id]/enrollments — зачислить ученика
+//
+// ВАЖНО: зачислить ребёнка в группу «вручную» нельзя — только через абонемент
+// (`POST /api/subscriptions`) или перевод (`POST /api/enrollments/[id]/transfer`).
+// Исключение — пробное занятие (`paymentStatus: 'trial'`), оно создаётся через
+// `POST /api/trial-lessons` и зачисление выполняется в отдельном потоке.
+//
+// Если запрос пришёл с paymentStatus='active'/'awaiting_payment', проверяем
+// наличие связанного активного абонемента у клиента/подопечного в этой группе.
 const enrollSchema = z.object({
   clientId: z
     .string()
@@ -48,6 +56,7 @@ const enrollSchema = z.object({
     .transform((v) => (v?.trim() === "" ? null : v?.trim() ?? null)),
   selectedDays: z.array(z.number()).nullable().optional(),
   force: z.boolean().optional(),
+  paymentStatus: z.enum(["active", "awaiting_payment", "trial"]).optional(),
 })
 
 export async function POST(
@@ -77,7 +86,33 @@ export async function POST(
     )
   }
 
-  const { clientId, wardId, selectedDays, force } = parsed.data
+  const { clientId, wardId, selectedDays, force, paymentStatus: requestedStatus } = parsed.data
+  const paymentStatus = requestedStatus ?? "active"
+
+  // Запрет ручного зачисления без абонемента: для paymentStatus 'active'/'awaiting_payment'
+  // должен существовать активный абонемент в этой группе у клиента/подопечного.
+  if (paymentStatus !== "trial") {
+    const subscription = await db.subscription.findFirst({
+      where: {
+        tenantId,
+        groupId: id,
+        clientId,
+        wardId: wardId ?? undefined,
+        status: { in: ["pending", "active"] },
+        deletedAt: null,
+      },
+      select: { id: true },
+    })
+    if (!subscription) {
+      return NextResponse.json(
+        {
+          error:
+            "Зачисление возможно только через создание абонемента. Используйте POST /api/subscriptions или кнопку «В ожидание оплаты» в Продажах.",
+        },
+        { status: 400 },
+      )
+    }
+  }
 
   // Проверяем лимит группы
   if (!force) {
@@ -120,7 +155,7 @@ export async function POST(
       selectedDays: selectedDays ?? undefined,
       enrolledAt: new Date(),
       isActive: true,
-      paymentStatus: "active",
+      paymentStatus,
     },
     include: {
       client: {

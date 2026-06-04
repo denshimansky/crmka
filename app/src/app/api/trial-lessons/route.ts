@@ -31,6 +31,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
 
+  // Клиенты в архиве/ЧС не могут записываться на пробное.
+  const client = await db.client.findFirst({
+    where: { id: parsed.data.clientId, tenantId: session.user.tenantId, deletedAt: null },
+    select: { funnelStatus: true },
+  })
+  if (!client) {
+    return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
+  }
+  if (client.funnelStatus === "archived" || client.funnelStatus === "blacklisted") {
+    return NextResponse.json(
+      { error: "Клиент в архиве/ЧС — снимите статус, чтобы записать на пробное." },
+      { status: 403 },
+    )
+  }
+
   // У ребёнка должна быть открытая заявка ИЛИ Ward.salesStage='application'.
   // Без этого условия пробное создаётся «из воздуха», что ломает воронку.
   // Создание пробного через обработку заявки (`/api/applications/[id]/process`)

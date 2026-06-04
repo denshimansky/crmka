@@ -183,17 +183,15 @@ export async function POST(req: NextRequest) {
       nextContactDate: data.nextContactDate ? new Date(data.nextContactDate) : undefined,
       createdBy: session.user.employeeId,
       wards: data.wards?.length ? {
-        // Свежесозданные подопечные сразу попадают в стадию «Заявка» — без
-        // этого они не появляются на вкладке Продажи/Заявка (см. источник
-        // вкладки: Ward.salesStage='application').
+        // Подопечные создаются в стадии 'none' и НЕ появляются на вкладке
+        // Продажи/Заявка автоматически. Заявка заводится отдельным действием
+        // через кнопку «+ Заявка» в карточке клиента.
         create: data.wards.map(w => ({
           tenantId: session.user.tenantId,
           firstName: w.firstName,
           lastName: w.lastName,
           birthDate: w.birthDate ? new Date(w.birthDate) : undefined,
           notes: w.notes,
-          salesStage: "application",
-          salesStageAt: new Date(),
         })),
       } : undefined,
     },

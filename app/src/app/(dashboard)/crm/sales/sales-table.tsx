@@ -114,10 +114,14 @@ export function SalesTable({
   tab,
   rows,
   employees,
+  branches,
+  branchId,
 }: {
   tab: SalesTabKey
   rows: SalesRow[]
   employees: EmployeeOption[]
+  branches: { id: string; name: string }[]
+  branchId: string | null
 }) {
   const router = useRouter()
   const [processing, setProcessing] = useState<SalesRow | null>(null)
@@ -263,15 +267,37 @@ export function SalesTable({
     )
   }
 
+  const showBranchFilter = tab === "trial" && branches.length > 1
   const searchBar = (
-    <div className="relative">
-      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Поиск по ФИО родителя или ребёнка..."
-        className="pl-9"
-      />
+    <div className="flex items-center gap-2">
+      <div className="relative flex-1">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск по ФИО родителя или ребёнка..."
+          className="pl-9"
+        />
+      </div>
+      {showBranchFilter && (
+        <select
+          value={branchId ?? "all"}
+          onChange={(e) => {
+            const params = new URLSearchParams(window.location.search)
+            if (e.target.value === "all") params.delete("branchId")
+            else params.set("branchId", e.target.value)
+            router.push(`?${params.toString()}`)
+          }}
+          className="h-9 rounded-md border bg-background px-3 text-sm"
+        >
+          <option value="all">Все филиалы</option>
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   )
 

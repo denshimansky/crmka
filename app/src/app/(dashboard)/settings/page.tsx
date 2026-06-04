@@ -15,6 +15,7 @@ import { CreateRoomDialog } from "./create-room-dialog"
 import { EditBranchDialog } from "./edit-branch-dialog"
 import { EditRoomDialog } from "./edit-room-dialog"
 import { RoleDisplayNamesForm } from "./role-display-names-form"
+import { UnpaidAutoCloseForm } from "./unpaid-auto-close-form"
 import { AdminBonusContent } from "./admin-bonus/admin-bonus-content"
 import { ProcessLeadsButton } from "./leads-import/process-button"
 import { SyncBalanceButton } from "./leads-import/sync-button"
@@ -144,6 +145,9 @@ export default async function SettingsPage() {
                     <span className="text-sm font-medium">
                       {org.makeupDeadlineDays ?? "Не задан"}
                     </span>
+                  </div>
+                  <div className="pt-2 border-t">
+                    <UnpaidAutoCloseForm initialValue={org.unpaidSubscriptionAutoCloseDays} />
                   </div>
                 </div>
               </CardContent>

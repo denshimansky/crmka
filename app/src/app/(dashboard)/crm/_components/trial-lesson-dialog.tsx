@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,11 +12,24 @@ import {
 } from "@/components/ui/dialog"
 import { CalendarPlus } from "lucide-react"
 import { TrialLessonForm, type TrialFormPayload } from "./trial-lesson-form"
+import { formatWardName } from "@/lib/format-name"
 
 interface WardLite {
   id: string
   firstName: string
   lastName: string | null
+}
+
+interface ActiveApplication {
+  id: string
+  wardId: string
+  branchId: string
+  directionId: string
+  comment: string | null
+  createdAt: string
+  ward: { id: string; firstName: string; lastName: string | null }
+  branch: { id: string; name: string }
+  direction: { id: string; name: string }
 }
 
 export function TrialLessonDialog({
@@ -56,6 +69,42 @@ export function TrialLessonDialog({
   }
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Активные заявки клиента/подопечного — используются для пред-заполнения
+  // полей пробного (филиал, направление). Если у ребёнка несколько заявок —
+  // сначала пользователь выбирает, по какой создаём пробное.
+  const [applications, setApplications] = useState<ActiveApplication[] | null>(null)
+  const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) {
+      setApplications(null)
+      setSelectedAppId(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/applications?clientId=${clientId}&status=active`)
+        if (!res.ok || cancelled) return
+        let data: ActiveApplication[] = await res.json()
+        // Если в модалку передан lockedWardId — оставляем только заявки этого ребёнка.
+        if (lockedWardId) data = data.filter((a) => a.wardId === lockedWardId)
+        if (cancelled) return
+        setApplications(data)
+        // Авто-выбор, если заявка одна.
+        if (data.length === 1) setSelectedAppId(data[0].id)
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, clientId, lockedWardId])
+
+  const selectedApp = applications?.find((a) => a.id === selectedAppId) ?? null
+  const needsAppPick = applications !== null && applications.length > 1 && !selectedApp
 
   const noWards = wards.length === 0
   const disabled = noWards || Boolean(disabledReason)
@@ -117,14 +166,42 @@ export function TrialLessonDialog({
           <DialogTitle>Запись на пробное занятие</DialogTitle>
         </DialogHeader>
 
-        <TrialLessonForm
-          wards={wards}
-          lockedWardId={lockedWardId}
-          onSubmit={handleSubmit}
-          submitting={submitting}
-          errorMessage={error}
-          submitLabel="Записать"
-        />
+        {needsAppPick ? (
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">
+              У ребёнка несколько активных заявок. Выберите, по какой создаём пробное:
+            </div>
+            <div className="space-y-2">
+              {applications!.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setSelectedAppId(a.id)}
+                  className="w-full rounded-md border p-3 text-left text-sm hover:bg-muted/40"
+                >
+                  <div className="font-medium">
+                    {formatWardName(a.ward)} · {a.direction.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Филиал: {a.branch.name} · от {new Date(a.createdAt).toLocaleDateString("ru-RU")}
+                    {a.comment ? ` · ${a.comment}` : ""}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <TrialLessonForm
+            wards={wards}
+            lockedWardId={selectedApp?.wardId ?? lockedWardId}
+            lockedDirectionId={selectedApp?.directionId}
+            lockedBranchId={selectedApp?.branchId}
+            onSubmit={handleSubmit}
+            submitting={submitting}
+            errorMessage={error}
+            submitLabel="Записать"
+          />
+        )}
       </DialogContent>
     </Dialog>
   )

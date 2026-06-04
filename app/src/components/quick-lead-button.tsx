@@ -14,7 +14,6 @@ import { CreateClientDialog } from "@/app/(dashboard)/crm/clients/create-client-
  *  - кастомный плавающий триггер
  *  - заголовок «Новый лид»
  *  - после создания — переход в карточку нового клиента
- *  - branches загружаются внутри (компонент монтируется вне server-страницы)
  */
 export function QuickLeadButton() {
   return (

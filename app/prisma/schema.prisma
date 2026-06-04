@@ -95,6 +95,11 @@ model Organization {
   packageDefaultValidDays       Int               @default(60) @map("package_default_valid_days")
   packageExpiryNotifyDaysBefore Int               @default(7) @map("package_expiry_notify_days_before")
 
+  // Авто-закрытие неоплаченных абонементов: если после старта прошло N дней,
+  // абонемент имеет balance > 0 и нет ни одного посещения — он закрывается.
+  // null = выключено.
+  unpaidSubscriptionAutoCloseDays Int? @map("unpaid_subscription_auto_close_days")
+
   // Ф6: Безопасность данных
   hidePhonesFromInstructors Boolean @default(false) @map("hide_phones_from_instructors")
   restrictClientExport      Boolean @default(false) @map("restrict_client_export")

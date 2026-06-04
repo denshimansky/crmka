@@ -15,6 +15,8 @@ import { ApplicationsSection } from "./applications-section"
 import { PortalLinkButton } from "./portal-link-button"
 import { ClientDiscountSelect } from "./client-discount-select"
 import { BonusDiscountDialog } from "./bonus-discount-dialog"
+import { QuickRenewSubscriptionDialog } from "./quick-renew-subscription-dialog"
+import { CreateApplicationDialog } from "./create-application-dialog"
 
 const SEGMENT_LABELS: Record<string, string> = {
   new_client: "Новый",
@@ -256,17 +258,48 @@ export async function ClientCardContent({
 
       {/* Action buttons / Lead actions */}
       <div className="flex flex-wrap items-center gap-2">
-        {client.clientStatus && (
+        {client.funnelStatus !== "archived" && client.funnelStatus !== "blacklisted" && (
           <>
-            <Button disabled>
-              <CreditCard className="mr-2 size-4" />
-              Оплата
-            </Button>
-            <Button variant="outline" disabled>
-              <FileText className="mr-2 size-4" />
-              Абонемент
-            </Button>
-            <PortalLinkButton clientId={client.id} />
+            {/* «+ Абонемент» — продление текущего активного абонемента на следующий период.
+                Для нового направления/группы — кнопка «+ Заявка». */}
+            <QuickRenewSubscriptionDialog
+              subscriptions={activeSubscriptions
+                .filter((s) => s.type === "calendar")
+                .map((s) => ({
+                  id: s.id,
+                  directionName: s.direction.name,
+                  groupName: s.group.name,
+                  branchName: s.group.branch?.name ?? null,
+                  wardId: s.wardId,
+                  wardName: s.ward
+                    ? [s.ward.lastName, s.ward.firstName].filter(Boolean).join(" ").trim() ||
+                      s.ward.firstName
+                    : null,
+                  wardFirstName: s.ward?.firstName ?? null,
+                  wardLastName: s.ward?.lastName ?? null,
+                  lessonPrice: Number(s.lessonPrice),
+                  periodYear: s.periodYear,
+                  periodMonth: s.periodMonth,
+                }))}
+            />
+            <CreateApplicationDialog
+              clientId={client.id}
+              wards={client.wards.map((w) => ({
+                id: w.id,
+                firstName: w.firstName,
+                lastName: w.lastName,
+              }))}
+              triggerLabel="Заявка"
+            />
+            {client.clientStatus && (
+              <>
+                <Button disabled>
+                  <CreditCard className="mr-2 size-4" />
+                  Оплата
+                </Button>
+                <PortalLinkButton clientId={client.id} />
+              </>
+            )}
           </>
         )}
         <LeadStatusActions

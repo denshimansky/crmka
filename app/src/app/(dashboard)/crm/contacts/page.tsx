@@ -40,8 +40,10 @@ const NO_ACTIVE_APP: Prisma.ClientWhereInput = {
 function buildWhere(tab: ContactsTabKey, tenantId: string): Prisma.ClientWhereInput {
   const base: Prisma.ClientWhereInput = { tenantId, deletedAt: null }
   if (tab === "leads") {
+    // Лиды: новые без платежей. Клиенты с активной заявкой остаются в списке
+    // лидов с баджем «Заявка» — менеджеру важно видеть их в общей воронке.
     base.funnelStatus = "new"
-    base.AND = [NO_ACTIVE_APP, { payments: { none: {} } }]
+    base.AND = [{ payments: { none: {} } }]
   } else if (tab === "potential") {
     base.funnelStatus = "potential"
     base.AND = [NO_ACTIVE_APP]
@@ -151,6 +153,9 @@ export default async function ContactsPage({
           },
         },
       },
+      _count: {
+        select: { applications: { where: { status: "active", deletedAt: null } } },
+      },
     },
     orderBy: [{ nextContactDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
     take: 200,
@@ -191,6 +196,7 @@ export default async function ContactsPage({
           }
         : null,
       hasActiveSubscription: c.subscriptions.length > 0,
+      hasActiveApplication: c._count.applications > 0,
     }
   })
 
@@ -212,7 +218,7 @@ export default async function ContactsPage({
             <Copy className="mr-2 size-4" />
             Дубликаты
           </Button>
-          <CreateClientDialog branches={branches} />
+          <CreateClientDialog />
         </div>
       </div>
 

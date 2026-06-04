@@ -22,6 +22,8 @@ export interface BulkRenewInput {
   rangeEnd: Date
   branchId?: string | null
   directionId?: string | null
+  /** Если задано — продлеваем только этот конкретный source-абонемент (точечное продление из карточки клиента). */
+  subscriptionId?: string | null
   createdBy?: string | null
 }
 
@@ -97,6 +99,7 @@ async function loadActiveSources(opts: BulkRenewInput): Promise<SourceRow[]> {
   }
   if (opts.directionId) where.directionId = opts.directionId
   if (opts.branchId) where.group = { branchId: opts.branchId }
+  if (opts.subscriptionId) where.id = opts.subscriptionId
 
   const rows = await db.subscription.findMany({
     where,

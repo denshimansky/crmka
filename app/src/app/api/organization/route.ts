@@ -21,6 +21,9 @@ const updateSchema = z.object({
   subscriptionType: z.enum(["calendar", "fixed", "package"]).optional(),
   packageDefaultValidDays: z.number().int().min(1).max(3650).optional(),
   packageExpiryNotifyDaysBefore: z.number().int().min(0).max(60).optional(),
+  // Кол-во дней до автозакрытия неоплаченного абонемента без посещений.
+  // null = функция выключена; 0 — недопустимо (запретили бы сразу после создания).
+  unpaidSubscriptionAutoCloseDays: z.number().int().min(1).max(365).nullable().optional(),
 })
 
 export async function GET() {

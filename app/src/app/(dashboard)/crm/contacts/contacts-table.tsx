@@ -49,6 +49,7 @@ export interface ContactRow {
     instructor: { id: string | null; name: string }
   } | null
   hasActiveSubscription: boolean
+  hasActiveApplication: boolean
 }
 
 interface EmployeeOption {
@@ -226,6 +227,15 @@ export function ContactsTable({
                 <Link href={`/crm/clients/${r.id}`} className="font-medium hover:underline">
                   {fullName(r)}
                 </Link>
+                {r.hasActiveApplication && (
+                  <Link
+                    href="/crm/sales?tab=application"
+                    title="У клиента есть активная заявка"
+                    className="ml-2 inline-flex items-center rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+                  >
+                    Заявка
+                  </Link>
+                )}
               </TableCell>
               <TableCell className="text-sm">{r.phone || "—"}</TableCell>
               <TableCell className="text-sm">
