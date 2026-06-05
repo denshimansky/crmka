@@ -40,6 +40,7 @@ const reportGroups: ReportGroup[] = [
       { name: "Средний чек", href: "/reports/crm/avg-check", description: "Оплачено / кол-во платежей", source: "payments" },
       { name: "Допродажи", href: "/reports/crm/upsell", description: "Одно направление, истекающие, снизили активность", source: "subscriptions" },
       { name: "Активные абонементы (динамика)", href: "/reports/crm/active-subs-dynamics", description: "Создано / продлено / активно на конец периода по филиалам и направлениям", source: "subscriptions" },
+      { name: "Доходимость по дням", href: "/reports/crm/conversion-by-days", description: "Воронка по дням: заявки → пробные → продажи → оплаты, с конверсией от заявок", source: "clients" },
       { name: "Разовые скидки", href: "/reports/crm/marketing-bonuses", description: "Начисленные бонусы на баланс клиентов с разбивкой по каналам и ответственным", source: "clients" },
     ],
   },
