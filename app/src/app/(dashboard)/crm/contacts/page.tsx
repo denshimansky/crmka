@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { Copy } from "lucide-react"
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,8 @@ import { CreateClientDialog } from "../clients/create-client-dialog"
 import { ContactsTabs, type ContactsTab } from "./contacts-tabs"
 import { ContactsTable, type ContactRow, type ContactsTabKey } from "./contacts-table"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
+import { scopeBranch, type BranchScope } from "@/lib/branch-scope"
+import { scopeClientByBranch } from "@/lib/client-segments"
 
 const TAB_LABELS: Record<ContactsTabKey, string> = {
   leads: "Лиды",
@@ -37,7 +39,11 @@ const NO_ACTIVE_APP: Prisma.ClientWhereInput = {
   applications: { none: { status: "active", deletedAt: null } },
 }
 
-function buildWhere(tab: ContactsTabKey, tenantId: string): Prisma.ClientWhereInput {
+function buildWhere(
+  tab: ContactsTabKey,
+  tenantId: string,
+  scope: BranchScope,
+): Prisma.ClientWhereInput {
   const base: Prisma.ClientWhereInput = { tenantId, deletedAt: null }
   if (tab === "leads") {
     // Лиды: новые без платежей. Клиенты с активной заявкой остаются в списке
@@ -63,11 +69,22 @@ function buildWhere(tab: ContactsTabKey, tenantId: string): Prisma.ClientWhereIn
   } else if (tab === "blacklist") {
     base.funnelStatus = "blacklisted"
   }
+  // ADM-04: сегментный scope (см. client-segments.ts) — клиент попадает в
+  // выборку только если хотя бы одно из правил видимости по его статусу
+  // совпадает с филиалами сессии.
+  const segmentScope = scopeClientByBranch(scope)
+  if (Object.keys(segmentScope).length > 0) {
+    return { AND: [base, segmentScope] }
+  }
   return base
 }
 
-async function countTab(tab: ContactsTabKey, tenantId: string): Promise<number> {
-  return db.client.count({ where: buildWhere(tab, tenantId) })
+async function countTab(
+  tab: ContactsTabKey,
+  tenantId: string,
+  scope: BranchScope,
+): Promise<number> {
+  return db.client.count({ where: buildWhere(tab, tenantId, scope) })
 }
 
 export default async function ContactsPage({
@@ -77,6 +94,7 @@ export default async function ContactsPage({
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
   const { tab: rawTab, q: rawQ } = await searchParams
   const tab: ContactsTabKey = TAB_ORDER.includes(rawTab as ContactsTabKey)
     ? (rawTab as ContactsTabKey)
@@ -87,7 +105,7 @@ export default async function ContactsPage({
 
   const [branches, employees, ...countsArr] = await Promise.all([
     db.branch.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -96,13 +114,13 @@ export default async function ContactsPage({
       select: { id: true, firstName: true, lastName: true },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
-    ...TAB_ORDER.map((t) => countTab(t, tenantId)),
+    ...TAB_ORDER.map((t) => countTab(t, tenantId, scope)),
   ])
 
   const counts = new Map<ContactsTabKey, number>()
   TAB_ORDER.forEach((t, i) => counts.set(t, countsArr[i] as number))
 
-  const baseWhere = buildWhere(tab, tenantId)
+  const baseWhere = buildWhere(tab, tenantId, scope)
   let where: Prisma.ClientWhereInput = baseWhere
   if (query) {
     // Поиск-по-токенам: каждое слово запроса должно совпасть с одним из полей

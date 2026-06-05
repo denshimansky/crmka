@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Prisma, WardSalesStage } from "@prisma/client"
 import { PageHelp } from "@/components/page-help"
@@ -6,6 +6,8 @@ import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { CreateClientDialog } from "../clients/create-client-dialog"
 import { SalesTabs, type SalesTab } from "./sales-tabs"
 import { SalesTable, type SalesRow, type SalesTabKey } from "./sales-table"
+import { scopeBranch, type BranchScope, isUnscoped } from "@/lib/branch-scope"
+import { scopeClientByBranch } from "@/lib/client-segments"
 
 const TAB_LABELS: Record<SalesTabKey, string> = {
   application: "Заявка",
@@ -24,18 +26,28 @@ const TAB_TO_STAGE: Record<Exclude<SalesTabKey, "application">, WardSalesStage> 
 // Фильтр родителя для всех вкладок «Продаж»: исключаем только архив и ЧС.
 // Любой другой funnelStatus (включая active_client — родитель уже платил по другому ребёнку)
 // допустим, потому что воронка теперь живёт на Ward, а не на Client.
-function notArchivedClient(): Prisma.ClientWhereInput {
-  return {
+function notArchivedClient(scope: BranchScope): Prisma.ClientWhereInput {
+  const base: Prisma.ClientWhereInput = {
     deletedAt: null,
     funnelStatus: { notIn: ["archived", "blacklisted"] },
   }
+  // ADM-04: сегментный scope клиента (по родителю).
+  const segmentScope = scopeClientByBranch(scope)
+  if (Object.keys(segmentScope).length > 0) {
+    return { AND: [base, segmentScope] }
+  }
+  return base
 }
 
-function wardSalesWhere(tenantId: string, stage: WardSalesStage): Prisma.WardWhereInput {
+function wardSalesWhere(
+  tenantId: string,
+  stage: WardSalesStage,
+  scope: BranchScope,
+): Prisma.WardWhereInput {
   return {
     tenantId,
     salesStage: stage,
-    client: notArchivedClient(),
+    client: notArchivedClient(scope),
   }
 }
 
@@ -75,8 +87,9 @@ function wardSalesWhereWithFilters(
   stage: WardSalesStage,
   branchFilter: string | null,
   directionFilter: string | null,
+  scope: BranchScope,
 ): Prisma.WardWhereInput {
-  const base = wardSalesWhere(tenantId, stage)
+  const base = wardSalesWhere(tenantId, stage, scope)
   if (!branchFilter && !directionFilter) return base
 
   if (stage === "application") {
@@ -118,12 +131,18 @@ export default async function SalesPage({
   const session = await getSession()
   const tenantId = session.user.tenantId
   const role = session.user.role
+  const scope = await getBranchScope()
   const { tab: rawTab, branchId: rawBranchId, directionId: rawDirectionId } =
     await searchParams
   const tab: SalesTabKey = TAB_ORDER.includes(rawTab as SalesTabKey)
     ? (rawTab as SalesTabKey)
     : "application"
-  const branchFilter = rawBranchId && rawBranchId !== "all" ? rawBranchId : null
+  // ADM-04: пересечение явного фильтра по филиалу из URL и серверного scope.
+  const rawBranch = rawBranchId && rawBranchId !== "all" ? rawBranchId : null
+  const branchFilter =
+    rawBranch && (isUnscoped(scope) || scope.branchIds.includes(rawBranch))
+      ? rawBranch
+      : null
   const directionFilter =
     rawDirectionId && rawDirectionId !== "all" ? rawDirectionId : null
 
@@ -137,7 +156,7 @@ export default async function SalesPage({
     countAwaitingPayment,
   ] = await Promise.all([
     db.branch.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -156,22 +175,22 @@ export default async function SalesPage({
     // применения фильтра. Для «trial» считаем пробные (а не подопечных) — один
     // ребёнок с 2 пробными даст 2, чтобы число совпадало со списком (баг #49).
     db.ward.count({
-      where: wardSalesWhereWithFilters(tenantId, "application", branchFilter, directionFilter),
+      where: wardSalesWhereWithFilters(tenantId, "application", branchFilter, directionFilter, scope),
     }),
     db.trialLesson.count({
       where: {
         tenantId,
         status: "scheduled",
         ward: { salesStage: "trial_scheduled" },
-        client: notArchivedClient(),
+        client: notArchivedClient(scope),
         ...trialFilter(branchFilter, directionFilter),
       },
     }),
     db.ward.count({
-      where: wardSalesWhereWithFilters(tenantId, "trial_attended", branchFilter, directionFilter),
+      where: wardSalesWhereWithFilters(tenantId, "trial_attended", branchFilter, directionFilter, scope),
     }),
     db.ward.count({
-      where: wardSalesWhereWithFilters(tenantId, "awaiting_payment", branchFilter, directionFilter),
+      where: wardSalesWhereWithFilters(tenantId, "awaiting_payment", branchFilter, directionFilter, scope),
     }),
   ])
 
@@ -191,7 +210,7 @@ export default async function SalesPage({
     // даже если у подопечного никогда не было Application. Activной Application
     // (если есть) даёт филиал/направление и applicationId для «Обработать заявку».
     const wards = await db.ward.findMany({
-      where: wardSalesWhereWithFilters(tenantId, "application", branchFilter, directionFilter),
+      where: wardSalesWhereWithFilters(tenantId, "application", branchFilter, directionFilter, scope),
       include: {
         client: {
           select: {
@@ -266,7 +285,7 @@ export default async function SalesPage({
         tenantId,
         status: "scheduled",
         ward: { salesStage: "trial_scheduled" },
-        client: notArchivedClient(),
+        client: notArchivedClient(scope),
         ...trialFilter(branchFilter, directionFilter),
       },
       include: {
@@ -382,7 +401,7 @@ export default async function SalesPage({
     ]
 
     const wards = await db.ward.findMany({
-      where: wardSalesWhereWithFilters(tenantId, stage, branchFilter, directionFilter),
+      where: wardSalesWhereWithFilters(tenantId, stage, branchFilter, directionFilter, scope),
       include: {
         client: {
           select: {

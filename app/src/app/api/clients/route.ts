@@ -6,6 +6,8 @@ import { rateLimitTenant } from "@/lib/rate-limit"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
+import { branchScopeFromSession, isUnscoped } from "@/lib/branch-scope"
+import { scopeClientByBranch } from "@/lib/client-segments"
 
 const createSchema = z.object({
   firstName: z.string().min(1, "Имя обязательно").optional(),
@@ -115,12 +117,26 @@ export async function GET(req: NextRequest) {
     where.segment = segment as any
   }
 
-  if (branchId) {
-    where.branchId = branchId
+  // ADM-04: пересечение явного фильтра branchId из query и серверного scope.
+  const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+  const scope = branchScopeFromSession(allowedBranchIds)
+  const effectiveBranchId =
+    branchId && (isUnscoped(scope) || scope.branchIds.includes(branchId))
+      ? branchId
+      : null
+  if (effectiveBranchId) {
+    where.branchId = effectiveBranchId
   }
+  // Сегментная фильтрация по филиалу — навешивается, только если у пользователя
+  // ограниченный scope. Для owner/manager — no-op.
+  const segmentScope = scopeClientByBranch(scope)
+  const finalWhere: Prisma.ClientWhereInput =
+    Object.keys(segmentScope).length > 0
+      ? { AND: [where, segmentScope] }
+      : where
 
   const clients = await db.client.findMany({
-    where,
+    where: finalWhere,
     include: {
       wards: true,
       branch: { select: { id: true, name: true } },

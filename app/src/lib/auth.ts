@@ -110,6 +110,7 @@ export const authOptions: NextAuthOptions = {
         token.employeeId = user.id
         token.orgName = (user as any).orgName
         token.billingStatus = (user as any).billingStatus
+        token.allowedBranchIds = null
       }
 
       // Периодически обновляем billingStatus (каждые 5 минут)
@@ -130,6 +131,38 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
+      // Считываем привязки к филиалам из EmployeeBranch (ADM-04).
+      // null = доступ ко всем (owner/manager всегда; admin/instructor если пусто).
+      // Кэшируем на 5 минут — чтобы изменения привязок в админке подхватывались
+      // без релогина за разумное время.
+      const lastBranchesCheck = token.allowedBranchesCheckedAt || 0
+      const needsBranchesRefresh =
+        token.allowedBranchIds === undefined || now - lastBranchesCheck > 300
+      if (token.employeeId && token.tenantId && needsBranchesRefresh) {
+        try {
+          const role = token.role as string
+          if (role === "owner" || role === "manager") {
+            token.allowedBranchIds = null
+          } else {
+            const links = await db.employeeBranch.findMany({
+              where: {
+                tenantId: token.tenantId as string,
+                employeeId: token.employeeId as string,
+              },
+              select: { branchId: true },
+            })
+            // Пусто = доступ ко всем (совместимо с текущей логикой селектора
+            // инструкторов; для новых сотрудников UI требует ≥1 филиал).
+            token.allowedBranchIds = links.length === 0
+              ? null
+              : links.map((l) => l.branchId)
+          }
+          token.allowedBranchesCheckedAt = now
+        } catch {
+          // Не блокируем сессию при ошибке БД — оставляем прежнее значение.
+        }
+      }
+
       return token
     },
     async session({ session, token }) {
@@ -139,6 +172,7 @@ export const authOptions: NextAuthOptions = {
         ;(session.user as any).employeeId = token.employeeId
         ;(session.user as any).orgName = token.orgName
         ;(session.user as any).billingStatus = token.billingStatus
+        ;(session.user as any).allowedBranchIds = token.allowedBranchIds ?? null
         if (token.impersonatedBy) {
           ;(session.user as any).impersonatedBy = token.impersonatedBy
         }

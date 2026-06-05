@@ -1,6 +1,7 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { notFound } from "next/navigation"
+import { isUnscoped } from "@/lib/branch-scope"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -68,6 +69,20 @@ export default async function LessonCardPage({
   })
 
   if (!lesson) notFound()
+
+  // ADM-04: проверка доступа.
+  // — Инструктор видит только свои занятия (instructorId=me либо substituteInstructorId=me).
+  // — Админ/менеджер с ограниченным scope — только занятия групп в своих филиалах.
+  // — Owner и без ограничений — видит всё.
+  const scope = await getBranchScope()
+  if (session.user.role === "instructor") {
+    const isOwn =
+      lesson.instructorId === session.user.employeeId ||
+      lesson.substituteInstructorId === session.user.employeeId
+    if (!isOwn) notFound()
+  } else if (!isUnscoped(scope)) {
+    if (!scope.branchIds.includes(lesson.group.branchId)) notFound()
+  }
 
   // Инструкторы для замены — только из филиала группы (либо без привязок = кросс-филиально)
   const lessonBranchId = lesson.group.branchId

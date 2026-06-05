@@ -1,5 +1,6 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { scopeEmployee, scopeBranch } from "@/lib/branch-scope"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -36,11 +37,12 @@ function formatDate(date: Date | null) {
 export default async function StaffPage() {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
   const canEdit = session.user.role === "owner" || session.user.role === "manager"
 
   const [employees, branches, directions] = await Promise.all([
     db.employee.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...scopeEmployee(scope) },
       include: {
         employeeBranches: {
           include: { branch: { select: { id: true, name: true } } },
@@ -49,7 +51,7 @@ export default async function StaffPage() {
       orderBy: { lastName: "asc" },
     }),
     db.branch.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),

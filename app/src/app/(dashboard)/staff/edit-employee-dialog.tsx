@@ -94,6 +94,12 @@ export function EditEmployeeDialog({
       return
     }
 
+    // ADM-04: admin/instructor требуют хотя бы один филиал.
+    if ((role === "admin" || role === "instructor") && selectedBranches.length === 0) {
+      setError("Для роли «администратор» и «инструктор» нужно выбрать хотя бы один филиал")
+      return
+    }
+
     setLoading(true)
     try {
       const res = await fetch(`/api/employees/${employee.id}`, {
@@ -196,7 +202,9 @@ export function EditEmployeeDialog({
 
             {branches.length > 0 && (
               <div>
-                <Label>Филиалы</Label>
+                <Label>
+                  Филиалы{role === "admin" || role === "instructor" ? " *" : ""}
+                </Label>
                 <div className="mt-1 space-y-2">
                   {branches.map((branch) => (
                     <label key={branch.id} className="flex items-center gap-2 text-sm">
@@ -208,6 +216,12 @@ export function EditEmployeeDialog({
                     </label>
                   ))}
                 </div>
+                {(role === "admin" || role === "instructor") && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Для администратора и инструктора — обязательно хотя бы один филиал
+                    (ограничивает видимость данных в CRM).
+                  </p>
+                )}
               </div>
             )}
 

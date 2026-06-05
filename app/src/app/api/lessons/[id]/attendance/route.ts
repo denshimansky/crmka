@@ -12,6 +12,11 @@ import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
+import {
+  branchScopeFromSession,
+  canAccessBranch,
+  canAccessLessonAsInstructor,
+} from "@/lib/branch-scope"
 
 const markSchema = z.object({
   clientId: z.string().uuid("Некорректный ID клиента"),
@@ -54,8 +59,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
 
-  // Проверка закрытия периода
+  // ADM-04: инструктор — только свои занятия (включая substitute); admin/manager
+  // с ограниченным scope — только в своих филиалах.
   const role = (session.user as any).role
+  const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+  const scope = branchScopeFromSession(allowedBranchIds)
+  if (role === "instructor") {
+    if (!canAccessLessonAsInstructor(lesson, employeeId)) {
+      return NextResponse.json({ error: "Нет доступа к этому занятию" }, { status: 403 })
+    }
+  } else if (!canAccessBranch(lesson.group.branchId, scope)) {
+    return NextResponse.json({ error: "Нет доступа к филиалу этого занятия" }, { status: 403 })
+  }
+
+  // Проверка закрытия периода
   if (await isPeriodLocked(tenantId, new Date(lesson.date), role)) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
@@ -646,6 +663,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
 
+  // ADM-04: access check.
+  {
+    const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+    const scope = branchScopeFromSession(allowedBranchIds)
+    if (role === "instructor") {
+      if (!canAccessLessonAsInstructor(lesson, employeeId)) {
+        return NextResponse.json({ error: "Нет доступа к этому занятию" }, { status: 403 })
+      }
+    } else if (!canAccessBranch(lesson.group.branchId, scope)) {
+      return NextResponse.json({ error: "Нет доступа к филиалу этого занятия" }, { status: 403 })
+    }
+  }
+
   const attendanceType = await db.attendanceType.findFirst({
     where: {
       id: parsed.data.attendanceTypeId,
@@ -970,9 +1000,29 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   const lesson = await db.lesson.findFirst({
     where: { id: lessonId, tenantId },
-    select: { id: true, date: true, groupId: true, instructorId: true, substituteInstructorId: true },
+    select: {
+      id: true,
+      date: true,
+      groupId: true,
+      instructorId: true,
+      substituteInstructorId: true,
+      group: { select: { branchId: true } },
+    },
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
+
+  // ADM-04: access check.
+  {
+    const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+    const scope = branchScopeFromSession(allowedBranchIds)
+    if (role === "instructor") {
+      if (!canAccessLessonAsInstructor(lesson, employeeId)) {
+        return NextResponse.json({ error: "Нет доступа к этому занятию" }, { status: 403 })
+      }
+    } else if (!canAccessBranch(lesson.group.branchId, scope)) {
+      return NextResponse.json({ error: "Нет доступа к филиалу этого занятия" }, { status: 403 })
+    }
+  }
 
   if (await isPeriodLocked(tenantId, new Date(lesson.date), role)) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
@@ -1160,11 +1210,35 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { id: lessonId } = await params
   const tenantId = (session.user as any).tenantId
+  const employeeId = (session.user as any).employeeId
+  const role = (session.user as any).role
 
   const body = await req.json()
   const parsed = patchSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: "Ошибка валидации" }, { status: 400 })
+  }
+
+  // ADM-04: access check.
+  const lesson = await db.lesson.findFirst({
+    where: { id: lessonId, tenantId },
+    select: {
+      instructorId: true,
+      substituteInstructorId: true,
+      group: { select: { branchId: true } },
+    },
+  })
+  if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
+  {
+    const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+    const scope = branchScopeFromSession(allowedBranchIds)
+    if (role === "instructor") {
+      if (!canAccessLessonAsInstructor(lesson, employeeId)) {
+        return NextResponse.json({ error: "Нет доступа к этому занятию" }, { status: 403 })
+      }
+    } else if (!canAccessBranch(lesson.group.branchId, scope)) {
+      return NextResponse.json({ error: "Нет доступа к филиалу этого занятия" }, { status: 403 })
+    }
   }
 
   const existing = await db.attendance.findFirst({

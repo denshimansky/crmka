@@ -1,5 +1,6 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { scopeEmployee } from "@/lib/branch-scope"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -29,14 +30,28 @@ const ROLE_LABELS: Record<string, string> = {
 export default async function SalaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
 
   const { year, month } = getMonthFromParams(await searchParams)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0))
 
+  // ADM-04: инструктор видит только свою строку (salary.own); админ — только
+  // сотрудников своих филиалов (плюс кросс-филиальных). Owner/manager — всех.
+  const employeeFilter =
+    session.user.role === "instructor"
+      ? { id: session.user.employeeId }
+      : scopeEmployee(scope)
+
   // Все активные сотрудники (кроме readonly)
   const employees = await db.employee.findMany({
-    where: { tenantId, deletedAt: null, isActive: true, role: { not: "readonly" } },
+    where: {
+      tenantId,
+      deletedAt: null,
+      isActive: true,
+      role: { not: "readonly" },
+      ...employeeFilter,
+    },
     select: {
       id: true, firstName: true, lastName: true, role: true,
       salaryRates: { select: { scheme: true, ratePerStudent: true, ratePerLesson: true, fixedPerShift: true } },

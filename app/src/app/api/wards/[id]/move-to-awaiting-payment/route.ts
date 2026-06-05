@@ -184,6 +184,12 @@ export async function POST(
       },
     })
 
+    // ADM-04: денормализуем филиал последнего абонемента.
+    await tx.client.update({
+      where: { id: ward.clientId },
+      data: { lastBranchId: group.branchId },
+    })
+
     // Выписка абонемента уменьшает баланс клиента на finalAmount (долг).
     await applyBalanceDelta(tx, {
       tenantId,

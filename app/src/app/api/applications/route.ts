@@ -5,6 +5,11 @@ import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { z } from "zod"
 import type { Prisma } from "@prisma/client"
+import {
+  branchScopeFromSession,
+  canAccessBranch,
+  scopeApplication,
+} from "@/lib/branch-scope"
 
 const createSchema = z.object({
   clientId: z.string().uuid("Не указан клиент"),
@@ -29,8 +34,15 @@ export async function GET(req: NextRequest) {
   if (clientId) where.clientId = clientId
   if (status === "active" || status === "processed") where.status = status
 
+  // ADM-04: серверный фильтр по филиалам сессии.
+  const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+  const scope = branchScopeFromSession(allowedBranchIds)
+  const scopeFilter = scopeApplication(scope)
+  const finalWhere: Prisma.ApplicationWhereInput =
+    Object.keys(scopeFilter).length > 0 ? { AND: [where, scopeFilter] } : where
+
   const applications = await db.application.findMany({
-    where,
+    where: finalWhere,
     include: {
       ward: { select: { id: true, firstName: true, lastName: true } },
       branch: { select: { id: true, name: true } },
@@ -77,6 +89,16 @@ export async function POST(req: NextRequest) {
   if (!ward) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
   if (!branch) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
   if (!direction) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
+
+  // ADM-04: создавать заявку можно только в свой филиал.
+  const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+  const scope = branchScopeFromSession(allowedBranchIds)
+  if (!canAccessBranch(data.branchId, scope)) {
+    return NextResponse.json(
+      { error: "Нет доступа к этому филиалу" },
+      { status: 403 },
+    )
+  }
 
   // Запрет дублей заявок (баг #52): у одного подопечного не должно быть двух
   // активных заявок с одинаковой парой (филиал, направление). Группа в схеме

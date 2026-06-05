@@ -1,8 +1,15 @@
 import Link from "next/link"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import {
+  scopeFinancialAccount,
+  scopePayment,
+  scopeExpense,
+  scopeAccountOperation,
+  scopeEmployee,
+} from "@/lib/branch-scope"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -69,6 +76,7 @@ const KIND_LABELS: Record<JournalKind, { label: string; classes: string }> = {
 export default async function DdsJournalPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
 
   const params = await searchParams
   const { year, month } = getMonthFromParams(params)
@@ -80,7 +88,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
 
   // === Счета (для шапки и для join'а имени счёта в строки) ===
   const accounts = await db.financialAccount.findMany({
-    where: { tenantId, deletedAt: null },
+    where: { tenantId, deletedAt: null, ...scopeFinancialAccount(scope) },
     select: { id: true, name: true, type: true, balance: true, isActive: true },
     orderBy: { createdAt: "asc" },
   })
@@ -88,7 +96,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
 
   // === Сотрудники (для имени ответственного) ===
   const employees = await db.employee.findMany({
-    where: { tenantId, deletedAt: null },
+    where: { tenantId, deletedAt: null, ...scopeEmployee(scope) },
     select: { id: true, firstName: true, lastName: true },
   })
   const employeeById = new Map(employees.map(e => [e.id, [e.lastName, e.firstName].filter(Boolean).join(" ").trim()]))
@@ -101,7 +109,12 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
   // === Загрузка операций периода ===
   const [payments, expenses, salaryPayments, operations] = await Promise.all([
     db.payment.findMany({
-      where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
+      where: {
+        tenantId,
+        deletedAt: null,
+        date: { gte: monthStart, lte: monthEnd },
+        ...scopePayment(scope),
+      },
       include: {
         client: { select: { firstName: true, lastName: true } },
         subscription: { select: { direction: { select: { name: true } } } },
@@ -109,15 +122,29 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
       },
     }),
     db.expense.findMany({
-      where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
+      where: {
+        tenantId,
+        deletedAt: null,
+        date: { gte: monthStart, lte: monthEnd },
+        ...scopeExpense(scope),
+      },
       include: { category: { select: { name: true } } },
     }),
     db.salaryPayment.findMany({
-      where: { tenantId, date: { gte: monthStart, lte: monthEnd } },
+      where: {
+        tenantId,
+        date: { gte: monthStart, lte: monthEnd },
+        employee: scopeEmployee(scope),
+      },
       include: { employee: { select: { firstName: true, lastName: true } } },
     }),
     db.accountOperation.findMany({
-      where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
+      where: {
+        tenantId,
+        deletedAt: null,
+        date: { gte: monthStart, lte: monthEnd },
+        ...scopeAccountOperation(scope),
+      },
       include: {
         fromAccount: { select: { name: true } },
         toAccount: { select: { name: true } },

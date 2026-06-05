@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
+import { branchScopeFromSession, isUnscoped } from "@/lib/branch-scope"
+import { scopeClientByBranch } from "@/lib/client-segments"
 
 // Воронка продаж считается в двух плоскостях:
 // - этапы «новый лид» и «активный клиент» — по Client (один родитель = один контакт);
@@ -10,14 +12,30 @@ import { getReportContext, pct } from "@/lib/report-helpers"
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
-  const { session, dateRange, searchParams } = result.ctx
+  const { session, dateRange, searchParams, scope } = result.ctx
   const { tenantId } = session
   const { dateFrom, dateTo } = dateRange
-  const branchId = searchParams.get("branchId")
+  const rawBranchId = searchParams.get("branchId")
+  // ADM-04: пересечение явного фильтра и scope сессии.
+  const branchId =
+    rawBranchId && (isUnscoped(scope) || scope.branchIds.includes(rawBranchId))
+      ? rawBranchId
+      : null
 
+  const clientScope = scopeClientByBranch(scope)
   const clientWhere: any = { tenantId, deletedAt: null }
   if (branchId) clientWhere.branchId = branchId
-  const wardWhere: any = { tenantId, client: { deletedAt: null, ...(branchId ? { branchId } : {}) } }
+  if (Object.keys(clientScope).length > 0) {
+    clientWhere.AND = [clientScope]
+  }
+  const wardWhere: any = {
+    tenantId,
+    client: {
+      deletedAt: null,
+      ...(branchId ? { branchId } : {}),
+      ...(Object.keys(clientScope).length > 0 ? { AND: [clientScope] } : {}),
+    },
+  }
 
   const [allClients, allWards] = await Promise.all([
     db.client.findMany({

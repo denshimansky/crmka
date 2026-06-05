@@ -1,8 +1,14 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { PageHelp } from "@/components/page-help"
 import { SubscriptionsTable, type SubscriptionRow, type SubsTabKey } from "./subscriptions-table"
+import {
+  scopeBranch,
+  scopeSubscription,
+  type BranchScope,
+  isUnscoped,
+} from "@/lib/branch-scope"
 
 const TAB_LABELS: Record<SubsTabKey, string> = {
   active: "Активные",
@@ -15,6 +21,7 @@ function buildWhere(
   tab: SubsTabKey,
   tenantId: string,
   filters: { branchId?: string; directionId?: string; query?: string },
+  scope: BranchScope,
 ): Prisma.SubscriptionWhereInput {
   const base: Prisma.SubscriptionWhereInput = { tenantId, deletedAt: null }
   if (tab === "active") base.status = "active"
@@ -23,6 +30,11 @@ function buildWhere(
 
   if (filters.directionId) base.directionId = filters.directionId
   if (filters.branchId) base.group = { branchId: filters.branchId }
+
+  // ADM-04: добавляем scope-фильтр через AND, чтобы не перезаписать `group`.
+  const scopeFilter = scopeSubscription(scope)
+  const extraConditions: Prisma.SubscriptionWhereInput[] = []
+  if (Object.keys(scopeFilter).length > 0) extraConditions.push(scopeFilter)
 
   if (filters.query) {
     const tokens = filters.query.split(/\s+/).map((t) => t.trim()).filter(Boolean)
@@ -39,8 +51,11 @@ function buildWhere(
     if (tokenClauses.length > 0) altOr.push({ AND: tokenClauses })
     if (digits) altOr.push({ client: { phone: { contains: digits } } })
     if (altOr.length > 0) {
-      return { AND: [base, { OR: altOr }] }
+      return { AND: [base, { OR: altOr }, ...extraConditions] }
     }
+  }
+  if (extraConditions.length > 0) {
+    return { AND: [base, ...extraConditions] }
   }
   return base
 }
@@ -58,19 +73,25 @@ export default async function SubscriptionsPage({
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
   const sp = await searchParams
   const tab: SubsTabKey = (TAB_ORDER as string[]).includes(sp.tab ?? "")
     ? (sp.tab as SubsTabKey)
     : "active"
   const query = (sp.q ?? "").trim()
-  const branchId = sp.branch && sp.branch !== "all" ? sp.branch : undefined
+  // ADM-04: пересечение с scope.
+  const rawBranchId = sp.branch && sp.branch !== "all" ? sp.branch : undefined
+  const branchId =
+    rawBranchId && (isUnscoped(scope) || scope.branchIds.includes(rawBranchId))
+      ? rawBranchId
+      : undefined
   const directionId = sp.direction && sp.direction !== "all" ? sp.direction : undefined
   const sortDir: "asc" | "desc" = sp.sort === "desc" ? "desc" : "asc"
 
   const baseFilters = { branchId, directionId, query }
   const [branches, directions, countActive, countPending, countFinished, rows] = await Promise.all([
     db.branch.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -79,11 +100,11 @@ export default async function SubscriptionsPage({
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
-    db.subscription.count({ where: buildWhere("active", tenantId, baseFilters) }),
-    db.subscription.count({ where: buildWhere("pending", tenantId, baseFilters) }),
-    db.subscription.count({ where: buildWhere("finished", tenantId, baseFilters) }),
+    db.subscription.count({ where: buildWhere("active", tenantId, baseFilters, scope) }),
+    db.subscription.count({ where: buildWhere("pending", tenantId, baseFilters, scope) }),
+    db.subscription.count({ where: buildWhere("finished", tenantId, baseFilters, scope) }),
     db.subscription.findMany({
-      where: buildWhere(tab, tenantId, baseFilters),
+      where: buildWhere(tab, tenantId, baseFilters, scope),
       select: {
         id: true,
         status: true,

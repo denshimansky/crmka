@@ -281,6 +281,13 @@ model Client {
   channelId               String?           @map("channel_id") @db.Uuid
   assignedTo              String?           @map("assigned_to") @db.Uuid
   branchId                String?           @map("branch_id") @db.Uuid
+  // Денормализованный филиал последнего абонемента клиента. Используется
+  // для разграничения видимости (ADM-04) при сегментах churned/archived/
+  // blacklisted без обращения к подзапросу subscriptions → group.branchId.
+  // Обновляется при создании/возобновлении абонемента (см. lib/subscriptions/*).
+  // NULL = у клиента никогда не было абонементов либо это поле ещё не
+  // проставлено (трактуется как «видят все» в archived/blacklisted).
+  lastBranchId            String?           @map("last_branch_id") @db.Uuid
   nextContactDate         DateTime?         @map("next_contact_date") @db.Date
   blacklistReason         String?           @map("blacklist_reason")
   blacklistedBy           String?           @map("blacklisted_by") @db.Uuid
@@ -325,6 +332,7 @@ model Client {
   @@index([tenantId, funnelStatus])
   @@index([tenantId, clientStatus])
   @@index([tenantId, phone])
+  @@index([tenantId, lastBranchId])
   @@map("clients")
 }
 

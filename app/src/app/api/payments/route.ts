@@ -9,6 +9,7 @@ import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { requirePermission } from "@/lib/api-permissions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
+import { branchScopeFromSession, scopePayment } from "@/lib/branch-scope"
 
 // Поступление денег от клиента всегда падает только на баланс родителя.
 // Списание в счёт конкретного абонемента — отдельная операция через кнопку
@@ -52,8 +53,15 @@ export async function GET(req: NextRequest) {
     if (dateTo) (where.date as any).lte = new Date(dateTo)
   }
 
+  // ADM-04: серверный scope по филиалу платежа.
+  const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+  const scope = branchScopeFromSession(allowedBranchIds)
+  const scopeFilter = scopePayment(scope)
+  const finalWhere: Prisma.PaymentWhereInput =
+    Object.keys(scopeFilter).length > 0 ? { AND: [where, scopeFilter] } : where
+
   const payments = await db.payment.findMany({
-    where,
+    where: finalWhere,
     include: {
       client: { select: { id: true, firstName: true, lastName: true } },
       subscription: {

@@ -6,6 +6,7 @@ import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
+import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -51,8 +52,15 @@ export async function GET(req: NextRequest) {
   if (periodYear) where.periodYear = parseInt(periodYear)
   if (periodMonth) where.periodMonth = parseInt(periodMonth)
 
+  // ADM-04: серверный scope по филиалу группы абонемента.
+  const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+  const scope = branchScopeFromSession(allowedBranchIds)
+  const scopeFilter = scopeSubscription(scope)
+  const finalWhere: Prisma.SubscriptionWhereInput =
+    Object.keys(scopeFilter).length > 0 ? { AND: [where, scopeFilter] } : where
+
   const subscriptions = await db.subscription.findMany({
-    where,
+    where: finalWhere,
     include: {
       client: { select: { id: true, firstName: true, lastName: true, phone: true } },
       ward: { select: { id: true, firstName: true, lastName: true } },
@@ -210,6 +218,13 @@ export async function POST(req: NextRequest) {
         group: { select: { id: true, name: true } },
         ward: { select: { id: true, firstName: true, lastName: true } },
       },
+    })
+
+    // ADM-04: денормализуем филиал последнего абонемента, чтобы видимость
+    // выбывших/архив/ЧС не требовала дорогого подзапроса.
+    await tx.client.update({
+      where: { id: data.clientId },
+      data: { lastBranchId: group.branchId },
     })
 
     // Выписка абонемента уводит баланс клиента в минус на finalAmount.

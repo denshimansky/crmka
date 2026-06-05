@@ -37,6 +37,7 @@ export interface BulkRenewCandidate {
   directionName: string
   groupId: string
   groupName: string
+  branchId: string
   branchName: string
   lessonPrice: number
   totalLessons: number
@@ -69,7 +70,7 @@ interface SourceRow {
   directionId: string
   direction: { id: string; name: string }
   groupId: string
-  group: { id: string; name: string; branch: { name: string } }
+  group: { id: string; name: string; branchId: string; branch: { name: string } }
   lessonPrice: Prisma.Decimal
   startDate: Date
 }
@@ -112,7 +113,7 @@ async function loadActiveSources(opts: BulkRenewInput): Promise<SourceRow[]> {
       directionId: true,
       direction: { select: { id: true, name: true } },
       groupId: true,
-      group: { select: { id: true, name: true, branch: { select: { name: true } } } },
+      group: { select: { id: true, name: true, branchId: true, branch: { select: { name: true } } } },
       lessonPrice: true,
       startDate: true,
     },
@@ -237,6 +238,7 @@ export async function previewBulkRenew(opts: BulkRenewInput): Promise<BulkRenewP
       directionName: s.direction.name,
       groupId: s.groupId,
       groupName: s.group.name,
+      branchId: s.group.branchId,
       branchName: s.group.branch.name,
       lessonPrice: price.toNumber(),
       totalLessons: g.count,
@@ -309,6 +311,11 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
         refs: { subscriptionId: sub.id, directionId: c.directionId },
         comment,
         createdBy: opts.createdBy ?? null,
+      })
+      // ADM-04: денормализуем филиал последнего абонемента.
+      await tx.client.update({
+        where: { id: c.clientId },
+        data: { lastBranchId: c.branchId },
       })
       created++
       totalIssuedAmount = totalIssuedAmount.add(finalAmount)

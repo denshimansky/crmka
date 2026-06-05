@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext } from "@/lib/report-helpers"
+import { isUnscoped, scopeSubscription } from "@/lib/branch-scope"
 
 /** 5.8. Работа с должниками */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
-  const { session, dateRange, searchParams } = result.ctx
+  const { session, dateRange, searchParams, scope } = result.ctx
   const { tenantId } = session
   const { dateFrom, dateTo } = dateRange
-  const branchId = searchParams.get("branchId")
+  const rawBranchId = searchParams.get("branchId")
+  // ADM-04: пересечение фильтра и scope.
+  const branchId =
+    rawBranchId && (isUnscoped(scope) || scope.branchIds.includes(rawBranchId))
+      ? rawBranchId
+      : null
   const directionId = searchParams.get("directionId")
 
   const year = dateFrom.getUTCFullYear()
@@ -41,9 +47,15 @@ export async function GET(req: NextRequest) {
   }
   if (directionId) subWhere.directionId = directionId
   if (branchId) subWhere.group = { branchId }
+  // ADM-04: серверный scope (если он не перекрывается явным branchId выше).
+  const scopeFilter = scopeSubscription(scope)
+  const finalSubWhere =
+    Object.keys(scopeFilter).length > 0 && !branchId
+      ? { AND: [subWhere, scopeFilter] }
+      : subWhere
 
   const subs = await db.subscription.findMany({
-    where: subWhere,
+    where: finalSubWhere,
     select: {
       id: true,
       balance: true,

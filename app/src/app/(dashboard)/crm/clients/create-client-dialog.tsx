@@ -22,6 +22,11 @@ interface ChannelOption {
   name: string
 }
 
+interface BranchOption {
+  id: string
+  name: string
+}
+
 interface EmployeeOption {
   id: string
   firstName: string | null
@@ -74,6 +79,10 @@ export function CreateClientDialog({
   const [assignedTo, setAssignedTo] = useState<string>(myEmployeeId || "")
   const [employees, setEmployees] = useState<EmployeeOption[]>([])
   const [comment, setComment] = useState("")
+  // ADM-04: «Желаемый филиал» лида. Опционально. Влияет на видимость в /crm
+  // для админов с ограниченным доступом по филиалам.
+  const [branchId, setBranchId] = useState<string>("")
+  const [branches, setBranches] = useState<BranchOption[]>([])
   const [wards, setWards] = useState<WardInput[]>([])
 
   const { duplicates } = useDuplicateCheck(phone)
@@ -85,12 +94,13 @@ export function CreateClientDialog({
     }
   }, [myEmployeeId, assignedTo])
 
-  // Load channels + employees on open
+  // Load channels + employees + branches on open
   const loadOptions = async () => {
     try {
-      const [channelsRes, employeesRes] = await Promise.all([
+      const [channelsRes, employeesRes, branchesRes] = await Promise.all([
         fetch("/api/lead-channels"),
         fetch("/api/employees"),
+        fetch("/api/branches"),
       ])
       if (channelsRes.ok) {
         const data = await channelsRes.json()
@@ -98,6 +108,9 @@ export function CreateClientDialog({
       }
       if (employeesRes.ok) {
         setEmployees(await employeesRes.json())
+      }
+      if (branchesRes.ok) {
+        setBranches(await branchesRes.json())
       }
     } catch { /* ignore */ }
   }
@@ -113,6 +126,7 @@ export function CreateClientDialog({
     setChannelId("")
     setAssignedTo(myEmployeeId || "")
     setComment("")
+    setBranchId("")
     setWards([])
     setError(null)
   }
@@ -161,6 +175,7 @@ export function CreateClientDialog({
           email: email.trim() || undefined,
           socialLink: socialLink.trim() || undefined,
           channelId: channelId || undefined,
+          branchId: branchId || undefined,
           assignedTo: assignedTo || undefined,
           comment: comment.trim() || undefined,
           wards: wards
@@ -324,24 +339,52 @@ export function CreateClientDialog({
               </div>
             </div>
 
-            {/* Канал привлечения */}
-            {channels.length > 0 && (
-              <div>
-                <Label>Канал привлечения</Label>
-                <Select value={channelId} onValueChange={(v) => { if (v) setChannelId(v) }}>
-                  <SelectTrigger className="w-full">
-                    {channelId ? channels.find(c => c.id === channelId)?.name : <span className="text-muted-foreground">Откуда узнал</span>}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {channels.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            {/* Канал привлечения и желаемый филиал */}
+            <div className="grid grid-cols-2 gap-2">
+              {channels.length > 0 && (
+                <div>
+                  <Label>Канал привлечения</Label>
+                  <Select value={channelId} onValueChange={(v) => { if (v) setChannelId(v) }}>
+                    <SelectTrigger className="w-full">
+                      {channelId ? channels.find(c => c.id === channelId)?.name : <span className="text-muted-foreground">Откуда узнал</span>}
+                    </SelectTrigger>
+                    <SelectContent>
+                      {channels.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {branches.length > 0 && (
+                <div>
+                  <Label>Филиал (желаемый)</Label>
+                  <Select
+                    value={branchId || "__none__"}
+                    onValueChange={(v) => {
+                      if (v === "__none__" || v === null) setBranchId("")
+                      else setBranchId(v)
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      {branchId
+                        ? branches.find((b) => b.id === branchId)?.name ?? "—"
+                        : <span className="text-muted-foreground">Не выбран</span>}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Не выбран</SelectItem>
+                      {branches.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          {b.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
 
             {/* Ответственный */}
             <div>

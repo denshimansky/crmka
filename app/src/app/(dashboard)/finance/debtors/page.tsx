@@ -1,5 +1,6 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { scopeClientByBranch } from "@/lib/client-segments"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -20,13 +21,16 @@ function formatDate(date: Date | null): string {
 export default async function DebtorsPage() {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
+  const clientScope = scopeClientByBranch(scope)
 
-  // Клиенты с отрицательным балансом
+  // Клиенты с отрицательным балансом (ADM-04: сегментный scope).
   const debtors = await db.client.findMany({
     where: {
       tenantId,
       deletedAt: null,
       clientBalance: { lt: 0 },
+      ...(Object.keys(clientScope).length > 0 ? clientScope : {}),
     },
     select: {
       id: true,

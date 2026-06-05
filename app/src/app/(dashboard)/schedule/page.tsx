@@ -1,6 +1,14 @@
 import { cookies } from "next/headers"
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import {
+  scopeBranch,
+  scopeLesson,
+  scopeLessonForInstructor,
+  scopeRoom,
+  scopeTrialLesson,
+  isUnscoped,
+} from "@/lib/branch-scope"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ScheduleWeekNav, type ScheduleView } from "./schedule-week-nav"
@@ -16,6 +24,7 @@ import {
   offsetMonth,
   ymd,
 } from "@/lib/date/month-grid"
+import type { Prisma } from "@prisma/client"
 
 const ALLOWED_VIEWS = new Set<ScheduleView>(["week", "month"])
 const VIEW_COOKIE_NAME = "schedule_view"
@@ -85,6 +94,14 @@ export default async function SchedulePage({
 
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
+  // ADM-04: инструктор видит только свои занятия (instructorId=me либо
+  // substituteInstructorId=me) и только в своих филиалах. Админ — только
+  // в своих филиалах.
+  const lessonScope =
+    session.user.role === "instructor"
+      ? scopeLessonForInstructor(session.user.employeeId, scope)
+      : scopeLesson(scope)
 
   const { monday, sunday } = getWeekRange(weekOffset)
 
@@ -99,7 +116,7 @@ export default async function SchedulePage({
     : { start: monday, end: sunday }
 
   const branches = await db.branch.findMany({
-    where: { tenantId, deletedAt: null },
+    where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
     select: { id: true, name: true, workingHoursStart: true, workingHoursEnd: true },
     orderBy: { name: "asc" },
   })
@@ -121,17 +138,45 @@ export default async function SchedulePage({
   // Все кабинеты организации с привязкой к филиалу — нужны для вида «По неделе»,
   // в котором кабинеты пустого филиала тоже должны отображаться столбцами.
   const allRoomsRaw = await db.room.findMany({
-    where: { tenantId, deletedAt: null },
+    where: { tenantId, deletedAt: null, ...scopeRoom(scope) },
     select: { id: true, name: true, branchId: true },
     orderBy: { name: "asc" },
   })
 
   // Список подопечных для селекта фильтра (с ФИО родителя для уникальности тёзок).
   // Берём только активных, чтобы не загромождать список архивом.
+  // ADM-04: инструктор видит только детей своих групп (включая замены);
+  // админ — только детей групп своих филиалов.
+  const wardEnrollmentFilter: Prisma.GroupEnrollmentListRelationFilter | undefined =
+    session.user.role === "instructor"
+      ? {
+          some: {
+            isActive: true,
+            deletedAt: null,
+            group: {
+              OR: [
+                { instructorId: session.user.employeeId },
+                { lessons: { some: { substituteInstructorId: session.user.employeeId } } },
+              ],
+              ...(isUnscoped(scope) ? {} : { branchId: { in: scope.branchIds } }),
+            },
+          },
+        }
+      : isUnscoped(scope)
+        ? undefined
+        : {
+            some: {
+              isActive: true,
+              deletedAt: null,
+              group: { branchId: { in: scope.branchIds } },
+            },
+          }
+
   const wardsForFilter = await db.ward.findMany({
     where: {
       tenantId,
       client: { deletedAt: null },
+      ...(wardEnrollmentFilter ? { enrollments: wardEnrollmentFilter } : {}),
     },
     select: {
       id: true,
@@ -143,20 +188,26 @@ export default async function SchedulePage({
     take: 1000,
   })
 
+  // scope и фильтр по wardId оба используют ключ `group` — собираем через AND,
+  // чтобы не перезаписывать друг друга.
+  const lessonExtraConditions: Prisma.LessonWhereInput[] = []
+  if (Object.keys(lessonScope).length > 0) lessonExtraConditions.push(lessonScope)
+  if (wardIdFilter) {
+    lessonExtraConditions.push({
+      group: {
+        enrollments: {
+          some: { wardId: wardIdFilter, isActive: true, deletedAt: null },
+        },
+      },
+    })
+  }
+
   const lessons = await db.lesson.findMany({
     where: {
       tenantId,
       date: { gte: dateRange.start, lte: dateRange.end },
       status: { not: "cancelled" },
-      ...(wardIdFilter
-        ? {
-            group: {
-              enrollments: {
-                some: { wardId: wardIdFilter, isActive: true, deletedAt: null },
-              },
-            },
-          }
-        : {}),
+      ...(lessonExtraConditions.length > 0 ? { AND: lessonExtraConditions } : {}),
     },
     include: {
       group: {
@@ -228,7 +279,10 @@ export default async function SchedulePage({
   for (const s of scheduledMakeupRows) addExtra(s.scheduledMakeupLessonId, s.clientId, s.wardId)
   for (const m of markedMakeupRows) addExtra(m.lessonId, m.clientId, m.wardId)
 
-  // Индивидуальные пробные (без группы) — отображаются в общем расписании
+  // Индивидуальные пробные (без группы) — отображаются в общем расписании.
+  // ADM-04: инструктор видит только своё (instructorId=me); админ — в своих
+  // филиалах (через scopeTrialLesson).
+  const trialBranchScope = scopeTrialLesson(scope)
   const individualTrials = await db.trialLesson.findMany({
     where: {
       tenantId,
@@ -237,6 +291,9 @@ export default async function SchedulePage({
       groupId: null,
       lessonId: null,
       ...(wardIdFilter ? { wardId: wardIdFilter } : {}),
+      ...(session.user.role === "instructor"
+        ? { instructorId: session.user.employeeId }
+        : trialBranchScope),
     },
     select: {
       id: true,

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { branchScopeFromSession, type BranchScope } from "@/lib/branch-scope"
 
 export interface ReportSession {
   tenantId: string
   employeeId: string
   role: string
+  // ADM-04: scope филиалов из EmployeeBranch. Используется в WHERE-условиях.
+  allowedBranchIds: string[] | null
 }
 
 export interface DateRange {
@@ -17,6 +20,7 @@ export interface ReportContext {
   session: ReportSession
   dateRange: DateRange
   searchParams: URLSearchParams
+  scope: BranchScope
 }
 
 /**
@@ -46,15 +50,18 @@ export async function getReportContext(
     ? new Date(dateToStr)
     : new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59))
 
+  const allowedBranchIds = (user.allowedBranchIds ?? null) as string[] | null
   return {
     ctx: {
       session: {
         tenantId: user.tenantId,
         employeeId: user.employeeId,
         role: user.role,
+        allowedBranchIds,
       },
       dateRange: { dateFrom, dateTo },
       searchParams,
+      scope: branchScopeFromSession(allowedBranchIds),
     },
   }
 }

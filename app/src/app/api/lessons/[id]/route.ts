@@ -9,6 +9,40 @@ import { calcRefund } from "@/lib/balance/calc-refund"
 import { logAudit } from "@/lib/audit"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
+import {
+  branchScopeFromSession,
+  canAccessBranch,
+  canAccessLessonAsInstructor,
+} from "@/lib/branch-scope"
+
+// ADM-04: общая проверка доступа к занятию.
+// Возвращает 403, если у роли нет права читать/писать это занятие.
+async function checkLessonAccess(
+  lessonId: string,
+  tenantId: string,
+  role: string,
+  employeeId: string,
+  allowedBranchIds: string[] | null | undefined,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const lesson = await db.lesson.findFirst({
+    where: { id: lessonId, tenantId },
+    select: {
+      instructorId: true,
+      substituteInstructorId: true,
+      group: { select: { branchId: true } },
+    },
+  })
+  if (!lesson) return { ok: false, status: 404, error: "Занятие не найдено" }
+  const scope = branchScopeFromSession(allowedBranchIds)
+  if (role === "instructor") {
+    if (!canAccessLessonAsInstructor(lesson, employeeId)) {
+      return { ok: false, status: 403, error: "Нет доступа к этому занятию" }
+    }
+  } else if (!canAccessBranch(lesson.group.branchId, scope)) {
+    return { ok: false, status: 403, error: "Нет доступа к филиалу этого занятия" }
+  }
+  return { ok: true }
+}
 
 const updateSchema = z.object({
   topic: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
@@ -43,6 +77,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { id } = await params
   const tenantId = (session.user as any).tenantId
+  const role = (session.user as any).role
+  const employeeId = (session.user as any).employeeId
+  const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+
+  const access = await checkLessonAccess(id, tenantId, role, employeeId, allowedBranchIds)
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status })
 
   const lesson = await db.lesson.findFirst({
     where: { id, tenantId },
@@ -226,6 +266,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const tenantId = (session.user as any).tenantId
   const role = (session.user as any).role
   const employeeId = (session.user as any).employeeId
+  const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+
+  const access = await checkLessonAccess(id, tenantId, role, employeeId, allowedBranchIds)
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status })
 
   const body = await req.json()
   const parsed = updateSchema.safeParse(body)
@@ -527,6 +571,11 @@ export async function DELETE(
 
   const { id } = await params
   const tenantId = (session.user as any).tenantId
+  const employeeId = (session.user as any).employeeId
+  const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
+
+  const access = await checkLessonAccess(id, tenantId, role, employeeId, allowedBranchIds)
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status })
 
   const lesson = await db.lesson.findFirst({
     where: { id, tenantId },

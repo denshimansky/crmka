@@ -56,6 +56,34 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Нельзя изменить роль владельца" }, { status: 400 })
   }
 
+  // ADM-04: при редактировании сотрудника с ролью admin/instructor — нельзя
+  // явно «обнулить» привязки. Считаем эффективную роль и эффективный набор.
+  // Если ни роль, ни branchIds не меняются — пропускаем проверку.
+  const effectiveRole = data.role ?? existing.role
+  if ((effectiveRole === "admin" || effectiveRole === "instructor") && data.branchIds !== undefined) {
+    if (data.branchIds.length === 0) {
+      return NextResponse.json(
+        { error: "Для роли «администратор» и «инструктор» нужно оставить хотя бы один филиал" },
+        { status: 400 },
+      )
+    }
+  }
+  // Если сменили роль на admin/instructor без передачи branchIds — проверяем
+  // текущие привязки в БД. Если их нет — отбойник.
+  if (
+    data.role &&
+    (data.role === "admin" || data.role === "instructor") &&
+    data.branchIds === undefined
+  ) {
+    const linksCount = await db.employeeBranch.count({ where: { employeeId: id } })
+    if (linksCount === 0) {
+      return NextResponse.json(
+        { error: "Для роли «администратор» и «инструктор» нужно выбрать хотя бы один филиал" },
+        { status: 400 },
+      )
+    }
+  }
+
   // Обновляем привязки к филиалам если переданы
   if (data.branchIds) {
     await db.employeeBranch.deleteMany({ where: { employeeId: id } })

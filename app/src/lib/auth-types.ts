@@ -10,6 +10,9 @@ declare module "next-auth" {
       tenantId: string
       employeeId: string
       orgName: string
+      // null — доступ ко всем филиалам (owner/manager всегда; admin/instructor
+      // если EmployeeBranch пуст). Массив — ограниченный набор UUID. См. ADM-04.
+      allowedBranchIds: string[] | null
     }
   }
 }
@@ -20,5 +23,7 @@ declare module "next-auth/jwt" {
     tenantId: string
     employeeId: string
     orgName: string
+    allowedBranchIds: string[] | null
+    allowedBranchesCheckedAt?: number
   }
 }

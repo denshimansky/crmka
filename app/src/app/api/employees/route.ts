@@ -51,6 +51,15 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data
 
+  // ADM-04: для admin/instructor требуем ≥1 филиал при создании. Для существующих
+  // сотрудников без привязок политика не меняется (см. branch-scope.ts).
+  if ((data.role === "admin" || data.role === "instructor") && (!data.branchIds || data.branchIds.length === 0)) {
+    return NextResponse.json(
+      { error: "Для роли «администратор» и «инструктор» нужно выбрать хотя бы один филиал" },
+      { status: 400 },
+    )
+  }
+
   // Проверяем уникальность логина
   const existing = await db.employee.findFirst({
     where: { tenantId: session.user.tenantId, login: data.login, deletedAt: null },

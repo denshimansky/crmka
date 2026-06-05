@@ -72,6 +72,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       employeeId: owner.id,
       orgName: org.name,
       billingStatus: org.billingStatus,
+      // ADM-04: owner всегда видит все филиалы.
+      allowedBranchIds: null,
       // Маркер impersonation — чтобы показать плашку
       impersonatedBy: session.email,
       impersonatedAt: new Date().toISOString(),

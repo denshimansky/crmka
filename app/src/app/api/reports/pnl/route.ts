@@ -6,24 +6,38 @@ import {
   expenseAmountInWindow,
   AMORTIZATION_LOOKBACK_MONTHS,
 } from "@/lib/expense-amortization"
+import { isUnscoped, scopeExpense, scopePayment } from "@/lib/branch-scope"
 
 /** 7.2. Финансовый результат (P&L) с учётом периода признания расхода. */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
-  const { session, dateRange, searchParams } = result.ctx
+  const { session, dateRange, searchParams, scope } = result.ctx
   const { tenantId } = session
   const { dateFrom, dateTo } = dateRange
-  const branchId = searchParams.get("branchId")
+  const rawBranchId = searchParams.get("branchId")
+  // ADM-04: пересечение явного фильтра и scope.
+  const branchId =
+    rawBranchId && (isUnscoped(scope) || scope.branchIds.includes(rawBranchId))
+      ? rawBranchId
+      : null
   const showPercent = searchParams.get("showPercent") === "true" // 7.4 toggle
 
   // Выручка = списания за период (chargeAmount), как в ОПИУ — по дате занятия.
+  // ADM-04: фильтр группы по branchId либо по scope сессии.
+  const effectiveBranchIds = branchId
+    ? [branchId]
+    : isUnscoped(scope)
+      ? null
+      : scope.branchIds
   const attWhere: any = {
     tenantId,
-    lesson: { date: { gte: dateFrom, lte: dateTo } },
+    lesson: {
+      date: { gte: dateFrom, lte: dateTo },
+      ...(effectiveBranchIds ? { group: { branchId: { in: effectiveBranchIds } } } : {}),
+    },
     attendanceType: { countsAsRevenue: true },
   }
-  if (branchId) attWhere.lesson = { ...attWhere.lesson, group: { branchId } }
 
   const attendances = await db.attendance.findMany({
     where: attWhere,
@@ -59,15 +73,20 @@ export async function GET(req: NextRequest) {
   // Прочие доходы (вне абонементов): Payment без subscriptionId, с incomeCategoryId.
   // Учитываются по дате платежа (как в ДДС), refund исключаем. Разбивка по категориям
   // показывается отдельным блоком в P&L и входит в итоговый «Чистая прибыль».
+  const paymentScopeFilter = scopePayment(scope)
+  const otherIncomePaymentsBase: any = {
+    tenantId,
+    deletedAt: null,
+    subscriptionId: null,
+    incomeCategoryId: { not: null },
+    type: { in: ["incoming", "transfer_in"] },
+    date: { gte: dateFrom, lte: dateTo },
+  }
   const otherIncomePayments = await db.payment.findMany({
-    where: {
-      tenantId,
-      deletedAt: null,
-      subscriptionId: null,
-      incomeCategoryId: { not: null },
-      type: { in: ["incoming", "transfer_in"] },
-      date: { gte: dateFrom, lte: dateTo },
-    },
+    where:
+      Object.keys(paymentScopeFilter).length > 0
+        ? { AND: [otherIncomePaymentsBase, paymentScopeFilter] }
+        : otherIncomePaymentsBase,
     select: {
       amount: true,
       incomeCategoryId: true,
@@ -95,9 +114,15 @@ export async function GET(req: NextRequest) {
     date: { gte: expensesFrom, lte: dateTo },
   }
   if (branchId) expWhere.branches = { some: { branchId } }
+  // ADM-04: scope расходов (если не перекрыт явным branchId).
+  const expenseScopeFilter = scopeExpense(scope)
+  const finalExpWhere =
+    Object.keys(expenseScopeFilter).length > 0 && !branchId
+      ? { AND: [expWhere, expenseScopeFilter] }
+      : expWhere
 
   const expenses = await db.expense.findMany({
-    where: expWhere,
+    where: finalExpWhere,
     include: { category: { select: { id: true, name: true, isSalary: true, isVariable: true } } },
   })
 

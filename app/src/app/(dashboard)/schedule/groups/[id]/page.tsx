@@ -1,6 +1,7 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { notFound } from "next/navigation"
+import { isUnscoped } from "@/lib/branch-scope"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -63,6 +64,25 @@ export default async function GroupCardPage({
   })
 
   if (!group) notFound()
+
+  // ADM-04: проверка доступа.
+  // — Инструктор видит только свои группы (instructorId=me либо назначен как
+  //   substitute на любое из занятий группы).
+  // — Админ с ограниченным scope — только группы своих филиалов.
+  const scope = await getBranchScope()
+  if (session.user.role === "instructor") {
+    let isOwn = group.instructorId === session.user.employeeId
+    if (!isOwn) {
+      const substituteLesson = await db.lesson.findFirst({
+        where: { groupId: group.id, substituteInstructorId: session.user.employeeId },
+        select: { id: true },
+      })
+      isOwn = !!substituteLesson
+    }
+    if (!isOwn) notFound()
+  } else if (!isUnscoped(scope)) {
+    if (!scope.branchIds.includes(group.branchId)) notFound()
+  }
 
   // Занятия за текущий месяц (UTC для корректного сравнения с DATE)
   const now = new Date()

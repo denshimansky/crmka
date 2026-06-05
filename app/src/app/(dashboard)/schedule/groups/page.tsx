@@ -1,5 +1,6 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { scopeBranch, scopeRoom, isUnscoped } from "@/lib/branch-scope"
 import { Badge } from "@/components/ui/badge"
 import {
   Table,
@@ -27,6 +28,7 @@ export default async function GroupsPage({
   const showArchived = sp.showArchived === "1"
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
 
   // Множественный фильтр по филиалам: ?branches=id1,id2.
   // Пустой/отсутствующий — все филиалы.
@@ -35,6 +37,25 @@ export default async function GroupsPage({
     .map((s) => s.trim())
     .filter(Boolean)
 
+  // ADM-04: пересечение явного фильтра из URL и серверного scope. Если
+  // пользователь выбрал филиал, к которому у него нет доступа — он будет
+  // отфильтрован пересечением. Также инструктор видит только свои группы.
+  const effectiveBranchFilter = isUnscoped(scope)
+    ? branchFilter
+    : branchFilter.length > 0
+      ? branchFilter.filter((id) => scope.branchIds.includes(id))
+      : scope.branchIds
+
+  const groupOwnFilter =
+    session.user.role === "instructor"
+      ? {
+          OR: [
+            { instructorId: session.user.employeeId },
+            { lessons: { some: { substituteInstructorId: session.user.employeeId } } },
+          ],
+        }
+      : {}
+
   const [groups, directions, branches, rooms, instructors] = await Promise.all([
     db.group.findMany({
       where: {
@@ -42,7 +63,8 @@ export default async function GroupsPage({
         // Технические одноразовые группы в списке групп не показываем.
         isOneTime: false,
         ...(showArchived ? {} : { deletedAt: null }),
-        ...(branchFilter.length > 0 ? { branchId: { in: branchFilter } } : {}),
+        ...(effectiveBranchFilter.length > 0 ? { branchId: { in: effectiveBranchFilter } } : {}),
+        ...groupOwnFilter,
       },
       include: {
         direction: true,
@@ -59,11 +81,11 @@ export default async function GroupsPage({
       orderBy: { sortOrder: "asc" },
     }),
     db.branch.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
       include: { rooms: { where: { deletedAt: null } } },
     }),
     db.room.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...scopeRoom(scope) },
     }),
     db.employee.findMany({
       where: { tenantId, deletedAt: null, isActive: true, role: "instructor" },

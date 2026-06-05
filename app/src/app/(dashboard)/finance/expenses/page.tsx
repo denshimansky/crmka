@@ -1,7 +1,8 @@
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { scopeExpense, scopeBranch, scopeFinancialAccount } from "@/lib/branch-scope"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { TrendingDown, Repeat, BarChart3 } from "lucide-react"
@@ -17,6 +18,7 @@ function formatMoney(amount: number): string {
 export default async function ExpensesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
 
   const { year, month } = getMonthFromParams(await searchParams)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
@@ -27,6 +29,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       tenantId,
       deletedAt: null,
       date: { gte: monthStart, lte: monthEnd },
+      ...scopeExpense(scope),
     },
     include: {
       category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
@@ -63,13 +66,13 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
   })
 
   const accounts = await db.financialAccount.findMany({
-    where: { tenantId, deletedAt: null },
+    where: { tenantId, deletedAt: null, ...scopeFinancialAccount(scope) },
     select: { id: true, name: true },
     orderBy: { createdAt: "asc" },
   })
 
   const allBranches = await db.branch.findMany({
-    where: { tenantId, deletedAt: null },
+    where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
     select: { id: true, name: true },
     orderBy: { createdAt: "asc" },
   })

@@ -1,7 +1,9 @@
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { scopePayment, scopeFinancialAccount } from "@/lib/branch-scope"
+import { scopeClientByBranch } from "@/lib/client-segments"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -30,6 +32,10 @@ const METHOD_LABELS: Record<string, string> = {
 export default async function PaymentsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
+  const paymentScope = scopePayment(scope)
+  const accountScope = scopeFinancialAccount(scope)
+  const clientScope = scopeClientByBranch(scope)
 
   // Начало и конец месяца (UTC для корректного сравнения с DATE)
   const { year, month } = getMonthFromParams(await searchParams)
@@ -41,6 +47,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
       tenantId,
       deletedAt: null,
       date: { gte: monthStart, lte: monthEnd },
+      ...paymentScope,
     },
     include: {
       client: { select: { id: true, firstName: true, lastName: true } },
@@ -76,14 +83,18 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
 
   // Данные для диалога
   const clients = await db.client.findMany({
-    where: { tenantId, deletedAt: null },
+    where: {
+      tenantId,
+      deletedAt: null,
+      ...(Object.keys(clientScope).length > 0 ? clientScope : {}),
+    },
     select: { id: true, firstName: true, lastName: true },
     orderBy: { lastName: "asc" },
     take: 500,
   })
 
   const accounts = await db.financialAccount.findMany({
-    where: { tenantId, deletedAt: null },
+    where: { tenantId, deletedAt: null, ...accountScope },
     select: { id: true, name: true, type: true },
     orderBy: { createdAt: "asc" },
   })

@@ -1,18 +1,58 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { PageHelp } from "@/components/page-help"
 import { ChildrenTable, type ChildRow, type BranchOption } from "./children-table"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
+import { isUnscoped } from "@/lib/branch-scope"
+import { scopeClientByBranch } from "@/lib/client-segments"
 
 export default async function ChildrenPage() {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
+
+  // ADM-04: подопечный виден, если виден его родитель (по сегментной логике
+  // клиентов) ИЛИ если ребёнок зачислен в группу из филиалов scope. Для
+  // инструктора отдельная логика: только дети его групп.
+  const wardWhereScope =
+    session.user.role === "instructor"
+      ? {
+          enrollments: {
+            some: {
+              isActive: true,
+              deletedAt: null,
+              group: {
+                OR: [
+                  { instructorId: session.user.employeeId },
+                  { lessons: { some: { substituteInstructorId: session.user.employeeId } } },
+                ],
+                ...(isUnscoped(scope) ? {} : { branchId: { in: scope.branchIds } }),
+              },
+            },
+          },
+        }
+      : isUnscoped(scope)
+        ? {}
+        : {
+            OR: [
+              { client: scopeClientByBranch(scope) },
+              {
+                enrollments: {
+                  some: {
+                    isActive: true,
+                    deletedAt: null,
+                    group: { branchId: { in: scope.branchIds } },
+                  },
+                },
+              },
+            ],
+          }
 
   // Все подопечные тенанта вместе с родителем и его статусом в воронке/клиентской базе.
   // «Активный» считаем на уровне РЕБЁНКА (а не родителя): есть свой активный
   // абонемент ИЛИ числится в активной группе через активный Enrollment.
   const wards = await db.ward.findMany({
-    where: { tenantId, client: { deletedAt: null } },
+    where: { tenantId, client: { deletedAt: null }, ...wardWhereScope },
     include: {
       client: {
         select: {

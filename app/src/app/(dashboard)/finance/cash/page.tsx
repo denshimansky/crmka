@@ -1,5 +1,11 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import {
+  scopeBranch,
+  scopeFinancialAccount,
+  scopePayment,
+  scopeAccountOperation,
+} from "@/lib/branch-scope"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -38,9 +44,10 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
   const tenantId = session.user.tenantId
   const userRole = session.user.role
   const params = await searchParams
+  const scope = await getBranchScope()
 
   const accounts = await db.financialAccount.findMany({
-    where: { tenantId, deletedAt: null, isActive: true },
+    where: { tenantId, deletedAt: null, isActive: true, ...scopeFinancialAccount(scope) },
     include: { branch: { select: { id: true, name: true } } },
     orderBy: { createdAt: "asc" },
   })
@@ -59,6 +66,7 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
       tenantId,
       deletedAt: null,
       date: { gte: monthStart, lte: monthEnd },
+      ...scopePayment(scope),
     },
     select: { accountId: true, type: true, amount: true },
   })
@@ -69,6 +77,7 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
       tenantId,
       deletedAt: null,
       date: { gte: monthStart, lte: monthEnd },
+      ...scopeAccountOperation(scope),
     },
     include: {
       fromAccount: { select: { id: true, name: true } },
@@ -79,7 +88,7 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
 
   // Branches for dialog
   const branches = await db.branch.findMany({
-    where: { tenantId, deletedAt: null },
+    where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   })
