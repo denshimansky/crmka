@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
   Settings, Sparkles, ChevronDown, LogOut, Crown,
-  Target, Plug, Baby, Ticket,
+  Target, Plug, Baby, Ticket, ClipboardCheck,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import {
@@ -59,6 +59,7 @@ const financeItems: NavItem[] = [
 
 const otherItems: NavItem[] = [
   { title: "Расписание", href: "/schedule", icon: Calendar, permission: "schedule.view" },
+  { title: "Занятия", href: "/lessons", icon: ClipboardCheck, permission: "schedule.view" },
   { title: "Зарплата", href: "/salary", icon: Wallet, permission: "finance.salary" },
   { title: "Склад", href: "/stock", icon: Package, permission: "schedule.view" },
   { title: "Задачи", href: "/tasks", icon: ClipboardList, permission: "clients.view" },
