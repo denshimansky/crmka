@@ -137,10 +137,10 @@ export function AbsencesView({
       <Tabs value={tab} onValueChange={onTabChange}>
         <TabsList>
           <TabsTrigger value="noshow">
-            Только неявки <span className="ml-1 text-muted-foreground">({noShowCount})</span>
+            Не был <span className="ml-1 text-muted-foreground">({noShowCount})</span>
           </TabsTrigger>
           <TabsTrigger value="unmarked">
-            Все отклонения <span className="ml-1 text-muted-foreground">({unmarkedCount})</span>
+            Неотмеченные посещения <span className="ml-1 text-muted-foreground">({unmarkedCount})</span>
           </TabsTrigger>
         </TabsList>
       </Tabs>
