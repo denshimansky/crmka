@@ -2,29 +2,9 @@ import { PageHelp } from "@/components/page-help"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
-
-interface GroupRow {
-  id: string
-  name: string
-  direction: string
-  enrolled: number
-  onTrial: number
-  capacity: number
-  free: number
-  percent: number
-}
-
-interface AggRow {
-  capacity: number
-  enrolled: number
-  onTrial: number
-  free: number
-  percent: number
-}
+import { CapacityTable, type CapacityData, type AggRow, type GroupRow } from "./capacity-table"
 
 function pct(part: number, total: number): number {
   return total > 0 ? Math.round((part / total) * 100) : 0
@@ -59,7 +39,6 @@ export default async function CapacityReportPage() {
     : []
   const wardStageMap = new Map(wardStages.map(w => [w.id, w.salesStage]))
 
-  // Иерархия branch → room → groups
   interface RoomBucket {
     id: string
     name: string
@@ -151,7 +130,24 @@ export default async function CapacityReportPage() {
   }
   total.percent = pct(total.enrolled, total.capacity)
 
-  const branchList = [...branches.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"))
+  const data: CapacityData = {
+    total,
+    branches: [...branches.values()]
+      .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+      .map((b) => ({
+        id: b.id,
+        name: b.name,
+        agg: b.agg,
+        rooms: [...b.rooms.values()]
+          .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+          .map((r) => ({
+            id: r.id,
+            name: r.name,
+            agg: r.agg,
+            groups: r.groups,
+          })),
+      })),
+  }
 
   return (
     <div className="space-y-6">
@@ -170,154 +166,15 @@ export default async function CapacityReportPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-4">
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Групп</p>
-            <p className="text-2xl font-bold">{groups.length}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Занято мест</p>
-            <p className="text-2xl font-bold text-blue-600">{total.enrolled}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Свободно</p>
-            <p className="text-2xl font-bold text-green-600">{total.free}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Загрузка</p>
-            <p className="text-2xl font-bold">{total.percent}%</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {branchList.length === 0 ? (
+      {data.branches.length === 0 ? (
         <Card>
           <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
             Нет активных групп
           </CardContent>
         </Card>
       ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Филиал / Кабинет / Группа</TableHead>
-                <TableHead>Направление</TableHead>
-                <TableHead className="text-center">Всего мест</TableHead>
-                <TableHead className="text-center">Занято</TableHead>
-                <TableHead className="text-center">Записано на пробники</TableHead>
-                <TableHead className="text-center">Свободно</TableHead>
-                <TableHead className="text-right">% заполнения</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow className="bg-emerald-50/70 font-bold dark:bg-emerald-950/30">
-                <TableCell colSpan={2}>Итого</TableCell>
-                <TableCell className="text-center">{total.capacity}</TableCell>
-                <TableCell className="text-center text-blue-700">{total.enrolled}</TableCell>
-                <TableCell className="text-center text-cyan-700">
-                  {total.onTrial || ""}
-                </TableCell>
-                <TableCell className="text-center text-green-700">{total.free}</TableCell>
-                <TableCell className="text-right">{total.percent}%</TableCell>
-              </TableRow>
-
-              {branchList.map((branch) => {
-                const roomList = [...branch.rooms.values()].sort((a, b) =>
-                  a.name.localeCompare(b.name, "ru"),
-                )
-                return (
-                  <FragmentNode key={branch.id}>
-                    <TableRow className="bg-emerald-50/40 font-semibold dark:bg-emerald-950/15">
-                      <TableCell colSpan={2}>{branch.name}</TableCell>
-                      <TableCell className="text-center">{branch.agg.capacity}</TableCell>
-                      <TableCell className="text-center text-blue-700">{branch.agg.enrolled}</TableCell>
-                      <TableCell className="text-center text-cyan-700">
-                        {branch.agg.onTrial || ""}
-                      </TableCell>
-                      <TableCell className="text-center text-green-700">{branch.agg.free}</TableCell>
-                      <TableCell className="text-right">{branch.agg.percent}%</TableCell>
-                    </TableRow>
-
-                    {roomList.map((room) => (
-                      <FragmentNode key={room.id}>
-                        <TableRow className="bg-emerald-50/20 font-medium dark:bg-emerald-950/10">
-                          <TableCell colSpan={2} className="pl-8 text-emerald-900 dark:text-emerald-200">
-                            {room.name}
-                          </TableCell>
-                          <TableCell className="text-center">{room.agg.capacity}</TableCell>
-                          <TableCell className="text-center">{room.agg.enrolled}</TableCell>
-                          <TableCell className="text-center text-cyan-700">
-                            {room.agg.onTrial || ""}
-                          </TableCell>
-                          <TableCell className="text-center text-green-700">{room.agg.free}</TableCell>
-                          <TableCell className="text-right">{room.agg.percent}%</TableCell>
-                        </TableRow>
-
-                        {room.groups.map((g) => (
-                          <TableRow key={g.id}>
-                            <TableCell className="pl-16">
-                              <Link
-                                href={`/schedule/groups/${g.id}`}
-                                className="text-primary hover:underline"
-                              >
-                                {g.name}
-                              </Link>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">{g.direction}</TableCell>
-                            <TableCell className="text-center text-muted-foreground">
-                              {g.capacity}
-                            </TableCell>
-                            <TableCell className="text-center">{g.enrolled || ""}</TableCell>
-                            <TableCell className="text-center text-cyan-600">
-                              {g.onTrial || ""}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <span className={g.free > 0 ? "text-green-600" : "text-red-600 font-medium"}>
-                                {g.free}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {g.enrolled > 0 ? (
-                                <Badge
-                                  variant={
-                                    g.percent >= 90
-                                      ? "destructive"
-                                      : g.percent >= 70
-                                        ? "default"
-                                        : "outline"
-                                  }
-                                >
-                                  {g.percent}%
-                                </Badge>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </FragmentNode>
-                    ))}
-                  </FragmentNode>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </div>
+        <CapacityTable data={data} />
       )}
     </div>
   )
-}
-
-// Лёгкий обёрточный фрагмент, чтобы TypeScript принял группировку строк
-// в TableBody без лишних DOM-нод.
-function FragmentNode({ children }: { children: React.ReactNode }) {
-  return <>{children}</>
 }
