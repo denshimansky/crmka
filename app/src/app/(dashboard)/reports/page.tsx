@@ -58,6 +58,7 @@ const reportGroups: ReportGroup[] = [
     color: "text-green-600",
     reports: [
       { name: "Свободные места", href: "/reports/schedule/capacity", description: "Занято / свободно / % по группам", source: "enrollments" },
+      { name: "Загруженность центра", href: "/reports/schedule/load", description: "Часы занятий с явками / рабочие часы по филиалам и кабинетам", source: "lessons" },
       { name: "Посещения", href: "/reports/attendance/visits", description: "Явки, прогулы, перерасчёты по группам", source: "attendance" },
       { name: "Неотмеченные дети", href: "/reports/attendance/unmarked", description: "Занятия, где не проставлены посещения", source: "lessons" },
     ],
