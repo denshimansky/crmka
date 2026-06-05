@@ -327,9 +327,10 @@ const modules: Module[] = [
         name: "Неотмеченные дети",
         data: [
           { what: "Занятие: дата прошла", from: "Авто из расписания (генерация по шаблону группы)" },
-          { what: "Посещение: отсутствует запись по ученику", from: "Авто (нет строки в Attendance после прохода даты занятия)" },
+          { what: "Посещение: отсутствует запись по ученику", from: "Авто (нет строки в Attendance ИЛИ Attendance.isPending=true после прохода даты занятия)" },
+          { what: "Реестр в UI", from: "Вкладка «Неотмеченные посещения» в /lessons/absences (также дублируется на /reports/attendance/unmarked)" },
         ],
-        formula: "SELECT Enrollment WHERE Lesson.date < TODAY AND NOT EXISTS(Attendance for этого ученика на этом занятии)",
+        formula: "SELECT Enrollment WHERE Lesson.date < TODAY AND NOT EXISTS(Attendance for этого ученика на этом занятии) OR Attendance.isPending=true",
         status: "ok",
       },
       {
@@ -346,10 +347,11 @@ const modules: Module[] = [
         id: "ATT-11",
         name: "По посещениям",
         data: [
-          { what: "Посещение: тип (явка / прогул / перерасчёт / отработка), дата", from: "Отметка в attendance-table карточки занятия" },
-          { what: "Справочник видов дня", from: "Системные 4 предустановленных типа + добавление через настройки (если включено)" },
+          { what: "Посещение: тип (явка / прогул / перерасчёт / отработка), дата", from: "Отметка в attendance-table карточки занятия ИЛИ быстрая отметка по клику ячейки сетки /lessons/attendance" },
+          { what: "Справочник видов дня", from: "Системные коды (present/no_show/excused/absent/recalculation/makeup/makeup_scheduled) + кастомные через /settings/attendance-types" },
+          { what: "Сетка «строка-ученик × колонки-дни месяца»", from: "/lessons/attendance — фильтры филиал/кабинет/направление/педагог/группа, колонка «План» (число занятий) и «К оплате» (Subscription.balance)" },
         ],
-        formula: "COUNT(Attendance) GROUP BY type × DATE. Свод: COUNT каждого вида посещения по филиалам",
+        formula: "COUNT(Attendance) GROUP BY type × DATE. Свод: COUNT каждого вида посещения по филиалам. Сетка /lessons/attendance — UI для массовой отметки с цветной подсветкой по коду типа",
         status: "ok",
       },
       {
@@ -449,13 +451,12 @@ const modules: Module[] = [
         name: "Прогноз прибыли",
         data: [
           { what: "Активные абонементы (планируемая сумма)", from: "Авто (totalAmount активных)" },
-          { what: "Ставки ЗП + будущие занятия из расписания", from: "Будущие занятия — из шаблона группы (/schedule/groups); **ставки ЗП — UI отсутствует**" },
+          { what: "Ставки ЗП + будущие занятия из расписания", from: "Будущие занятия — из шаблона группы (/schedule/groups); ставки ЗП — диалог salary-rates-dialog в карточке сотрудника /staff/[id]" },
           { what: "Среднее по складу (переменные расходы)", from: "Перемещения в кабинеты на /stock/movements" },
           { what: "Плановые расходы по статьям", from: "Диалог в /finance/planned-expenses" },
         ],
         formula: "Прогноз прибыли = Сумма абонементов − Прогноз ЗП педагогов − Прогноз переменных расходов − Прогноз постоянных платежей. Прогноз ЗП — авто (расписание × ставки). Перемен. — среднее со склада. Постоян. — вручную (план)",
-        status: "partial",
-        gap: "Нет UI для редактирования SalaryRate — ставки задаются только через seed/API. Без UI владелец не может настроить ставку педагога после онбординга",
+        status: "ok",
       },
       {
         id: "FIN-14",
@@ -516,11 +517,10 @@ const modules: Module[] = [
         data: [
           { what: "Плановый расход: статья, плановая и фактическая сумма", from: "Диалог в /finance/planned-expenses" },
           { what: "Расход: флаг «повторяющийся»", from: "Чекбокс «Повторяющийся» в диалоге «Новый расход»" },
-          { what: "Ставки ЗП (для авто-подтягивания зарплат)", from: "**UI отсутствует** — ставки задаются через seed/API" },
+          { what: "Ставки ЗП (для авто-подтягивания зарплат)", from: "Диалог salary-rates-dialog в карточке сотрудника /staff/[id] (схема + сумма по направлениям)" },
         ],
         formula: "К оплате = План − Оплачено по каждой статье ДДС. ЗП педагогов — авто из ставок (не вручную)",
-        status: "partial",
-        gap: "Без UI для SalaryRate владелец не может корректировать ставки педагогов — план ЗП в календаре платежей будет неточным",
+        status: "ok",
       },
       {
         id: "FIN-25",
@@ -567,12 +567,11 @@ const modules: Module[] = [
         id: "FIN-31",
         name: "Контроль корректировок занятий (аудит)",
         data: [
-          { what: "Аудит-лог: изменения суммы списания в посещениях", from: "Должен записываться автоматически при ручной правке chargeAmount в attendance-table" },
+          { what: "Аудит-лог: изменения суммы списания в посещениях", from: "Авто: logAudit(...) вызывается в POST/DELETE /api/lessons/[id]/attendance при любой отметке/смене/сбросе" },
           { what: "Кто изменил, когда, было / стало", from: "Авто из AuditLog (employeeId, createdAt, changes JSON)" },
         ],
         formula: "SELECT AuditLog WHERE entity = Attendance AND field = chargeAmount. Разница = новое значение − старое. Период по changedAt",
-        status: "partial",
-        gap: "Поля для лога есть, но нужно проверить, что бэкенд действительно пишет в AuditLog при ручной правке chargeAmount",
+        status: "ok",
       },
       {
         id: "FIN-32",
@@ -609,13 +608,12 @@ const modules: Module[] = [
         id: "SAL-15",
         name: "Прогноз сдельной оплаты",
         data: [
-          { what: "Ставка ЗП: схема (за ученика / за занятие / фикс+за ученика)", from: "**UI отсутствует** — задаётся только через seed/API" },
+          { what: "Ставка ЗП: схема (за ученика / за занятие / фикс+за ученика)", from: "Диалог salary-rates-dialog в карточке сотрудника /staff/[id]: выбор схемы (SCHEME_LABELS) и суммы по направлениям" },
           { what: "Будущие занятия из расписания", from: "Шаблон группы в /schedule/groups + помесячная генерация" },
           { what: "Зачисления в группу: активные", from: "Зачисление учеников в карточке группы" },
         ],
         formula: "Сумма прогноз = SalaryRate.amount × Количество (база). База зависит от схемы: per_student → активные ученики на занятиях, per_lesson → кол-во занятий, fixed_plus_per_student → оклад + per_student. К оплате = Прогноз − Выплачено",
-        status: "partial",
-        gap: "Нет диалога редактирования SalaryRate в карточке сотрудника (/staff) или в /salary. Без него партнёр не сможет настроить ставки",
+        status: "ok",
       },
       {
         id: "SAL-16",
@@ -791,8 +789,8 @@ export default function RepsPage() {
       <div>
         <h1 className="text-2xl font-bold">Отчёты MVP × данные системы</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Сводка по всем отчётам, требуемым в MVP (1 июня 2026) — какие данные нужны,
-          откуда они берутся в текущем UI и где есть пробелы.
+          Сводка отчётов из PRD на актуальной версии (v1.5.6-alpha) — какие данные
+          нужны, откуда они берутся в текущем UI и где остаются пробелы.
         </p>
       </div>
 
@@ -918,7 +916,7 @@ export default function RepsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <AlertTriangle className="size-5 text-amber-600" />
-            Что нужно добавить — в схему БД и в UI
+            Что осталось — в схему БД и в UI (на v1.5.6-alpha)
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -929,6 +927,7 @@ export default function RepsPage() {
                 {" "}— модель <code className="rounded bg-muted px-1 py-0.5 text-xs">WithdrawalReason</code> с типом{" "}
                 <em>«ушёл с направления»</em> / <em>«закончил курс»</em> / <em>«другое»</em> + страница{" "}
                 <code className="rounded bg-muted px-1 py-0.5 text-xs">/settings/withdrawal-reasons</code> и Select в форме отчисления.
+                Сейчас поля <code className="rounded bg-muted px-1 py-0.5 text-xs">withdrawalReasonId</code> в Client/Subscription есть, но самой таблицы и страницы — нет.
                 Закроет CRM-23, CRM-29.
               </span>
             </li>
@@ -942,38 +941,47 @@ export default function RepsPage() {
               </span>
             </li>
             <li>
-              <span className="font-medium">UI редактирования ставок ЗП (SalaryRate)</span>
+              <span className="font-medium">completedCourse в отчёте оттока по направлениям</span>
               <span className="text-muted-foreground">
-                {" "}— диалог в карточке сотрудника <code className="rounded bg-muted px-1 py-0.5 text-xs">/staff/[id]</code> или
-                на странице <code className="rounded bg-muted px-1 py-0.5 text-xs">/salary</code>: схема (per_student / per_lesson / fixed_plus_per_student),
-                сумма по направлениям. Закроет FIN-12, FIN-24, SAL-15.
+                {" "}— в <code className="rounded bg-muted px-1 py-0.5 text-xs">/reports/churn-by-directions</code> колонка
+                «закончили курс» сейчас всегда 0. Зависит от справочника «Причины отчисления» (п. 1).
+                Закроет CRM-29.
               </span>
             </li>
             <li>
               <span className="font-medium">Диалог создания внутренних операций (AccountOperation)</span>
               <span className="text-muted-foreground">
-                {" "}— на странице <code className="rounded bg-muted px-1 py-0.5 text-xs">/finance/cash</code> добавить кнопку
-                «Выемка / инкассация / перевод между счетами». Закроет FIN-08 (ДДС).
+                {" "}— на странице <code className="rounded bg-muted px-1 py-0.5 text-xs">/finance/cash</code> сейчас есть только
+                AddAccountDialog / EditAccountDialog. Нужна кнопка «Выемка / инкассация / перевод между счетами»
+                (типы OP_TYPE_LABELS — owner_withdrawal / encashment / transfer — уже определены, диалога нет).
+                Закроет FIN-08 (ДДС).
               </span>
             </li>
             <li>
               <span className="font-medium">Enum для результата звонка + дата закрытия кампании</span>
               <span className="text-muted-foreground">
-                {" "}— заменить <code className="rounded bg-muted px-1 py-0.5 text-xs">CallCampaignItem.result: String</code>
+                {" "}— заменить <code className="rounded bg-muted px-1 py-0.5 text-xs">CallCampaignItem.result: String?</code>
                 на enum <code className="rounded bg-muted px-1 py-0.5 text-xs">CallResult</code>{" "}
                 (trial_scheduled / sale / refused / no_answer / callback) и добавить <code className="rounded bg-muted px-1 py-0.5 text-xs">CallCampaign.closedAt</code>.
                 Закроет CRM-33 / CALL-05.
               </span>
             </li>
             <li>
-              <span className="font-medium">Проверить покрытие аудит-логом</span>
+              <span className="font-medium">Аудит-лог разовых скидок</span>
               <span className="text-muted-foreground">
-                {" "}— убедиться, что бэкенд пишет в <code className="rounded bg-muted px-1 py-0.5 text-xs">AuditLog</code> при
-                ручной правке суммы списания в посещении и при создании разовой скидки.
-                Закроет FIN-31, FIN-32.
+                {" "}— при создании <code className="rounded bg-muted px-1 py-0.5 text-xs">Discount</code> с
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">type=one_time</code> в
+                EditSubscriptionDialog добавить вызов <code className="rounded bg-muted px-1 py-0.5 text-xs">logAudit(...)</code>.
+                Аудит правки <code className="rounded bg-muted px-1 py-0.5 text-xs">chargeAmount</code> посещений уже работает.
+                Закроет FIN-32.
               </span>
             </li>
           </ol>
+          <p className="mt-4 text-xs text-muted-foreground">
+            Закрыты в v1.5.6: UI редактирования SalaryRate (salary-rates-dialog в /staff/[id]) →
+            FIN-12, FIN-24, SAL-15. Аудит-лог отметок посещений (logAudit в POST/DELETE
+            /api/lessons/[id]/attendance) → FIN-31.
+          </p>
         </CardContent>
       </Card>
     </div>
