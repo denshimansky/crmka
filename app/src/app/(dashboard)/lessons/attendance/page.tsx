@@ -2,7 +2,7 @@ import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
-import { branchScopeFromSession, scopeBranch, scopeRoom } from "@/lib/branch-scope"
+import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
@@ -62,6 +62,7 @@ export default async function LessonsAttendancePage({
   const branchId = typeof sp.branchId === "string" && sp.branchId ? sp.branchId : undefined
   const roomId = typeof sp.roomId === "string" && sp.roomId ? sp.roomId : undefined
   const directionId = typeof sp.directionId === "string" && sp.directionId ? sp.directionId : undefined
+  const instructorId = typeof sp.instructorId === "string" && sp.instructorId ? sp.instructorId : undefined
   const groupId = typeof sp.groupId === "string" && sp.groupId ? sp.groupId : undefined
 
   const dateFrom = new Date(Date.UTC(year, month - 1, 1))
@@ -79,7 +80,7 @@ export default async function LessonsAttendancePage({
   })
 
   // === Справочники для фильтров ===
-  const [branches, rooms, directions] = await Promise.all([
+  const [branches, rooms, directions, instructors] = await Promise.all([
     db.branch.findMany({
       where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
       select: { id: true, name: true },
@@ -95,6 +96,17 @@ export default async function LessonsAttendancePage({
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    db.employee.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        isActive: true,
+        role: { in: ["instructor", "admin", "manager", "owner"] },
+        ...scopeEmployee(scope),
+      },
+      select: { id: true, firstName: true, lastName: true },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+    }),
   ])
 
   const groupWhere: Prisma.GroupWhereInput = { tenantId, deletedAt: null, isOneTime: false }
@@ -102,6 +114,7 @@ export default async function LessonsAttendancePage({
   else if (scope.mode === "limited") groupWhere.branchId = { in: scope.branchIds }
   if (roomId) groupWhere.roomId = roomId
   if (directionId) groupWhere.directionId = directionId
+  if (instructorId) groupWhere.instructorId = instructorId
 
   const groups = await db.group.findMany({
     where: groupWhere,
@@ -119,11 +132,30 @@ export default async function LessonsAttendancePage({
     orderBy: { name: "asc" },
   })
 
-  const groupOptions = groups.map((g) => ({
+  // Для селекта групп нужен исходный список без сужения по выбранной группе,
+  // плюс instructorId, чтобы Группа реактивно фильтровалась на клиенте.
+  const groupOptionsRaw = await db.group.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      isOneTime: false,
+      ...(scope.mode === "limited" ? { branchId: { in: scope.branchIds } } : {}),
+    },
+    select: {
+      id: true,
+      name: true,
+      branchId: true,
+      directionId: true,
+      instructorId: true,
+    },
+    orderBy: { name: "asc" },
+  })
+  const groupOptions = groupOptionsRaw.map((g) => ({
     id: g.id,
     name: g.name,
     branchId: g.branchId,
     directionId: g.directionId,
+    instructorId: g.instructorId,
   }))
 
   const effectiveGroupIds = groupId
@@ -363,11 +395,16 @@ export default async function LessonsAttendancePage({
         branchId={branchId ?? ""}
         roomId={roomId ?? ""}
         directionId={directionId ?? ""}
+        instructorId={instructorId ?? ""}
         groupId={groupId ?? ""}
         filterOptions={{
           branches: branches.map((b) => ({ id: b.id, name: b.name })),
           rooms: rooms.map((r) => ({ id: r.id, name: r.name, branchId: r.branchId })),
           directions: directions.map((d) => ({ id: d.id, name: d.name })),
+          instructors: instructors.map((e) => ({
+            id: e.id,
+            name: instructorShortName(e),
+          })),
           groups: groupOptions,
         }}
         typeOptions={typeOptions}

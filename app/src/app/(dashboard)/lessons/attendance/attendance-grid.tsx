@@ -38,12 +38,14 @@ interface AttendanceGridProps {
   branchId: string
   roomId: string
   directionId: string
+  instructorId: string
   groupId: string
   filterOptions: {
     branches: FilterOption[]
     rooms: { id: string; name: string; branchId: string }[]
     directions: FilterOption[]
-    groups: { id: string; name: string; branchId: string; directionId: string }[]
+    instructors: { id: string; name: string }[]
+    groups: { id: string; name: string; branchId: string; directionId: string; instructorId: string }[]
   }
   typeOptions: AttendanceTypeOption[]
 }
@@ -109,6 +111,7 @@ export function AttendanceGrid({
   branchId,
   roomId,
   directionId,
+  instructorId,
   groupId,
   filterOptions,
   typeOptions,
@@ -140,8 +143,9 @@ export function AttendanceGrid({
     let g = filterOptions.groups
     if (branchId) g = g.filter((x) => x.branchId === branchId)
     if (directionId) g = g.filter((x) => x.directionId === directionId)
+    if (instructorId) g = g.filter((x) => x.instructorId === instructorId)
     return g
-  }, [branchId, directionId, filterOptions.groups])
+  }, [branchId, directionId, instructorId, filterOptions.groups])
 
   async function markCell(
     cellKey: string,
@@ -271,6 +275,31 @@ export function AttendanceGrid({
         </div>
 
         <div className="space-y-1">
+          <Label className="text-xs">Педагог</Label>
+          <Select
+            value={instructorId || ALL_VALUE}
+            onValueChange={(v) =>
+              updateParam({
+                instructorId: v === ALL_VALUE ? null : v,
+                groupId: null,
+              })
+            }
+          >
+            <SelectTrigger className="w-[220px]">
+              {instructorId
+                ? filterOptions.instructors.find((i) => i.id === instructorId)?.name || "—"
+                : "Все педагоги"}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_VALUE}>Все педагоги</SelectItem>
+              {filterOptions.instructors.map((i) => (
+                <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1">
           <Label className="text-xs">Группа</Label>
           <Select
             value={groupId || ALL_VALUE}
@@ -290,7 +319,7 @@ export function AttendanceGrid({
           </Select>
         </div>
 
-        {(branchId || roomId || directionId || groupId) && (
+        {(branchId || roomId || directionId || instructorId || groupId) && (
           <Button
             variant="ghost"
             onClick={() =>
@@ -298,6 +327,7 @@ export function AttendanceGrid({
                 branchId: null,
                 roomId: null,
                 directionId: null,
+                instructorId: null,
                 groupId: null,
               })
             }
