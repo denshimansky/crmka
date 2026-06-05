@@ -2,14 +2,12 @@ import Link from "next/link"
 import { UserX, ClipboardCheck } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
 import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 
 interface Tile {
   href: string
   title: string
   description: string
   icon: typeof UserX
-  disabled?: boolean
 }
 
 const tiles: Tile[] = [
@@ -22,9 +20,8 @@ const tiles: Tile[] = [
   {
     href: "/lessons/attendance",
     title: "Посещения",
-    description: "Сводная таблица посещений по группам и периодам",
+    description: "Сетка посещений по группам и дням месяца",
     icon: ClipboardCheck,
-    disabled: true,
   },
 ]
 
@@ -44,32 +41,21 @@ export default function LessonsPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map((tile) => {
           const Icon = tile.icon
-          const inner = (
-            <Card className="h-full transition-colors hover:bg-muted/50">
-              <CardContent className="flex h-full flex-col gap-3 p-5">
-                <div className="flex items-start justify-between gap-2">
+          return (
+            <Link key={tile.href} href={tile.href} className="block">
+              <Card className="h-full transition-colors hover:bg-muted/50">
+                <CardContent className="flex h-full flex-col gap-3 p-5">
                   <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
                     <Icon className="size-5" />
                   </div>
-                  {tile.disabled && (
-                    <Badge variant="outline" className="text-xs">
-                      Скоро
-                    </Badge>
-                  )}
-                </div>
-                <div>
-                  <p className="font-semibold">{tile.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {tile.description}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )
-
-          return (
-            <Link key={tile.href} href={tile.href} className="block">
-              {inner}
+                  <div>
+                    <p className="font-semibold">{tile.title}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {tile.description}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
             </Link>
           )
         })}
