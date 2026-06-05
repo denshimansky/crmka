@@ -8,7 +8,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -160,7 +159,9 @@ export function AbsencesView({
             }
           >
             <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Все" />
+              {branchId
+                ? filterOptions.branches.find((b) => b.id === branchId)?.name || "—"
+                : "Все филиалы"}
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_VALUE}>Все филиалы</SelectItem>
@@ -178,7 +179,9 @@ export function AbsencesView({
             onValueChange={(v) => updateParam({ roomId: v === ALL_VALUE ? null : v })}
           >
             <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Все" />
+              {roomId
+                ? visibleRooms.find((r) => r.id === roomId)?.name || "—"
+                : "Все кабинеты"}
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_VALUE}>Все кабинеты</SelectItem>
@@ -196,7 +199,9 @@ export function AbsencesView({
             onValueChange={(v) => updateParam({ directionId: v === ALL_VALUE ? null : v })}
           >
             <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Все" />
+              {directionId
+                ? filterOptions.directions.find((d) => d.id === directionId)?.name || "—"
+                : "Все направления"}
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_VALUE}>Все направления</SelectItem>
@@ -214,7 +219,9 @@ export function AbsencesView({
             onValueChange={(v) => updateParam({ instructorId: v === ALL_VALUE ? null : v })}
           >
             <SelectTrigger className="w-[220px]">
-              <SelectValue placeholder="Все" />
+              {instructorId
+                ? filterOptions.instructors.find((i) => i.id === instructorId)?.name || "—"
+                : "Все педагоги"}
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_VALUE}>Все педагоги</SelectItem>
