@@ -616,9 +616,6 @@ function SettingsTab({
   const [infoEndDate, setInfoEndDate] = useState(groupInfo.endDate ?? "")
   const [infoSaving, setInfoSaving] = useState(false)
   const [infoResult, setInfoResult] = useState<{ type: "success" | "error"; message: string } | null>(null)
-  // Перегенерация по диапазону группы (баг #45) — independent от ручной по месяцу.
-  const [rangeRegenLoading, setRangeRegenLoading] = useState(false)
-  const [rangeRegenMessage, setRangeRegenMessage] = useState<string | null>(null)
 
   const selectedBranch = branches.find((b) => b.id === infoBranchId)
   const availableRooms = selectedBranch?.rooms ?? []
@@ -655,48 +652,6 @@ function SettingsTab({
     }
   }
 
-  // Перегенерация по диапазону группы — сначала фиксируем даты, потом дёргаем
-  // /regenerate. Поведение additive: уже отмеченные занятия не трогаем,
-  // только добиваем недостающие в [startDate, endDate].
-  async function handleRangeRegenerate() {
-    setRangeRegenLoading(true)
-    setRangeRegenMessage(null)
-    setInfoResult(null)
-    try {
-      const saveRes = await fetch(`/api/groups/${groupId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          startDate: infoStartDate || null,
-          endDate: infoEndDate || null,
-        }),
-      })
-      if (!saveRes.ok) {
-        const data = await saveRes.json().catch(() => ({}))
-        setRangeRegenMessage(data.error || "Не удалось сохранить даты")
-        return
-      }
-      const regenRes = await fetch(`/api/groups/${groupId}/regenerate`, {
-        method: "POST",
-      })
-      const data = await regenRes.json()
-      if (!regenRes.ok) {
-        setRangeRegenMessage(data.error || "Ошибка перегенерации")
-        return
-      }
-      setRangeRegenMessage(
-        data.created === 0
-          ? `Все занятия уже существуют (${data.rangeStart} – ${data.rangeEnd})`
-          : `Создано ${data.created} занятий (${data.rangeStart} – ${data.rangeEnd})${data.skipped > 0 ? `, пропущено ${data.skipped} нерабочих` : ""}`,
-      )
-      onRefresh()
-    } catch {
-      setRangeRegenMessage("Ошибка сети")
-    } finally {
-      setRangeRegenLoading(false)
-    }
-  }
-
   // --- Шаблоны расписания ---
   const [rows, setRows] = useState<EditableTemplate[]>(() =>
     templates.map((t) => ({
@@ -711,6 +666,7 @@ function SettingsTab({
   const [regenerating, setRegenerating] = useState(false)
   const [regenResult, setRegenResult] = useState<string | null>(null)
   const [regenDialogOpen, setRegenDialogOpen] = useState(false)
+  const [regenMode, setRegenMode] = useState<"range" | "month">("range")
   const [regenMonth, setRegenMonth] = useState(currentMonth)
   const [regenYear, setRegenYear] = useState(currentYear)
 
@@ -765,19 +721,55 @@ function SettingsTab({
     }
   }
 
+  // Перегенерация — additive: существующие занятия (в т.ч. отмеченные/оплаченные)
+  // не трогаем, только добиваем недостающие по текущим шаблонам. Два режима:
+  //  • range — по всему сроку жизни группы [startDate, endDate] (сначала
+  //    сохраняем даты, чтобы backdating старта/сдвиг окончания вступили в силу),
+  //  • month — точечно за выбранный месяц.
   async function handleRegenerate() {
     setRegenerating(true)
     setRegenResult(null)
     try {
-      const res = await fetch(`/api/groups/${groupId}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month: regenMonth, year: regenYear }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setRegenResult(data.error || "Ошибка генерации")
+      if (regenMode === "range") {
+        const saveRes = await fetch(`/api/groups/${groupId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            startDate: infoStartDate || null,
+            endDate: infoEndDate || null,
+          }),
+        })
+        if (!saveRes.ok) {
+          const data = await saveRes.json().catch(() => ({}))
+          setRegenResult(data.error || "Не удалось сохранить даты группы")
+          return
+        }
+        const regenRes = await fetch(`/api/groups/${groupId}/regenerate`, {
+          method: "POST",
+        })
+        const data = await regenRes.json()
+        if (!regenRes.ok) {
+          setRegenResult(data.error || "Ошибка перегенерации")
+          return
+        }
+        setRegenResult(
+          data.created === 0
+            ? `Все занятия уже существуют (${data.rangeStart} – ${data.rangeEnd})`
+            : `Создано ${data.created} занятий (${data.rangeStart} – ${data.rangeEnd})${data.skipped > 0 ? `, пропущено ${data.skipped} нерабочих` : ""}`,
+        )
+        setRegenDialogOpen(false)
+        onRefresh()
       } else {
+        const res = await fetch(`/api/groups/${groupId}/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ month: regenMonth, year: regenYear }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          setRegenResult(data.error || "Ошибка генерации")
+          return
+        }
         setRegenResult(data.message)
         setRegenDialogOpen(false)
         onRefresh()
@@ -929,30 +921,126 @@ function SettingsTab({
             </div>
           </div>
 
-          <div className="rounded-md border p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm">
-                <div className="font-medium">Перегенерировать расписание по диапазону группы</div>
-                <div className="text-xs text-muted-foreground">
-                  Сохранит уже отмеченные занятия, добавит недостающие в [старт, окончание].
-                  Используйте после смены дат или backdating старта.
+          <div className="rounded-md border p-3 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="text-sm space-y-1">
+                <div className="font-medium">Перегенерировать расписание</div>
+                <div className="text-xs text-muted-foreground space-y-1.5">
+                  <p>
+                    Создаёт занятия по текущим шаблонам расписания группы. Уже существующие занятия —
+                    в том числе отмеченные, оплаченные и проведённые — <b>не трогаются</b>: кнопка только
+                    добавляет недостающие. Нерабочие дни из производственного календаря пропускаются.
+                  </p>
+                  <p>
+                    <b>Когда нужно:</b> сменили даты старта/окончания группы (в том числе задним числом),
+                    добавили новый день в шаблон расписания, или хотите догенерировать занятия на следующий
+                    месяц.
+                  </p>
+                  <p>
+                    В диалоге можно выбрать: <b>по всему сроку жизни группы</b> (от старта до окончания —
+                    удобно после смены дат) или <b>за один конкретный месяц</b> (точечно — удобно после
+                    правки шаблонов).
+                  </p>
                 </div>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleRangeRegenerate}
-                disabled={rangeRegenLoading || infoSaving}
+              <Dialog
+                open={regenDialogOpen}
+                onOpenChange={(v) => {
+                  setRegenDialogOpen(v)
+                  if (!v) setRegenResult(null)
+                }}
               >
-                {rangeRegenLoading ? "Идёт..." : "Перегенерировать"}
-              </Button>
+                <DialogTrigger
+                  render={
+                    <Button type="button" variant="outline" size="sm" disabled={infoSaving} />
+                  }
+                >
+                  <CalendarDays className="mr-2 size-4" />
+                  Перегенерировать
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Перегенерация занятий</DialogTitle>
+                    <DialogDescription>
+                      Занятия создаются по текущим шаблонам. Существующие занятия не затрагиваются —
+                      добавляются только недостающие.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Что генерируем</Label>
+                      <Select
+                        value={regenMode}
+                        onValueChange={(v) => {
+                          if (v === "range" || v === "month") setRegenMode(v)
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          {regenMode === "range"
+                            ? "По всему сроку жизни группы"
+                            : "За конкретный месяц"}
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="range">По всему сроку жизни группы</SelectItem>
+                          <SelectItem value="month">За конкретный месяц</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {regenMode === "range" ? (
+                      <p className="text-xs text-muted-foreground">
+                        Диапазон: <b>{infoStartDate || "не задан"}</b> —{" "}
+                        <b>{infoEndDate || "+1 год от старта"}</b>. Текущие значения дат из формы
+                        будут сохранены перед запуском.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Месяц</Label>
+                          <Select
+                            value={String(regenMonth)}
+                            onValueChange={(v) => {
+                              if (v) setRegenMonth(parseInt(v))
+                            }}
+                          >
+                            <SelectTrigger className="w-full">
+                              {MONTH_OPTIONS.find((m) => String(m.value) === String(regenMonth))
+                                ?.label ?? <span className="text-muted-foreground">Месяц</span>}
+                            </SelectTrigger>
+                            <SelectContent>
+                              {MONTH_OPTIONS.map((m) => (
+                                <SelectItem key={m.value} value={String(m.value)}>
+                                  {m.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Год</Label>
+                          <Input
+                            type="number"
+                            value={regenYear}
+                            onChange={(e) =>
+                              setRegenYear(parseInt(e.target.value) || currentYear)
+                            }
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {regenResult && (
+                    <div className="rounded-md bg-muted p-3 text-sm">{regenResult}</div>
+                  )}
+                  <DialogFooter>
+                    <DialogClose render={<Button variant="outline" />}>Отмена</DialogClose>
+                    <Button onClick={handleRegenerate} disabled={regenerating}>
+                      {regenerating ? "Идёт..." : "Запустить"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
-            {rangeRegenMessage && (
-              <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
-                {rangeRegenMessage}
-              </p>
-            )}
           </div>
 
           {infoResult && (
@@ -1075,57 +1163,6 @@ function SettingsTab({
           <Button onClick={handleSave} disabled={saving}>
             {saving ? "Сохранение..." : "Сохранить расписание"}
           </Button>
-
-          <Dialog open={regenDialogOpen} onOpenChange={(v) => { setRegenDialogOpen(v); if (!v) setRegenResult(null) }}>
-            <DialogTrigger render={<Button variant="outline" />}>
-              <CalendarDays className="mr-2 size-4" />
-              Перегенерировать
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Перегенерация занятий</DialogTitle>
-                <DialogDescription>
-                  Новые занятия будут созданы по текущим шаблонам расписания. Существующие занятия не затрагиваются.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Месяц</Label>
-                  <Select value={String(regenMonth)} onValueChange={(v) => { if (v) setRegenMonth(parseInt(v)) }}>
-                    <SelectTrigger className="w-full">
-                      {MONTH_OPTIONS.find(m => String(m.value) === String(regenMonth))?.label ?? <span className="text-muted-foreground">Месяц</span>}
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MONTH_OPTIONS.map((m) => (
-                        <SelectItem key={m.value} value={String(m.value)}>
-                          {m.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Год</Label>
-                  <Input
-                    type="number"
-                    value={regenYear}
-                    onChange={(e) => setRegenYear(parseInt(e.target.value) || currentYear)}
-                  />
-                </div>
-              </div>
-              {regenResult && (
-                <div className="rounded-md bg-muted p-3 text-sm">{regenResult}</div>
-              )}
-              <DialogFooter>
-                <DialogClose render={<Button variant="outline" />}>
-                  Отмена
-                </DialogClose>
-                <Button onClick={handleRegenerate} disabled={regenerating}>
-                  {regenerating ? "Генерация..." : "Сгенерировать"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 
