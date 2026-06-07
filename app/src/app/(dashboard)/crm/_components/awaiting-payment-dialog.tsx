@@ -18,7 +18,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
+import { Calendar } from "@/components/ui/calendar"
 import { AlertCircle, Loader2 } from "lucide-react"
 
 interface BranchOption {
@@ -81,6 +81,9 @@ export function AwaitingPaymentDialog({
   const [directionId, setDirectionId] = useState<string>(defaultDirectionId ?? "")
   const [groupId, setGroupId] = useState<string>(defaultGroupId ?? "")
   const [firstPaidDate, setFirstPaidDate] = useState<string>("")
+  // Реальные даты занятий выбранной группы. null = ещё не загружено или
+  // группа не выбрана; [] = группа выбрана, занятий нет (нужна перегенерация).
+  const [groupLessonDates, setGroupLessonDates] = useState<string[] | null>(null)
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -149,33 +152,64 @@ export function AwaitingPaymentDialog({
       setDirectionId(defaultDirectionId ?? "")
       setGroupId(defaultGroupId ?? "")
       setFirstPaidDate("")
+      setGroupLessonDates(null)
       setError(null)
     }
   }, [open, defaultBranchId, defaultDirectionId, defaultGroupId])
 
+  // Подгружаем реальные даты занятий выбранной группы — чтобы в календаре
+  // первого платного были подсвечены и кликабельны только фактические даты
+  // (тот же паттерн, что и в форме записи на пробное).
+  useEffect(() => {
+    if (!groupId) {
+      setGroupLessonDates(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/groups/${groupId}/lessons`)
+        if (cancelled) return
+        if (!res.ok) {
+          setGroupLessonDates([])
+          return
+        }
+        const lessons: { date: string }[] = await res.json()
+        if (cancelled) return
+        const dates = lessons.map((l) => l.date.slice(0, 10))
+        setGroupLessonDates(dates)
+        // Если уже выбранная дата вне списка — сдвигаем на ближайшее занятие.
+        if (dates.length > 0 && firstPaidDate && !dates.includes(firstPaidDate)) {
+          setFirstPaidDate(dates[0])
+        }
+      } catch {
+        if (!cancelled) setGroupLessonDates([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // firstPaidDate намеренно не в deps: иначе ручной выбор даты юзером
+    // (даже валидной) будет триггерить лишний фетч.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId])
+
   // Валидация подставленных дефолтов после загрузки справочников: если
   // переданная группа/направление не существует в загруженных данных — чистим,
-  // чтобы не отправить мусор. Прежний useEffect здесь стирал groupId на каждом
-  // рендере и затирал подставленную из заявки группу.
+  // чтобы не отправить мусор. Запускается, когда справочники реально загружены
+  // (groups.length > 0): иначе первый прогон на mount с пустым массивом затирал
+  // переданный из строки defaultGroupId.
   useEffect(() => {
     if (loadingOptions) return
+    if (groups.length === 0) return
     if (groupId) {
       const g = groups.find((x) => x.id === groupId)
       if (!g || g.branchId !== branchId || g.directionId !== directionId) {
         setGroupId("")
       }
     }
-    if (directionId && branchId) {
-      const directionAvailable = groups.some(
-        (g) => g.directionId === directionId && g.branchId === branchId,
-      )
-      if (!directionAvailable && directions.length > 0) {
-        // Направление выбрано, но в этом филиале групп под него нет — оставляем
-        // как подсказку, пользователь сам перевыберет (поведение прежнее).
-      }
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadingOptions])
+  }, [loadingOptions, groups.length])
 
   const filteredDirections = useMemo(() => {
     if (!branchId) return directions
@@ -351,10 +385,16 @@ export function AwaitingPaymentDialog({
 
             <div className="space-y-1.5">
               <Label>Дата первого платного занятия *</Label>
-              <Input
-                type="date"
+              <Calendar
                 value={firstPaidDate}
-                onChange={(e) => setFirstPaidDate(e.target.value)}
+                onChange={setFirstPaidDate}
+                availableDates={
+                  groupId && groupLessonDates
+                    ? new Set(groupLessonDates)
+                    : undefined
+                }
+                disabled={!groupId}
+                emptyHint="У группы нет будущих занятий. Перегенерируйте расписание группы."
               />
             </div>
           </div>
