@@ -138,10 +138,17 @@ export async function POST(req: NextRequest) {
         direction: { select: { id: true, name: true, color: true } },
       },
     })
-    // Воронка продаж по подопечному — после оплаты или ручного перевода она будет другой,
-    // но новая заявка всегда поднимает Ward в стадию «Заявка», если он ещё в none.
+    // Новая активная заявка возвращает Ward на стадию «Заявка», чтобы её
+    // было видно на одноимённой вкладке Продаж. Исключение — awaiting_payment:
+    // в нём идёт оплата абонемента, и сбрасывать этот прогресс новой заявкой
+    // на другое направление не стоит. trial_scheduled/trial_attended от прошлого
+    // цикла обнуляем — иначе ребёнок «застревает» в Прошёл пробное и активная
+    // заявка нигде не видна.
     await tx.ward.updateMany({
-      where: { id: data.wardId, salesStage: "none" },
+      where: {
+        id: data.wardId,
+        salesStage: { notIn: ["application", "awaiting_payment"] },
+      },
       data: { salesStage: "application", salesStageAt: new Date() },
     })
     return created
