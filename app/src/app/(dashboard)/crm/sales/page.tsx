@@ -439,6 +439,28 @@ export default async function SalesPage({
             lesson: { select: { startTime: true } },
           },
         },
+        // Свежесозданный абонемент на стадии awaiting_payment — fallback для
+        // филиала/направления/группы и даты первого платного, когда пробного
+        // не было (Заявка → сразу Ожидание оплаты). На trial_done подписки
+        // ещё нет — массив придёт пустым, ничего не ломается.
+        subscriptions: {
+          where: { status: { in: ["pending", "active"] }, deletedAt: null },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            id: true,
+            startDate: true,
+            finalAmount: true,
+            direction: { select: { id: true, name: true, lessonPrice: true } },
+            group: {
+              select: {
+                id: true,
+                name: true,
+                branch: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
         // Комментарий «по заявке» показываем во всех вкладках продаж — берём
         // последнюю не-удалённую заявку подопечного (на этих стадиях она, как
         // правило, уже processed).
@@ -454,13 +476,19 @@ export default async function SalesPage({
 
     rows = wards.map((w) => {
       const t = w.trialLessons[0]
+      const sub = w.subscriptions[0]
       const app = w.applications[0]
-      const direction = t?.group?.direction ?? t?.direction ?? null
-      const lessonPrice = direction?.lessonPrice ? Number(direction.lessonPrice) : 0
-      // Простая оценка: 8 занятий × стоимость занятия (фактическое количество
-      // зависит от расписания группы и месяца — уточняется при оформлении абонемента).
+      // Источник истины — пробное; абонемент подхватывает пустоту для пути
+      // «Заявка → Ожидание оплаты» (пробного нет).
+      const direction =
+        t?.group?.direction ?? t?.direction ?? sub?.direction ?? null
+      const groupInfo = t?.group ?? sub?.group ?? null
+      const branchFromTrialOrSub =
+        t?.group?.branch ?? t?.room?.branch ?? sub?.group?.branch ?? null
       const expected =
-        tab === "awaiting_payment" && lessonPrice > 0 ? fmtMoney(lessonPrice * 8) : null
+        tab === "awaiting_payment" && sub
+          ? fmtMoney(Number(sub.finalAmount))
+          : null
       return {
         rowId: w.id,
         applicationId: app?.id,
@@ -472,15 +500,13 @@ export default async function SalesPage({
         socialLink: w.client.socialLink,
         channelName: w.client.channel?.name ?? null,
         ward: { id: w.id, firstName: w.firstName, lastName: w.lastName },
-        branchId:
-          t?.group?.branch?.id ?? t?.room?.branch?.id ?? w.client.branch?.id ?? null,
-        branchName:
-          t?.group?.branch?.name ?? t?.room?.branch?.name ?? w.client.branch?.name ?? null,
+        branchId: branchFromTrialOrSub?.id ?? w.client.branch?.id ?? null,
+        branchName: branchFromTrialOrSub?.name ?? w.client.branch?.name ?? null,
         directionId: direction?.id ?? null,
         directionName: direction?.name ?? null,
-        groupId: t?.group?.id ?? null,
+        groupId: groupInfo?.id ?? null,
         groupOrTimeLabel:
-          t?.group?.name ??
+          groupInfo?.name ??
           (t?.startTime
             ? `Индив. ${t.startTime}${t.durationMinutes ? `, ${t.durationMinutes}мин` : ""}`
             : null),
@@ -490,7 +516,9 @@ export default async function SalesPage({
         trialLessonId: t?.id ?? null,
         firstPaidLessonDate: w.client.firstPaidLessonDate
           ? w.client.firstPaidLessonDate.toISOString()
-          : null,
+          : sub?.startDate
+            ? sub.startDate.toISOString()
+            : null,
         expectedSubscriptionAmount: expected,
         createdAt: w.salesStageAt ? w.salesStageAt.toISOString() : null,
         nextContactDate: w.client.nextContactDate
