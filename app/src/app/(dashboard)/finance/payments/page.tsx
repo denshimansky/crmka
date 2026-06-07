@@ -81,16 +81,20 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
     { title: "Безнал / Эквайринг", value: byAcquiring, icon: CreditCard, color: "text-blue-600", bg: "bg-blue-50" },
   ]
 
-  // Данные для диалога
+  // Данные для диалога. Скрываем только архив и ЧС — им оплачивать незачем.
+  // Выбывших (clientStatus=churned) оставляем: их баланс пополнять можно.
+  // take большой намеренно: комбобокс ищет по подстроке на клиенте, а
+  // алфавитный срез на 500 прятал всех, чья фамилия дальше «К–Л».
   const clients = await db.client.findMany({
     where: {
       tenantId,
       deletedAt: null,
+      funnelStatus: { notIn: ["archived", "blacklisted"] },
       ...(Object.keys(clientScope).length > 0 ? clientScope : {}),
     },
     select: { id: true, firstName: true, lastName: true },
     orderBy: { lastName: "asc" },
-    take: 500,
+    take: 10000,
   })
 
   const accounts = await db.financialAccount.findMany({
