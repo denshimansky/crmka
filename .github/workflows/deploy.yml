@@ -9,6 +9,7 @@ on:
       - 'nginx/**'
       - 'scripts/**'
       - '.github/workflows/deploy.yml'
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -17,11 +18,17 @@ jobs:
       - name: Deploy via SSH
         id: deploy
         uses: appleboy/ssh-action@v1
+        env:
+          # Прокидывается в окружение удалённого скрипта через envs ниже.
+          # Если секрет в GitHub не задан — переменная придёт пустой, и блок
+          # провижинга .env её просто пропустит (см. условие в script).
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         with:
           host: 65.108.45.153
           port: 2280
           username: deploy
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: CRON_SECRET
           script: |
             set -e  # любой провал шага = провал деплоя (раньше билд мог упасть, а up -d продолжал на старом образе)
             cd /opt/crmka
@@ -29,6 +36,12 @@ jobs:
             # Гарантируем что dev-сервер имеет ALLOW_DESTRUCTIVE_API=true (для seed/reset)
             if ! grep -q "^ALLOW_DESTRUCTIVE_API=" .env 2>/dev/null; then
               echo "ALLOW_DESTRUCTIVE_API=true" >> .env
+            fi
+            # CRON_SECRET — если задан в GitHub Secrets и ещё не в .env, дописываем.
+            # Перезалить старое значение скриптом сознательно не пытаемся: ротация
+            # секрета — отдельная операция через sudo nano.
+            if [ -n "${CRON_SECRET}" ] && ! grep -q "^CRON_SECRET=" .env 2>/dev/null; then
+              echo "CRON_SECRET=${CRON_SECRET}" >> .env
             fi
             docker compose build app
             docker compose up -d
