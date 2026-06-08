@@ -6,11 +6,12 @@ import {
   useDashboardWidgetConfig,
 } from "@/components/dashboard-settings"
 
-// Widget layout: "full" takes full width, "third" goes into a 3-col grid
-const WIDGET_LAYOUT: Record<string, "full" | "third"> = {
+// Widget layout: "full" — на всю ширину; "half" — 50% (батчатся по 2);
+// "third" — 33% (батчатся по 3).
+const WIDGET_LAYOUT: Record<string, "full" | "half" | "third"> = {
   stats: "full",
-  tasks: "full",
-  unmarked: "third",
+  tasks: "half",
+  unmarked: "half",
   funnel: "third",
   capacity: "full",
 }
@@ -29,9 +30,21 @@ export function DashboardGrid({ widgets }: DashboardGridProps) {
     (w) => w.visible && widgets[w.id] != null
   )
 
-  // Group consecutive "third" widgets into 3-col grids
+  // Group consecutive "half" widgets into 2-col grids, "third" — into 3-col.
   const rendered: ReactNode[] = []
+  let halfBatch: ReactNode[] = []
   let thirdBatch: ReactNode[] = []
+
+  function flushHalves() {
+    if (halfBatch.length > 0) {
+      rendered.push(
+        <div key={`grid-${rendered.length}`} className="grid gap-4 lg:grid-cols-2">
+          {halfBatch}
+        </div>
+      )
+      halfBatch = []
+    }
+  }
 
   function flushThirds() {
     if (thirdBatch.length > 0) {
@@ -44,16 +57,25 @@ export function DashboardGrid({ widgets }: DashboardGridProps) {
     }
   }
 
+  function flushAll() {
+    flushHalves()
+    flushThirds()
+  }
+
   for (const w of visibleWidgets) {
     const layout = WIDGET_LAYOUT[w.id] || "full"
-    if (layout === "third") {
+    if (layout === "half") {
+      flushThirds()
+      halfBatch.push(<div key={w.id}>{widgets[w.id]}</div>)
+    } else if (layout === "third") {
+      flushHalves()
       thirdBatch.push(<div key={w.id}>{widgets[w.id]}</div>)
     } else {
-      flushThirds()
+      flushAll()
       rendered.push(<div key={w.id}>{widgets[w.id]}</div>)
     }
   }
-  flushThirds()
+  flushAll()
 
   return <div className="space-y-6">{rendered}</div>
 }
