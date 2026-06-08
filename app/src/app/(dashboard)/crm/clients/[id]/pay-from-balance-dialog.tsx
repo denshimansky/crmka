@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Wallet, AlertCircle } from "lucide-react"
+import { AlertCircle } from "lucide-react"
 
 interface SubscriptionLite {
   id: string
@@ -111,14 +111,15 @@ export function PayFromBalanceDialog({
       <DialogTrigger
         render={
           <Button
-            variant="ghost"
-            size="icon"
-            title={cantOpen ? "Долг по абонементу уже погашен" : "Оплатить с баланса родителя"}
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            title={cantOpen ? "Долг по абонементу уже погашен" : "Списать с баланса родителя в счёт абонемента"}
             disabled={cantOpen}
           />
         }
       >
-        <Wallet className="size-4" />
+        Списать
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
