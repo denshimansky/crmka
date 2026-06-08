@@ -702,13 +702,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
 
-  // Get all active enrollments
+  // Get all active enrollments at the lesson date.
+  // Без фильтра enrolledAt/withdrawnAt «Отметить всех» проставлял бы Attendance
+  // ребёнку, зачисленному позже даты этого занятия.
   const enrollments = await db.groupEnrollment.findMany({
     where: {
       groupId: lesson.groupId,
       tenantId,
       isActive: true,
       deletedAt: null,
+      enrolledAt: { lte: lesson.date },
+      OR: [{ withdrawnAt: null }, { withdrawnAt: { gt: lesson.date } }],
     },
   })
 

@@ -106,13 +106,18 @@ export default async function LessonCardPage({
       ? [lesson.substituteInstructor, ...instructorsRaw]
       : instructorsRaw
 
-  // Get enrolled students
+  // Get enrolled students.
+  // Фильтр по дате: зачисление должно быть активным НА дату занятия. Иначе
+  // ребёнок, зачисленный позже (например, после пробного), всплывает на
+  // прошлых занятиях группы.
   const enrollments = await db.groupEnrollment.findMany({
     where: {
       groupId: lesson.groupId,
       tenantId,
       isActive: true,
       deletedAt: null,
+      enrolledAt: { lte: lesson.date },
+      OR: [{ withdrawnAt: null }, { withdrawnAt: { gt: lesson.date } }],
     },
     include: {
       client: { select: { id: true, firstName: true, lastName: true, phone: true } },
