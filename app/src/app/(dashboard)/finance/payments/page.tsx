@@ -11,6 +11,7 @@ import { Wallet, Banknote, CreditCard, Undo2 } from "lucide-react"
 import Link from "next/link"
 import { AddPaymentDialog } from "./add-payment-dialog"
 import { RefundPaymentDialog } from "./refund-payment-dialog"
+import { EditPaymentDialog } from "./edit-payment-dialog"
 import { PageHelp } from "@/components/page-help"
 
 function formatMoney(amount: number): string {
@@ -121,6 +122,11 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
 
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
+  // Редактировать оплаты могут только владелец и управляющий — на случай
+  // ошибки администратора.
+  const canEdit = session.user.role === "owner" || session.user.role === "manager"
+  const accountOptions = accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -180,6 +186,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
                 <TableHead className="text-right">Сумма</TableHead>
                 <TableHead>Способ</TableHead>
                 <TableHead>Счёт</TableHead>
+                {canEdit && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -218,6 +225,23 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
                       <Badge variant="outline">{METHOD_LABELS[p.method] || p.method}</Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{p.account.name}</TableCell>
+                    {canEdit && (
+                      <TableCell className="p-1">
+                        {!isRefund && (
+                          <EditPaymentDialog
+                            payment={{
+                              id: p.id,
+                              amount: Number(p.amount),
+                              method: p.method,
+                              date: p.date.toISOString(),
+                              accountId: p.account.id,
+                              comment: p.comment,
+                            }}
+                            accounts={accountOptions}
+                          />
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 )
               })}
