@@ -1790,7 +1790,6 @@ function AddSubscriptionDialog({
   const [periodMonth, setPeriodMonth] = useState(String(new Date().getMonth() + 1))
   const [lessonPrice, setLessonPrice] = useState("")
   const [totalLessons, setTotalLessons] = useState("")
-  const [discountAmount, setDiscountAmount] = useState("")
 
   // Загрузка направлений, групп, типа абонемента и шаблонов при открытии
   useEffect(() => {
@@ -1866,7 +1865,6 @@ function AddSubscriptionDialog({
     setPeriodMonth(String(new Date().getMonth() + 1))
     setLessonPrice("")
     setTotalLessons("")
-    setDiscountAmount("")
     setPackageTemplateId("")
     setStartDate(new Date().toISOString().slice(0, 10))
     setValidDays("")
@@ -1891,7 +1889,6 @@ function AddSubscriptionDialog({
         wardId: wardId || undefined,
         lessonPrice: Number(lessonPrice),
         totalLessons: Number(totalLessons),
-        discountAmount: Number(discountAmount) || 0,
       }
       if (subscriptionType === "package") {
         payload.startDate = startDate
@@ -1925,7 +1922,6 @@ function AddSubscriptionDialog({
 
   const filteredGroups = directionId ? groups.filter(g => g.directionId === directionId) : []
   const totalAmount = (Number(lessonPrice) || 0) * (Number(totalLessons) || 0)
-  const finalAmount = totalAmount - (Number(discountAmount) || 0)
 
   const selectedDirection = directions.find(d => d.id === directionId)
   const selectedGroup = filteredGroups.find(g => g.id === groupId)
@@ -2106,7 +2102,7 @@ function AddSubscriptionDialog({
             </div>
           )}
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Цена занятия</Label>
               <Input
@@ -2126,34 +2122,13 @@ function AddSubscriptionDialog({
                 onChange={e => setTotalLessons(e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>Скидка</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={discountAmount}
-                onChange={e => setDiscountAmount(e.target.value)}
-                placeholder="0"
-              />
-            </div>
           </div>
 
           {totalAmount > 0 && (
-            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Стоимость:</span>
-                <span>{formatMoney(totalAmount)}</span>
-              </div>
-              {Number(discountAmount) > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Скидка:</span>
-                  <span className="text-red-600">−{formatMoney(Number(discountAmount))}</span>
-                </div>
-              )}
+            <div className="rounded-md bg-muted/50 p-3 text-sm">
               <div className="flex justify-between font-bold">
-                <span>Итого:</span>
-                <span>{formatMoney(finalAmount)}</span>
+                <span>Стоимость:</span>
+                <span>{formatMoney(totalAmount)}</span>
               </div>
             </div>
           )}
