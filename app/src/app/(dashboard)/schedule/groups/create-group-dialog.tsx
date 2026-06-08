@@ -198,7 +198,7 @@ export function CreateGroupDialog({
         roomId,
         instructorId,
         maxStudents,
-        templates: templates.length > 0 ? templates : undefined,
+        templates,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         salaryRate: rate
@@ -225,6 +225,11 @@ export function CreateGroupDialog({
 
   async function handleSubmit() {
     setError(null)
+
+    if (templates.length === 0) {
+      setError("Добавьте хотя бы один день расписания — иначе занятия не сгенерируются.")
+      return
+    }
 
     if (hasDuplicates) {
       setError(
@@ -462,8 +467,8 @@ export function CreateGroupDialog({
             </div>
 
             {templates.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Нажмите &laquo;Добавить день&raquo;, чтобы задать расписание
+              <p className="text-xs text-destructive">
+                Добавьте хотя бы один день — без расписания группа не создаётся.
               </p>
             )}
 
@@ -547,6 +552,7 @@ export function CreateGroupDialog({
               !branchId ||
               !roomId ||
               !instructorId ||
+              templates.length === 0 ||
               hasDuplicates
             }
           >

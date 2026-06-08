@@ -94,6 +94,36 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     data: updateData,
     include: { direction: true, room: true, instructor: { select: { firstName: true, lastName: true } } },
   })
+
+  // Если поменялись даты жизни группы — автоматически догенерируем занятия
+  // по текущим шаблонам. Существующие (отмеченные/оплаченные) не трогаем.
+  if (startDate !== undefined || endDate !== undefined) {
+    const { regenerateGroupSchedule, getGenerationRange } = await import(
+      "@/lib/schedule/generate-group-lessons"
+    )
+    const templates = await db.groupScheduleTemplate.findMany({
+      where: { groupId: id, tenantId: session.user.tenantId },
+    })
+    if (templates.length > 0) {
+      const { rangeStart, rangeEnd } = getGenerationRange(
+        group.startDate,
+        group.endDate,
+      )
+      await regenerateGroupSchedule({
+        tenantId: session.user.tenantId,
+        groupId: id,
+        instructorId: group.instructorId,
+        templates: templates.map((t) => ({
+          dayOfWeek: t.dayOfWeek,
+          startTime: t.startTime,
+          durationMinutes: t.durationMinutes,
+        })),
+        rangeStart,
+        rangeEnd,
+      })
+    }
+  }
+
   return NextResponse.json(group)
 }
 

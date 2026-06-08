@@ -229,99 +229,22 @@ function ScheduleTab({
   monthLabel: string
   onRefresh: () => void
 }) {
-  const [generating, setGenerating] = useState(false)
-  const [genMonth, setGenMonth] = useState(currentMonth)
-  const [genYear, setGenYear] = useState(currentYear)
-  const [genResult, setGenResult] = useState<string | null>(null)
-  const [genDialogOpen, setGenDialogOpen] = useState(false)
-
-  async function handleGenerate() {
-    setGenerating(true)
-    setGenResult(null)
-    try {
-      const res = await fetch(`/api/groups/${groupId}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month: genMonth, year: genYear }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setGenResult(data.error || "Ошибка генерации")
-      } else {
-        setGenResult(data.message)
-        setGenDialogOpen(false)
-        onRefresh()
-      }
-    } catch {
-      setGenResult("Не удалось сгенерировать расписание")
-    } finally {
-      setGenerating(false)
-    }
-  }
-
   return (
     <div className="space-y-4 mt-4">
       <div className="flex items-center justify-between">
         <h3 className="text-base font-medium">
           Занятия за {monthLabel}
         </h3>
-        <Dialog open={genDialogOpen} onOpenChange={setGenDialogOpen}>
-          <DialogTrigger render={<Button variant="outline" size="sm" />}>
-            <CalendarDays className="mr-2 size-4" />
-            Сгенерировать расписание
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Генерация занятий</DialogTitle>
-              <DialogDescription>
-                Занятия будут созданы по шаблонам расписания. Существующие занятия не затрагиваются.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Месяц</Label>
-                <Select value={String(genMonth)} onValueChange={(v) => { if (v) setGenMonth(parseInt(v)) }}>
-                  <SelectTrigger className="w-full">
-                    {MONTH_OPTIONS.find(m => String(m.value) === String(genMonth))?.label ?? <span className="text-muted-foreground">Месяц</span>}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTH_OPTIONS.map((m) => (
-                      <SelectItem key={m.value} value={String(m.value)}>
-                        {m.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Год</Label>
-                <Input
-                  type="number"
-                  value={genYear}
-                  onChange={(e) => setGenYear(parseInt(e.target.value) || currentYear)}
-                />
-              </div>
-            </div>
-            {genResult && (
-              <div className="rounded-md bg-muted p-3 text-sm">{genResult}</div>
-            )}
-            <DialogFooter>
-              <DialogClose render={<Button variant="outline" />}>
-                Отмена
-              </DialogClose>
-              <Button onClick={handleGenerate} disabled={generating}>
-                {generating ? "Генерация..." : "Сгенерировать"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
 
       {lessons.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground">
           <CalendarDays className="mx-auto size-10 opacity-50 mb-2" />
           <p>Нет занятий за этот месяц</p>
-          <p className="text-xs mt-1">Используйте генерацию расписания</p>
+          <p className="text-xs mt-1">
+            Расписание создаётся автоматически при создании группы и при
+            изменении дат / шаблонов на вкладке «Инфо».
+          </p>
         </div>
       ) : (
         <Table>
@@ -918,128 +841,6 @@ function SettingsTab({
               <p className="text-xs text-muted-foreground">
                 Пусто = бессрочная (при генерации — год от старта).
               </p>
-            </div>
-          </div>
-
-          <div className="rounded-md border p-3 space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="text-sm space-y-1">
-                <div className="font-medium">Перегенерировать расписание</div>
-                <div className="text-xs text-muted-foreground space-y-1.5">
-                  <p>
-                    Создаёт занятия по текущим шаблонам расписания группы. Уже существующие занятия —
-                    в том числе отмеченные, оплаченные и проведённые — <b>не трогаются</b>: кнопка только
-                    добавляет недостающие. Нерабочие дни из производственного календаря пропускаются.
-                  </p>
-                  <p>
-                    <b>Когда нужно:</b> сменили даты старта/окончания группы (в том числе задним числом),
-                    добавили новый день в шаблон расписания, или хотите догенерировать занятия на следующий
-                    месяц.
-                  </p>
-                  <p>
-                    В диалоге можно выбрать: <b>по всему сроку жизни группы</b> (от старта до окончания —
-                    удобно после смены дат) или <b>за один конкретный месяц</b> (точечно — удобно после
-                    правки шаблонов).
-                  </p>
-                </div>
-              </div>
-              <Dialog
-                open={regenDialogOpen}
-                onOpenChange={(v) => {
-                  setRegenDialogOpen(v)
-                  if (!v) setRegenResult(null)
-                }}
-              >
-                <DialogTrigger
-                  render={
-                    <Button type="button" variant="outline" size="sm" disabled={infoSaving} />
-                  }
-                >
-                  <CalendarDays className="mr-2 size-4" />
-                  Перегенерировать
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Перегенерация занятий</DialogTitle>
-                    <DialogDescription>
-                      Занятия создаются по текущим шаблонам. Существующие занятия не затрагиваются —
-                      добавляются только недостающие.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Что генерируем</Label>
-                      <Select
-                        value={regenMode}
-                        onValueChange={(v) => {
-                          if (v === "range" || v === "month") setRegenMode(v)
-                        }}
-                      >
-                        <SelectTrigger className="w-full">
-                          {regenMode === "range"
-                            ? "По всему сроку жизни группы"
-                            : "За конкретный месяц"}
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="range">По всему сроку жизни группы</SelectItem>
-                          <SelectItem value="month">За конкретный месяц</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {regenMode === "range" ? (
-                      <p className="text-xs text-muted-foreground">
-                        Диапазон: <b>{infoStartDate || "не задан"}</b> —{" "}
-                        <b>{infoEndDate || "+1 год от старта"}</b>. Текущие значения дат из формы
-                        будут сохранены перед запуском.
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Месяц</Label>
-                          <Select
-                            value={String(regenMonth)}
-                            onValueChange={(v) => {
-                              if (v) setRegenMonth(parseInt(v))
-                            }}
-                          >
-                            <SelectTrigger className="w-full">
-                              {MONTH_OPTIONS.find((m) => String(m.value) === String(regenMonth))
-                                ?.label ?? <span className="text-muted-foreground">Месяц</span>}
-                            </SelectTrigger>
-                            <SelectContent>
-                              {MONTH_OPTIONS.map((m) => (
-                                <SelectItem key={m.value} value={String(m.value)}>
-                                  {m.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Год</Label>
-                          <Input
-                            type="number"
-                            value={regenYear}
-                            onChange={(e) =>
-                              setRegenYear(parseInt(e.target.value) || currentYear)
-                            }
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {regenResult && (
-                    <div className="rounded-md bg-muted p-3 text-sm">{regenResult}</div>
-                  )}
-                  <DialogFooter>
-                    <DialogClose render={<Button variant="outline" />}>Отмена</DialogClose>
-                    <Button onClick={handleRegenerate} disabled={regenerating}>
-                      {regenerating ? "Идёт..." : "Запустить"}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
             </div>
           </div>
 

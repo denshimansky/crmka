@@ -84,7 +84,9 @@ const createGroupSchema = z.object({
     .transform((v) => v.trim())
     .pipe(z.string().min(1, "Выберите инструктора")),
   maxStudents: z.number().min(1, "Минимум 1 ученик").default(15),
-  templates: z.array(templateSchema).optional(),
+  templates: z
+    .array(templateSchema)
+    .min(1, "Добавьте хотя бы один день расписания"),
   startDate: isoDate.optional(),
   endDate: isoDate.optional(),
   salaryRate: salaryRateInputSchema.optional(),
