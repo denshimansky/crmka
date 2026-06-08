@@ -321,11 +321,12 @@ export default async function LessonsAttendancePage({
     let planCount = 0
     for (let day = 1; day <= daysInMonth; day++) {
       const lessonDate = new Date(Date.UTC(year, month - 1, day))
-      // Активность enrollment на этот день
-      if (e.enrolledAt > lessonDate) {
-        cells.push(null)
-        continue
-      }
+      // Выбывшие из группы — ячейки после withdrawnAt пустые. enrolledAt тут
+      // НЕ проверяем по дню: enrollment-query уже отсекает зачисления, которые
+      // ещё не начались на момент конца месяца (enrolledAt <= dateTo), а внутри
+      // месяца ученик мог попасть в группу позже первого занятия — но марки в
+      // его строке всё равно надо показывать (например, при бэкфилле истории
+      // импортом или ручным дозачислением задним числом).
       if (e.withdrawnAt && e.withdrawnAt <= lessonDate) {
         cells.push(null)
         continue
