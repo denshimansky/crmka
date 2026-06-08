@@ -121,6 +121,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Шаблон скидки — проверка применимости. linked-виды требуют наличия
+  // подопечных, иначе шаблон молча не сработает (см. pickRecipients).
+  if (data.discountTemplateId !== undefined && data.discountTemplateId !== null) {
+    const tpl = await db.discountTemplate.findFirst({
+      where: { id: data.discountTemplateId, tenantId: session.user.tenantId },
+      select: { kind: true },
+    })
+    if (!tpl) {
+      return NextResponse.json({ error: "Шаблон скидки не найден" }, { status: 404 })
+    }
+    if (tpl.kind === "linked_sibling" || tpl.kind === "linked_second_direction") {
+      const wardsCount = await db.ward.count({
+        where: { clientId: id, tenantId: session.user.tenantId },
+      })
+      const required = tpl.kind === "linked_sibling" ? 2 : 1
+      if (wardsCount < required) {
+        const msg =
+          tpl.kind === "linked_sibling"
+            ? "Скидка «За 2-го ребёнка» требует минимум 2 подопечных у клиента"
+            : "Скидка «За 2-е направление» требует хотя бы одного подопечного"
+        return NextResponse.json({ error: msg }, { status: 400 })
+      }
+    }
+  }
+
   // Если воронка переводится в archived/blacklisted — снимаем clientStatus,
   // чтобы устаревшая плашка («Выбывший» и т.п.) не висела на карточке.
   const movingToArchived =

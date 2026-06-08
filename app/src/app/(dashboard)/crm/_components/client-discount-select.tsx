@@ -24,12 +24,32 @@ function shortTitle(t: TemplateOption): string {
   return `${t.name} (${suffix})`
 }
 
+// Минимальное число подопечных у клиента для linked-видов шаблона.
+function requiredWardsFor(kind: TemplateOption["kind"]): number {
+  if (kind === "linked_sibling") return 2
+  if (kind === "linked_second_direction") return 1
+  return 0
+}
+
+function unavailableReason(
+  kind: TemplateOption["kind"],
+  wardsCount: number,
+): string | null {
+  const need = requiredWardsFor(kind)
+  if (wardsCount >= need) return null
+  if (kind === "linked_sibling") return "Нужно минимум 2 подопечных"
+  if (kind === "linked_second_direction") return "Нужен хотя бы один подопечный"
+  return null
+}
+
 export function ClientDiscountSelect({
   clientId,
   initialTemplateId,
+  wardsCount,
 }: {
   clientId: string
   initialTemplateId: string | null
+  wardsCount: number
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -61,6 +81,9 @@ export function ClientDiscountSelect({
       if (res.ok) {
         setValue(next)
         router.refresh()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        if (data?.error) alert(data.error)
       }
     } finally {
       setLoading(false)
@@ -82,9 +105,17 @@ export function ClientDiscountSelect({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="none">Без скидки</SelectItem>
-        {options.map((o) => (
-          <SelectItem key={o.id} value={o.id}>{shortTitle(o)}</SelectItem>
-        ))}
+        {options.map((o) => {
+          const reason = unavailableReason(o.kind, wardsCount)
+          return (
+            <SelectItem key={o.id} value={o.id} disabled={reason !== null}>
+              {shortTitle(o)}
+              {reason && (
+                <span className="ml-2 text-xs text-muted-foreground">— {reason}</span>
+              )}
+            </SelectItem>
+          )
+        })}
       </SelectContent>
     </Select>
   )
