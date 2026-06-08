@@ -43,10 +43,15 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0))
 
+  // Только реальные движения денег с клиентами. Платежи type='transfer_in' —
+  // это внутреннее списание с баланса родителя в счёт абонемента (через кнопку
+  // «Списать»); они не двигают счёт и не относятся к «оплатам». Их видно в ДДС
+  // отдельной парой и в карточке клиента (timeline + история баланса).
   const payments = await db.payment.findMany({
     where: {
       tenantId,
       deletedAt: null,
+      type: { not: "transfer_in" },
       date: { gte: monthStart, lte: monthEnd },
       ...paymentScope,
     },
