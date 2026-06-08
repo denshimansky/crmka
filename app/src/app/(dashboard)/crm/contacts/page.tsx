@@ -12,6 +12,11 @@ import { ContactsTable, type ContactRow, type ContactsTabKey } from "./contacts-
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { scopeBranch, type BranchScope } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
+import {
+  computeSegment,
+  monthsSince,
+  parseSegmentationConfig,
+} from "@/lib/segmentation"
 
 const TAB_LABELS: Record<ContactsTabKey, string> = {
   leads: "Лиды",
@@ -199,18 +204,54 @@ export default async function ContactsPage({
     take: 200,
   })
 
+  // Сегмент клиента считается лениво из настроек (Organization.segmentationConfig).
+  // Для mode="amount" агрегируем Σ subscriptions.chargedAmount по всем клиентам
+  // страницы одним запросом; для mode="months" хватает firstPaymentDate из Client.
+  // Для лидов / неактивных клиентов колонка сегмента в UI не показывается — для
+  // них оставляем "new_client" как технический дефолт.
+  const orgForSeg = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { segmentationConfig: true },
+  })
+  const segConfig = parseSegmentationConfig(orgForSeg?.segmentationConfig)
+  const chargedByClient = new Map<string, number>()
+  if (segConfig?.mode === "amount") {
+    const activeIds = clients
+      .filter((c) => c.clientStatus === "active")
+      .map((c) => c.id)
+    if (activeIds.length > 0) {
+      const sums = await db.subscription.groupBy({
+        by: ["clientId"],
+        where: { tenantId, clientId: { in: activeIds }, deletedAt: null },
+        _sum: { chargedAmount: true },
+      })
+      for (const s of sums) {
+        chargedByClient.set(s.clientId, Number(s._sum.chargedAmount ?? 0))
+      }
+    }
+  }
+
   const rows: ContactRow[] = clients.map((c) => {
     const sub = c.subscriptions[0]
     const instrName = sub?.group?.instructor
       ? [sub.group.instructor.lastName, sub.group.instructor.firstName].filter(Boolean).join(" ") || "—"
       : "—"
+    const metric = segConfig
+      ? segConfig.mode === "amount"
+        ? chargedByClient.get(c.id) ?? 0
+        : monthsSince(c.firstPaymentDate)
+      : 0
+    const segment =
+      segConfig && c.clientStatus === "active"
+        ? computeSegment(metric, segConfig)
+        : "new_client"
     return {
       id: c.id,
       firstName: c.firstName,
       lastName: c.lastName,
       phone: maskPhone(c.phone, role),
       socialLink: c.socialLink,
-      segment: c.segment,
+      segment,
       channelName: c.channel?.name ?? null,
       branchName: c.branch?.name ?? sub?.group?.branch?.name ?? null,
       funnelStatus: c.funnelStatus,

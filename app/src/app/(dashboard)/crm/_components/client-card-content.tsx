@@ -13,6 +13,12 @@ import { EditClientDialog } from "../clients/[id]/edit-client-dialog"
 import { UnprolongedCommentsSection } from "../clients/[id]/unprolonged-comments"
 import { LeadStatusActions } from "./lead-status-actions"
 import { ApplicationsSection } from "./applications-section"
+import {
+  computeSegment,
+  monthsSince,
+  parseSegmentationConfig,
+  type ClientSegmentKey,
+} from "@/lib/segmentation"
 import { PortalLinkButton } from "./portal-link-button"
 import { ClientDiscountSelect } from "./client-discount-select"
 import { BonusDiscountDialog } from "./bonus-discount-dialog"
@@ -23,7 +29,7 @@ import { AddPaymentDialog } from "../../finance/payments/add-payment-dialog"
 
 const SEGMENT_LABELS: Record<string, string> = {
   new_client: "Новый",
-  standard: "Стандарт",
+  standard: "Стандартный",
   regular: "Постоянный",
   vip: "VIP",
 }
@@ -223,6 +229,31 @@ export async function ClientCardContent({
     ? undefined
     : "Сначала создайте заявку на ребёнка"
 
+  // Сегмент клиента: пороги владелец задаёт в /settings/segmentation.
+  // Считаем лениво только для активных клиентов (для лидов сегмент не
+  // показывается — бадж в шапке для них = funnel-стадия).
+  let computedSegment: ClientSegmentKey = "new_client"
+  if (client.clientStatus === "active") {
+    const org = await db.organization.findUnique({
+      where: { id: tenantId },
+      select: { segmentationConfig: true },
+    })
+    const config = parseSegmentationConfig(org?.segmentationConfig)
+    if (config) {
+      let metric = 0
+      if (config.mode === "amount") {
+        const agg = await db.subscription.aggregate({
+          where: { tenantId, clientId: client.id, deletedAt: null },
+          _sum: { chargedAmount: true },
+        })
+        metric = Number(agg._sum.chargedAmount ?? 0)
+      } else {
+        metric = monthsSince(client.firstPaymentDate)
+      }
+      computedSegment = computeSegment(metric, config)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -237,9 +268,9 @@ export async function ClientCardContent({
                 — скрыт, рядом стоит баджик clientStatus. */}
             {client.clientStatus === "active" ? (
               <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${SEGMENT_COLORS[client.segment] || ""}`}
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${SEGMENT_COLORS[computedSegment] || ""}`}
               >
-                {SEGMENT_LABELS[client.segment] || client.segment}
+                {SEGMENT_LABELS[computedSegment] || computedSegment}
               </span>
             ) : (
               !client.clientStatus &&

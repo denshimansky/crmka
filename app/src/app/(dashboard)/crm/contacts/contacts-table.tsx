@@ -97,7 +97,7 @@ interface EmployeeOption {
 
 const SEGMENT_LABELS: Record<string, string> = {
   new_client: "Новый",
-  standard: "Стандарт",
+  standard: "Стандартный",
   regular: "Постоянный",
   vip: "VIP",
 }

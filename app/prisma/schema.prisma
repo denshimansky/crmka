@@ -108,6 +108,13 @@ model Organization {
   // Если null — все триггеры считаются включёнными (обратная совместимость).
   taskTriggerSettings Json? @map("task_trigger_settings")
 
+  // Конфиг сегментации клиентов (Новый/Стандартный/Постоянный/VIP). Форма:
+  //   { mode: "amount"|"months", thresholds: { standard, regular, vip } }
+  // mode="amount" — пороги в ₽ суммарно отработанной выручки клиента
+  // (Σ subscriptions.chargedAmount). mode="months" — кол-во месяцев с
+  // firstPaymentDate. Если null — у всех «Новый».
+  segmentationConfig Json? @map("segmentation_config")
+
   // Биллинг
   billingStatus BillingStatus @default(active) @map("billing_status")
   contactPerson String?       @map("contact_person")
