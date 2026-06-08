@@ -326,9 +326,10 @@ interface RefundPreview {
   attendedLessons: number
   remainingLessons: number
   lessonPrice: number
-  refundAmount: number
-  totalPaid: number
-  canRefund: boolean
+  paidToSubscription: number
+  usedAmount: number
+  balanceDelta: number
+  canClose: boolean
 }
 
 function RefundSubscriptionDialog({
@@ -353,8 +354,8 @@ function RefundSubscriptionDialog({
       if (refundRes.ok) {
         const data = await refundRes.json()
         setPreview(data)
-        if (!data.canRefund) {
-          setError("Возврат невозможен: нет неиспользованных занятий")
+        if (!data.canClose) {
+          setError("Закрытие невозможно: абонемент уже закрыт или отчислён")
         }
       } else {
         const data = await refundRes.json().catch(() => ({}))
@@ -419,7 +420,7 @@ function RefundSubscriptionDialog({
 
         {loadingPreview ? (
           <p className="text-sm text-muted-foreground py-4 text-center">Расчёт...</p>
-        ) : error && !preview?.canRefund ? (
+        ) : error && !preview?.canClose ? (
           <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
           </div>
@@ -463,15 +464,31 @@ function RefundSubscriptionDialog({
                 <span className="text-muted-foreground">Цена занятия:</span>
                 <span>{formatMoney(preview.lessonPrice)}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Оплачено в счёт абонемента:</span>
+                <span>{formatMoney(preview.paidToSubscription)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Отработано (стоимость):</span>
+                <span>{formatMoney(preview.usedAmount)}</span>
+              </div>
               <hr className="my-1 border-orange-200 dark:border-orange-800" />
               <div className="flex justify-between font-bold text-base">
-                <span>На баланс клиента:</span>
-                <span className="text-orange-600">+{formatMoney(preview.refundAmount)}</span>
+                <span>{preview.balanceDelta >= 0 ? "На баланс клиента:" : "В долг клиента:"}</span>
+                <span className={preview.balanceDelta >= 0 ? "text-orange-600" : "text-red-600"}>
+                  {preview.balanceDelta >= 0
+                    ? `+${formatMoney(preview.balanceDelta)}`
+                    : `−${formatMoney(Math.abs(preview.balanceDelta))}`}
+                </span>
               </div>
             </div>
 
             <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200">
-              Абонемент будет закрыт, ученик отчислен из группы. Остаток возвращается на баланс клиента — он сможет потратить его на следующий абонемент. Если нужно выдать наличными — отдельной операцией возврата платежа.
+              {preview.balanceDelta > 0
+                ? "Абонемент будет закрыт, ученик отчислен из группы. Переплата возвращается на баланс клиента — он сможет потратить её на следующий абонемент."
+                : preview.balanceDelta < 0
+                  ? "Абонемент будет закрыт, ученик отчислен из группы. Долг по отработанным занятиям перейдёт на баланс клиента (минус). Клиент попадёт в список должников."
+                  : "Абонемент будет закрыт, ученик отчислен из группы. Баланс клиента не изменится — оплата и отработка сошлись."}
             </div>
 
             <div className="space-y-1.5">
@@ -489,9 +506,15 @@ function RefundSubscriptionDialog({
               <Button
                 variant="destructive"
                 onClick={handleRefund}
-                disabled={loading || !preview.canRefund}
+                disabled={loading || !preview.canClose}
               >
-                {loading ? "Обработка..." : `Вернуть ${formatMoney(preview.refundAmount)}`}
+                {loading
+                  ? "Обработка..."
+                  : preview.balanceDelta > 0
+                    ? `Закрыть и вернуть ${formatMoney(preview.balanceDelta)}`
+                    : preview.balanceDelta < 0
+                      ? `Закрыть с долгом ${formatMoney(Math.abs(preview.balanceDelta))}`
+                      : "Закрыть"}
               </Button>
             </DialogFooter>
           </div>
@@ -628,8 +651,10 @@ interface WithdrawPreview {
   attendedLessons: number
   remainingLessons: number
   lessonPrice: number
-  refundAmount: number
-  canRefund: boolean
+  paidToSubscription: number
+  usedAmount: number
+  balanceDelta: number
+  canClose: boolean
 }
 
 function WithdrawSubscriptionDialog({
@@ -754,13 +779,23 @@ function WithdrawSubscriptionDialog({
                 <span className="text-muted-foreground">Цена занятия:</span>
                 <span>{formatMoney(preview.lessonPrice)}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Оплачено в счёт абонемента:</span>
+                <span>{formatMoney(preview.paidToSubscription)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Отработано (стоимость):</span>
+                <span>{formatMoney(preview.usedAmount)}</span>
+              </div>
               <hr className="my-1 border-orange-200 dark:border-orange-800" />
               <div className="flex justify-between font-bold text-base">
-                <span>На баланс клиента:</span>
-                <span className="text-orange-600">
-                  {preview.refundAmount > 0
-                    ? `+${formatMoney(preview.refundAmount)}`
-                    : "0 ₽"}
+                <span>{preview.balanceDelta >= 0 ? "На баланс клиента:" : "В долг клиента:"}</span>
+                <span className={preview.balanceDelta >= 0 ? "text-orange-600" : "text-red-600"}>
+                  {preview.balanceDelta > 0
+                    ? `+${formatMoney(preview.balanceDelta)}`
+                    : preview.balanceDelta < 0
+                      ? `−${formatMoney(Math.abs(preview.balanceDelta))}`
+                      : "0 ₽"}
                 </span>
               </div>
             </div>
@@ -770,16 +805,19 @@ function WithdrawSubscriptionDialog({
                 Ребёнок будет <b>отчислен из группы</b> и пропадёт из расписания этой
                 группы (прошедшие посещения сохранятся).
               </p>
-              {preview.refundAmount > 0 ? (
+              {preview.balanceDelta > 0 ? (
                 <p>
-                  Остаток <b>{formatMoney(preview.refundAmount)}</b> вернётся на баланс
-                  родителя — он сможет потратить его на следующий абонемент. Если нужно
-                  выдать наличными — отдельной операцией возврата платежа.
+                  Переплата <b>{formatMoney(preview.balanceDelta)}</b> вернётся на баланс
+                  родителя — он сможет потратить её на следующий абонемент.
+                </p>
+              ) : preview.balanceDelta < 0 ? (
+                <p>
+                  Долг за отработанные занятия <b>{formatMoney(Math.abs(preview.balanceDelta))}</b> уйдёт
+                  в минус на баланс родителя. Клиент попадёт в список должников.
                 </p>
               ) : (
                 <p className="text-xs">
-                  Возврата на баланс не будет — все занятия уже использованы. Абонемент
-                  просто помечается «withdrawn» с сегодняшней датой отчисления.
+                  Баланс клиента не изменится — оплата и отработка сошлись.
                 </p>
               )}
             </div>
@@ -791,9 +829,11 @@ function WithdrawSubscriptionDialog({
               <Button variant="destructive" onClick={handleWithdraw} disabled={loading}>
                 {loading
                   ? "Обработка…"
-                  : preview.refundAmount > 0
-                    ? `Отчислить и вернуть ${formatMoney(preview.refundAmount)}`
-                    : "Отчислить"}
+                  : preview.balanceDelta > 0
+                    ? `Отчислить и вернуть ${formatMoney(preview.balanceDelta)}`
+                    : preview.balanceDelta < 0
+                      ? `Отчислить с долгом ${formatMoney(Math.abs(preview.balanceDelta))}`
+                      : "Отчислить"}
               </Button>
             </DialogFooter>
           </div>

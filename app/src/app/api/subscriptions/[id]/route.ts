@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { Prisma } from "@prisma/client"
 import { recalcLinkedDiscounts } from "@/lib/linked-discount"
 import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
@@ -85,33 +86,47 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     // «Отчислить» = withdrawn → дополнительно:
-    //   1) посчитать остаток занятий и вернуть деньги на client.clientBalance,
+    //   1) посчитать дельту баланса (paidToSub − usedAmount): + кредит на
+    //      следующий абонемент, − долг (если ходил, не оплатив),
     //   2) деактивировать GroupEnrollment (ребёнок уходит из группы и расписания),
-    //   3) обнулить subscription.balance, потому что мы его уже вернули.
-    let refundedAmount = 0
+    //   3) обнулить subscription.balance.
+    let balanceDelta = 0
     if (data.status === "withdrawn" && existing.status !== "withdrawn") {
-      const attendedCount = await tx.attendance.count({
+      const paidAgg = await tx.payment.aggregate({
         where: {
           tenantId: session.user.tenantId,
           subscriptionId: id,
-          chargeAmount: { gt: 0 },
+          deletedAt: null,
+          type: "transfer_in",
         },
+        _sum: { amount: true },
       })
-      const remainingLessons = Math.max(0, existing.totalLessons - attendedCount)
-      refundedAmount = remainingLessons * Number(existing.lessonPrice)
+      const usedAgg = await tx.attendance.aggregate({
+        where: {
+          tenantId: session.user.tenantId,
+          subscriptionId: id,
+        },
+        _sum: { chargeAmount: true },
+      })
+      const paidToSub = new Prisma.Decimal(paidAgg._sum.amount ?? 0)
+      const usedAmount = new Prisma.Decimal(usedAgg._sum.chargeAmount ?? 0)
+      const delta = paidToSub.minus(usedAmount)
+      balanceDelta = delta.toNumber()
 
-      if (refundedAmount > 0) {
+      if (!delta.isZero()) {
         await applyBalanceDelta(tx, {
           tenantId: session.user.tenantId,
           clientId: existing.clientId,
-          delta: refundedAmount,
+          delta,
           type: "subscription_closed_refund",
           refs: { subscriptionId: id, directionId: existing.directionId },
-          comment: `Отчисление: возврат за ${remainingLessons} занятий`,
+          comment: delta.isPositive()
+            ? `Отчисление: возврат на баланс ${delta.toFixed(2)} ₽`
+            : `Отчисление: долг ${delta.abs().toFixed(2)} ₽`,
           createdBy: session.user.employeeId,
         })
-        updateData.balance = 0
       }
+      updateData.balance = 0
 
       // ребёнок уходит из группы → исчезает из расписания (Lessons продолжают
       // существовать как объекты, но без зачисления = без посещения).
@@ -190,7 +205,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     }
 
-    return { subscription, linkedDiscountChanges, refundedAmount }
+    return { subscription, linkedDiscountChanges, balanceDelta }
   })
 
   if (!result) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
@@ -202,8 +217,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       affected: result.linkedDiscountChanges,
     }
   }
-  if (result.refundedAmount > 0) {
-    response._refunded = result.refundedAmount
+  if (result.balanceDelta !== 0) {
+    response._balanceDelta = result.balanceDelta
   }
 
   return NextResponse.json(response)
