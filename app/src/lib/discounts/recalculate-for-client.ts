@@ -252,26 +252,67 @@ export async function recalculateDiscountsForClient(
           directionName: raw?.direction.name ?? "",
         }
         result.removed.push(removal)
-        await db.auditLog.create({
-          data: {
-            tenantId: input.tenantId,
-            employeeId: input.createdBy ?? undefined,
-            action: "template_discount_removed_auto",
-            entityType: "Client",
-            entityId: input.clientId,
-            changes: {
-              subscriptionId: sub.id,
-              templateName: template.name,
-              templateKind: template.kind,
-              previousAmount: previousAmount.toNumber(),
-              wardName,
-              directionName: raw?.direction.name ?? "",
+        // AuditLog.employeeId — NOT NULL, поэтому пишем след только для
+        // ручных операций (PATCH /subscriptions). Для cron'ов уведомление
+        // идёт через Notification в колокольчик.
+        if (input.createdBy) {
+          await db.auditLog.create({
+            data: {
+              tenantId: input.tenantId,
+              employeeId: input.createdBy,
+              action: "template_discount_removed_auto",
+              entityType: "Client",
+              entityId: input.clientId,
+              changes: {
+                subscriptionId: sub.id,
+                templateName: template.name,
+                templateKind: template.kind,
+                previousAmount: previousAmount.toNumber(),
+                wardName,
+                directionName: raw?.direction.name ?? "",
+              },
             },
-          },
-        })
+          })
+        }
       }
       // clientBalance не зависит от finalAmount абонемента (долг живёт на
       // Subscription.balance), поэтому correction-проводка не требуется.
+    }
+  }
+
+  // Уведомления в колокольчик для админов/управляющих/владельца — чтобы
+  // снятие шаблонной скидки не прошло незаметно при cron-операциях.
+  if (result.removed.length > 0) {
+    const recipients = await db.employee.findMany({
+      where: {
+        tenantId: input.tenantId,
+        deletedAt: null,
+        role: { in: ["owner", "manager", "admin"] },
+      },
+      select: { id: true },
+    })
+    if (recipients.length > 0) {
+      const fullClient = await db.client.findUnique({
+        where: { id: input.clientId },
+        select: { firstName: true, lastName: true },
+      })
+      const clientName =
+        [fullClient?.lastName, fullClient?.firstName].filter(Boolean).join(" ") ||
+        "Клиент"
+      for (const removal of result.removed) {
+        const who = removal.wardName ? `${removal.wardName} · ` : ""
+        await db.notification.createMany({
+          data: recipients.map((r) => ({
+            tenantId: input.tenantId,
+            employeeId: r.id,
+            type: "linked_discount_warning" as const,
+            title: `Снята скидка «${removal.templateName}» — ${clientName}`,
+            message: `${who}${removal.directionName}. Условие шаблона больше не выполняется (было −${removal.previousAmount.toLocaleString("ru-RU")} ₽).`,
+            entityType: "Client",
+            entityId: input.clientId,
+          })),
+        })
+      }
     }
   }
 

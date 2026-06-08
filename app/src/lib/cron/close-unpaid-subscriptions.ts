@@ -1,4 +1,5 @@
 import { db } from "@/lib/db"
+import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 
 /**
  * Авто-закрытие неоплаченных абонементов.
@@ -79,7 +80,7 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
 
     closedSubs += toClose.length
 
-    // Пересчёт clientStatus для каждого затронутого клиента.
+    // Пересчёт clientStatus + шаблонных скидок для каждого затронутого клиента.
     for (const clientId of affectedClientIds) {
       const [activeSubsLeft, paymentsCount] = await Promise.all([
         db.subscription.count({
@@ -98,6 +99,14 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
         })
         churnedClients += res.count
       }
+      // Шаблонные linked-скидки могли «сломаться» — пересчитываем.
+      await db.$transaction(async (tx) => {
+        await recalculateDiscountsForClient(tx, {
+          tenantId: t.id,
+          clientId,
+          createdBy: null,
+        })
+      })
     }
   }
 
