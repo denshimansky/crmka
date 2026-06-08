@@ -345,12 +345,17 @@ function RefundSubscriptionDialog({
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<RefundPreview | null>(null)
   const [comment, setComment] = useState("")
+  const [reasons, setReasons] = useState<{ id: string; name: string; isActive: boolean }[]>([])
+  const [reasonId, setReasonId] = useState<string>("")
 
   async function loadPreview() {
     setLoadingPreview(true)
     setError(null)
     try {
-      const refundRes = await fetch(`/api/subscriptions/${subscription.id}/refund`)
+      const [refundRes, rsRes] = await Promise.all([
+        fetch(`/api/subscriptions/${subscription.id}/refund`),
+        fetch(`/api/withdrawal-reasons`),
+      ])
       if (refundRes.ok) {
         const data = await refundRes.json()
         setPreview(data)
@@ -360,6 +365,10 @@ function RefundSubscriptionDialog({
       } else {
         const data = await refundRes.json().catch(() => ({}))
         setError(data.error || "Ошибка загрузки данных")
+      }
+      if (rsRes.ok) {
+        const rs = await rsRes.json()
+        setReasons(rs.filter((r: any) => r.isActive))
       }
     } catch {
       setError("Ошибка сети")
@@ -376,10 +385,15 @@ function RefundSubscriptionDialog({
       setPreview(null)
       setError(null)
       setComment("")
+      setReasonId("")
     }
   }
 
   async function handleRefund() {
+    if (!reasonId) {
+      setError("Укажите причину отчисления")
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -388,6 +402,7 @@ function RefundSubscriptionDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           comment: comment || undefined,
+          withdrawalReasonId: reasonId,
         }),
       })
 
@@ -492,11 +507,39 @@ function RefundSubscriptionDialog({
             </div>
 
             <div className="space-y-1.5">
+              <Label>
+                Причина отчисления <span className="text-red-500">*</span>
+              </Label>
+              {reasons.length === 0 ? (
+                <p className="text-xs text-red-600">
+                  В справочнике нет активных причин. Добавьте их в{" "}
+                  <Link href="/settings/withdrawal-reasons" className="underline">
+                    настройках
+                  </Link>
+                  .
+                </p>
+              ) : (
+                <Select value={reasonId} onValueChange={(v) => { if (v) setReasonId(v) }}>
+                  <SelectTrigger className="w-full">
+                    {reasons.find((r) => r.id === reasonId)?.name || "Выберите причину"}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {reasons.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
               <Label>Комментарий</Label>
               <Input
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Причина возврата"
+                placeholder="Дополнительные детали (опционально)"
                 maxLength={500}
               />
             </div>
@@ -506,7 +549,7 @@ function RefundSubscriptionDialog({
               <Button
                 variant="destructive"
                 onClick={handleRefund}
-                disabled={loading || !preview.canClose}
+                disabled={loading || !preview.canClose || !reasonId}
               >
                 {loading
                   ? "Обработка..."
@@ -657,6 +700,12 @@ interface WithdrawPreview {
   canClose: boolean
 }
 
+interface WithdrawalReasonOption {
+  id: string
+  name: string
+  isActive: boolean
+}
+
 function WithdrawSubscriptionDialog({
   subscription,
   onSuccess,
@@ -669,18 +718,27 @@ function WithdrawSubscriptionDialog({
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<WithdrawPreview | null>(null)
+  const [reasons, setReasons] = useState<WithdrawalReasonOption[]>([])
+  const [reasonId, setReasonId] = useState<string>("")
 
   async function loadPreview() {
     setLoadingPreview(true)
     setError(null)
     try {
-      const res = await fetch(`/api/subscriptions/${subscription.id}/refund`)
+      const [res, rsRes] = await Promise.all([
+        fetch(`/api/subscriptions/${subscription.id}/refund`),
+        fetch(`/api/withdrawal-reasons`),
+      ])
       if (res.ok) {
         const data = await res.json()
         setPreview(data)
       } else {
         const data = await res.json().catch(() => ({}))
         setError(data.error || "Ошибка загрузки данных")
+      }
+      if (rsRes.ok) {
+        const rs: WithdrawalReasonOption[] = await rsRes.json()
+        setReasons(rs.filter((r) => r.isActive))
       }
     } catch {
       setError("Ошибка сети")
@@ -695,17 +753,22 @@ function WithdrawSubscriptionDialog({
     else {
       setPreview(null)
       setError(null)
+      setReasonId("")
     }
   }
 
   async function handleWithdraw() {
+    if (!reasonId) {
+      setError("Укажите причину отчисления")
+      return
+    }
     setLoading(true)
     setError(null)
     try {
       const res = await fetch(`/api/subscriptions/${subscription.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "withdrawn" }),
+        body: JSON.stringify({ status: "withdrawn", withdrawalReasonId: reasonId }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -822,11 +885,43 @@ function WithdrawSubscriptionDialog({
               )}
             </div>
 
+            <div className="space-y-1.5">
+              <Label>
+                Причина отчисления <span className="text-red-500">*</span>
+              </Label>
+              {reasons.length === 0 ? (
+                <p className="text-xs text-red-600">
+                  В справочнике нет активных причин. Добавьте их в{" "}
+                  <Link href="/settings/withdrawal-reasons" className="underline">
+                    настройках
+                  </Link>
+                  .
+                </p>
+              ) : (
+                <Select value={reasonId} onValueChange={(v) => { if (v) setReasonId(v) }}>
+                  <SelectTrigger className="w-full">
+                    {reasons.find((r) => r.id === reasonId)?.name || "Выберите причину"}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {reasons.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>
                 Отмена
               </Button>
-              <Button variant="destructive" onClick={handleWithdraw} disabled={loading}>
+              <Button
+                variant="destructive"
+                onClick={handleWithdraw}
+                disabled={loading || !reasonId}
+              >
                 {loading
                   ? "Обработка…"
                   : preview.balanceDelta > 0

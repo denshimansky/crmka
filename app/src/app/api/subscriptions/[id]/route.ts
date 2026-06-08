@@ -15,6 +15,7 @@ const updateSchema = z.object({
   discountAmount: z.number().min(0).optional(),
   wardId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   withdrawalDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  withdrawalReasonId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   // Продление срока пакетного абонемента (ISO-дата) — только для type='package'.
   expiresAt: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
 })
@@ -53,6 +54,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
   const data = parsed.data
+
+  // Переход в withdrawn требует указания причины из справочника.
+  // Проверка до транзакции — отдаём 400, если поле пустое или причина не найдена/неактивна.
+  if (data.status === "withdrawn") {
+    if (!data.withdrawalReasonId) {
+      return NextResponse.json(
+        { error: "Укажите причину отчисления" },
+        { status: 400 },
+      )
+    }
+    const reason = await db.withdrawalReason.findFirst({
+      where: {
+        id: data.withdrawalReasonId,
+        tenantId: session.user.tenantId,
+        isActive: true,
+      },
+      select: { id: true },
+    })
+    if (!reason) {
+      return NextResponse.json(
+        { error: "Причина отчисления не найдена" },
+        { status: 400 },
+      )
+    }
+  }
 
   // Транзакция: findFirst + update атомарно (M-5 audit fix)
   const result = await db.$transaction(async (tx) => {
@@ -152,6 +178,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         updateData.withdrawalDate = data.withdrawalDate
           ? new Date(data.withdrawalDate)
           : new Date()
+        updateData.withdrawalReasonId = data.withdrawalReasonId
       }
     }
 

@@ -9,10 +9,13 @@ import { z } from "zod"
 // accountId/method остались опциональными для обратной совместимости с UI,
 // но фактически больше не используются — изменение идёт на Client.clientBalance,
 // а не как расход с кассы.
+// withdrawalReasonId — обязательное поле (закрытие = отчисление),
+// проверяется внутри обработчика, чтобы вернуть осмысленную ошибку.
 const refundSchema = z.object({
   accountId: z.string().uuid().optional(),
   method: z.string().optional(),
   comment: z.string().max(500).optional(),
+  withdrawalReasonId: z.string().uuid().optional(),
 })
 
 /**
@@ -47,7 +50,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
-  const { comment } = parsed.data
+  const { comment, withdrawalReasonId } = parsed.data
+
+  // Закрытие через refund переводит абонемент в withdrawn — причина обязательна.
+  if (!withdrawalReasonId) {
+    return NextResponse.json({ error: "Укажите причину отчисления" }, { status: 400 })
+  }
+  const reason = await db.withdrawalReason.findFirst({
+    where: {
+      id: withdrawalReasonId,
+      tenantId: session.user.tenantId,
+      isActive: true,
+    },
+    select: { id: true },
+  })
+  if (!reason) {
+    return NextResponse.json({ error: "Причина отчисления не найдена" }, { status: 400 })
+  }
 
   const result = await db.$transaction(async (tx) => {
     const subscription = await tx.subscription.findFirst({
@@ -120,6 +139,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       data: {
         status: "withdrawn",
         withdrawalDate: new Date(),
+        withdrawalReasonId,
         balance: 0,
       },
     })

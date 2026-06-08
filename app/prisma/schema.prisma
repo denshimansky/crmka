@@ -153,6 +153,7 @@ model Organization {
   loginAttempts             LoginAttempt[]
   applications              Application[]
   packageTemplates          PackageTemplate[]
+  withdrawalReasons         WithdrawalReason[]
 
   @@map("organizations")
 }
@@ -321,6 +322,7 @@ model Client {
   assignee            Employee?                  @relation("AssignedClients", fields: [assignedTo], references: [id])
   channel             LeadChannel?               @relation(fields: [channelId], references: [id])
   discountTemplate    DiscountTemplate?          @relation("ClientDiscountTemplate", fields: [discountTemplateId], references: [id])
+  withdrawalReason    WithdrawalReason?          @relation(fields: [withdrawalReasonId], references: [id])
   wards               Ward[]
   enrollments         GroupEnrollment[]
   subscriptions       Subscription[]
@@ -754,6 +756,7 @@ model Subscription {
   direction           Direction                  @relation(fields: [directionId], references: [id])
   group               Group                      @relation(fields: [groupId], references: [id])
   packageTemplate     PackageTemplate?           @relation(fields: [packageTemplateId], references: [id])
+  withdrawalReason    WithdrawalReason?          @relation(fields: [withdrawalReasonId], references: [id])
   payments            Payment[]
   discounts           Discount[]
   attendances         Attendance[]
@@ -1139,6 +1142,27 @@ model AbsenceReason {
 
   @@index([tenantId])
   @@map("absence_reasons")
+}
+
+// === СПРАВОЧНИК ПРИЧИН ОТЧИСЛЕНИЯ ===
+// Используется при отчислении абонемента (Subscription.status='withdrawn').
+// Поле обязательно — UI и API не дают отчислить без указания причины.
+
+model WithdrawalReason {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String
+  isSystem  Boolean  @default(false) @map("is_system")
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  organization  Organization   @relation(fields: [tenantId], references: [id])
+  subscriptions Subscription[]
+  clients       Client[]
+
+  @@index([tenantId])
+  @@map("withdrawal_reasons")
 }
 
 // === АНАЛИТИКА ИСПОЛЬЗОВАНИЯ ===
