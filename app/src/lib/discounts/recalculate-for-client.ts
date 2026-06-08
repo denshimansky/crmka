@@ -144,6 +144,21 @@ export async function recalculateDiscountsForClient(
     template && template.isActive ? pickRecipients(template.kind, subs) : []
   const targetIds = new Set(targetRecipients.map((s) => s.id))
 
+  // Запоминаем, у каких абонементов была применена шаблонная скидка ДО пересчёта.
+  // Только их discountAmount мы вправе сбрасывать в 0 — иначе затрём
+  // ручную скидку, введённую в форме создания/редактирования абонемента.
+  const priorTemplateDiscounts = await db.discount.findMany({
+    where: {
+      subscription: { clientId: input.clientId, tenantId: input.tenantId },
+      templateId: { not: null },
+      isActive: true,
+    },
+    select: { subscriptionId: true },
+  })
+  const priorTemplateSubIds = new Set(
+    priorTemplateDiscounts.map((d) => d.subscriptionId),
+  )
+
   // Снимаем все шаблонные Discount у клиента в этих абонах.
   await db.discount.deleteMany({
     where: {
@@ -156,10 +171,12 @@ export async function recalculateDiscountsForClient(
   // Для каждого абонемента — целевая сумма скидки и пересчёт Subscription.
   for (const sub of subs) {
     let newDiscount = new Prisma.Decimal(0)
+    let appliedTemplate = false
     if (template && targetIds.has(sub.id)) {
       const computed = computeDiscountAmount(template, sub)
       if (computed && computed.greaterThan(0)) {
         newDiscount = computed
+        appliedTemplate = true
         await db.discount.create({
           data: {
             tenantId: input.tenantId,
@@ -179,6 +196,11 @@ export async function recalculateDiscountsForClient(
         })
       }
     }
+
+    // Если шаблонная скидка не применилась сейчас И не была применена раньше —
+    // discountAmount принадлежит «ручному» вводу, не трогаем.
+    if (!appliedTemplate && !priorTemplateSubIds.has(sub.id)) continue
+
     if (!newDiscount.equals(sub.discountAmount)) {
       const newFinal = sub.totalAmount.minus(newDiscount)
       await db.subscription.update({
