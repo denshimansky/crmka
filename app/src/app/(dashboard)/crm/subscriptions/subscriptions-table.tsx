@@ -30,7 +30,7 @@ export interface SubscriptionRow {
   branchName: string
   groupName: string
   finalAmount: number
-  chargedAmount: number
+  paidAmount: number
   startDate: string // ISO
   endDate: string | null // ISO
   expiresAt: string | null // ISO
@@ -246,7 +246,7 @@ export function SubscriptionsTable({
                   <TableCell>{r.branchName}</TableCell>
                   <TableCell>{r.groupName}</TableCell>
                   <TableCell className="text-right">{fmtMoney(r.finalAmount)}</TableCell>
-                  <TableCell className="text-right">{fmtMoney(r.chargedAmount)}</TableCell>
+                  <TableCell className="text-right">{fmtMoney(r.paidAmount)}</TableCell>
                   <TableCell>{periodLabel(r)}</TableCell>
                   <TableCell>{r.discountLabel}</TableCell>
                 </TableRow>

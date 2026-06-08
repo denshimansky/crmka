@@ -115,6 +115,7 @@ export default async function SubscriptionsPage({
         direction: { select: { name: true } },
         group: { select: { name: true, branch: { select: { name: true } } } },
         finalAmount: true,
+        balance: true,
         chargedAmount: true,
         discountAmount: true,
         startDate: true,
@@ -159,7 +160,10 @@ export default async function SubscriptionsPage({
       branchName: s.group.branch.name,
       groupName: s.group.name,
       finalAmount: Number(s.finalAmount),
-      chargedAmount: Number(s.chargedAmount),
+      // «Оплачено» = реальные транши с баланса родителя в счёт абонемента =
+      // finalAmount − balance. chargedAmount хранит отработанные занятия,
+      // он не равен «оплачено» (раньше путали из-за общей семантики).
+      paidAmount: Number(s.finalAmount) - Number(s.balance),
       startDate: s.startDate.toISOString(),
       endDate: s.endDate ? s.endDate.toISOString() : null,
       expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null,
