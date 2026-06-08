@@ -66,7 +66,12 @@ export function LeadStatusActions({
 
   // Подпись текущего «места» клиента в воронке — то, что видит пользователь в
   // триггере селекта. Соответствует фильтрам вкладок в /crm/contacts.
+  // Воронка archived/blacklisted побеждает «исторический» clientStatus=churned —
+  // иначе у клиентов с рассинхроном в БД подпись «Выбывший» рассходится с
+  // фактической вкладкой «Архив».
   const currentBucketLabel = (() => {
+    if (currentStatus === "archived") return "Архив"
+    if (currentStatus === "blacklisted") return "Чёрный список"
     if (clientStatus === "churned") return "Выбывший"
     if (clientStatus === "active") return "Активный"
     return STATUS_LABELS[currentStatus] ?? currentStatus

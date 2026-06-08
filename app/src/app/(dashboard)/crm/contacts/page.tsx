@@ -90,8 +90,12 @@ function buildWhere(
     // существованию active-абонемента давала 0 для тенантов, где между
     // периодами абонементов нет, хотя клиент по сути работает.
     base.clientStatus = "active"
+    // Воронка archived/blacklisted побеждает: исторический рассинхрон не должен
+    // показывать архивных клиентов во вкладке «Активные».
+    base.funnelStatus = { notIn: ["archived", "blacklisted"] }
   } else if (tab === "churned") {
     base.clientStatus = "churned"
+    base.funnelStatus = { notIn: ["archived", "blacklisted"] }
   } else if (tab === "archived") {
     base.funnelStatus = "archived"
   } else if (tab === "blacklist") {
