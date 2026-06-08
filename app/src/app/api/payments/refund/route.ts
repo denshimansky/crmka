@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { z } from "zod"
 
 const refundSchema = z.object({
@@ -107,19 +108,15 @@ export async function POST(req: NextRequest) {
       data: { balance: { decrement: data.amount } },
     })
 
-    // Уменьшаем баланс клиента
-    await tx.client.update({
-      where: { id: data.clientId },
-      data: { clientBalance: { decrement: data.amount } },
+    // Баланс родителя — через ledger (для истории клиента и /finance/debtors).
+    await applyBalanceDelta(tx, {
+      tenantId: session.user.tenantId,
+      clientId: data.clientId,
+      delta: -data.amount,
+      type: "refund",
+      refs: { paymentId: p.id, subscriptionId: data.subscriptionId ?? null },
+      createdBy: session.user.employeeId,
     })
-
-    // Если привязан абонемент — увеличиваем остаток (обратная операция от оплаты)
-    if (data.subscriptionId) {
-      await tx.subscription.update({
-        where: { id: data.subscriptionId },
-        data: { balance: { increment: data.amount } },
-      })
-    }
 
     return p
   })

@@ -6,14 +6,13 @@
 // recalcLinkedDiscounts). Здесь работаем только с шаблонами новой логики.
 
 import { Prisma, type PrismaClient } from "@prisma/client"
-import { applyBalanceDelta } from "@/lib/balance/transactions"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
 interface RecalculateInput {
   tenantId: string
   clientId: string
-  /** ID сотрудника-инициатора (для аудита и applyBalanceDelta.createdBy). */
+  /** ID сотрудника-инициатора (для аудита). */
   createdBy?: string | null
 }
 
@@ -182,7 +181,6 @@ export async function recalculateDiscountsForClient(
     }
     if (!newDiscount.equals(sub.discountAmount)) {
       const newFinal = sub.totalAmount.minus(newDiscount)
-      const delta = newFinal.minus(sub.finalAmount) // если скидка ↑, final ↓, delta < 0
       await db.subscription.update({
         where: { id: sub.id },
         data: {
@@ -192,19 +190,8 @@ export async function recalculateDiscountsForClient(
           balance: newFinal,
         },
       })
-      if (!delta.isZero()) {
-        // subscription_issued уже отразил старую сумму при выписке. Корректируем
-        // дельтой: новый_final − старый_final. correction не падает в ДДС.
-        await applyBalanceDelta(db, {
-          tenantId: input.tenantId,
-          clientId: input.clientId,
-          delta: delta.negated(),
-          type: "correction",
-          refs: { subscriptionId: sub.id, directionId: sub.directionId },
-          comment: "Пересчёт скидки",
-          createdBy: input.createdBy ?? null,
-        })
-      }
+      // clientBalance не зависит от finalAmount абонемента (долг живёт на
+      // Subscription.balance), поэтому correction-проводка не требуется.
     }
   }
 }

@@ -1,7 +1,7 @@
 // Массовая выписка абонементов на следующий период.
-// preview — сухой просчёт; apply — транзакция: создаёт pending Subscription
-// и через applyBalanceDelta(type=subscription_issued) уводит баланс клиента
-// в минус ровно так же, как одиночный POST /api/subscriptions.
+// preview — сухой просчёт; apply — транзакция: создаёт pending Subscription.
+// clientBalance не трогается: долг живёт на Subscription.balance до момента
+// «Оплатить с баланса» (как и в одиночном POST /api/subscriptions).
 //
 // Что включаем: только календарные абонементы (type=calendar) — пользователь
 // явно подтвердил, что массовая выписка нужна именно для них; package идут
@@ -12,7 +12,6 @@
 
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
-import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { countLessonsForGroup } from "@/lib/schedule/count-lessons"
 import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 
@@ -303,19 +302,14 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
         },
         select: { id: true },
       })
-      await applyBalanceDelta(tx, {
-        tenantId: opts.tenantId,
-        clientId: c.clientId,
-        delta: finalAmount.negated(),
-        type: "subscription_issued",
-        refs: { subscriptionId: sub.id, directionId: c.directionId },
-        comment,
-        createdBy: opts.createdBy ?? null,
-      })
-      // ADM-04: денормализуем филиал последнего абонемента.
+      // ADM-04: денормализуем филиал последнего абонемента + счётчик абонементов.
+      // clientBalance НЕ трогаем — долг живёт только на Subscription.balance.
       await tx.client.update({
         where: { id: c.clientId },
-        data: { lastBranchId: c.branchId },
+        data: {
+          lastBranchId: c.branchId,
+          totalSubscriptionsCount: { increment: 1 },
+        },
       })
       created++
       totalIssuedAmount = totalIssuedAmount.add(finalAmount)

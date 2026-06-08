@@ -38,7 +38,7 @@ const FILTERS: FilterDef[] = [
   { key: "comm", label: "Коммуникации", kinds: ["communication"] },
   { key: "trial", label: "Пробные", kinds: ["trial_scheduled", "trial_attended", "trial_no_show"] },
   { key: "sub", label: "Абонементы", kinds: ["subscription_created", "subscription_closed"] },
-  { key: "pay", label: "Оплаты", kinds: ["payment_in", "payment_refund"] },
+  { key: "pay", label: "Оплаты", kinds: ["payment_in", "payment_refund", "subscription_paid_from_balance", "balance_credit", "balance_debit"] },
   { key: "att", label: "Посещения", kinds: ["attendance_present", "attendance_absent", "attendance_other"] },
   { key: "status", label: "Статусы", kinds: ["status_change"] },
 ]
@@ -59,6 +59,9 @@ const KIND_CONFIG: Record<
   subscription_closed: { icon: Tag, color: "text-gray-600", bg: "bg-gray-100 dark:bg-gray-800" },
   payment_in: { icon: CreditCard, color: "text-green-600", bg: "bg-green-100 dark:bg-green-900/30" },
   payment_refund: { icon: RotateCcw, color: "text-orange-600", bg: "bg-orange-100 dark:bg-orange-900/30" },
+  subscription_paid_from_balance: { icon: CreditCard, color: "text-violet-600", bg: "bg-violet-100 dark:bg-violet-900/30" },
+  balance_credit: { icon: CreditCard, color: "text-emerald-600", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
+  balance_debit: { icon: RotateCcw, color: "text-red-600", bg: "bg-red-100 dark:bg-red-900/30" },
   attendance_present: { icon: CircleCheck, color: "text-emerald-600", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
   attendance_absent: { icon: X, color: "text-red-600", bg: "bg-red-100 dark:bg-red-900/30" },
   attendance_other: { icon: CalendarDays, color: "text-gray-600", bg: "bg-gray-100 dark:bg-gray-800" },

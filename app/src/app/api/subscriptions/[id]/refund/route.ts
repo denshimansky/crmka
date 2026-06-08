@@ -3,10 +3,11 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
 // accountId/method остались опциональными для обратной совместимости с UI,
-// но фактически больше не используются — возврат идёт на Client.clientBalance,
+// но фактически больше не используются — изменение идёт на Client.clientBalance,
 // а не как расход с кассы.
 const refundSchema = z.object({
   accountId: z.string().uuid().optional(),
@@ -16,22 +17,26 @@ const refundSchema = z.object({
 
 /**
  * POST /api/subscriptions/[id]/refund
- * Закрытие абонемента с возвратом невыработанной части на баланс клиента.
+ * Закрытие абонемента с учётом фактически оплаченного и отработанного.
  *
- * Логика:
- * 1. Считаем использованные занятия (attendance с chargeAmount > 0).
- * 2. Остаток занятий = totalLessons − использованные.
- * 3. Сумма возврата = остаток × lessonPrice.
- * 4. Возвращаем на Client.clientBalance через ClientBalanceTransaction
- *    (type=subscription_closed_refund). Клиент сможет потратить кредит
- *    на следующий абонемент.
- * 5. Деактивируем абонемент (status=withdrawn) и зачисления.
+ * Расчёт дельты для Client.clientBalance:
+ *   delta = paidToSub - usedAmount
+ *     paidToSub  = сумма Payment.transfer_in, привязанных к этому абонементу
+ *                  (т.е. суммы, реально списанные с баланса родителя через
+ *                  «Оплатить с баланса»).
+ *     usedAmount = сумма Attendance.chargeAmount этого абонемента (стоимость
+ *                  отработанных занятий).
+ *
+ * delta > 0 → клиент переплатил, возвращаем на баланс (кредит на следующий).
+ * delta < 0 → клиент не доплатил за отработанное, переносим долг на баланс.
+ * delta = 0 → баланс клиента не меняется (всё «сошлось»).
+ *
+ * Абонемент → withdrawn, balance=0, зачисления деактивируются.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  // Только владелец и управляющий могут делать возвраты
   if (session.user.role !== "owner" && session.user.role !== "manager") {
     return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 })
   }
@@ -59,9 +64,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     if (subscription.status !== "active" && subscription.status !== "pending") {
-      return { error: "Возврат возможен только для активного или ожидающего абонемента", status: 400 }
+      return { error: "Закрытие возможно только для активного или ожидающего абонемента", status: 400 }
     }
 
+    const paidAgg = await tx.payment.aggregate({
+      where: {
+        tenantId: session.user.tenantId,
+        subscriptionId: id,
+        deletedAt: null,
+        type: "transfer_in",
+      },
+      _sum: { amount: true },
+    })
+    const usedAgg = await tx.attendance.aggregate({
+      where: {
+        tenantId: session.user.tenantId,
+        subscriptionId: id,
+      },
+      _sum: { chargeAmount: true },
+    })
     const attendedCount = await tx.attendance.count({
       where: {
         tenantId: session.user.tenantId,
@@ -70,28 +91,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     })
 
+    const paidToSub = new Prisma.Decimal(paidAgg._sum.amount ?? 0)
+    const usedAmount = new Prisma.Decimal(usedAgg._sum.chargeAmount ?? 0)
+    const delta = paidToSub.minus(usedAmount)
     const remainingLessons = Math.max(0, subscription.totalLessons - attendedCount)
 
-    if (remainingLessons === 0) {
-      return { error: "Все занятия использованы, возврат невозможен", status: 400 }
+    if (!delta.isZero()) {
+      await applyBalanceDelta(tx, {
+        tenantId: session.user.tenantId,
+        clientId: subscription.clientId,
+        delta,
+        type: "subscription_closed_refund",
+        refs: {
+          subscriptionId: id,
+          directionId: subscription.directionId,
+        },
+        comment:
+          comment ||
+          (delta.isPositive()
+            ? `Закрытие: возврат за ${remainingLessons} занятий — ${subscription.direction.name} (${subscription.group.name})`
+            : `Закрытие: долг ${delta.abs().toFixed(2)} ₽ — ${subscription.direction.name} (${subscription.group.name})`),
+        createdBy: session.user.employeeId,
+      })
     }
-
-    const refundAmount = remainingLessons * Number(subscription.lessonPrice)
-
-    // Возврат на баланс клиента (не на кассу). Финансово это «обнуление»
-    // того минуса, который мы создали при выписке абонемента.
-    await applyBalanceDelta(tx, {
-      tenantId: session.user.tenantId,
-      clientId: subscription.clientId,
-      delta: refundAmount,
-      type: "subscription_closed_refund",
-      refs: {
-        subscriptionId: id,
-        directionId: subscription.directionId,
-      },
-      comment: comment || `Возврат: ${subscription.direction.name} (${subscription.group.name})`,
-      createdBy: session.user.employeeId,
-    })
 
     await tx.subscription.update({
       where: { id },
@@ -119,7 +141,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return {
       data: {
         subscriptionId: id,
-        refundAmount,
+        balanceDelta: delta.toNumber(),
+        paidToSubscription: paidToSub.toNumber(),
+        usedAmount: usedAmount.toNumber(),
         remainingLessons,
         attendedLessons: attendedCount,
         totalLessons: subscription.totalLessons,
@@ -140,7 +164,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
 /**
  * GET /api/subscriptions/[id]/refund
- * Предварительный расчёт суммы возврата (без выполнения).
+ * Предварительный расчёт дельты баланса при закрытии абонемента (без выполнения).
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
@@ -160,6 +184,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
   }
 
+  const paidAgg = await db.payment.aggregate({
+    where: {
+      tenantId: session.user.tenantId,
+      subscriptionId: id,
+      deletedAt: null,
+      type: "transfer_in",
+    },
+    _sum: { amount: true },
+  })
+  const usedAgg = await db.attendance.aggregate({
+    where: {
+      tenantId: session.user.tenantId,
+      subscriptionId: id,
+    },
+    _sum: { chargeAmount: true },
+  })
   const attendedCount = await db.attendance.count({
     where: {
       tenantId: session.user.tenantId,
@@ -168,25 +208,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     },
   })
 
+  const paidToSub = Number(paidAgg._sum.amount ?? 0)
+  const usedAmount = Number(usedAgg._sum.chargeAmount ?? 0)
+  const balanceDelta = paidToSub - usedAmount
   const remainingLessons = Math.max(0, subscription.totalLessons - attendedCount)
-  const refundAmount = remainingLessons * Number(subscription.lessonPrice)
-
-  const paidAgg = await db.payment.aggregate({
-    where: { subscriptionId: id, deletedAt: null },
-    _sum: { amount: true },
-  })
-  const totalPaid = Number(paidAgg._sum.amount || 0)
 
   return NextResponse.json({
     totalLessons: subscription.totalLessons,
     attendedLessons: attendedCount,
     remainingLessons,
     lessonPrice: Number(subscription.lessonPrice),
-    refundAmount,
-    totalPaid,
+    paidToSubscription: paidToSub,
+    usedAmount,
+    balanceDelta,
     direction: subscription.direction.name,
     group: subscription.group.name,
     status: subscription.status,
-    canRefund: (subscription.status === "active" || subscription.status === "pending") && remainingLessons > 0,
+    canClose: subscription.status === "active" || subscription.status === "pending",
   })
 }

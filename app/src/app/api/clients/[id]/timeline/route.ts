@@ -16,6 +16,17 @@ type TimelinePayment = Prisma.PaymentGetPayload<{
 type TimelineAuditLog = Prisma.AuditLogGetPayload<{
   include: { employee: { select: { firstName: true; lastName: true } } }
 }>
+type TimelineBalanceTxn = Prisma.ClientBalanceTransactionGetPayload<{
+  include: {
+    subscription: {
+      select: {
+        periodYear: true
+        periodMonth: true
+        direction: { select: { name: true } }
+      }
+    }
+  }
+}>
 
 /**
  * GET /api/clients/[id]/timeline
@@ -34,6 +45,9 @@ type EventKind =
   | "subscription_closed"
   | "payment_in"
   | "payment_refund"
+  | "subscription_paid_from_balance"
+  | "balance_credit"
+  | "balance_debit"
   | "attendance_present"
   | "attendance_absent"
   | "attendance_other"
@@ -93,6 +107,7 @@ export async function GET(
     payments,
     attendances,
     auditLogs,
+    balanceTxns,
   ] = await Promise.all([
     wardId
       ? Promise.resolve([] as TimelineCommunication[])
@@ -162,6 +177,22 @@ export async function GET(
           },
           orderBy: { createdAt: "desc" },
           take: 200,
+        }),
+    wardId
+      ? Promise.resolve([] as TimelineBalanceTxn[])
+      : db.clientBalanceTransaction.findMany({
+          where: { tenantId, clientId },
+          include: {
+            subscription: {
+              select: {
+                periodYear: true,
+                periodMonth: true,
+                direction: { select: { name: true } },
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 300,
         }),
   ])
 
@@ -272,7 +303,7 @@ export async function GET(
     }
   }
 
-  // --- Оплаты + возвраты
+  // --- Оплаты + возвраты + списания с баланса в счёт абонемента
   const METHOD_LABELS: Record<string, string> = {
     cash: "наличные",
     bank_transfer: "безнал",
@@ -284,21 +315,71 @@ export async function GET(
   for (const p of payments) {
     const amount = Number(p.amount)
     const isRefund = p.type === "refund"
+    const isTransferIn = p.type === "transfer_in"
+    const kind: EventKind = isRefund
+      ? "payment_refund"
+      : isTransferIn
+        ? "subscription_paid_from_balance"
+        : "payment_in"
+    const title = isRefund
+      ? `Возврат ${amount.toLocaleString("ru-RU")} ₽`
+      : isTransferIn
+        ? `Списание с баланса в счёт абонемента ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+        : `Оплата ${amount.toLocaleString("ru-RU")} ₽ — пополнение баланса`
     events.push({
       id: `pay-${p.id}`,
-      kind: isRefund ? "payment_refund" : "payment_in",
+      kind,
       date: p.date.toISOString(),
-      title: isRefund
-        ? `Возврат ${amount.toLocaleString("ru-RU")} ₽`
-        : `Оплата ${amount.toLocaleString("ru-RU")} ₽`,
+      title,
       description: [
-        METHOD_LABELS[p.method] || p.method,
+        !isTransferIn ? (METHOD_LABELS[p.method] || p.method) : null,
         p.account?.name,
         p.comment,
       ]
         .filter(Boolean)
         .join(" · "),
       meta: { paymentId: p.id, amount, method: p.method },
+    })
+  }
+
+  // --- Движения баланса, не привязанные к Payment (закрытия с долгом/возвратом,
+  // корректировки, разовые посещения, attendance_revert). Записи, дублирующие
+  // Payment (payment_received, transfer_to_subscription, refund), пропускаем —
+  // они уже есть в блоке выше. Legacy-тип subscription_issued тоже скрываем.
+  const LEDGER_SKIP = new Set<string>([
+    "payment_received",
+    "transfer_to_subscription",
+    "refund",
+    "subscription_issued",
+  ])
+  for (const t of balanceTxns) {
+    if (LEDGER_SKIP.has(t.type)) continue
+    const amount = Number(t.amount)
+    const subLabel = t.subscription
+      ? `${t.subscription.direction.name} (${String(t.subscription.periodMonth).padStart(2, "0")}.${t.subscription.periodYear})`
+      : null
+    const kind: EventKind = amount >= 0 ? "balance_credit" : "balance_debit"
+    const title =
+      t.type === "subscription_closed_refund"
+        ? amount >= 0
+          ? `Закрытие абонемента: +${amount.toLocaleString("ru-RU")} ₽ на баланс`
+          : `Закрытие абонемента: долг ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+        : t.type === "correction"
+          ? `Корректировка баланса ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+          : t.type === "personal_lesson_charge"
+            ? `Разовое посещение: ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+            : t.type === "lesson_refund"
+              ? `Возврат за занятие: +${amount.toLocaleString("ru-RU")} ₽`
+              : t.type === "attendance_revert"
+                ? `Отмена посещения: +${amount.toLocaleString("ru-RU")} ₽`
+                : `Операция (${t.type}) ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+    events.push({
+      id: `ledger-${t.id}`,
+      kind,
+      date: t.createdAt.toISOString(),
+      title,
+      description: [subLabel, t.comment].filter(Boolean).join(" · "),
+      meta: { ledgerId: t.id, ledgerType: t.type, amount },
     })
   }
 

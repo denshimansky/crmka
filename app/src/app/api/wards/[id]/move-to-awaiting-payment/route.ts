@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -184,20 +183,15 @@ export async function POST(
       },
     })
 
-    // ADM-04: денормализуем филиал последнего абонемента.
+    // ADM-04: денормализуем филиал последнего абонемента + счётчик абонементов.
+    // clientBalance не трогаем: долг живёт на Subscription.balance до момента
+    // «Оплатить с баланса».
     await tx.client.update({
       where: { id: ward.clientId },
-      data: { lastBranchId: group.branchId },
-    })
-
-    // Выписка абонемента уменьшает баланс клиента на finalAmount (долг).
-    await applyBalanceDelta(tx, {
-      tenantId,
-      clientId: ward.clientId,
-      delta: finalAmount.negated(),
-      type: "subscription_issued",
-      refs: { subscriptionId: subscription.id, directionId: data.directionId },
-      createdBy: session.user.employeeId,
+      data: {
+        lastBranchId: group.branchId,
+        totalSubscriptionsCount: { increment: 1 },
+      },
     })
 
     // GroupEnrollment с awaiting_payment — это «у ребёнка занятия в группе,

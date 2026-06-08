@@ -3,7 +3,6 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
-import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
@@ -220,22 +219,16 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // ADM-04: денормализуем филиал последнего абонемента, чтобы видимость
-    // выбывших/архив/ЧС не требовала дорогого подзапроса.
+    // ADM-04: денормализуем филиал последнего абонемента + считаем общее
+    // количество купленных абонементов (нужно для сегмента «Нет/N абонементов»).
+    // clientBalance НЕ трогаем — это реальные деньги клиента; долг живёт
+    // только на стороне Subscription.balance до момента «Оплатить с баланса».
     await tx.client.update({
       where: { id: data.clientId },
-      data: { lastBranchId: group.branchId },
-    })
-
-    // Выписка абонемента уводит баланс клиента в минус на finalAmount.
-    // Это «долг к оплате» — обнуляется поступающими Payment'ами.
-    await applyBalanceDelta(tx, {
-      tenantId: session.user.tenantId,
-      clientId: data.clientId,
-      delta: new Prisma.Decimal(finalAmount).negated(),
-      type: "subscription_issued",
-      refs: { subscriptionId: sub.id, directionId: data.directionId },
-      createdBy: session.user.employeeId,
+      data: {
+        lastBranchId: group.branchId,
+        totalSubscriptionsCount: { increment: 1 },
+      },
     })
 
     // Автоблокировка типа абонемента после создания первого
