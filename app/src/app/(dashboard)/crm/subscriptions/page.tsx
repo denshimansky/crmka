@@ -26,7 +26,12 @@ function buildWhere(
   const base: Prisma.SubscriptionWhereInput = { tenantId, deletedAt: null }
   if (tab === "active") base.status = "active"
   else if (tab === "pending") base.status = "pending"
-  else base.status = { in: ["closed", "withdrawn"] }
+  else {
+    base.status = { in: ["closed", "withdrawn"] }
+    // Не стартовавшие абонементы (ни одного списания за занятие) не считаем
+    // «закончившимися» — их в этой вкладке быть не должно.
+    base.chargedAmount = { gt: 0 }
+  }
 
   if (filters.directionId) base.directionId = filters.directionId
   if (filters.branchId) base.group = { branchId: filters.branchId }
