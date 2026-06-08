@@ -469,9 +469,11 @@ export async function ClientCardContent({
       />
 
       {/* Two-column layout */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         {/* Main content: tabs */}
-        <ClientTabs clientId={client.id} wards={wardsForClient} />
+        <div className="min-w-0">
+          <ClientTabs clientId={client.id} wards={wardsForClient} />
+        </div>
 
         {/* Sidebar */}
         <div className="space-y-4">
