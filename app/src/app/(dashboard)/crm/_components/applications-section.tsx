@@ -4,9 +4,8 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ClipboardList, Settings2, Trash2 } from "lucide-react"
+import { ClipboardList, Trash2 } from "lucide-react"
 import { formatWardName } from "@/lib/format-name"
-import { ProcessApplicationDialog } from "./process-application-dialog"
 
 interface ApplicationRow {
   id: string
@@ -45,7 +44,6 @@ export function ApplicationsSection({
 }) {
   const router = useRouter()
   const [applications, setApplications] = useState<ApplicationRow[] | null>(null)
-  const [processingId, setProcessingId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -94,7 +92,6 @@ export function ApplicationsSection({
 
   const active = applications.filter((a) => a.status === "active")
   const processedToShow = applications.filter((a) => a.status === "processed").slice(0, 3)
-  const activeApp = active.find((a) => a.id === processingId) ?? null
 
   return (
     <div className="rounded-lg border bg-card">
@@ -126,14 +123,6 @@ export function ApplicationsSection({
                 </div>
                 {a.comment && <div className="text-xs text-muted-foreground mt-0.5">{a.comment}</div>}
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setProcessingId(a.id)}
-              >
-                <Settings2 className="size-3.5" />
-                Обработать
-              </Button>
               {canDelete && (
                 <Button size="sm" variant="ghost" onClick={() => handleDelete(a.id)} title="Удалить заявку">
                   <Trash2 className="size-3.5 text-destructive" />
@@ -157,19 +146,6 @@ export function ApplicationsSection({
         </ul>
       )}
 
-      {activeApp && (
-        <ProcessApplicationDialog
-          applicationId={activeApp.id}
-          wardId={activeApp.ward.id}
-          branchId={activeApp.branch.id}
-          directionId={activeApp.direction.id}
-          ward={activeApp.ward}
-          open={processingId !== null}
-          onOpenChange={(v) => {
-            if (!v) setProcessingId(null)
-          }}
-        />
-      )}
     </div>
   )
 }

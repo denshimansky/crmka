@@ -50,7 +50,43 @@ export interface ContactRow {
     instructor: { id: string | null; name: string }
   } | null
   hasActiveSubscription: boolean
-  hasActiveApplication: boolean
+  /** Самая продвинутая стадия воронки среди подопечных (для бажа в строке).
+   *  null = ни один подопечный не в воронке (salesStage='none' у всех). */
+  topSalesStage: "application" | "trial_scheduled" | "trial_attended" | "awaiting_payment" | null
+}
+
+const SALES_STAGE_BADGE: Record<
+  NonNullable<ContactRow["topSalesStage"]>,
+  { label: string; href: string; className: string; title: string }
+> = {
+  application: {
+    label: "Заявка",
+    href: "/crm/sales?tab=application",
+    className:
+      "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200",
+    title: "У подопечного есть активная заявка",
+  },
+  trial_scheduled: {
+    label: "Пробное",
+    href: "/crm/sales?tab=trial",
+    className:
+      "border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200",
+    title: "Подопечный записан на пробное",
+  },
+  trial_attended: {
+    label: "Прошёл пробное",
+    href: "/crm/sales?tab=trial_done",
+    className:
+      "border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200",
+    title: "Подопечный прошёл пробное",
+  },
+  awaiting_payment: {
+    label: "Ожидаем оплату",
+    href: "/crm/sales?tab=awaiting_payment",
+    className:
+      "border-orange-300 bg-orange-50 text-orange-800 hover:bg-orange-100 dark:border-orange-700 dark:bg-orange-950/40 dark:text-orange-200",
+    title: "Ждём оплату от родителя",
+  },
 }
 
 interface EmployeeOption {
@@ -228,15 +264,18 @@ export function ContactsTable({
                 <Link href={`/crm/clients/${r.id}`} className="font-medium hover:underline">
                   {fullName(r)}
                 </Link>
-                {r.hasActiveApplication && (
-                  <Link
-                    href="/crm/sales?tab=application"
-                    title="У клиента есть активная заявка"
-                    className="ml-2 inline-flex items-center rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
-                  >
-                    Заявка
-                  </Link>
-                )}
+                {r.topSalesStage && (() => {
+                  const b = SALES_STAGE_BADGE[r.topSalesStage]
+                  return (
+                    <Link
+                      href={b.href}
+                      title={b.title}
+                      className={`ml-2 inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${b.className}`}
+                    >
+                      {b.label}
+                    </Link>
+                  )
+                })()}
               </TableCell>
               <TableCell className="text-sm">{r.phone || "—"}</TableCell>
               <TableCell className="text-sm">

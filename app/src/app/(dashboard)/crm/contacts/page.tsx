@@ -24,6 +24,30 @@ const TAB_LABELS: Record<ContactsTabKey, string> = {
   all: "Все",
 }
 
+// Приоритет «продвинутости» — наибольший индекс выигрывает. Используется,
+// чтобы показать в баже строки контактов самую продвинутую стадию воронки
+// среди подопечных. none не отображаем.
+const SALES_STAGE_ORDER = [
+  "none",
+  "application",
+  "trial_scheduled",
+  "trial_attended",
+  "awaiting_payment",
+] as const
+
+function pickTopSalesStage(
+  stages: ReadonlyArray<string>,
+): ContactRow["topSalesStage"] {
+  let top: (typeof SALES_STAGE_ORDER)[number] = "none"
+  for (const s of stages) {
+    const idx = SALES_STAGE_ORDER.indexOf(s as (typeof SALES_STAGE_ORDER)[number])
+    if (idx > SALES_STAGE_ORDER.indexOf(top)) {
+      top = SALES_STAGE_ORDER[idx]
+    }
+  }
+  return top === "none" ? null : (top as NonNullable<ContactRow["topSalesStage"]>)
+}
+
 const TAB_ORDER: ContactsTabKey[] = [
   "leads",
   "active",
@@ -170,9 +194,6 @@ export default async function ContactsPage({
           },
         },
       },
-      _count: {
-        select: { applications: { where: { status: "active", deletedAt: null } } },
-      },
     },
     orderBy: [{ nextContactDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
     take: 200,
@@ -213,7 +234,7 @@ export default async function ContactsPage({
           }
         : null,
       hasActiveSubscription: c.subscriptions.length > 0,
-      hasActiveApplication: c._count.applications > 0,
+      topSalesStage: pickTopSalesStage(c.wards.map((w) => w.salesStage)),
     }
   })
 
