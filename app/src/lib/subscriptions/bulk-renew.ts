@@ -13,7 +13,7 @@
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { countLessonsForGroup } from "@/lib/schedule/count-lessons"
-import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
+import { applyDiscountToNewSubscription } from "@/lib/discounts/apply-to-new-subscription"
 
 export interface BulkRenewInput {
   tenantId: string
@@ -274,6 +274,8 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
   let totalIssuedAmount = new Prisma.Decimal(0)
 
   await db.$transaction(async (tx) => {
+    const createdSubs: { subId: string; clientId: string }[] = []
+
     for (const c of preview.toCreate) {
       const lessonPrice = new Prisma.Decimal(c.lessonPrice)
       const totalAmount = lessonPrice.mul(c.totalLessons)
@@ -302,6 +304,7 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
         },
         select: { id: true },
       })
+      createdSubs.push({ subId: sub.id, clientId: c.clientId })
       // ADM-04: денормализуем филиал последнего абонемента + счётчик абонементов.
       // clientBalance НЕ трогаем — долг живёт только на Subscription.balance.
       await tx.client.update({
@@ -315,13 +318,13 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
       totalIssuedAmount = totalIssuedAmount.add(finalAmount)
     }
 
-    // После создания всех новых pending — пересчёт скидок по каждому
-    // затронутому клиенту (linked ищет «самый дешёвый» среди всех).
-    const touchedClients = new Set(preview.toCreate.map((c) => c.clientId))
-    for (const clientId of touchedClients) {
-      await recalculateDiscountsForClient(tx, {
+    // Применяем шаблонные скидки только к НОВЫМ абонементам.
+    // Старые абонементы клиента не пересчитываем.
+    for (const { subId, clientId } of createdSubs) {
+      await applyDiscountToNewSubscription(tx, {
         tenantId: opts.tenantId,
         clientId,
+        subscriptionId: subId,
         createdBy: opts.createdBy ?? null,
       })
     }

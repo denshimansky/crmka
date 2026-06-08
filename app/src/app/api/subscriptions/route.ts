@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
-import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
+import { applyDiscountToNewSubscription } from "@/lib/discounts/apply-to-new-subscription"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
 import { z } from "zod"
@@ -242,11 +242,13 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Применяем шаблон скидки клиента к новому абонементу (и пересчитываем
-    // другие pending/active, т.к. для linked нужен «самый дешёвый среди всех»).
-    await recalculateDiscountsForClient(tx, {
+    // Применяем шаблон скидки клиента ТОЛЬКО к новому абонементу.
+    // Старые абонементы клиента не пересчитываем — шаблонные скидки
+    // применяются к выпискам ПОСЛЕ установки шаблона.
+    await applyDiscountToNewSubscription(tx, {
       tenantId: session.user.tenantId,
       clientId: data.clientId,
+      subscriptionId: sub.id,
       createdBy: session.user.employeeId ?? null,
     })
 

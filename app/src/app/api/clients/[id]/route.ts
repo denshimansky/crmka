@@ -3,7 +3,6 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
-import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 import { z } from "zod"
 
 // PATCH — частичное обновление: отсутствующее в теле поле должно остаться
@@ -179,19 +178,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     include: { wards: true, branch: { select: { id: true, name: true } } },
   })
 
-  // Смена шаблона скидки → пересчитать pending/active абонементы.
-  if (
-    data.discountTemplateId !== undefined &&
-    data.discountTemplateId !== existing.discountTemplateId
-  ) {
-    await db.$transaction(async (tx) => {
-      await recalculateDiscountsForClient(tx, {
-        tenantId: session.user.tenantId,
-        clientId: id,
-        createdBy: session.user.employeeId ?? null,
-      })
-    })
-  }
+  // Смена шаблона скидки на клиенте НЕ пересчитывает уже выписанные
+  // абонементы. Шаблонные скидки применяются только к абонементам,
+  // выписанным ПОСЛЕ установки шаблона (см. applyDiscountToNewSubscription).
 
   return NextResponse.json(client)
 }
