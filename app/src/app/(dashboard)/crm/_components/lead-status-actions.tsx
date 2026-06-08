@@ -47,10 +47,15 @@ const STATUS_LABELS: Record<string, string> = {
 export function LeadStatusActions({
   clientId,
   currentStatus,
+  clientStatus,
   isActiveClient = false,
 }: {
   clientId: string
   currentStatus: string
+  // clientStatus имеет приоритет над funnelStatus для отображения текущей
+  // вкладки клиента (active/churned/archived в clientStatus отражает реальное
+  // состояние, тогда как funnelStatus у выбывших застревает в active_client).
+  clientStatus?: string | null
   // Активный клиент — селектор воронки заменяем на ограниченный набор
   // переходов (Выбывшие/Архив/ЧС).
   isActiveClient?: boolean
@@ -58,6 +63,14 @@ export function LeadStatusActions({
   const router = useRouter()
   const [statusLoading, setStatusLoading] = useState(false)
   const [statusValue, setStatusValue] = useState(currentStatus)
+
+  // Подпись текущего «места» клиента в воронке — то, что видит пользователь в
+  // триггере селекта. Соответствует фильтрам вкладок в /crm/contacts.
+  const currentBucketLabel = (() => {
+    if (clientStatus === "churned") return "Выбывший"
+    if (clientStatus === "active") return "Активный"
+    return STATUS_LABELS[currentStatus] ?? currentStatus
+  })()
 
   // Когда родитель перерисовался после router.refresh() — синхронизируем
   useEffect(() => {
@@ -120,7 +133,7 @@ export function LeadStatusActions({
             className="h-7 min-w-[170px] text-xs"
             disabled={statusLoading}
           >
-            <span className="text-muted-foreground">Сменить статус…</span>
+            {currentBucketLabel}
           </SelectTrigger>
           <SelectContent>
             {ACTIVE_TRANSITIONS.map((s) => (
@@ -136,7 +149,7 @@ export function LeadStatusActions({
             className="h-7 min-w-[170px] text-xs"
             disabled={statusLoading}
           >
-            {STATUS_LABELS[statusValue] ?? statusValue}
+            {currentBucketLabel}
           </SelectTrigger>
           <SelectContent>
             {STATUS_OPTIONS.map((s) => (

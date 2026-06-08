@@ -371,6 +371,7 @@ export async function ClientCardContent({
         <LeadStatusActions
           clientId={client.id}
           currentStatus={client.funnelStatus}
+          clientStatus={client.clientStatus}
           isActiveClient={
             activeSubscriptions.length > 0 ||
             client.clientStatus === "active"
