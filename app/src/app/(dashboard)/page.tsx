@@ -108,9 +108,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     take: 5,
   })
 
-  // Воронка — лиды и активные считаются по родителям (Client.funnelStatus),
-  // сделочные стадии — по подопечным (Ward.salesStage).
-  const [funnelCounts, wardStageCounts] = await Promise.all([
+  // Воронка — лиды по Client.funnelStatus, сделочные стадии — по Ward.salesStage,
+  // активные — по Client.clientStatus (текущий статус работы, обновляется cron'ом
+  // check-inactive-clients и при отчислении). funnelStatus='active_client' для
+  // активных не годится — это исторический флаг «когда-либо платил», он не
+  // сбрасывается, и счётчик включал бы всех выбывших.
+  const [funnelCounts, wardStageCounts, activeCount] = await Promise.all([
     db.client.groupBy({
       by: ["funnelStatus"],
       where: { tenantId, deletedAt: null },
@@ -121,6 +124,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       where: { tenantId, client: { deletedAt: null } },
       _count: true,
     }),
+    db.client.count({
+      where: { tenantId, deletedAt: null, clientStatus: "active" },
+    }),
   ])
 
   const funnelMap = new Map(funnelCounts.map(f => [f.funnelStatus, f._count]))
@@ -129,7 +135,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     { stage: "Новые", count: funnelMap.get("new") || 0, color: "bg-blue-500" },
     { stage: "Пробное записано", count: wardStageMap.get("trial_scheduled") || 0, color: "bg-cyan-500" },
     { stage: "Ожидание оплаты", count: wardStageMap.get("awaiting_payment") || 0, color: "bg-yellow-500" },
-    { stage: "Активные", count: funnelMap.get("active_client") || 0, color: "bg-green-500" },
+    { stage: "Активные", count: activeCount, color: "bg-green-500" },
   ]
   const maxFunnel = Math.max(...funnelStages.map(f => f.count), 1)
 

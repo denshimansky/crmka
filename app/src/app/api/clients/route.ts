@@ -63,14 +63,9 @@ export async function GET(req: NextRequest) {
     } else if (tab === "nontarget") {
       where.funnelStatus = "non_target"
     } else if (tab === "active") {
-      where.AND = [
-        { subscriptions: { some: { status: "active", deletedAt: null } } },
-        noActiveApplication,
-        { funnelStatus: { notIn: ["archived", "blacklisted"] } },
-      ]
+      where.clientStatus = "active"
     } else if (tab === "churned") {
       where.clientStatus = "churned"
-      where.subscriptions = { none: { status: "active", deletedAt: null } }
     } else if (tab === "archived") {
       where.funnelStatus = "archived"
     } else if (tab === "blacklist") {

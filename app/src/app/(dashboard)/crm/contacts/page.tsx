@@ -56,14 +56,13 @@ function buildWhere(
   } else if (tab === "nontarget") {
     base.funnelStatus = "non_target"
   } else if (tab === "active") {
-    base.AND = [
-      { subscriptions: { some: { status: "active", deletedAt: null } } },
-      NO_ACTIVE_APP,
-      { funnelStatus: { notIn: ["archived", "blacklisted"] } },
-    ]
+    // «Активный» = текущий рабочий статус клиента. Меняется при первой оплате
+    // (active), отчислении (churned), архивации (archived). Привязка к
+    // существованию active-абонемента давала 0 для тенантов, где между
+    // периодами абонементов нет, хотя клиент по сути работает.
+    base.clientStatus = "active"
   } else if (tab === "churned") {
     base.clientStatus = "churned"
-    base.subscriptions = { none: { status: "active", deletedAt: null } }
   } else if (tab === "archived") {
     base.funnelStatus = "archived"
   } else if (tab === "blacklist") {

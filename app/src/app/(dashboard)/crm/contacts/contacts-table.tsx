@@ -88,7 +88,7 @@ function fmtDate(iso: string | null): string {
 function stateLabel(r: ContactRow): string {
   if (r.funnelStatus === "archived") return "Архив"
   if (r.funnelStatus === "blacklisted") return "Чёрный список"
-  if (r.hasActiveSubscription) return "Активный"
+  if (r.clientStatus === "active") return "Активный"
   if (r.clientStatus === "churned") return "Выбывший"
   if (r.funnelStatus === "non_target") return "Нецелевой"
   if (r.funnelStatus === "potential") return "Потенциал"
