@@ -57,6 +57,7 @@ export default async function DebtorsPage() {
       subscriptions: {
         where: { deletedAt: null, status: { in: ["active", "pending"] } },
         select: {
+          id: true,
           direction: { select: { name: true } },
           balance: true,
         },
@@ -77,7 +78,16 @@ export default async function DebtorsPage() {
   const debtorIds = debtors.map((d) => d.id)
   const txns = debtorIds.length
     ? await db.clientBalanceTransaction.findMany({
-        where: { tenantId, clientId: { in: debtorIds } },
+        where: {
+          tenantId,
+          clientId: { in: debtorIds },
+          // subscription_issued — устаревшие проводки от миграции
+          // balance_ledger_extend (откачены rollback_subscription_issued_balance);
+          // оставлены в ledger только для истории, на clientBalance не влияют.
+          // Долг по активному абонементу теперь живёт на Subscription.balance и
+          // показывается через subSources — иначе он бы задвоился.
+          type: { not: "subscription_issued" },
+        },
         select: {
           clientId: true,
           amount: true,
@@ -95,7 +105,7 @@ export default async function DebtorsPage() {
       })
     : []
 
-  type DebtSourceRow = { key: string; label: string; amount: number }
+  type DebtSourceRow = { key: string; label: string; amount: number; subscriptionId: string | null }
   const sourcesByClient = new Map<string, DebtSourceRow[]>()
   for (const t of txns) {
     const key = t.subscriptionId ?? `direction:${t.direction?.name ?? "—"}`
@@ -108,7 +118,7 @@ export default async function DebtorsPage() {
     if (found) {
       found.amount += delta
     } else {
-      list.push({ key, label, amount: delta })
+      list.push({ key, label, amount: delta, subscriptionId: t.subscriptionId })
     }
     sourcesByClient.set(t.clientId, list)
   }
@@ -131,15 +141,25 @@ export default async function DebtorsPage() {
     const isOverdue = promised && promised < today
     const directions = d.subscriptions.map(s => s.direction.name).join(", ") || "—"
     const branchName = d.branch?.name || "—"
-    // Источники: сначала активные абонементы с долгом, потом ledger.
+    // Источники: сначала активные абонементы с долгом (из Subscription.balance),
+    // потом ledger-проводки. Те ledger-проводки, что ссылаются на активные
+    // абонементы из subSources, пропускаем — иначе один и тот же долг попал
+    // бы в список дважды (см. Баг #62).
+    const debtSubIds = new Set(
+      d.subscriptions
+        .filter((sub) => Number(sub.balance) > 0)
+        .map((sub) => sub.id),
+    )
     const subSources: { key: string; label: string; amount: number }[] = d.subscriptions
       .filter((sub) => Number(sub.balance) > 0)
       .map((sub) => ({
-        key: `sub:${sub.direction.name}`,
+        key: `sub:${sub.id}`,
         label: `${sub.direction.name} (абонемент)`,
         amount: -Number(sub.balance),
       }))
-    const ledgerSources = (sourcesByClient.get(d.id) ?? []).filter((s) => s.amount < 0)
+    const ledgerSources = (sourcesByClient.get(d.id) ?? []).filter(
+      (s) => s.amount < 0 && !(s.subscriptionId && debtSubIds.has(s.subscriptionId)),
+    )
     const sources = [...subSources, ...ledgerSources]
       .sort((a, b) => a.amount - b.amount)
       .slice(0, 4)
