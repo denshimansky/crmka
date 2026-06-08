@@ -41,11 +41,13 @@ interface SubOption {
 const METHOD_OPTIONS = [
   { value: "cash", label: "Наличные" },
   { value: "bank_transfer", label: "Безнал" },
-  { value: "acquiring", label: "Эквайринг" },
-  { value: "online_yukassa", label: "ЮKassa" },
-  { value: "online_robokassa", label: "Робокасса" },
-  { value: "sbp_qr", label: "СБП" },
 ]
+
+function accountsForMethod(method: string, accounts: AccountOption[]): AccountOption[] {
+  if (method === "cash") return accounts.filter((a) => a.type === "cash")
+  if (method === "bank_transfer") return accounts.filter((a) => a.type !== "cash")
+  return accounts
+}
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -220,7 +222,17 @@ export function RefundPaymentDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Способ возврата *</Label>
-                <Select value={method} onValueChange={(v) => { if (v) setMethod(v) }}>
+                <Select
+                  value={method}
+                  onValueChange={(v) => {
+                    if (!v) return
+                    setMethod(v)
+                    if (accountId) {
+                      const stillValid = accountsForMethod(v, accounts).some((a) => a.id === accountId)
+                      if (!stillValid) setAccountId("")
+                    }
+                  }}
+                >
                   <SelectTrigger className="w-full">
                     {selectedMethod ? selectedMethod.label : "Выберите способ"}
                   </SelectTrigger>
@@ -233,12 +245,20 @@ export function RefundPaymentDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>Счёт списания *</Label>
-                <Select value={accountId} onValueChange={(v) => { if (v) setAccountId(v) }}>
+                <Select
+                  value={accountId}
+                  onValueChange={(v) => { if (v) setAccountId(v) }}
+                  disabled={!method}
+                >
                   <SelectTrigger className="w-full">
-                    {selectedAccount ? selectedAccount.name : "Выберите счёт"}
+                    {selectedAccount
+                      ? selectedAccount.name
+                      : method
+                        ? "Выберите счёт"
+                        : "Сначала выберите способ"}
                   </SelectTrigger>
                   <SelectContent>
-                    {accounts.map(a => (
+                    {accountsForMethod(method, accounts).map(a => (
                       <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
                     ))}
                   </SelectContent>

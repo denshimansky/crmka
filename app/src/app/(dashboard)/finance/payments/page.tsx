@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Wallet, Banknote, CreditCard, Undo2 } from "lucide-react"
+import Link from "next/link"
 import { AddPaymentDialog } from "./add-payment-dialog"
 import { RefundPaymentDialog } from "./refund-payment-dialog"
 import { PageHelp } from "@/components/page-help"
@@ -190,7 +191,16 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
                   <TableRow key={p.id} className={isRefund ? "bg-red-50/50 dark:bg-red-950/10" : undefined}>
                     <TableCell className="text-muted-foreground">{formatDate(p.date)}</TableCell>
                     <TableCell className="font-medium">
-                      {clientName}
+                      {p.client ? (
+                        <Link
+                          href={`/crm/clients/${p.client.id}`}
+                          className="text-primary hover:underline"
+                        >
+                          {clientName}
+                        </Link>
+                      ) : (
+                        clientName
+                      )}
                       {isRefund && (
                         <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">Возврат</Badge>
                       )}
