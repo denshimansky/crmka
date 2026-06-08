@@ -52,6 +52,7 @@ type EventKind =
   | "attendance_absent"
   | "attendance_other"
   | "status_change"
+  | "template_discount_removed"
 
 export interface TimelineEvent {
   id: string
@@ -406,13 +407,34 @@ export async function GET(
     })
   }
 
-  // --- Смены статуса (Client AuditLog)
+  // --- Смены статуса (Client AuditLog) + автоматическое снятие шаблонной скидки
   for (const log of auditLogs) {
-    const changes = (log.changes as Record<string, { old?: unknown; new?: unknown }> | null) || null
+    const changes = (log.changes as Record<string, unknown> | null) || null
     if (!changes) continue
+
+    if (log.action === "template_discount_removed_auto") {
+      const subId = (changes.subscriptionId as string) ?? null
+      const tplName = (changes.templateName as string) ?? "—"
+      const prev = (changes.previousAmount as number) ?? 0
+      const wardName = (changes.wardName as string | null) ?? null
+      const directionName = (changes.directionName as string) ?? ""
+      const who = wardName ? `${wardName} · ` : ""
+      events.push({
+        id: `audit-${log.id}-discount-removed`,
+        kind: "template_discount_removed",
+        date: log.createdAt.toISOString(),
+        title: `Скидка «${tplName}» снята автоматически`,
+        description:
+          `${who}${directionName}. Условие шаблона больше не выполняется ` +
+          `(было −${prev.toLocaleString("ru-RU")} ₽).`,
+        meta: { subscriptionId: subId, templateName: tplName, previousAmount: prev },
+      })
+      continue
+    }
+
     const statusFields = ["funnelStatus", "clientStatus"]
     for (const field of statusFields) {
-      const c = changes[field]
+      const c = changes[field] as { old?: unknown; new?: unknown } | undefined
       if (!c) continue
       const oldVal = c.old as string | null
       const newVal = c.new as string | null

@@ -216,6 +216,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // SUB-07: при отчислении/закрытии пересчитать связанные скидки
     // (старая логика для записей без templateId).
     let linkedDiscountChanges: Awaited<ReturnType<typeof recalcLinkedDiscounts>> = []
+    let templateRecalc: Awaited<ReturnType<typeof recalculateDiscountsForClient>> = { removed: [] }
     if (data.status === "withdrawn" || data.status === "closed") {
       linkedDiscountChanges = await recalcLinkedDiscounts(
         tx,
@@ -225,14 +226,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       )
       // Новая логика: пересчитать шаблонные скидки клиента — состав
       // активных абонементов изменился, для linked может смениться адресат.
-      await recalculateDiscountsForClient(tx, {
+      templateRecalc = await recalculateDiscountsForClient(tx, {
         tenantId: session.user.tenantId,
         clientId: existing.clientId,
         createdBy: session.user.employeeId ?? null,
       })
     }
 
-    return { subscription, linkedDiscountChanges, balanceDelta }
+    return { subscription, linkedDiscountChanges, templateRecalc, balanceDelta }
   })
 
   if (!result) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
@@ -242,6 +243,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     response._linkedDiscountWarning = {
       message: `Связанная скидка снята с ${result.linkedDiscountChanges.length} абонемент(ов), т.к. активных абонементов стало меньше 2`,
       affected: result.linkedDiscountChanges,
+    }
+  }
+  if (result.templateRecalc.removed.length > 0) {
+    const items = result.templateRecalc.removed
+      .map((r) => {
+        const who = r.wardName ? `${r.wardName} · ` : ""
+        return `${who}${r.directionName}`
+      })
+      .join("; ")
+    response._templateDiscountWarning = {
+      message:
+        `Скидка «${result.templateRecalc.removed[0].templateName}» снята автоматически: ${items}. ` +
+        "Условие шаблона больше не выполняется.",
+      affected: result.templateRecalc.removed,
     }
   }
   if (result.balanceDelta !== 0) {

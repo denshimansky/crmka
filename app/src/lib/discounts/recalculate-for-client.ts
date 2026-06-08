@@ -16,6 +16,20 @@ interface RecalculateInput {
   createdBy?: string | null
 }
 
+export interface TemplateDiscountRemoval {
+  subscriptionId: string
+  previousAmount: number
+  templateName: string
+  templateKind: "permanent" | "linked_sibling" | "linked_second_direction"
+  wardName: string | null
+  directionName: string
+}
+
+export interface RecalculateResult {
+  /** Абонементы, у которых шаблонная скидка была снята автоматически. */
+  removed: TemplateDiscountRemoval[]
+}
+
 interface SubLite {
   id: string
   wardId: string | null
@@ -90,17 +104,18 @@ function pickRecipients(
 export async function recalculateDiscountsForClient(
   db: Tx,
   input: RecalculateInput,
-): Promise<void> {
+): Promise<RecalculateResult> {
+  const result: RecalculateResult = { removed: [] }
   const client = await db.client.findFirst({
     where: { id: input.clientId, tenantId: input.tenantId, deletedAt: null },
     select: { id: true, discountTemplateId: true },
   })
-  if (!client) return
+  if (!client) return result
 
   const template = client.discountTemplateId
     ? await db.discountTemplate.findFirst({
         where: { id: client.discountTemplateId, tenantId: input.tenantId },
-        select: { id: true, kind: true, valueType: true, value: true, isActive: true },
+        select: { id: true, name: true, kind: true, valueType: true, value: true, isActive: true },
       })
     : null
 
@@ -124,6 +139,8 @@ export async function recalculateDiscountsForClient(
       discountAmount: true,
       finalAmount: true,
       chargedAmount: true,
+      ward: { select: { firstName: true, lastName: true } },
+      direction: { select: { name: true } },
     },
   })
 
@@ -202,6 +219,7 @@ export async function recalculateDiscountsForClient(
     if (!appliedTemplate && !priorTemplateSubIds.has(sub.id)) continue
 
     if (!newDiscount.equals(sub.discountAmount)) {
+      const previousAmount = sub.discountAmount
       const newFinal = sub.totalAmount.minus(newDiscount)
       await db.subscription.update({
         where: { id: sub.id },
@@ -212,8 +230,50 @@ export async function recalculateDiscountsForClient(
           balance: newFinal,
         },
       })
+
+      // Снятие шаблонной скидки: фиксируем для алёрта в ответе API
+      // и аудита. Не учитываем кейс, где скидка просто «уточнилась» вверх
+      // или вниз — для UX важен именно факт исчезновения.
+      if (
+        !appliedTemplate &&
+        previousAmount.greaterThan(0) &&
+        template
+      ) {
+        const raw = subsRaw.find((r) => r.id === sub.id)
+        const wardName = raw?.ward
+          ? [raw.ward.lastName, raw.ward.firstName].filter(Boolean).join(" ").trim() || null
+          : null
+        const removal: TemplateDiscountRemoval = {
+          subscriptionId: sub.id,
+          previousAmount: previousAmount.toNumber(),
+          templateName: template.name,
+          templateKind: template.kind,
+          wardName,
+          directionName: raw?.direction.name ?? "",
+        }
+        result.removed.push(removal)
+        await db.auditLog.create({
+          data: {
+            tenantId: input.tenantId,
+            employeeId: input.createdBy ?? null,
+            action: "template_discount_removed_auto",
+            entityType: "Client",
+            entityId: input.clientId,
+            changes: {
+              subscriptionId: sub.id,
+              templateName: template.name,
+              templateKind: template.kind,
+              previousAmount: previousAmount.toNumber(),
+              wardName,
+              directionName: raw?.direction.name ?? "",
+            },
+          },
+        })
+      }
       // clientBalance не зависит от finalAmount абонемента (долг живёт на
       // Subscription.balance), поэтому correction-проводка не требуется.
     }
   }
+
+  return result
 }

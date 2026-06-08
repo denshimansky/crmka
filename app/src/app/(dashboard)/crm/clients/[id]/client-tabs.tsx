@@ -599,6 +599,10 @@ function CloseSubscriptionDialog({
         setError(data.error || "Ошибка при закрытии")
         return
       }
+      const data = await res.json().catch(() => ({}))
+      if (data?._templateDiscountWarning?.message) {
+        alert(data._templateDiscountWarning.message)
+      }
       setOpen(false)
       onSuccess()
     } catch {
@@ -774,6 +778,10 @@ function WithdrawSubscriptionDialog({
         const data = await res.json().catch(() => ({}))
         setError(data.error || "Ошибка при отчислении")
         return
+      }
+      const data = await res.json().catch(() => ({}))
+      if (data?._templateDiscountWarning?.message) {
+        alert(data._templateDiscountWarning.message)
       }
       setOpen(false)
       onSuccess()
