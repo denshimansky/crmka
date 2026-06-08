@@ -255,7 +255,7 @@ export async function recalculateDiscountsForClient(
         await db.auditLog.create({
           data: {
             tenantId: input.tenantId,
-            employeeId: input.createdBy ?? null,
+            employeeId: input.createdBy ?? undefined,
             action: "template_discount_removed_auto",
             entityType: "Client",
             entityId: input.clientId,
