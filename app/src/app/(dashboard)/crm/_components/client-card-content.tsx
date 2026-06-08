@@ -41,6 +41,21 @@ const CLIENT_STATUS_LABELS: Record<string, string> = {
   archived: "Архив",
 }
 
+// Лейблы для пре-сейл стадий воронки родителя — показываем в шапке вместо
+// сегмента, когда clientStatus ещё не выставлен. Сегмент «Новый» в этих
+// статусах вводит в заблуждение (читается как «новый клиент»).
+const FUNNEL_PRESALE_LABELS: Record<string, string> = {
+  new: "Лид",
+  potential: "Потенциал",
+  non_target: "Нецелевой",
+}
+
+const FUNNEL_PRESALE_COLORS: Record<string, string> = {
+  new: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  potential: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  non_target: "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300",
+}
+
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
 }
@@ -216,11 +231,26 @@ export async function ClientCardContent({
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{fullName}</h1>
-            <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${SEGMENT_COLORS[client.segment] || ""}`}
-            >
-              {SEGMENT_LABELS[client.segment] || client.segment}
-            </span>
+            {/* Бадж качества контакта в шапке: для активного клиента — сегмент
+                (Новый/Стандарт/…); для лида/потенциала/нецелевого — стадия
+                воронки («Лид»/«Потенциал»/«Нецелевой»); для выбывших/архива/ЧС
+                — скрыт, рядом стоит баджик clientStatus. */}
+            {client.clientStatus === "active" ? (
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${SEGMENT_COLORS[client.segment] || ""}`}
+              >
+                {SEGMENT_LABELS[client.segment] || client.segment}
+              </span>
+            ) : (
+              !client.clientStatus &&
+              FUNNEL_PRESALE_LABELS[client.funnelStatus] && (
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${FUNNEL_PRESALE_COLORS[client.funnelStatus] || ""}`}
+                >
+                  {FUNNEL_PRESALE_LABELS[client.funnelStatus]}
+                </span>
+              )
+            )}
             {client.clientStatus &&
               client.funnelStatus !== "archived" &&
               client.funnelStatus !== "blacklisted" && (

@@ -11,9 +11,9 @@ import {
 
 // Этапы воронки продаж (Пробное / Прошёл пробное / Ожидание оплаты) переехали
 // на подопечного (Ward.salesStage) — селектор статуса родителя описывает только
-// «качество контакта»: новый, потенциальный, не целевой, ЧС, архив.
+// «качество контакта»: лид, потенциальный, не целевой, ЧС, архив.
 const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "new", label: "Новый" },
+  { value: "new", label: "Лид" },
   { value: "potential", label: "Потенциальный" },
   { value: "non_target", label: "Не целевой" },
   { value: "blacklisted", label: "Чёрный список" },
@@ -27,6 +27,22 @@ const ACTIVE_TRANSITIONS: { value: string; label: string }[] = [
   { value: "archived", label: "В Архив" },
   { value: "blacklisted", label: "В Чёрный список" },
 ]
+
+// Полный набор подписей для отображения текущего funnelStatus в триггере
+// селекта (включая значения, которых нет в STATUS_OPTIONS — например,
+// `active_client` остаётся на родителе у выбывших). Без этой карты в кнопку
+// просачивается сырой enum («active_client»).
+const STATUS_LABELS: Record<string, string> = {
+  new: "Лид",
+  potential: "Потенциальный",
+  non_target: "Не целевой",
+  blacklisted: "Чёрный список",
+  archived: "Архив",
+  active_client: "Активный клиент",
+  trial_scheduled: "Пробное записано",
+  trial_attended: "Прошёл пробное",
+  awaiting_payment: "Ожидание оплаты",
+}
 
 export function LeadStatusActions({
   clientId,
@@ -120,8 +136,7 @@ export function LeadStatusActions({
             className="h-7 min-w-[170px] text-xs"
             disabled={statusLoading}
           >
-            {STATUS_OPTIONS.find((s) => s.value === statusValue)?.label ||
-              statusValue}
+            {STATUS_LABELS[statusValue] ?? statusValue}
           </SelectTrigger>
           <SelectContent>
             {STATUS_OPTIONS.map((s) => (
