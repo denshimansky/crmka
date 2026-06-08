@@ -14,7 +14,6 @@ import { PageHelp } from "@/components/page-help"
 import { CreateRoomDialog } from "./create-room-dialog"
 import { EditBranchDialog } from "./edit-branch-dialog"
 import { EditRoomDialog } from "./edit-room-dialog"
-import { RoleDisplayNamesForm } from "./role-display-names-form"
 import { UnpaidAutoCloseForm } from "./unpaid-auto-close-form"
 import { AdminBonusContent } from "./admin-bonus/admin-bonus-content"
 import { ProcessLeadsButton } from "./leads-import/process-button"
@@ -154,11 +153,6 @@ export default async function SettingsPage() {
             </Card>
           </div>
 
-          <div className="mt-6">
-            <RoleDisplayNamesForm
-              initialValues={(org.roleDisplayNames as Record<string, string>) ?? {}}
-            />
-          </div>
         </TabsContent>
 
         {/* Тип абонемента */}
@@ -413,7 +407,7 @@ export default async function SettingsPage() {
             <Card>
               <CardContent className="p-5 space-y-3">
                 <div>
-                  <h3 className="font-medium">Импорт из 1С</h3>
+                  <h3 className="font-medium">Импорт</h3>
                   <p className="text-xs text-muted-foreground mt-1">
                     Двухэтапная миграция базы: сначала обработка выгрузки лидов, затем заливка
                     контактов в CRM. Если клиенты уже залиты без денег — обновите балансы

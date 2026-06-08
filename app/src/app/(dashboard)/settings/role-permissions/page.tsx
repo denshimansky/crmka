@@ -1,10 +1,16 @@
 import { getSession } from "@/lib/session"
+import { db } from "@/lib/db"
 import { PageHelp } from "@/components/page-help"
 import { RolePermissionsMatrix } from "./role-permissions-matrix"
+import { RoleDisplayNamesForm } from "../role-display-names-form"
 
 export default async function RolePermissionsPage() {
   const session = await getSession()
   const isOwner = session.user.role === "owner"
+  const org = await db.organization.findUnique({
+    where: { id: session.user.tenantId },
+    select: { roleDisplayNames: true },
+  })
 
   return (
     <div className="space-y-6">
@@ -16,6 +22,9 @@ export default async function RolePermissionsPage() {
         Настройте, какие действия доступны каждой роли в вашей организации.
         Владелец всегда имеет полный доступ.
       </p>
+      <RoleDisplayNamesForm
+        initialValues={(org?.roleDisplayNames as Record<string, string>) ?? {}}
+      />
       <RolePermissionsMatrix isOwner={isOwner} />
     </div>
   )
