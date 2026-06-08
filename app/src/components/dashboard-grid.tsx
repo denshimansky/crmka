@@ -9,7 +9,7 @@ import {
 // Widget layout: "full" takes full width, "third" goes into a 3-col grid
 const WIDGET_LAYOUT: Record<string, "full" | "third"> = {
   stats: "full",
-  tasks: "third",
+  tasks: "full",
   unmarked: "third",
   funnel: "third",
   capacity: "full",

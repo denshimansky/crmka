@@ -13,7 +13,7 @@ import { PageHelp } from "@/components/page-help"
 import { OnboardingWizard } from "@/components/onboarding-wizard"
 import { DashboardGrid } from "@/components/dashboard-grid"
 import { DashboardSettingsButton } from "@/components/dashboard-settings"
-import { DashboardTaskItem } from "@/components/dashboard-task-item"
+import { DashboardTasksTable, type DashboardTaskRow } from "@/components/dashboard-tasks-table"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -105,17 +105,58 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     return s + balDebt + subDebt
   }, 0)
 
-  // Задачи на сегодня
-  const todayTasks = await db.task.findMany({
-    where: {
-      tenantId, deletedAt: null, status: "pending",
-      dueDate: { lte: today },
-    },
-    include: {
-      client: { select: { firstName: true, lastName: true } },
-    },
-    orderBy: { dueDate: "asc" },
-    take: 8,
+  // Задачи на сегодня (и просроченные). Для админа/менеджера/владельца — все
+  // задачи тенанта; для прочих ролей (инструктор, readonly) — только свои.
+  const role = session.user.role
+  const seesAllTasks =
+    role === "owner" || role === "manager" || role === "admin"
+  const employeeId = session.user.employeeId ?? null
+  const todayTasks =
+    !seesAllTasks && !employeeId
+      ? []
+      : await db.task.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            status: "pending",
+            dueDate: { lte: today },
+            ...(seesAllTasks ? {} : { assignedTo: employeeId! }),
+          },
+          select: {
+            id: true,
+            title: true,
+            dueDate: true,
+          },
+          orderBy: { dueDate: "asc" },
+          take: 15,
+        })
+
+  // Дата события вытаскивается из заголовка задач, у которых она есть в
+  // скобках (`(YYYY-MM-DD)` для trial_reminder, `(DD.MM.YYYY)` для
+  // no_show_review). Для остальных — dueDate.
+  const todayIso = today.toISOString().slice(0, 10)
+  const todayTaskRows: DashboardTaskRow[] = todayTasks.map((t) => {
+    const iso = t.title.match(/\((\d{4}-\d{2}-\d{2})\)/)
+    const ru = t.title.match(/\((\d{2})\.(\d{2})\.(\d{4})\)/)
+    let eventDateIso: string
+    if (iso) {
+      eventDateIso = iso[1]
+    } else if (ru) {
+      eventDateIso = `${ru[3]}-${ru[2]}-${ru[1]}`
+    } else {
+      eventDateIso = t.dueDate.toISOString().slice(0, 10)
+    }
+    const dueIso = t.dueDate.toISOString().slice(0, 10)
+    return {
+      id: t.id,
+      // Из заголовка убираем дату в скобках — она уйдёт в отдельную колонку.
+      title: t.title
+        .replace(/\s*\(\d{4}-\d{2}-\d{2}\)\s*$/, "")
+        .replace(/\s*\(\d{2}\.\d{2}\.\d{4}\)\s*$/, "")
+        .trim(),
+      eventDate: eventDateIso,
+      isOverdue: dueIso < todayIso,
+    }
   })
 
   // Неотмеченные занятия — только те, что фактически уже закончились.
@@ -234,26 +275,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between text-base">
           <Link href="/tasks" className="hover:underline">Задачи на сегодня</Link>
-          <Badge variant="secondary">{todayTasks.length}</Badge>
+          <Badge variant="secondary">{todayTaskRows.length}</Badge>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
-        {todayTasks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Нет задач</p>
-        ) : (
-          todayTasks.map((task) => (
-            <DashboardTaskItem
-              key={task.id}
-              id={task.id}
-              title={task.title}
-              clientName={
-                task.client
-                  ? [task.client.lastName, task.client.firstName].filter(Boolean).join(" ") || null
-                  : null
-              }
-            />
-          ))
-        )}
+      <CardContent>
+        <DashboardTasksTable tasks={todayTaskRows} />
       </CardContent>
     </Card>
   )
