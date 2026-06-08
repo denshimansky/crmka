@@ -1,6 +1,7 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
+import { scopeFinancialAccount } from "@/lib/branch-scope"
 import { notFound } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -18,6 +19,7 @@ import { BonusDiscountDialog } from "./bonus-discount-dialog"
 import { QuickRenewSubscriptionDialog } from "./quick-renew-subscription-dialog"
 import { CreateApplicationDialog } from "./create-application-dialog"
 import { TrialLessonDialog } from "./trial-lesson-dialog"
+import { AddPaymentDialog } from "../../finance/payments/add-payment-dialog"
 
 const SEGMENT_LABELS: Record<string, string> = {
   new_client: "Новый",
@@ -61,6 +63,7 @@ export async function ClientCardContent({
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
 
   const client = await db.client.findFirst({
     where: { id, tenantId, deletedAt: null },
@@ -126,6 +129,18 @@ export async function ClientCardContent({
       },
     },
     orderBy: [{ startDate: "asc" }, { createdAt: "asc" }],
+  })
+
+  // Счета компании для диалога «Оплата» (только активные, в scope филиалов).
+  const accounts = await db.financialAccount.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      isActive: true,
+      ...scopeFinancialAccount(scope),
+    },
+    select: { id: true, name: true, type: true },
+    orderBy: { createdAt: "asc" },
   })
 
   // Имена клиентов-оснований для связанных скидок (Discount.linkedClientId
@@ -301,10 +316,23 @@ export async function ClientCardContent({
             />
             {client.clientStatus && (
               <>
-                <Button disabled>
-                  <CreditCard className="mr-2 size-4" />
-                  Оплата
-                </Button>
+                <AddPaymentDialog
+                  clients={[]}
+                  incomeCategories={[]}
+                  accounts={accounts.map((a) => ({ id: a.id, name: a.name, type: a.type }))}
+                  lockedClient={{
+                    id: client.id,
+                    name:
+                      [client.lastName, client.firstName].filter(Boolean).join(" ") ||
+                      "Без имени",
+                  }}
+                  triggerButton={
+                    <Button>
+                      <CreditCard className="mr-2 size-4" />
+                      Оплата
+                    </Button>
+                  }
+                />
                 <PortalLinkButton clientId={client.id} />
               </>
             )}

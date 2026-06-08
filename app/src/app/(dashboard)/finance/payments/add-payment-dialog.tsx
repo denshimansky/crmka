@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -56,10 +56,17 @@ export function AddPaymentDialog({
   clients,
   accounts,
   incomeCategories,
+  lockedClient,
+  triggerButton,
 }: {
   clients: ClientOption[]
   accounts: AccountOption[]
   incomeCategories: IncomeCategoryOption[]
+  /** Если задан — диалог открывается из карточки конкретного клиента:
+   *  выбор клиента и переключатель «Прочий доход» скрыты. */
+  lockedClient?: ClientOption
+  /** Кастомный триггер. По умолчанию — кнопка «+ Оплата». */
+  triggerButton?: ReactNode
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -68,7 +75,7 @@ export function AddPaymentDialog({
 
   const [isOtherIncome, setIsOtherIncome] = useState(false)
   const [incomeCategoryId, setIncomeCategoryId] = useState("")
-  const [clientId, setClientId] = useState("")
+  const [clientId, setClientId] = useState(lockedClient?.id ?? "")
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState("")
   const [accountId, setAccountId] = useState("")
@@ -78,7 +85,7 @@ export function AddPaymentDialog({
   function reset() {
     setIsOtherIncome(false)
     setIncomeCategoryId("")
-    setClientId("")
+    setClientId(lockedClient?.id ?? "")
     setAmount("")
     setMethod("")
     setAccountId("")
@@ -139,10 +146,14 @@ export function AddPaymentDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
-      <DialogTrigger render={<Button />}>
-        <Plus className="mr-2 size-4" />
-        Оплата
-      </DialogTrigger>
+      {triggerButton ? (
+        <DialogTrigger render={triggerButton as React.ReactElement} />
+      ) : (
+        <DialogTrigger render={<Button />}>
+          <Plus className="mr-2 size-4" />
+          Оплата
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Новая оплата</DialogTitle>
@@ -154,22 +165,32 @@ export function AddPaymentDialog({
             </div>
           )}
 
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={isOtherIncome}
-              onCheckedChange={(v) => {
-                setIsOtherIncome(v === true)
-                if (v === true) {
-                  setClientId("")
-                } else {
-                  setIncomeCategoryId("")
-                }
-              }}
-            />
-            Прочий доход (без клиента)
-          </label>
+          {!lockedClient && (
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={isOtherIncome}
+                onCheckedChange={(v) => {
+                  setIsOtherIncome(v === true)
+                  if (v === true) {
+                    setClientId("")
+                  } else {
+                    setIncomeCategoryId("")
+                  }
+                }}
+              />
+              Прочий доход (без клиента)
+            </label>
+          )}
 
-          {isOtherIncome ? (
+          {lockedClient ? (
+            <div className="space-y-1.5">
+              <Label>Клиент</Label>
+              <Input value={lockedClient.name} disabled />
+              <p className="text-xs text-muted-foreground">
+                Деньги попадут на баланс родителя. Списание в счёт абонемента — кнопка «Оплатить с баланса» в карточке абонемента.
+              </p>
+            </div>
+          ) : isOtherIncome ? (
             <div className="space-y-1.5">
               <Label>Категория дохода *</Label>
               <Select value={incomeCategoryId} onValueChange={(v) => { if (v) setIncomeCategoryId(v) }}>
