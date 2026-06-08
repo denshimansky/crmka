@@ -272,7 +272,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             await tx.subscription.update({
               where: { id: existingOnL2.subscriptionId },
               data: {
-                balance: { increment: existingOnL2.chargeAmount },
                 chargedAmount: { decrement: existingOnL2.chargeAmount },
               },
             })
@@ -412,7 +411,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           await tx.subscription.update({
             where: { id: existing.subscriptionId },
             data: {
-              balance: { increment: existing.chargeAmount },
               chargedAmount: { decrement: existing.chargeAmount },
             },
           })
@@ -458,7 +456,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         await tx.subscription.update({
           where: { id: subscriptionId },
           data: {
-            balance: { decrement: chargeAmount },
             chargedAmount: { increment: chargeAmount },
           },
         })
@@ -850,7 +847,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             await tx.subscription.update({
               where: { id: existing.subscriptionId },
               data: {
-                balance: { increment: existing.chargeAmount },
                 chargedAmount: { decrement: existing.chargeAmount },
               },
             })
@@ -891,7 +887,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           await tx.subscription.update({
             where: { id: subscriptionId },
             data: {
-              balance: { decrement: chargeAmount },
               chargedAmount: { increment: chargeAmount },
             },
           })
@@ -1094,12 +1089,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   // как «Не отмечен», смысла оставлять заглушку нет → удаляем по умолчанию.
 
   await db.$transaction(async (tx) => {
-    // Откат списания с абонемента
+    // Откат отработки. balance не трогаем — он отражает «долг к оплате»,
+    // отработка увеличивает только chargedAmount.
     if (existing.subscriptionId && Number(existing.chargeAmount) > 0) {
       await tx.subscription.update({
         where: { id: existing.subscriptionId },
         data: {
-          balance: { increment: existing.chargeAmount },
           chargedAmount: { decrement: existing.chargeAmount },
         },
       })

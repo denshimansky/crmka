@@ -120,7 +120,8 @@ export async function payFromBalance(
     }
 
     const newSubBalance = subBalance.minus(amt)
-    const newCharged = new Prisma.Decimal(sub.chargedAmount).plus(amt)
+    // chargedAmount отражает только отработанные занятия (через Attendance),
+    // не оплату. Оплата меняет balance и paid (через Payment.transfer_in).
     const becameActive = sub.status === "pending" && newSubBalance.isZero()
 
     const payment = await t.payment.create({
@@ -143,7 +144,6 @@ export async function payFromBalance(
       where: { id: sub.id },
       data: {
         balance: newSubBalance,
-        chargedAmount: newCharged,
         ...(becameActive ? { status: "active", activatedAt: new Date() } : {}),
       },
     })
@@ -184,7 +184,7 @@ export async function payFromBalance(
       subscriptionId: sub.id,
       amount: amt.toNumber(),
       newSubscriptionBalance: newSubBalance.toNumber(),
-      newChargedAmount: newCharged.toNumber(),
+      newChargedAmount: Number(sub.chargedAmount),
       newClientBalance: new Prisma.Decimal(balanceRes.newBalance).toNumber(),
       becameActive,
     }
