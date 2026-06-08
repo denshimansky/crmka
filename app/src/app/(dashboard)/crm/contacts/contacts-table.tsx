@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Search } from "lucide-react"
 import { CreateApplicationDialog } from "../_components/create-application-dialog"
 import { formatWardName } from "@/lib/format-name"
+import { truncateGroupName } from "@/lib/format-group"
 import {
   EditableDateCell,
   EditableSelectCell,
@@ -269,7 +270,9 @@ export function ContactsTable({
                 <TableCell className="text-sm">{r.activeSubscription?.directionName || "—"}</TableCell>
               )}
               {tab === "active" && (
-                <TableCell className="text-sm">{r.activeSubscription?.groupName || "—"}</TableCell>
+                <TableCell className="text-sm" title={r.activeSubscription?.groupName || undefined}>
+                  {truncateGroupName(r.activeSubscription?.groupName)}
+                </TableCell>
               )}
               {tab === "active" && (
                 <TableCell className="text-sm">{r.activeSubscription?.instructor.name || "—"}</TableCell>

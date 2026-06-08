@@ -26,6 +26,7 @@ import { ProcessApplicationDialog } from "../_components/process-application-dia
 import { TrialLessonDialog } from "../_components/trial-lesson-dialog"
 import { AwaitingPaymentDialog } from "../_components/awaiting-payment-dialog"
 import { formatWardName } from "@/lib/format-name"
+import { truncateGroupName } from "@/lib/format-group"
 import { EditSalesRowDialog } from "./edit-sales-row-dialog"
 
 export type SalesTabKey = "application" | "trial" | "trial_done" | "awaiting_payment"
@@ -455,7 +456,9 @@ export function SalesTable({
                 <TableCell className="text-sm">{r.branchName || "—"}</TableCell>
                 <TableCell className="text-sm">{r.directionName || "—"}</TableCell>
                 {(tab === "trial" || tab === "trial_done" || tab === "awaiting_payment") && (
-                  <TableCell className="text-sm">{r.groupOrTimeLabel || "—"}</TableCell>
+                  <TableCell className="text-sm" title={r.groupOrTimeLabel || undefined}>
+                    {truncateGroupName(r.groupOrTimeLabel)}
+                  </TableCell>
                 )}
                 {tab === "application" && <TableCell className="text-sm">{fmtDate(r.createdAt)}</TableCell>}
                 {(tab === "trial_done" || tab === "awaiting_payment") && (

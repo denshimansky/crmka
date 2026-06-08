@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select"
 import { Search, ArrowDown, ArrowUp } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { truncateGroupName } from "@/lib/format-group"
 import { RenewButton } from "./renew-button"
 
 export type SubsTabKey = "active" | "pending" | "finished"
@@ -244,7 +245,7 @@ export function SubscriptionsTable({
                   </TableCell>
                   <TableCell>{r.directionName}</TableCell>
                   <TableCell>{r.branchName}</TableCell>
-                  <TableCell>{r.groupName}</TableCell>
+                  <TableCell title={r.groupName || undefined}>{truncateGroupName(r.groupName)}</TableCell>
                   <TableCell className="text-right">{fmtMoney(r.finalAmount)}</TableCell>
                   <TableCell className="text-right">{fmtMoney(r.paidAmount)}</TableCell>
                   <TableCell>{periodLabel(r)}</TableCell>
