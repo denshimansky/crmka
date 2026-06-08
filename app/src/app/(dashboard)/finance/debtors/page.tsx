@@ -24,12 +24,25 @@ export default async function DebtorsPage() {
   const scope = await getBranchScope()
   const clientScope = scopeClientByBranch(scope)
 
-  // Клиенты с отрицательным балансом (ADM-04: сегментный scope).
+  // Должник = клиент с отрицательным балансом ИЛИ с активным/pending
+  // абонементом с непогашенным остатком (subscription.balance > 0).
+  // ADM-04: сегментный scope.
   const debtors = await db.client.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      clientBalance: { lt: 0 },
+      OR: [
+        { clientBalance: { lt: 0 } },
+        {
+          subscriptions: {
+            some: {
+              deletedAt: null,
+              status: { in: ["active", "pending"] },
+              balance: { gt: 0 },
+            },
+          },
+        },
+      ],
       ...(Object.keys(clientScope).length > 0 ? clientScope : {}),
     },
     select: {
@@ -42,7 +55,7 @@ export default async function DebtorsPage() {
       phone: true,
       branch: { select: { name: true } },
       subscriptions: {
-        where: { deletedAt: null, status: "active" },
+        where: { deletedAt: null, status: { in: ["active", "pending"] } },
         select: {
           direction: { select: { name: true } },
           balance: true,
@@ -56,7 +69,6 @@ export default async function DebtorsPage() {
         select: { date: true },
       },
     },
-    orderBy: { clientBalance: "asc" }, // самый большой долг первым
   })
 
   // Источники долга: группируем транзакции по абонементу/направлению.
@@ -104,24 +116,41 @@ export default async function DebtorsPage() {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const totalDebt = debtors.reduce((s, d) => s + Math.abs(Number(d.clientBalance)), 0)
-  const overdueCount = debtors.filter(d => d.promisedPaymentDate && d.promisedPaymentDate < today).length
-
+  // Полный долг = минус на балансе + сумма непогашенных абонементов.
+  // Источники: пункты ledger (от закрытий) + активные неоплаченные абонементы.
   const rows = debtors.map((d) => {
     const name = [d.lastName, d.firstName].filter(Boolean).join(" ") || "Без имени"
-    const debt = Math.abs(Number(d.clientBalance))
+    const balanceDebt = Math.max(0, -Number(d.clientBalance))
+    const subscriptionsDebt = d.subscriptions.reduce(
+      (s, sub) => s + Math.max(0, Number(sub.balance)),
+      0,
+    )
+    const debt = balanceDebt + subscriptionsDebt
     const lastPayment = d.payments[0]?.date || null
     const promised = d.promisedPaymentDate
     const isOverdue = promised && promised < today
     const directions = d.subscriptions.map(s => s.direction.name).join(", ") || "—"
     const branchName = d.branch?.name || "—"
-    const sources = (sourcesByClient.get(d.id) ?? [])
-      .filter((s) => s.amount < 0)
+    // Источники: сначала активные абонементы с долгом, потом ledger.
+    const subSources: { key: string; label: string; amount: number }[] = d.subscriptions
+      .filter((sub) => Number(sub.balance) > 0)
+      .map((sub) => ({
+        key: `sub:${sub.direction.name}`,
+        label: `${sub.direction.name} (абонемент)`,
+        amount: -Number(sub.balance),
+      }))
+    const ledgerSources = (sourcesByClient.get(d.id) ?? []).filter((s) => s.amount < 0)
+    const sources = [...subSources, ...ledgerSources]
       .sort((a, b) => a.amount - b.amount)
       .slice(0, 4)
 
-    return { id: d.id, name, debt, branchName, directions, lastPayment, promised, isOverdue, phone: d.phone, sources }
+    return { id: d.id, name, debt, balanceDebt, subscriptionsDebt, branchName, directions, lastPayment, promised, isOverdue, phone: d.phone, sources }
   })
+  // Сортируем по суммарному долгу убыванию.
+  rows.sort((a, b) => b.debt - a.debt)
+
+  const totalDebt = rows.reduce((s, r) => s + r.debt, 0)
+  const overdueCount = debtors.filter(d => d.promisedPaymentDate && d.promisedPaymentDate < today).length
 
   return (
     <div className="space-y-6">

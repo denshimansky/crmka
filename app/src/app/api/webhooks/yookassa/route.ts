@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
 
 /**
  * YooKassa webhook handler (FIN-21)
@@ -222,7 +223,7 @@ async function handlePaymentSucceeded(
   // Онлайн-оплата ЮKassa, как и наличная, всегда падает только на баланс родителя.
   // Списание в счёт абонемента — отдельный шаг через POST /api/subscriptions/[id]/pay-from-balance.
   await db.$transaction(async (tx) => {
-    await tx.payment.create({
+    const created = await tx.payment.create({
       data: {
         tenantId,
         clientId,
@@ -235,6 +236,7 @@ async function handlePaymentSucceeded(
         comment: payment.description || "Онлайн-оплата ЮKassa",
         isFirstPayment,
       },
+      select: { id: true },
     })
 
     // Обновляем баланс счёта
@@ -243,10 +245,14 @@ async function handlePaymentSucceeded(
       data: { balance: { increment: amount } },
     })
 
-    // Обновляем баланс клиента
-    await tx.client.update({
-      where: { id: clientId },
-      data: { clientBalance: { increment: amount } },
+    // Баланс родителя — только через единый ledger, иначе оплата не попадёт
+    // в историю клиента и в /finance/debtors.
+    await applyBalanceDelta(tx, {
+      tenantId,
+      clientId,
+      delta: amount,
+      type: "payment_received",
+      refs: { paymentId: created.id, subscriptionId: null },
     })
 
     // Если первая оплата — переводим клиента в active_client
@@ -315,12 +321,11 @@ async function handleRefundSucceeded(
   }
 
   await db.$transaction(async (tx) => {
-    await tx.payment.create({
+    const created = await tx.payment.create({
       data: {
         tenantId,
         clientId: originalClientId,
         accountId: originalPayment.accountId,
-        subscriptionId: originalPayment.subscriptionId,
         amount: new Prisma.Decimal(amount),
         type: "refund",
         method: "online_yukassa",
@@ -329,6 +334,7 @@ async function handleRefundSucceeded(
         comment: `Возврат по платежу ${refund.payment_id}`,
         isFirstPayment: false,
       },
+      select: { id: true },
     })
 
     // Уменьшаем баланс счёта
@@ -337,19 +343,14 @@ async function handleRefundSucceeded(
       data: { balance: { decrement: amount } },
     })
 
-    // Уменьшаем баланс клиента
-    await tx.client.update({
-      where: { id: originalClientId },
-      data: { clientBalance: { decrement: amount } },
+    // Баланс родителя — через ledger (запись refund попадёт в историю).
+    await applyBalanceDelta(tx, {
+      tenantId,
+      clientId: originalClientId,
+      delta: -amount,
+      type: "refund",
+      refs: { paymentId: created.id },
     })
-
-    // Если был абонемент — увеличиваем долг обратно
-    if (originalPayment.subscriptionId) {
-      await tx.subscription.update({
-        where: { id: originalPayment.subscriptionId },
-        data: { balance: { increment: amount } },
-      })
-    }
   })
 
   console.log(`[yookassa webhook] Refund created: ${refund.id}, amount: ${amount}`)
