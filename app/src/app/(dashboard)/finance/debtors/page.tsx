@@ -24,8 +24,13 @@ export default async function DebtorsPage() {
   const scope = await getBranchScope()
   const clientScope = scopeClientByBranch(scope)
 
-  // Должник = клиент с отрицательным балансом ИЛИ с активным/pending
-  // абонементом с непогашенным остатком (subscription.balance > 0).
+  // Должник = клиент с отрицательным балансом ИЛИ с любой не-отчисленной
+  // подпиской с непогашенным остатком (Subscription.balance > 0). Включаем
+  // closed-абонементы тоже: cron «закрытие неоплаченных» переводит подписку
+  // в closed, но баланс на ней оставляет — долг никуда не уходит, его и
+  // надо взыскать (см. lib/cron/close-unpaid-subscriptions.ts).
+  // Withdrawn-подписки исключены: при отчислении долг либо переносится на
+  // clientBalance проводкой subscription_closed_refund, либо обнуляется.
   // ADM-04: сегментный scope.
   const debtors = await db.client.findMany({
     where: {
@@ -37,7 +42,7 @@ export default async function DebtorsPage() {
           subscriptions: {
             some: {
               deletedAt: null,
-              status: { in: ["active", "pending"] },
+              status: { not: "withdrawn" },
               balance: { gt: 0 },
             },
           },
@@ -55,9 +60,14 @@ export default async function DebtorsPage() {
       phone: true,
       branch: { select: { name: true } },
       subscriptions: {
-        where: { deletedAt: null, status: { in: ["active", "pending"] } },
+        where: {
+          deletedAt: null,
+          status: { not: "withdrawn" },
+          balance: { gt: 0 },
+        },
         select: {
           id: true,
+          status: true,
           direction: { select: { name: true } },
           balance: true,
         },
@@ -154,7 +164,10 @@ export default async function DebtorsPage() {
       .filter((sub) => Number(sub.balance) > 0)
       .map((sub) => ({
         key: `sub:${sub.id}`,
-        label: `${sub.direction.name} (абонемент)`,
+        label:
+          sub.status === "closed"
+            ? `${sub.direction.name} (абонемент, закрыт)`
+            : `${sub.direction.name} (абонемент)`,
         amount: -Number(sub.balance),
       }))
     const ledgerSources = (sourcesByClient.get(d.id) ?? []).filter(

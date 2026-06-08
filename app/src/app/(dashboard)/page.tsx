@@ -71,7 +71,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   })
   const monthExpenses = Number(monthExpensesData._sum.amount || 0)
 
-  // Должники: минус на балансе ИЛИ непогашенный pending/active абонемент.
+  // Должники: минус на балансе ИЛИ любая не-отчисленная подписка с
+  // непогашенным остатком (включая closed после авто-закрытия cron'ом).
   // Та же формула, что в /finance/debtors — должно совпадать.
   const debtors = await db.client.findMany({
     where: {
@@ -83,7 +84,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           subscriptions: {
             some: {
               deletedAt: null,
-              status: { in: ["active", "pending"] },
+              status: { not: "withdrawn" },
               balance: { gt: 0 },
             },
           },
@@ -93,7 +94,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     select: {
       clientBalance: true,
       subscriptions: {
-        where: { deletedAt: null, status: { in: ["active", "pending"] } },
+        where: {
+          deletedAt: null,
+          status: { not: "withdrawn" },
+          balance: { gt: 0 },
+        },
         select: { balance: true },
       },
     },
