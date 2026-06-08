@@ -3,6 +3,7 @@
 
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { readSheet, normPhone, normName } from "./parse-xlsx"
 import { parseStatus, toDbStatus, topStatus, type LeadStatus } from "./status-map"
 
@@ -14,6 +15,10 @@ interface LeadFileRow {
   birthDate: string
   status: LeadStatus | null
   balance: number
+  /** true, если значение баланса пришло из явной ячейки файла («Баланс» в
+   *  Списке лидов или матч в деньги.xlsx). false — это «нет данных», и
+   *  трогать существующий clientBalance в БД нельзя. */
+  balanceFromFile: boolean
   needsReview: boolean
   rowIdx: number
 }
@@ -100,10 +105,9 @@ function loadLeadsFile(buffer: Buffer): { rows: LeadFileRow[]; headers: string[]
     const birthDate = String(pickValue(row, normMap, "Дата_рождения", "Дата рождения") ?? "").trim()
     const status = parseStatus(String(pickValue(row, normMap, "Статус", "Состояние лида") ?? ""))
     const balanceRaw = pickValue(row, normMap, "Баланс")
-    const balance =
-      balanceRaw === "" || balanceRaw === null || balanceRaw === undefined
-        ? 0
-        : Number(balanceRaw)
+    const balanceHasValue =
+      balanceRaw !== "" && balanceRaw !== null && balanceRaw !== undefined
+    const balance = balanceHasValue ? Number(balanceRaw) : 0
     const reviewRaw = pickValue(row, normMap, "Проверить")
     const review = (reviewRaw === null ? "" : String(reviewRaw)).trim().toLowerCase()
     out.push({
@@ -114,6 +118,7 @@ function loadLeadsFile(buffer: Buffer): { rows: LeadFileRow[]; headers: string[]
       birthDate,
       status,
       balance: Number.isFinite(balance) ? balance : 0,
+      balanceFromFile: balanceHasValue && Number.isFinite(balance),
       needsReview: review === "да" || review === "yes" || review === "true",
       rowIdx: idx + 2, // +1 за заголовок, +1 для 1-based
     })
@@ -268,6 +273,9 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
     }
     if (fromMoney !== undefined) {
       r.balance = (r.balance ?? 0) + fromMoney
+      // деньги.xlsx — авторитетный источник: дальше «нулевой» баланс этой
+      // строки уже отличим от «нет данных».
+      r.balanceFromFile = true
     } else if (!r.balance) {
       balanceMissing++
     }
@@ -321,6 +329,11 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
         continue
       }
       const groupBalance = group.rows.reduce((s, r) => s + (r.balance || 0), 0)
+      // Авторитетный баланс приходит ТОЛЬКО если хотя бы у одной строки группы
+      // balanceFromFile=true: либо в Списке лидов явно был «Баланс», либо
+      // деньги.xlsx однозначно сматчился. Иначе groupBalance — это вынужденный
+      // ноль из пустых ячеек, трогать им clientBalance НЕЛЬЗЯ.
+      const groupHasBalanceData = group.rows.some((r) => r.balanceFromFile)
       const dbStatus = toDbStatus(top)
       const parentName = group.rows[0].parent
       const { firstName, lastName } = splitParent(parentName)
@@ -331,8 +344,9 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
 
       let clientId: string
       if (existing) {
-        // Объединяем: статус по приоритету между текущим и новым, баланс перезаписываем,
-        // имя/фамилию сохраняем как было.
+        // Объединяем: статус по приоритету между текущим и новым, имя/фамилию
+        // сохраняем как было. clientBalance тут НЕ трогаем — отдельным шагом
+        // через applyBalanceDelta, если в файле есть авторитетный баланс.
         const currentTopFromExisting = inferLeadStatusFromDb(
           existing.funnelStatus,
           existing.clientStatus,
@@ -346,17 +360,41 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
           data: {
             funnelStatus: mergedDb.funnelStatus,
             clientStatus: mergedDb.clientStatus,
-            clientBalance: new Prisma.Decimal(groupBalance),
             socialLink: existing.wards.length ? undefined : socialLink ?? undefined,
           },
         })
         clientId = existing.id
         clientsMerged++
-        warnings.push(
-          `Объединён существующий клиент: ${parentName} (${group.phone}). ` +
-            `Баланс обновлён до ${groupBalance.toFixed(2)}, статус → ${merged}.`,
-        )
+        if (groupHasBalanceData) {
+          const current = new Prisma.Decimal(existing.clientBalance)
+          const target = new Prisma.Decimal(groupBalance)
+          const delta = target.sub(current)
+          if (!delta.isZero()) {
+            await applyBalanceDelta(tx, {
+              tenantId: opts.tenantId,
+              clientId: existing.id,
+              delta,
+              type: "correction",
+              comment: `Импорт лидов: баланс приведён к ${target.toFixed(2)} ₽`,
+              createdBy: opts.createdBy,
+            })
+          }
+          warnings.push(
+            `Объединён существующий клиент: ${parentName} (${group.phone}). ` +
+              `Баланс приведён к ${groupBalance.toFixed(2)} ₽, статус → ${merged}.`,
+          )
+        } else {
+          const existingFmt = new Prisma.Decimal(existing.clientBalance).toFixed(2)
+          warnings.push(
+            `Объединён существующий клиент: ${parentName} (${group.phone}). ` +
+              `Баланс не менялся (${existingFmt} ₽) — в файле нет авторитетных данных по балансу. ` +
+              `Статус → ${merged}.`,
+          )
+        }
       } else {
+        // Новый клиент: создаём с дефолтным clientBalance=0, авторитетный баланс
+        // (если он есть в файле) прокидываем дельтой через applyBalanceDelta —
+        // чтобы в ledger появилась проводка correction.
         const created = await tx.client.create({
           data: {
             tenantId: opts.tenantId,
@@ -366,13 +404,22 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
             socialLink: socialLink ?? null,
             funnelStatus: dbStatus.funnelStatus,
             clientStatus: dbStatus.clientStatus ?? undefined,
-            clientBalance: new Prisma.Decimal(groupBalance),
             createdBy: opts.createdBy ?? undefined,
           },
           select: { id: true },
         })
         clientId = created.id
         clientsCreated++
+        if (groupHasBalanceData && groupBalance !== 0) {
+          await applyBalanceDelta(tx, {
+            tenantId: opts.tenantId,
+            clientId: created.id,
+            delta: new Prisma.Decimal(groupBalance),
+            type: "correction",
+            comment: `Импорт лидов: начальный баланс ${groupBalance.toFixed(2)} ₽`,
+            createdBy: opts.createdBy,
+          })
+        }
         if (!group.phone) {
           for (const r of group.rows) {
             withoutPhone.push({ rowIdx: r.rowIdx, parent: parentName, child: r.child })
@@ -384,7 +431,7 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
           )
         }
       }
-      totalBalance += groupBalance
+      if (groupHasBalanceData) totalBalance += groupBalance
 
       // Подопечные: по одному на каждую строку группы.
       const existingWardKeys = new Set(
