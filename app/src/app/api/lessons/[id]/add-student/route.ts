@@ -57,10 +57,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       id: true,
       date: true,
       groupId: true,
-      group: { select: { maxStudents: true, isOneTime: true } },
+      group: { select: { maxStudents: true, isOneTime: true, deletedAt: true } },
     },
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
+  if (lesson.group.deletedAt) {
+    return NextResponse.json(
+      { error: "Группа в архиве — нельзя добавить ученика. Восстановите группу или выберите другую." },
+      { status: 400 },
+    )
+  }
 
   if (await isPeriodLocked(tenantId, new Date(lesson.date), role)) {
     return NextResponse.json(

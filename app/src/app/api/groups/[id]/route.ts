@@ -67,14 +67,64 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { archive, startDate, endDate, ...rest } = parsed.data
 
-  // Архивирование / восстановление
+  // Архивирование: разрешено только если в группе нет активных детей и
+  // нет открытых абонементов в эту группу. При архивации каскадом удаляем
+  // будущие занятия (date >= today) — прошлые остаются в истории.
   if (archive === true) {
-    const group = await db.group.update({
-      where: { id },
-      data: { deletedAt: new Date(), isActive: false },
-      include: { direction: true, room: true, instructor: { select: { firstName: true, lastName: true } } },
+    const [activeEnrollments, openSubs] = await Promise.all([
+      db.groupEnrollment.count({
+        where: { groupId: id, tenantId: session.user.tenantId, isActive: true, deletedAt: null },
+      }),
+      db.subscription.count({
+        where: {
+          groupId: id,
+          tenantId: session.user.tenantId,
+          deletedAt: null,
+          status: { in: ["pending", "active"] },
+        },
+      }),
+    ])
+    if (activeEnrollments > 0 || openSubs > 0) {
+      const parts: string[] = []
+      if (activeEnrollments > 0) parts.push(`в группе ${activeEnrollments} ребёнок/детей`)
+      if (openSubs > 0) parts.push(`${openSubs} открытых абонементов`)
+      return NextResponse.json(
+        {
+          error: `Сначала отчислите всех детей и закройте абонементы (${parts.join(", ")}).`,
+        },
+        { status: 400 },
+      )
+    }
+
+    const today = new Date()
+    today.setUTCHours(0, 0, 0, 0)
+
+    const archived = await db.$transaction(async (tx) => {
+      // Будущие занятия (без отметок) — отменяем. Если кто-то уже отметил
+      // присутствие/отсутствие — занятие не трогаем, чтобы не потерять данные.
+      // Lesson не имеет soft delete; используем status=cancelled (фильтр
+      // расписания уже его исключает).
+      await tx.lesson.updateMany({
+        where: {
+          groupId: id,
+          tenantId: session.user.tenantId,
+          date: { gte: today },
+          status: "scheduled",
+          attendances: { none: {} },
+        },
+        data: { status: "cancelled", cancelReason: "Группа архивирована" },
+      })
+      return tx.group.update({
+        where: { id },
+        data: { deletedAt: new Date(), isActive: false },
+        include: {
+          direction: true,
+          room: true,
+          instructor: { select: { firstName: true, lastName: true } },
+        },
+      })
     })
-    return NextResponse.json(group)
+    return NextResponse.json(archived)
   }
   if (archive === false) {
     const group = await db.group.update({
