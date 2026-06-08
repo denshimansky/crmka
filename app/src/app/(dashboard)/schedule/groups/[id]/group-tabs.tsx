@@ -32,7 +32,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Archive, ArchiveRestore, ArrowRightLeft, CalendarDays, ExternalLink, Plus, Trash2, Users } from "lucide-react"
+import { Archive, ArchiveRestore, ArrowRightLeft, CalendarDays, ExternalLink, Users } from "lucide-react"
 import Link from "next/link"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 
@@ -575,74 +575,19 @@ function SettingsTab({
     }
   }
 
-  // --- Шаблоны расписания ---
-  const [rows, setRows] = useState<EditableTemplate[]>(() =>
-    templates.map((t) => ({
-      key: t.id,
-      dayOfWeek: t.dayOfWeek,
-      startTime: t.startTime,
-      durationMinutes: t.durationMinutes,
-    }))
-  )
-  const [saving, setSaving] = useState(false)
-  const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; message: string } | null>(null)
+  // --- Шаблоны расписания (read-only, задаются при создании группы) ---
+  const rows: EditableTemplate[] = templates.map((t) => ({
+    key: t.id,
+    dayOfWeek: t.dayOfWeek,
+    startTime: t.startTime,
+    durationMinutes: t.durationMinutes,
+  }))
   const [regenerating, setRegenerating] = useState(false)
   const [regenResult, setRegenResult] = useState<string | null>(null)
   const [regenDialogOpen, setRegenDialogOpen] = useState(false)
   const [regenMode, setRegenMode] = useState<"range" | "month">("range")
   const [regenMonth, setRegenMonth] = useState(currentMonth)
   const [regenYear, setRegenYear] = useState(currentYear)
-
-  function addRow() {
-    setRows((prev) => [
-      ...prev,
-      {
-        key: crypto.randomUUID(),
-        dayOfWeek: 0,
-        startTime: "10:00",
-        durationMinutes: directions.find(d => d.id === infoDirectionId)?.lessonDuration ?? 45,
-      },
-    ])
-  }
-
-  function removeRow(key: string) {
-    setRows((prev) => prev.filter((r) => r.key !== key))
-  }
-
-  function updateRow(key: string, field: keyof Omit<EditableTemplate, "key">, value: string | number) {
-    setRows((prev) =>
-      prev.map((r) => (r.key === key ? { ...r, [field]: value } : r))
-    )
-  }
-
-  async function handleSave() {
-    setSaving(true)
-    setSaveResult(null)
-    try {
-      const res = await fetch(`/api/groups/${groupId}/templates`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          templates: rows.map((r) => ({
-            dayOfWeek: r.dayOfWeek,
-            startTime: r.startTime,
-            durationMinutes: r.durationMinutes,
-          })),
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setSaveResult({ type: "error", message: data.error || "Ошибка сохранения" })
-      } else {
-        setSaveResult({ type: "success", message: "Шаблоны сохранены" })
-        onRefresh()
-      }
-    } catch {
-      setSaveResult({ type: "error", message: "Не удалось сохранить шаблоны" })
-    } finally {
-      setSaving(false)
-    }
-  }
 
   // Перегенерация — additive: существующие занятия (в т.ч. отмеченные/оплаченные)
   // не трогаем, только добиваем недостающие по текущим шаблонам. Два режима:
@@ -826,9 +771,6 @@ function SettingsTab({
                 value={infoStartDate}
                 onChange={(e) => setInfoStartDate(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">
-                Можно задним числом — потом перегенерируйте расписание.
-              </p>
             </div>
 
             <div className="space-y-2">
@@ -864,6 +806,9 @@ function SettingsTab({
 
       <div className="space-y-4">
         <h3 className="text-base font-medium">Шаблоны расписания</h3>
+        <p className="text-xs text-muted-foreground">
+          Шаблоны задаются при создании группы и не редактируются.
+        </p>
         {scheduleStr && (
           <p className="text-sm text-muted-foreground">{scheduleStr}</p>
         )}
@@ -875,19 +820,13 @@ function SettingsTab({
                 <TableHead>День</TableHead>
                 <TableHead>Время</TableHead>
                 <TableHead>Длительность (мин)</TableHead>
-                <TableHead className="w-[50px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.key}>
                   <TableCell>
-                    <Select
-                      value={String(row.dayOfWeek)}
-                      onValueChange={(v) => {
-                        if (v) updateRow(row.key, "dayOfWeek", parseInt(v))
-                      }}
-                    >
+                    <Select value={String(row.dayOfWeek)} disabled>
                       <SelectTrigger className="w-[180px]">
                         {DAY_LABELS[row.dayOfWeek]}
                       </SelectTrigger>
@@ -905,7 +844,8 @@ function SettingsTab({
                       type="time"
                       className="w-[130px]"
                       value={row.startTime}
-                      onChange={(e) => updateRow(row.key, "startTime", e.target.value)}
+                      readOnly
+                      disabled
                     />
                   </TableCell>
                   <TableCell>
@@ -915,19 +855,9 @@ function SettingsTab({
                       min={5}
                       max={480}
                       value={row.durationMinutes}
-                      onChange={(e) =>
-                        updateRow(row.key, "durationMinutes", parseInt(e.target.value) || 0)
-                      }
+                      readOnly
+                      disabled
                     />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeRow(row.key)}
-                    >
-                      <Trash2 className="size-4 text-muted-foreground" />
-                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -937,34 +867,9 @@ function SettingsTab({
 
         {rows.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Нет шаблонов. Добавьте дни занятий.
+            Нет шаблонов.
           </p>
         )}
-
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={addRow}>
-            <Plus className="mr-2 size-4" />
-            Добавить день
-          </Button>
-        </div>
-
-        {saveResult && (
-          <div
-            className={`rounded-md p-3 text-sm ${
-              saveResult.type === "success"
-                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                : "bg-destructive/10 text-destructive"
-            }`}
-          >
-            {saveResult.message}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2">
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Сохранение..." : "Сохранить расписание"}
-          </Button>
-        </div>
       </div>
 
       <ArchiveSection groupId={groupId} isArchived={isArchived} onRefresh={onRefresh} />
