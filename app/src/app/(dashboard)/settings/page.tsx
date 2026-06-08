@@ -74,7 +74,7 @@ export default async function SettingsPage() {
         <div className="overflow-x-auto">
           <TabsList>
             <TabsTrigger value="org">Организация</TabsTrigger>
-            <TabsTrigger value="subscription-type">Тип абонемента</TabsTrigger>
+            <TabsTrigger value="subscription-type">Абонементы</TabsTrigger>
             {org.subscriptionType === "package" && (
               <TabsTrigger value="package-templates">Шаблоны пакетов</TabsTrigger>
             )}
@@ -145,9 +145,6 @@ export default async function SettingsPage() {
                       {org.makeupDeadlineDays ?? "Не задан"}
                     </span>
                   </div>
-                  <div className="pt-2 border-t">
-                    <UnpaidAutoCloseForm initialValue={org.unpaidSubscriptionAutoCloseDays} />
-                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -210,6 +207,12 @@ export default async function SettingsPage() {
                     создания первого абонемента.
                   </p>
                 )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-6">
+                <UnpaidAutoCloseForm initialValue={org.unpaidSubscriptionAutoCloseDays} />
               </CardContent>
             </Card>
           </div>
