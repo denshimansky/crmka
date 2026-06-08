@@ -71,13 +71,39 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   })
   const monthExpenses = Number(monthExpensesData._sum.amount || 0)
 
-  // Должники
+  // Должники: минус на балансе ИЛИ непогашенный pending/active абонемент.
+  // Та же формула, что в /finance/debtors — должно совпадать.
   const debtors = await db.client.findMany({
-    where: { tenantId, deletedAt: null, clientBalance: { lt: 0 } },
-    select: { clientBalance: true },
+    where: {
+      tenantId,
+      deletedAt: null,
+      OR: [
+        { clientBalance: { lt: 0 } },
+        {
+          subscriptions: {
+            some: {
+              deletedAt: null,
+              status: { in: ["active", "pending"] },
+              balance: { gt: 0 },
+            },
+          },
+        },
+      ],
+    },
+    select: {
+      clientBalance: true,
+      subscriptions: {
+        where: { deletedAt: null, status: { in: ["active", "pending"] } },
+        select: { balance: true },
+      },
+    },
   })
   const debtorCount = debtors.length
-  const totalDebt = debtors.reduce((s, d) => s + Math.abs(Number(d.clientBalance)), 0)
+  const totalDebt = debtors.reduce((s, d) => {
+    const balDebt = Math.max(0, -Number(d.clientBalance))
+    const subDebt = d.subscriptions.reduce((acc, sub) => acc + Math.max(0, Number(sub.balance)), 0)
+    return s + balDebt + subDebt
+  }, 0)
 
   // Задачи на сегодня
   const todayTasks = await db.task.findMany({
@@ -92,8 +118,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     take: 8,
   })
 
-  // Неотмеченные занятия (прошедшие, без посещений)
-  const unmarkedLessons = await db.lesson.findMany({
+  // Неотмеченные занятия — только те, что фактически уже закончились.
+  // Урезаем по дате на стороне БД (≤ сегодня), а сегодняшние занятия,
+  // у которых endTime ещё не наступило, отсекаем в JS — sqlite/postgres
+  // не умеет элегантно сравнить time-of-day + duration без raw SQL.
+  const unmarkedRaw = await db.lesson.findMany({
     where: {
       tenantId,
       date: { gte: monthStart, lte: today },
@@ -105,8 +134,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       instructor: { select: { firstName: true, lastName: true } },
     },
     orderBy: { date: "desc" },
-    take: 5,
+    take: 30,
   })
+  const nowMs = Date.now()
+  const unmarkedLessons = unmarkedRaw
+    .filter((l) => {
+      const [hh, mm] = l.startTime.split(":").map(Number)
+      // date — DATE без TZ, считаем как локальную дату.
+      const start = new Date(l.date)
+      start.setHours(hh || 0, mm || 0, 0, 0)
+      const end = start.getTime() + (l.durationMinutes || 60) * 60_000
+      return end <= nowMs
+    })
+    .slice(0, 5)
 
   // Воронка — лиды по Client.funnelStatus, сделочные стадии — по Ward.salesStage,
   // активные — по Client.clientStatus (текущий статус работы, обновляется cron'ом
