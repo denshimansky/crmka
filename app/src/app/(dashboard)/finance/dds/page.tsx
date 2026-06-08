@@ -56,8 +56,6 @@ type JournalKind =
   | "transfer"
   | "withdrawal"
   | "encashment"
-  | "balance_out"
-  | "subscription_in"
 
 interface JournalRow {
   id: string
@@ -81,8 +79,6 @@ const KIND_LABELS: Record<JournalKind, { label: string; classes: string }> = {
   transfer: { label: "Перевод", classes: "bg-blue-100 text-blue-800" },
   withdrawal: { label: "Выемка", classes: "bg-amber-100 text-amber-800" },
   encashment: { label: "Инкассация", classes: "bg-cyan-100 text-cyan-800" },
-  balance_out: { label: "С баланса", classes: "bg-violet-100 text-violet-800" },
-  subscription_in: { label: "На абонемент", classes: "bg-emerald-100 text-emerald-800" },
 }
 
 export default async function DdsJournalPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -125,6 +121,10 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
         tenantId,
         deletedAt: null,
         date: { gte: monthStart, lte: monthEnd },
+        // transfer_in (списание с баланса родителя в абонемент) — внутренняя
+        // проводка между клиентом и его подпиской, движения денег на счетах
+        // компании нет. В ДДС не показываем (Баг #61).
+        type: { not: "transfer_in" },
         ...scopePayment(scope),
       },
       include: {
@@ -173,43 +173,6 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
       ? [p.client.lastName, p.client.firstName].filter(Boolean).join(" ").trim() || "—"
       : "Прочий доход"
     const counterpartyHref = p.client ? `/crm/clients/${p.client.id}` : undefined
-
-    // Списание с баланса родителя в счёт абонемента — НЕ движение денег
-    // на счетах компании, а внутренняя проводка. Показываем в журнале парой
-    // строк (−Баланс / +Абонемент), но в топ-карточки «Поступления»/
-    // «Выбытия» не включаем (отдельные kind balance_out/subscription_in).
-    if (p.type === "transfer_in") {
-      const subLabel = p.subscription?.direction.name
-        ? `: ${p.subscription.direction.name}`
-        : ""
-      rows.push({
-        id: `payment:${p.id}:out`,
-        kind: "balance_out",
-        date: p.date,
-        amount: -Number(p.amount),
-        category: `Списание с баланса родителя`,
-        counterparty,
-        counterpartyHref,
-        account: "—",
-        responsible: responsibleName(p.createdBy),
-        comment: p.comment ?? "",
-        href: "/finance/payments",
-      })
-      rows.push({
-        id: `payment:${p.id}:in`,
-        kind: "subscription_in",
-        date: p.date,
-        amount: Number(p.amount),
-        category: `Оплата абонемента${subLabel}`,
-        counterparty,
-        counterpartyHref,
-        account: "—",
-        responsible: responsibleName(p.createdBy),
-        comment: p.comment ?? "",
-        href: "/finance/payments",
-      })
-      continue
-    }
 
     const category =
       p.type === "refund"
