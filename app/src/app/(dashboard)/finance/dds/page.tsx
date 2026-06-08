@@ -66,6 +66,7 @@ interface JournalRow {
   amount: number // знаковая: + приход, − расход; для transfer — положительная (без знака)
   category: string
   counterparty: string
+  counterpartyHref?: string // ссылка на карточку клиента/сотрудника, если есть
   account: string
   responsible: string
   comment: string
@@ -127,7 +128,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
         ...scopePayment(scope),
       },
       include: {
-        client: { select: { firstName: true, lastName: true } },
+        client: { select: { id: true, firstName: true, lastName: true } },
         subscription: { select: { direction: { select: { name: true } } } },
         incomeCategory: { select: { name: true } },
       },
@@ -171,6 +172,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
     const counterparty = p.client
       ? [p.client.lastName, p.client.firstName].filter(Boolean).join(" ").trim() || "—"
       : "Прочий доход"
+    const counterpartyHref = p.client ? `/crm/clients/${p.client.id}` : undefined
 
     // Списание с баланса родителя в счёт абонемента — НЕ движение денег
     // на счетах компании, а внутренняя проводка. Показываем в журнале парой
@@ -187,6 +189,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
         amount: -Number(p.amount),
         category: `Списание с баланса родителя`,
         counterparty,
+        counterpartyHref,
         account: "—",
         responsible: responsibleName(p.createdBy),
         comment: p.comment ?? "",
@@ -199,6 +202,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
         amount: Number(p.amount),
         category: `Оплата абонемента${subLabel}`,
         counterparty,
+        counterpartyHref,
         account: "—",
         responsible: responsibleName(p.createdBy),
         comment: p.comment ?? "",
@@ -221,6 +225,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
       amount,
       category,
       counterparty,
+      counterpartyHref,
       account: accName,
       responsible: responsibleName(p.createdBy),
       comment: p.comment ?? "",
@@ -543,7 +548,15 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
                         </span>
                       </TableCell>
                       <TableCell className="font-medium">{r.category}</TableCell>
-                      <TableCell className="text-muted-foreground">{r.counterparty}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {r.counterpartyHref ? (
+                          <Link href={r.counterpartyHref} className="hover:underline hover:text-foreground">
+                            {r.counterparty}
+                          </Link>
+                        ) : (
+                          r.counterparty
+                        )}
+                      </TableCell>
                       <TableCell className="text-muted-foreground">{r.account}</TableCell>
                       <TableCell className={`text-right font-medium ${r.amount > 0 ? "text-green-600" : r.amount < 0 ? "text-red-600" : ""}`}>
                         {formatMoney(r.amount)}
