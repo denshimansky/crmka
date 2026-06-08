@@ -6,24 +6,34 @@ import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 import { z } from "zod"
 
+// PATCH — частичное обновление: отсутствующее в теле поле должно остаться
+// undefined, иначе spread-гарды ниже затрут значение в БД (см. фикс бага
+// «при смене скидки пропадает телефон»).
+const nullableString = z.any().transform(v =>
+  v === undefined
+    ? undefined
+    : typeof v === "string" && v.trim()
+      ? v.trim()
+      : null,
+)
+
 const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
-  patronymic: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
-  phone: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
-  phone2: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
-  email: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).pipe(z.string().email("Некорректный email").nullable()),
-  socialLink: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  patronymic: nullableString,
+  phone: nullableString,
+  phone2: nullableString,
+  email: nullableString.pipe(z.string().email("Некорректный email").nullish()),
+  socialLink: nullableString,
   funnelStatus: z.enum(["new", "trial_scheduled", "trial_attended", "awaiting_payment", "active_client", "potential", "non_target", "blacklisted", "archived"]).optional(),
   clientStatus: z.enum(["active", "churned", "archived"]).nullable().optional(),
   branchId: z.string().uuid().nullable().optional(),
   assignedTo: z.string().uuid().nullable().optional(),
-  comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
-  nextContactDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  comment: nullableString,
+  nextContactDate: nullableString,
   blacklistReason: z.string().optional(),
-  promisedPaymentDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
-  firstPaidLessonDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
-  // Включённый родителем шаблон скидки (или null — выключить).
+  promisedPaymentDate: nullableString,
+  firstPaidLessonDate: nullableString,
   discountTemplateId: z.string().uuid().nullable().optional(),
 })
 
