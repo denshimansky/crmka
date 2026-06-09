@@ -99,9 +99,9 @@ export function ClientDiscountSelect({
       onOpenChange={setOpen}
       onValueChange={(v) => { if (v) commit(v) }}
     >
-      <SelectTrigger className="h-8 w-auto min-w-[180px] text-xs">
-        <Tag className="size-3 mr-1.5 text-muted-foreground" />
-        <span className="truncate">{label}</span>
+      <SelectTrigger className="h-8 min-w-[220px] max-w-[420px] text-xs">
+        <Tag className="size-3 mr-1.5 text-muted-foreground shrink-0" />
+        <span className="truncate" title={label}>{label}</span>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="none">Без скидки</SelectItem>
