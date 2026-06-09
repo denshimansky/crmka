@@ -173,7 +173,7 @@ export default async function SettingsPage() {
       <Tabs defaultValue="org">
         <TabsList>
           <TabsTrigger value="org">Организация</TabsTrigger>
-          <TabsTrigger value="personnel">Персонал</TabsTrigger>
+          <TabsTrigger value="personnel">Персональные</TabsTrigger>
         </TabsList>
 
         <TabsContent value="org">
