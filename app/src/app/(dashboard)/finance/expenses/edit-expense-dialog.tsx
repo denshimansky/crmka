@@ -36,6 +36,20 @@ interface BranchOption {
   name: string
 }
 
+interface DirectionOption {
+  id: string
+  name: string
+  branchIds: string[]
+}
+
+interface LeadChannelOption {
+  id: string
+  name: string
+}
+
+const MARKETING_CATEGORY_NAME = "Маркетинг и реклама"
+const NONE_VALUE = "__none__"
+
 type RecognitionMode = "by_payment_date" | "single_period" | "amortized"
 
 interface ExpenseData {
@@ -50,6 +64,8 @@ interface ExpenseData {
   amortizationMonths: number | null
   amortizationStartDate: string | null
   branchIds: string[]
+  directionId: string | null
+  leadChannelId: string | null
 }
 
 const MONTH_NAMES = [
@@ -81,6 +97,8 @@ export function EditExpenseDialog({
   categories,
   accounts,
   branches,
+  directions,
+  leadChannels,
   open,
   onOpenChange,
 }: {
@@ -88,6 +106,8 @@ export function EditExpenseDialog({
   categories: CategoryOption[]
   accounts: AccountOption[]
   branches: BranchOption[]
+  directions: DirectionOption[]
+  leadChannels: LeadChannelOption[]
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -114,13 +134,30 @@ export function EditExpenseDialog({
       : "3"
   )
   const [selectedBranches, setSelectedBranches] = useState<string[]>(expense.branchIds)
+  const [directionId, setDirectionId] = useState<string>(expense.directionId ?? "")
+  const [leadChannelId, setLeadChannelId] = useState<string>(expense.leadChannelId ?? "")
 
   function toggleBranch(branchId: string) {
-    setSelectedBranches(prev =>
-      prev.includes(branchId)
+    setSelectedBranches(prev => {
+      const next = prev.includes(branchId)
         ? prev.filter(b => b !== branchId)
         : [...prev, branchId]
-    )
+      if (directionId) {
+        const dir = directions.find((d) => d.id === directionId)
+        const stillAvailable =
+          next.length === 0 || (dir && dir.branchIds.some((bid) => next.includes(bid)))
+        if (!stillAvailable) setDirectionId("")
+      }
+      return next
+    })
+  }
+
+  function changeCategory(newCategoryId: string) {
+    setCategoryId(newCategoryId)
+    const cat = categories.find((c) => c.id === newCategoryId)
+    if (cat?.name !== MARKETING_CATEGORY_NAME && leadChannelId) {
+      setLeadChannelId("")
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -147,6 +184,9 @@ export function EditExpenseDialog({
       amortizationMonths = n
     }
 
+    const selectedCategory = categories.find((c) => c.id === categoryId)
+    const isMarketing = selectedCategory?.name === MARKETING_CATEGORY_NAME
+
     setLoading(true)
     try {
       const res = await fetch(`/api/expenses/${expense.id}`, {
@@ -163,6 +203,8 @@ export function EditExpenseDialog({
           amortizationStartDate,
           amortizationMonths,
           branchIds: selectedBranches,
+          directionId: directionId || null,
+          leadChannelId: isMarketing && leadChannelId ? leadChannelId : null,
         }),
       })
 
@@ -203,6 +245,16 @@ export function EditExpenseDialog({
 
   const selectedCategory = categories.find(c => c.id === categoryId)
   const selectedAccount = accounts.find(a => a.id === accountId)
+  const isMarketing = selectedCategory?.name === MARKETING_CATEGORY_NAME
+
+  const availableDirections =
+    selectedBranches.length === 0
+      ? directions
+      : directions.filter((d) =>
+          d.branchIds.some((bid) => selectedBranches.includes(bid)),
+        )
+  const selectedDirection = availableDirections.find((d) => d.id === directionId)
+  const selectedChannel = leadChannels.find((c) => c.id === leadChannelId)
 
   const amountNum = Number(amount) || 0
   const amortN = Math.max(2, Math.min(60, Number(amortMonths) || 0))
@@ -224,7 +276,7 @@ export function EditExpenseDialog({
 
           <div className="space-y-1.5">
             <Label>Статья расхода *</Label>
-            <Select value={categoryId} onValueChange={(v) => { if (v) setCategoryId(v) }}>
+            <Select value={categoryId} onValueChange={(v) => { if (v) changeCategory(v) }}>
               <SelectTrigger className="w-full">
                 {selectedCategory ? selectedCategory.name : "Выберите статью"}
               </SelectTrigger>
@@ -286,6 +338,46 @@ export function EditExpenseDialog({
                   </label>
                 ))}
               </div>
+            </div>
+          )}
+
+          {availableDirections.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Направление</Label>
+              <Select
+                value={directionId || NONE_VALUE}
+                onValueChange={(v) => setDirectionId(v === NONE_VALUE ? "" : v)}
+              >
+                <SelectTrigger className="w-full">
+                  {selectedDirection ? selectedDirection.name : "Не указано (распределить по выручке)"}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE_VALUE}>— Не указано —</SelectItem>
+                  {availableDirections.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {isMarketing && (
+            <div className="space-y-1.5">
+              <Label>Канал привлечения</Label>
+              <Select
+                value={leadChannelId || NONE_VALUE}
+                onValueChange={(v) => setLeadChannelId(v === NONE_VALUE ? "" : v)}
+              >
+                <SelectTrigger className="w-full">
+                  {selectedChannel ? selectedChannel.name : "Не указан"}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE_VALUE}>— Не указан —</SelectItem>
+                  {leadChannels.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
 

@@ -1032,17 +1032,21 @@ model Expense {
   isVariable            Boolean                @default(false) @map("is_variable")
   isRecurring           Boolean                @default(false) @map("is_recurring")
   recurringGroupId      String?                @map("recurring_group_id") @db.Uuid
+  // Канал привлечения для расходов на маркетинг (категория «Маркетинг и реклама»).
+  leadChannelId         String?                @map("lead_channel_id") @db.Uuid
   createdBy             String?                @map("created_by") @db.Uuid
   createdAt             DateTime               @default(now()) @map("created_at")
   updatedAt             DateTime               @updatedAt @map("updated_at")
   deletedAt             DateTime?              @map("deleted_at")
 
-  category ExpenseCategory  @relation(fields: [categoryId], references: [id])
-  account  FinancialAccount @relation(fields: [accountId], references: [id])
-  branches ExpenseBranch[]
+  category    ExpenseCategory  @relation(fields: [categoryId], references: [id])
+  account     FinancialAccount @relation(fields: [accountId], references: [id])
+  branches    ExpenseBranch[]
+  leadChannel LeadChannel?     @relation(fields: [leadChannelId], references: [id])
 
   @@index([tenantId, date])
   @@index([tenantId, categoryId])
+  @@index([tenantId, leadChannelId])
   @@map("expenses")
 }
 
@@ -1121,6 +1125,7 @@ model LeadChannel {
   organization   Organization    @relation(fields: [tenantId], references: [id])
   clients        Client[]
   bonusDiscounts BonusDiscount[]
+  expenses       Expense[]
 
   @@index([tenantId])
   @@map("lead_channels")

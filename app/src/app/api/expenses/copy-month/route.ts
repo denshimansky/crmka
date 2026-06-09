@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
           isVariable: exp.isVariable,
           isRecurring: true,
           recurringGroupId: exp.recurringGroupId || exp.id,
+          leadChannelId: exp.leadChannelId,
           createdBy: session.user.employeeId,
         },
       })

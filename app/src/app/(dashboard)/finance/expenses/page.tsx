@@ -34,8 +34,12 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     include: {
       category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
       account: { select: { id: true, name: true } },
+      leadChannel: { select: { id: true, name: true } },
       branches: {
-        include: { branch: { select: { id: true, name: true } } },
+        include: {
+          branch: { select: { id: true, name: true } },
+          direction: { select: { id: true, name: true } },
+        },
       },
     },
     orderBy: { date: "desc" },
@@ -77,26 +81,57 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     orderBy: { createdAt: "asc" },
   })
 
+  // Направления + филиалы, где у направления есть группы (для фильтрации в модалке).
+  const directionsRaw = await db.direction.findMany({
+    where: { tenantId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      groups: { select: { branchId: true }, where: { deletedAt: null } },
+    },
+    orderBy: { sortOrder: "asc" },
+  })
+  const directions = directionsRaw.map((d) => ({
+    id: d.id,
+    name: d.name,
+    branchIds: Array.from(new Set(d.groups.map((g) => g.branchId))),
+  }))
+
+  const leadChannels = await db.leadChannel.findMany({
+    where: { tenantId, isActive: true },
+    select: { id: true, name: true },
+    orderBy: { sortOrder: "asc" },
+  })
+
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   // Подготовка данных для таблицы
-  const tableExpenses = expenses.map(e => ({
-    id: e.id,
-    categoryId: e.categoryId,
-    categoryName: e.category.name,
-    accountId: e.accountId,
-    accountName: e.account.name,
-    amount: Number(e.amount),
-    date: e.date.toISOString().slice(0, 10),
-    comment: e.comment,
-    isRecurring: e.isRecurring,
-    isVariable: e.isVariable,
-    recognitionMode: e.recognitionMode,
-    amortizationMonths: e.amortizationMonths,
-    amortizationStartDate: e.amortizationStartDate ? e.amortizationStartDate.toISOString().slice(0, 10) : null,
-    branchNames: e.branches.map(b => b.branch?.name).filter(Boolean) as string[],
-    branchIds: e.branches.map(b => b.branchId).filter(Boolean) as string[],
-  }))
+  const tableExpenses = expenses.map(e => {
+    // Направление берём из первой ExpenseBranch-строки (для всех строк одного
+    // расхода direction одинаков — выставляем единое значение при сохранении).
+    const firstDir = e.branches.find((b) => b.direction)?.direction
+    return {
+      id: e.id,
+      categoryId: e.categoryId,
+      categoryName: e.category.name,
+      accountId: e.accountId,
+      accountName: e.account.name,
+      amount: Number(e.amount),
+      date: e.date.toISOString().slice(0, 10),
+      comment: e.comment,
+      isRecurring: e.isRecurring,
+      isVariable: e.isVariable,
+      recognitionMode: e.recognitionMode,
+      amortizationMonths: e.amortizationMonths,
+      amortizationStartDate: e.amortizationStartDate ? e.amortizationStartDate.toISOString().slice(0, 10) : null,
+      branchNames: e.branches.map(b => b.branch?.name).filter(Boolean) as string[],
+      branchIds: e.branches.map(b => b.branchId).filter(Boolean) as string[],
+      directionId: firstDir?.id ?? null,
+      directionName: firstDir?.name ?? null,
+      leadChannelId: e.leadChannelId,
+      leadChannelName: e.leadChannel?.name ?? null,
+    }
+  })
 
   // Итоги по статьям
   const categoryTotals = new Map<string, number>()
@@ -117,7 +152,13 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
         </div>
         <div className="flex items-center gap-2">
           <CopyMonthButton currentYear={year} currentMonth={month} />
-          <AddExpenseDialog categories={categories} accounts={accounts} branches={allBranches} />
+          <AddExpenseDialog
+            categories={categories}
+            accounts={accounts}
+            branches={allBranches}
+            directions={directions}
+            leadChannels={leadChannels}
+          />
         </div>
       </div>
 
@@ -171,6 +212,8 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
           categories={categories}
           accounts={accounts}
           branches={allBranches}
+          directions={directions}
+          leadChannels={leadChannels}
         />
       )}
     </div>

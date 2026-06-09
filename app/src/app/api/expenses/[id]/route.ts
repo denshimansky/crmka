@@ -5,6 +5,8 @@ import { db } from "@/lib/db"
 import { z } from "zod"
 import { logAudit, diffChanges } from "@/lib/audit"
 
+const MARKETING_CATEGORY_NAME = "Маркетинг и реклама"
+
 const updateSchema = z.object({
   categoryId: z.string().uuid("Выберите статью расхода").optional(),
   accountId: z.string().uuid("Выберите счёт").optional(),
@@ -21,6 +23,8 @@ const updateSchema = z.object({
     return Number.isFinite(n) && n > 0 ? n : null
   }),
   branchIds: z.array(z.string().uuid()).optional(),
+  directionId: z.string().uuid().nullable().optional(),
+  leadChannelId: z.string().uuid().nullable().optional(),
 })
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -55,6 +59,51 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Если меняется категория или передан leadChannelId — нужно проверить,
+  // что канал применим только к «Маркетинг и реклама».
+  let resolvedLeadChannelId: string | null | undefined = undefined
+  if (data.leadChannelId !== undefined) {
+    if (data.leadChannelId === null) {
+      resolvedLeadChannelId = null
+    } else {
+      const targetCategoryId = data.categoryId ?? existing.categoryId
+      const targetCategory = await db.expenseCategory.findFirst({
+        where: { id: targetCategoryId },
+      })
+      if (!targetCategory || targetCategory.name !== MARKETING_CATEGORY_NAME) {
+        return NextResponse.json(
+          { error: "Канал привлечения можно указать только для статьи «Маркетинг и реклама»" },
+          { status: 400 },
+        )
+      }
+      const channel = await db.leadChannel.findFirst({
+        where: { id: data.leadChannelId, tenantId: session.user.tenantId, isActive: true },
+      })
+      if (!channel) return NextResponse.json({ error: "Канал привлечения не найден" }, { status: 404 })
+      resolvedLeadChannelId = channel.id
+    }
+  } else if (data.categoryId && data.categoryId !== existing.categoryId) {
+    // Категорию сменили на немаркетинговую — снимаем привязку к каналу.
+    const newCategory = await db.expenseCategory.findFirst({ where: { id: data.categoryId } })
+    if (newCategory && newCategory.name !== MARKETING_CATEGORY_NAME && existing.leadChannelId) {
+      resolvedLeadChannelId = null
+    }
+  }
+
+  // Направление: проверяем принадлежность тенанту.
+  let resolvedDirectionId: string | null | undefined = undefined
+  if (data.directionId !== undefined) {
+    if (data.directionId === null) {
+      resolvedDirectionId = null
+    } else {
+      const direction = await db.direction.findFirst({
+        where: { id: data.directionId, tenantId: session.user.tenantId, deletedAt: null },
+      })
+      if (!direction) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
+      resolvedDirectionId = direction.id
+    }
+  }
+
   await db.$transaction(async (tx) => {
     const updateData: any = {}
     if (data.categoryId) updateData.categoryId = data.categoryId
@@ -62,6 +111,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (data.comment !== undefined) updateData.comment = data.comment || null
     if (data.isVariable !== undefined) updateData.isVariable = data.isVariable
     if (data.isRecurring !== undefined) updateData.isRecurring = data.isRecurring
+    if (resolvedLeadChannelId !== undefined) updateData.leadChannelId = resolvedLeadChannelId
 
     if (data.recognitionMode !== undefined) {
       updateData.recognitionMode = data.recognitionMode
@@ -100,16 +150,54 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     await tx.expense.update({ where: { id }, data: updateData })
 
-    // Обновляем привязку к филиалам
-    if (data.branchIds !== undefined) {
+    // Обновляем привязку к филиалам и направлению.
+    // Перезаписываем только если хотя бы одно из (branchIds, directionId)
+    // присутствует в payload — иначе ничего не трогаем.
+    const branchesChanged = data.branchIds !== undefined
+    const directionChanged = resolvedDirectionId !== undefined
+    if (branchesChanged || directionChanged) {
+      // Определяем итоговый список филиалов и направление с учётом существующих
+      // значений (если что-то не передано — сохраняем как есть).
+      let finalBranchIds: string[]
+      if (branchesChanged) {
+        finalBranchIds = data.branchIds!
+      } else {
+        const existingBranches = await tx.expenseBranch.findMany({
+          where: { expenseId: id },
+          select: { branchId: true },
+        })
+        finalBranchIds = existingBranches.map((b) => b.branchId).filter((b): b is string => !!b)
+      }
+      let finalDirectionId: string | null
+      if (directionChanged) {
+        finalDirectionId = resolvedDirectionId!
+      } else {
+        const existingBranches = await tx.expenseBranch.findMany({
+          where: { expenseId: id },
+          select: { directionId: true },
+          take: 1,
+        })
+        finalDirectionId = existingBranches[0]?.directionId ?? null
+      }
+
       await tx.expenseBranch.deleteMany({ where: { expenseId: id } })
-      if (data.branchIds.length > 0) {
+      if (finalBranchIds.length > 0) {
         await tx.expenseBranch.createMany({
-          data: data.branchIds.map((branchId) => ({
+          data: finalBranchIds.map((branchId) => ({
             tenantId: session.user.tenantId,
             expenseId: id,
             branchId,
+            directionId: finalDirectionId,
           })),
+        })
+      } else if (finalDirectionId) {
+        await tx.expenseBranch.create({
+          data: {
+            tenantId: session.user.tenantId,
+            expenseId: id,
+            branchId: null,
+            directionId: finalDirectionId,
+          },
         })
       }
     }
@@ -120,8 +208,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     include: {
       category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
       account: { select: { id: true, name: true } },
+      leadChannel: { select: { id: true, name: true } },
       branches: {
-        include: { branch: { select: { id: true, name: true } } },
+        include: {
+          branch: { select: { id: true, name: true } },
+          direction: { select: { id: true, name: true } },
+        },
       },
     },
   })

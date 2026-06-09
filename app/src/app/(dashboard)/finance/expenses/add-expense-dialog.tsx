@@ -38,6 +38,21 @@ interface BranchOption {
   name: string
 }
 
+interface DirectionOption {
+  id: string
+  name: string
+  // Список филиалов, в которых у этого направления есть группы.
+  branchIds: string[]
+}
+
+interface LeadChannelOption {
+  id: string
+  name: string
+}
+
+const MARKETING_CATEGORY_NAME = "Маркетинг и реклама"
+const NONE_VALUE = "__none__"
+
 type RecognitionMode = "by_payment_date" | "single_period" | "amortized"
 
 const MONTH_NAMES = [
@@ -69,10 +84,14 @@ export function AddExpenseDialog({
   categories,
   accounts,
   branches,
+  directions,
+  leadChannels,
 }: {
   categories: CategoryOption[]
   accounts: AccountOption[]
   branches: BranchOption[]
+  directions: DirectionOption[]
+  leadChannels: LeadChannelOption[]
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -93,6 +112,8 @@ export function AddExpenseDialog({
   const [amortStartMonth, setAmortStartMonth] = useState(todayMonth)
   const [amortMonths, setAmortMonths] = useState("3")
   const [selectedBranches, setSelectedBranches] = useState<string[]>([])
+  const [directionId, setDirectionId] = useState<string>("")
+  const [leadChannelId, setLeadChannelId] = useState<string>("")
 
   function reset() {
     setCategoryId("")
@@ -106,15 +127,34 @@ export function AddExpenseDialog({
     setAmortStartMonth(todayMonth)
     setAmortMonths("3")
     setSelectedBranches([])
+    setDirectionId("")
+    setLeadChannelId("")
     setError(null)
   }
 
   function toggleBranch(branchId: string) {
-    setSelectedBranches(prev =>
-      prev.includes(branchId)
+    setSelectedBranches(prev => {
+      const next = prev.includes(branchId)
         ? prev.filter(b => b !== branchId)
         : [...prev, branchId]
-    )
+      // Если выбранное направление больше не доступно в новых филиалах — сбросим.
+      if (directionId) {
+        const dir = directions.find((d) => d.id === directionId)
+        const stillAvailable =
+          next.length === 0 || (dir && dir.branchIds.some((bid) => next.includes(bid)))
+        if (!stillAvailable) setDirectionId("")
+      }
+      return next
+    })
+  }
+
+  function changeCategory(newCategoryId: string) {
+    setCategoryId(newCategoryId)
+    // Канал привлечения имеет смысл только для «Маркетинг и реклама».
+    const cat = categories.find((c) => c.id === newCategoryId)
+    if (cat?.name !== MARKETING_CATEGORY_NAME && leadChannelId) {
+      setLeadChannelId("")
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -142,6 +182,7 @@ export function AddExpenseDialog({
     }
 
     const selectedCategory = categories.find(c => c.id === categoryId)
+    const isMarketing = selectedCategory?.name === MARKETING_CATEGORY_NAME
 
     setLoading(true)
     try {
@@ -160,6 +201,8 @@ export function AddExpenseDialog({
           amortizationStartDate,
           amortizationMonths,
           branchIds: selectedBranches,
+          directionId: directionId || null,
+          leadChannelId: isMarketing && leadChannelId ? leadChannelId : null,
         }),
       })
 
@@ -181,6 +224,20 @@ export function AddExpenseDialog({
 
   const selectedCategory = categories.find(c => c.id === categoryId)
   const selectedAccount = accounts.find(a => a.id === accountId)
+  const isMarketing = selectedCategory?.name === MARKETING_CATEGORY_NAME
+
+  // Направления, доступные в выбранных филиалах (если не выбрано — показываем все).
+  const availableDirections =
+    selectedBranches.length === 0
+      ? directions
+      : directions.filter((d) =>
+          d.branchIds.some((bid) => selectedBranches.includes(bid)),
+        )
+  const selectedDirection = availableDirections.find((d) => d.id === directionId)
+  const selectedChannel = leadChannels.find((c) => c.id === leadChannelId)
+
+  // Если филиалы изменились и текущее направление в них не доступно — сбросим.
+  // (делаем в обработчике filter снизу, чтобы не вводить лишний useEffect)
 
   // Превью раскладки.
   const amountNum = Number(amount) || 0
@@ -207,7 +264,7 @@ export function AddExpenseDialog({
 
           <div className="space-y-1.5">
             <Label>Статья расхода *</Label>
-            <Select value={categoryId} onValueChange={(v) => { if (v) setCategoryId(v) }}>
+            <Select value={categoryId} onValueChange={(v) => { if (v) changeCategory(v) }}>
               <SelectTrigger className="w-full">
                 {selectedCategory ? selectedCategory.name : "Выберите статью"}
               </SelectTrigger>
@@ -271,6 +328,52 @@ export function AddExpenseDialog({
               </div>
               <p className="text-xs text-muted-foreground">
                 {selectedBranches.length === 0 ? "Все филиалы" : `Выбрано: ${selectedBranches.length}`}
+              </p>
+            </div>
+          )}
+
+          {availableDirections.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Направление</Label>
+              <Select
+                value={directionId || NONE_VALUE}
+                onValueChange={(v) => setDirectionId(v === NONE_VALUE ? "" : v)}
+              >
+                <SelectTrigger className="w-full">
+                  {selectedDirection ? selectedDirection.name : "Не указано (распределить по выручке)"}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE_VALUE}>— Не указано —</SelectItem>
+                  {availableDirections.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Если указано — расход относится напрямую к направлению в ОПИУ. Иначе распределяется пропорционально выручке.
+              </p>
+            </div>
+          )}
+
+          {isMarketing && (
+            <div className="space-y-1.5">
+              <Label>Канал привлечения</Label>
+              <Select
+                value={leadChannelId || NONE_VALUE}
+                onValueChange={(v) => setLeadChannelId(v === NONE_VALUE ? "" : v)}
+              >
+                <SelectTrigger className="w-full">
+                  {selectedChannel ? selectedChannel.name : "Не указан"}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE_VALUE}>— Не указан —</SelectItem>
+                  {leadChannels.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Канал, на который потрачен бюджет (для отчёта эффективности маркетинга).
               </p>
             </div>
           )}

@@ -8,6 +8,8 @@ import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
 
+const MARKETING_CATEGORY_NAME = "Маркетинг и реклама"
+
 const createSchema = z.object({
   categoryId: z.string().uuid("Выберите статью расхода"),
   accountId: z.string().uuid("Выберите счёт"),
@@ -23,6 +25,8 @@ const createSchema = z.object({
     return Number.isFinite(n) && n > 0 ? n : undefined
   }),
   branchIds: z.array(z.string().uuid()).optional().default([]),
+  directionId: z.string().uuid().nullable().optional(),
+  leadChannelId: z.string().uuid().nullable().optional(),
 })
 
 export async function GET(req: NextRequest) {
@@ -60,9 +64,11 @@ export async function GET(req: NextRequest) {
     include: {
       category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
       account: { select: { id: true, name: true } },
+      leadChannel: { select: { id: true, name: true } },
       branches: {
         include: {
           branch: { select: { id: true, name: true } },
+          direction: { select: { id: true, name: true } },
         },
       },
     },
@@ -99,6 +105,32 @@ export async function POST(req: NextRequest) {
     where: { id: data.accountId, tenantId: session.user.tenantId, deletedAt: null },
   })
   if (!account) return NextResponse.json({ error: "Счёт не найден" }, { status: 404 })
+
+  // Канал привлечения — только для категории «Маркетинг и реклама».
+  let resolvedLeadChannelId: string | null = null
+  if (data.leadChannelId) {
+    if (category.name !== MARKETING_CATEGORY_NAME) {
+      return NextResponse.json(
+        { error: "Канал привлечения можно указать только для статьи «Маркетинг и реклама»" },
+        { status: 400 },
+      )
+    }
+    const channel = await db.leadChannel.findFirst({
+      where: { id: data.leadChannelId, tenantId: session.user.tenantId, isActive: true },
+    })
+    if (!channel) return NextResponse.json({ error: "Канал привлечения не найден" }, { status: 404 })
+    resolvedLeadChannelId = channel.id
+  }
+
+  // Направление — проверим, что принадлежит тенанту.
+  let resolvedDirectionId: string | null = null
+  if (data.directionId) {
+    const direction = await db.direction.findFirst({
+      where: { id: data.directionId, tenantId: session.user.tenantId, deletedAt: null },
+    })
+    if (!direction) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
+    resolvedDirectionId = direction.id
+  }
 
   // Проверка закрытия периода
   const role = (session.user as any).role
@@ -140,6 +172,7 @@ export async function POST(req: NextRequest) {
         recognitionMode: data.recognitionMode,
         amortizationMonths: recognitionAmortMonths,
         amortizationStartDate: recognitionStartDate,
+        leadChannelId: resolvedLeadChannelId,
         createdBy: session.user.employeeId,
       },
       include: {
@@ -148,14 +181,26 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Привязка к филиалам
+    // Привязка к филиалам и направлению.
+    // Если указаны филиалы — пишем строку на каждый филиал, направление дублируется.
+    // Если филиалы не указаны, но указано направление — пишем одну строку (branchId=null).
     if (data.branchIds.length > 0) {
       await tx.expenseBranch.createMany({
         data: data.branchIds.map((branchId) => ({
           tenantId: session.user.tenantId,
           expenseId: e.id,
           branchId,
+          directionId: resolvedDirectionId,
         })),
+      })
+    } else if (resolvedDirectionId) {
+      await tx.expenseBranch.create({
+        data: {
+          tenantId: session.user.tenantId,
+          expenseId: e.id,
+          branchId: null,
+          directionId: resolvedDirectionId,
+        },
       })
     }
 
@@ -185,8 +230,12 @@ export async function POST(req: NextRequest) {
     include: {
       category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
       account: { select: { id: true, name: true } },
+      leadChannel: { select: { id: true, name: true } },
       branches: {
-        include: { branch: { select: { id: true, name: true } } },
+        include: {
+          branch: { select: { id: true, name: true } },
+          direction: { select: { id: true, name: true } },
+        },
       },
     },
   })

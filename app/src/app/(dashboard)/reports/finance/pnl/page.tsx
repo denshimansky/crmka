@@ -115,7 +115,12 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
 
   const expenses = await db.expense.findMany({
     where: expWhere,
-    include: { category: { select: { id: true, name: true, isSalary: true, isVariable: true } } },
+    include: {
+      category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
+      // Option B: direct attribution — если у расхода указано направление,
+      // относим всю сумму к нему без пропорционального распределения.
+      branches: { select: { directionId: true } },
+    },
   })
 
   // Для каждого расхода — сумма, попавшая в текущий месяц с учётом раскладки.
@@ -126,6 +131,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       isSalary: e.category.isSalary,
       isVariable: e.category.isVariable,
       amount: expenseAmountInWindow(e, year, month, year, month),
+      directDirectionId: e.branches.find((b) => b.directionId)?.directionId ?? null,
     }))
     .filter((s) => s.amount > 0)
 
@@ -163,18 +169,22 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const netProfit = totalIncome - totalExpenses - totalSalaryAccrued
   const profitability = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0
 
-  // === FIN-16: Распределение постоянных расходов по направлениям ===
-  const fixedExpenseItems: FixedExpenseItem[] = expenseSlices
-    .filter(s => !s.isVariable)
-    .reduce<FixedExpenseItem[]>((acc, s) => {
-      const existing = acc.find(x => x.id === s.categoryId)
-      if (existing) {
-        existing.amount += s.amount
-      } else {
-        acc.push({ id: s.categoryId, category: s.categoryName, amount: s.amount })
-      }
-      return acc
-    }, [])
+  // === FIN-16 + Option B: распределение постоянных расходов ===
+  // Постоянные с явным directionId → к этому направлению напрямую.
+  // Остальные → пропорционально выручке.
+  const fixedSlices = expenseSlices.filter((s) => !s.isVariable)
+  const directFixedSlices = fixedSlices.filter((s) => s.directDirectionId)
+  const undirectedFixedSlices = fixedSlices.filter((s) => !s.directDirectionId)
+
+  const fixedExpenseItems: FixedExpenseItem[] = undirectedFixedSlices.reduce<FixedExpenseItem[]>((acc, s) => {
+    const existing = acc.find(x => x.id === s.categoryId)
+    if (existing) {
+      existing.amount += s.amount
+    } else {
+      acc.push({ id: s.categoryId, category: s.categoryName, amount: s.amount })
+    }
+    return acc
+  }, [])
 
   const revenueMap: Record<string, number> = {}
   for (const [dirId, info] of Object.entries(revenueByDirection)) {
@@ -182,14 +192,56 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   }
   const distribution = distributeFixedExpenses(fixedExpenseItems, revenueMap)
 
-  const directionEntries = Object.entries(revenueByDirection)
-    .map(([dirId, info]) => ({
-      directionId: dirId,
-      name: info.name,
-      revenue: info.revenue,
-      revenueShare: revenue > 0 ? Math.round((info.revenue / revenue) * 1000) / 10 : 0,
-      distributedFixed: distribution.totalByKey[dirId] ?? 0,
-    }))
+  // Прямые расходы по направлениям (с разбивкой по статьям для тултипа).
+  const directFixedByDirection: Record<string, { items: { category: string; amount: number }[]; total: number; directionName: string }> = {}
+  for (const s of directFixedSlices) {
+    const dirId = s.directDirectionId!
+    const dirName = revenueByDirection[dirId]?.name
+    if (!directFixedByDirection[dirId]) {
+      directFixedByDirection[dirId] = { items: [], total: 0, directionName: dirName ?? dirId }
+    }
+    directFixedByDirection[dirId].items.push({ category: s.categoryName, amount: s.amount })
+    directFixedByDirection[dirId].total += s.amount
+  }
+
+  // Имена направлений, которые есть только в direct-расходах (без выручки) —
+  // подтянем их из БД.
+  const missingDirIds = Object.keys(directFixedByDirection).filter(
+    (dirId) => !revenueByDirection[dirId],
+  )
+  if (missingDirIds.length > 0) {
+    const extraDirs = await db.direction.findMany({
+      where: { id: { in: missingDirIds }, tenantId },
+      select: { id: true, name: true },
+    })
+    for (const d of extraDirs) {
+      if (directFixedByDirection[d.id]) {
+        directFixedByDirection[d.id].directionName = d.name
+      }
+    }
+  }
+
+  const directionIdSet = new Set<string>([
+    ...Object.keys(revenueByDirection),
+    ...Object.keys(directFixedByDirection),
+  ])
+
+  const directionEntries = Array.from(directionIdSet)
+    .map((dirId) => {
+      const revenueInfo = revenueByDirection[dirId]
+      const directInfo = directFixedByDirection[dirId]
+      const dirRevenue = revenueInfo?.revenue ?? 0
+      const distributedFixedShare = distribution.totalByKey[dirId] ?? 0
+      const directFixed = directInfo?.total ?? 0
+      return {
+        directionId: dirId,
+        name: revenueInfo?.name ?? directInfo?.directionName ?? dirId,
+        revenue: dirRevenue,
+        revenueShare: revenue > 0 ? Math.round((dirRevenue / revenue) * 1000) / 10 : 0,
+        distributedFixed: distributedFixedShare + directFixed,
+        directFixedItems: directInfo?.items ?? [],
+      }
+    })
     .sort((a, b) => b.revenue - a.revenue)
 
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
@@ -422,13 +474,13 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
                     <Badge variant="outline" className="text-xs">авто</Badge>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p className="max-w-xs">Постоянные расходы распределяются пропорционально доле выручки каждого направления</p>
+                    <p className="max-w-xs">Расходы с указанным направлением относятся к нему напрямую. Остальные постоянные распределяются пропорционально выручке направлений.</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Формула: доля направления = выручка направления / общая выручка
+              Расходы с прямым указанием направления — целиком к нему. Остальные: доля = выручка направления / общая выручка.
             </p>
           </CardHeader>
           <CardContent>
@@ -458,8 +510,14 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
                             </TooltipTrigger>
                             <TooltipContent>
                               <div className="space-y-1 text-xs">
+                                {dir.directFixedItems.map((item, idx) => (
+                                  <div key={`direct-${idx}`} className="flex justify-between gap-4">
+                                    <span>{item.category} <Badge variant="outline" className="ml-1 h-4 px-1 text-[10px]">прямой</Badge></span>
+                                    <span>{formatMoney(item.amount)}</span>
+                                  </div>
+                                ))}
                                 {(distribution.byKey[dir.directionId] ?? []).map((item, idx) => (
-                                  <div key={idx} className="flex justify-between gap-4">
+                                  <div key={`dist-${idx}`} className="flex justify-between gap-4">
                                     <span>{item.category}</span>
                                     <span>{formatMoney(item.distributedAmount)}</span>
                                   </div>

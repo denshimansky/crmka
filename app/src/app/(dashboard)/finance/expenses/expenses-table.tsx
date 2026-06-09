@@ -23,6 +23,10 @@ interface ExpenseRow {
   amortizationStartDate: string | null
   branchNames: string[]
   branchIds: string[]
+  directionId: string | null
+  directionName: string | null
+  leadChannelId: string | null
+  leadChannelName: string | null
 }
 
 interface CategoryOption {
@@ -41,6 +45,17 @@ interface BranchOption {
   name: string
 }
 
+interface DirectionOption {
+  id: string
+  name: string
+  branchIds: string[]
+}
+
+interface LeadChannelOption {
+  id: string
+  name: string
+}
+
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
 }
@@ -55,11 +70,15 @@ export function ExpensesTable({
   categories,
   accounts,
   branches,
+  directions,
+  leadChannels,
 }: {
   expenses: ExpenseRow[]
   categories: CategoryOption[]
   accounts: AccountOption[]
   branches: BranchOption[]
+  directions: DirectionOption[]
+  leadChannels: LeadChannelOption[]
 }) {
   const [editingExpense, setEditingExpense] = useState<ExpenseRow | null>(null)
 
@@ -73,6 +92,8 @@ export function ExpensesTable({
               <TableHead>Статья</TableHead>
               <TableHead className="text-right">Сумма</TableHead>
               <TableHead>Филиал</TableHead>
+              <TableHead>Направление</TableHead>
+              <TableHead>Канал</TableHead>
               <TableHead>Счёт</TableHead>
               <TableHead>ОПИУ</TableHead>
               <TableHead>Комментарий</TableHead>
@@ -97,6 +118,12 @@ export function ExpensesTable({
                 </TableCell>
                 <TableCell className="text-muted-foreground">
                   {exp.branchNames.length > 0 ? exp.branchNames.join(", ") : "Все"}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {exp.directionName ?? "—"}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {exp.leadChannelName ?? "—"}
                 </TableCell>
                 <TableCell className="text-muted-foreground">{exp.accountName}</TableCell>
                 <TableCell className="text-muted-foreground text-xs">
@@ -129,10 +156,14 @@ export function ExpensesTable({
             amortizationMonths: editingExpense.amortizationMonths,
             amortizationStartDate: editingExpense.amortizationStartDate,
             branchIds: editingExpense.branchIds,
+            directionId: editingExpense.directionId,
+            leadChannelId: editingExpense.leadChannelId,
           }}
           categories={categories}
           accounts={accounts}
           branches={branches}
+          directions={directions}
+          leadChannels={leadChannels}
           open={!!editingExpense}
           onOpenChange={(v) => { if (!v) setEditingExpense(null) }}
         />

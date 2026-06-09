@@ -123,7 +123,12 @@ export async function GET(req: NextRequest) {
 
   const expenses = await db.expense.findMany({
     where: finalExpWhere,
-    include: { category: { select: { id: true, name: true, isSalary: true, isVariable: true } } },
+    include: {
+      category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
+      // Направление берём из ExpenseBranch — если указано, относим расход напрямую
+      // к этому направлению в распределении (минуя пропорциональный split).
+      branches: { select: { directionId: true } },
+    },
   })
 
   const fromY = dateFrom.getUTCFullYear()
@@ -138,17 +143,23 @@ export async function GET(req: NextRequest) {
     isSalary: boolean
     isVariable: boolean
     amountInWindow: number
+    // Если у расхода указано направление — относим целиком к нему (не распределяем).
+    directDirectionId: string | null
   }
   const slices: ExpenseSlice[] = []
   for (const e of expenses) {
     const inWindow = expenseAmountInWindow(e, fromY, fromM, toY, toM)
     if (inWindow === 0) continue
+    // Все ExpenseBranch одного расхода имеют одинаковый directionId — берём первый.
+    const directDirectionId =
+      e.branches.find((b) => b.directionId)?.directionId ?? null
     slices.push({
       categoryId: e.category.id,
       categoryName: e.category.name,
       isSalary: e.category.isSalary,
       isVariable: e.category.isVariable,
       amountInWindow: inWindow,
+      directDirectionId,
     })
   }
 
@@ -234,39 +245,91 @@ export async function GET(req: NextRequest) {
     }))
     .sort((a, b) => b.amount - a.amount)
 
-  // FIN-16: распределение постоянных расходов по выручке направлений.
-  const fixedExpenseItems: FixedExpenseItem[] = slices
-    .filter((s) => !s.isVariable)
-    .reduce<FixedExpenseItem[]>((acc, s) => {
-      const existing = acc.find((x) => x.id === s.categoryId)
-      if (existing) {
-        existing.amount += s.amountInWindow
-      } else {
-        acc.push({ id: s.categoryId, category: s.categoryName, amount: s.amountInWindow })
-      }
-      return acc
-    }, [])
+  // FIN-16 + Option B: распределение постоянных расходов.
+  // Постоянные расходы с явно указанным directionId относим напрямую (без split).
+  // Остальные — распределяем пропорционально выручке направлений (как раньше).
+  const fixedSlices = slices.filter((s) => !s.isVariable)
+  const directFixed = fixedSlices.filter((s) => s.directDirectionId)
+  const undirectedFixed = fixedSlices.filter((s) => !s.directDirectionId)
+
+  const fixedExpenseItems: FixedExpenseItem[] = undirectedFixed.reduce<FixedExpenseItem[]>((acc, s) => {
+    const existing = acc.find((x) => x.id === s.categoryId)
+    if (existing) {
+      existing.amount += s.amountInWindow
+    } else {
+      acc.push({ id: s.categoryId, category: s.categoryName, amount: s.amountInWindow })
+    }
+    return acc
+  }, [])
 
   const revenueMap: Record<string, number> = {}
   for (const [dirId, info] of Object.entries(revenueByDirection)) {
     revenueMap[dirId] = info.revenue
   }
+  // Направления могут быть и без выручки (если у них только direct-расходы) —
+  // добавим их в карту с нулевой выручкой, чтобы distributedByDirection их видел.
+  for (const s of directFixed) {
+    if (s.directDirectionId && !(s.directDirectionId in revenueMap)) {
+      revenueMap[s.directDirectionId] = 0
+    }
+  }
 
   const distribution = distributeFixedExpenses(fixedExpenseItems, revenueMap)
 
-  const distributionByDirection = Object.entries(distribution.byKey).map(([dirId, items]) => ({
-    directionId: dirId,
-    directionName: revenueByDirection[dirId]?.name ?? dirId,
-    revenue: revenueByDirection[dirId]?.revenue ?? 0,
-    revenueShare: revenue > 0 ? Math.round(((revenueByDirection[dirId]?.revenue ?? 0) / revenue) * 1000) / 10 : 0,
-    distributedFixedExpenses: distribution.totalByKey[dirId],
-    items: items.map((item) => ({
-      category: item.category,
-      originalAmount: item.originalAmount,
-      distributedAmount: item.distributedAmount,
-      share: item.share,
-    })),
-  }))
+  // Прямые (direct) расходы добавляем к distributed-результату «как есть».
+  type DistItem = { category: string; originalAmount: number; distributedAmount: number; share: number; direct?: boolean }
+  const directByDirection: Record<string, DistItem[]> = {}
+  const directTotalByDirection: Record<string, number> = {}
+  for (const s of directFixed) {
+    const dirId = s.directDirectionId!
+    if (!directByDirection[dirId]) directByDirection[dirId] = []
+    directByDirection[dirId].push({
+      category: s.categoryName,
+      originalAmount: s.amountInWindow,
+      distributedAmount: s.amountInWindow,
+      share: 100,
+      direct: true,
+    })
+    directTotalByDirection[dirId] = (directTotalByDirection[dirId] ?? 0) + s.amountInWindow
+  }
+
+  const allDirectionIds = new Set<string>([
+    ...Object.keys(distribution.byKey),
+    ...Object.keys(directByDirection),
+    ...Object.keys(revenueByDirection),
+  ])
+  const distributionByDirection = Array.from(allDirectionIds).map((dirId) => {
+    const distItems: DistItem[] = distribution.byKey[dirId] ?? []
+    const directItems: DistItem[] = directByDirection[dirId] ?? []
+    const distributedTotal =
+      (distribution.totalByKey[dirId] ?? 0) + (directTotalByDirection[dirId] ?? 0)
+    return {
+      directionId: dirId,
+      directionName: revenueByDirection[dirId]?.name ?? dirId,
+      revenue: revenueByDirection[dirId]?.revenue ?? 0,
+      revenueShare:
+        revenue > 0 ? Math.round(((revenueByDirection[dirId]?.revenue ?? 0) / revenue) * 1000) / 10 : 0,
+      distributedFixedExpenses: Math.round(distributedTotal * 100) / 100,
+      items: [
+        ...directItems.map((item) => ({
+          category: item.category,
+          originalAmount: item.originalAmount,
+          distributedAmount: item.distributedAmount,
+          share: item.share,
+          direct: true,
+        })),
+        ...distItems.map((item) => ({
+          category: item.category,
+          originalAmount: item.originalAmount,
+          distributedAmount: item.distributedAmount,
+          share: item.share,
+          direct: false,
+        })),
+      ],
+    }
+  })
+  const totalFixedWithDirect =
+    distribution.totalFixed + directFixed.reduce((s, x) => s + x.amountInWindow, 0)
 
   return NextResponse.json({
     data: {
@@ -283,7 +346,7 @@ export async function GET(req: NextRequest) {
       profitability: Math.round(profitability * 10) / 10,
       expensesByCategory: expenseRows,
       fixedExpenseDistribution: {
-        totalFixed: distribution.totalFixed,
+        totalFixed: totalFixedWithDirect,
         byDirection: distributionByDirection,
       },
     },
