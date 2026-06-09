@@ -24,7 +24,7 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Pencil, X, Ban, CalendarDays, Undo2, ArrowLeftRight, CalendarPlus } from "lucide-react"
+import { Plus, Pencil, X, Ban, CalendarDays, Undo2, CalendarPlus } from "lucide-react"
 import { AddWardForm } from "./add-ward-form"
 import { AttendanceTab } from "./attendance-tab"
 import { PayFromBalanceDialog } from "./pay-from-balance-dialog"
@@ -165,20 +165,10 @@ function EditSubscriptionDialog({
 
   const [lessonPrice, setLessonPrice] = useState(String(Number(subscription.lessonPrice)))
   const [totalLessons, setTotalLessons] = useState(String(subscription.totalLessons))
-  const [discountAmount, setDiscountAmount] = useState(
-    String(Number(subscription.finalAmount) < Number(subscription.totalAmount)
-      ? Number(subscription.totalAmount) - Number(subscription.finalAmount)
-      : 0)
-  )
 
   function reset() {
     setLessonPrice(String(Number(subscription.lessonPrice)))
     setTotalLessons(String(subscription.totalLessons))
-    setDiscountAmount(
-      String(Number(subscription.finalAmount) < Number(subscription.totalAmount)
-        ? Number(subscription.totalAmount) - Number(subscription.finalAmount)
-        : 0)
-    )
     setError(null)
   }
 
@@ -203,7 +193,6 @@ function EditSubscriptionDialog({
         body: JSON.stringify({
           lessonPrice: Number(lessonPrice),
           totalLessons: Number(totalLessons),
-          discountAmount: Number(discountAmount) || 0,
         }),
       })
 
@@ -223,7 +212,6 @@ function EditSubscriptionDialog({
   }
 
   const totalAmount = (Number(lessonPrice) || 0) * (Number(totalLessons) || 0)
-  const finalAmount = totalAmount - (Number(discountAmount) || 0)
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
@@ -256,7 +244,7 @@ function EditSubscriptionDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Цена занятия</Label>
               <Input
@@ -276,34 +264,13 @@ function EditSubscriptionDialog({
                 onChange={(e) => setTotalLessons(e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>Скидка</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={discountAmount}
-                onChange={(e) => setDiscountAmount(e.target.value)}
-                placeholder="0"
-              />
-            </div>
           </div>
 
           {totalAmount > 0 && (
-            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Стоимость:</span>
-                <span>{formatMoney(totalAmount)}</span>
-              </div>
-              {Number(discountAmount) > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Скидка:</span>
-                  <span className="text-red-600">-{formatMoney(Number(discountAmount))}</span>
-                </div>
-              )}
+            <div className="rounded-md bg-muted/50 p-3 text-sm">
               <div className="flex justify-between font-bold">
-                <span>Итого:</span>
-                <span>{formatMoney(finalAmount)}</span>
+                <span>Стоимость:</span>
+                <span>{formatMoney(totalAmount)}</span>
               </div>
             </div>
           )}
@@ -319,9 +286,9 @@ function EditSubscriptionDialog({
   )
 }
 
-// ===== Refund Subscription Dialog =====
+// ===== Close Subscription Dialog =====
 
-interface RefundPreview {
+interface ClosePreview {
   totalLessons: number
   attendedLessons: number
   remainingLessons: number
@@ -332,7 +299,7 @@ interface RefundPreview {
   canClose: boolean
 }
 
-function RefundSubscriptionDialog({
+function CloseSubscriptionDialog({
   subscription,
   onSuccess,
 }: {
@@ -343,32 +310,22 @@ function RefundSubscriptionDialog({
   const [loading, setLoading] = useState(false)
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [preview, setPreview] = useState<RefundPreview | null>(null)
-  const [comment, setComment] = useState("")
-  const [reasons, setReasons] = useState<{ id: string; name: string; isActive: boolean }[]>([])
-  const [reasonId, setReasonId] = useState<string>("")
+  const [preview, setPreview] = useState<ClosePreview | null>(null)
 
   async function loadPreview() {
     setLoadingPreview(true)
     setError(null)
     try {
-      const [refundRes, rsRes] = await Promise.all([
-        fetch(`/api/subscriptions/${subscription.id}/refund`),
-        fetch(`/api/withdrawal-reasons`),
-      ])
-      if (refundRes.ok) {
-        const data = await refundRes.json()
+      const res = await fetch(`/api/subscriptions/${subscription.id}/refund`)
+      if (res.ok) {
+        const data: ClosePreview = await res.json()
         setPreview(data)
         if (!data.canClose) {
           setError("Закрытие невозможно: абонемент уже закрыт или отчислён")
         }
       } else {
-        const data = await refundRes.json().catch(() => ({}))
+        const data = await res.json().catch(() => ({}))
         setError(data.error || "Ошибка загрузки данных")
-      }
-      if (rsRes.ok) {
-        const rs = await rsRes.json()
-        setReasons(rs.filter((r: any) => r.isActive))
       }
     } catch {
       setError("Ошибка сети")
@@ -384,34 +341,27 @@ function RefundSubscriptionDialog({
     } else {
       setPreview(null)
       setError(null)
-      setComment("")
-      setReasonId("")
     }
   }
 
-  async function handleRefund() {
-    if (!reasonId) {
-      setError("Укажите причину отчисления")
-      return
-    }
+  async function handleClose() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/subscriptions/${subscription.id}/refund`, {
-        method: "POST",
+      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          comment: comment || undefined,
-          withdrawalReasonId: reasonId,
-        }),
+        body: JSON.stringify({ status: "closed" }),
       })
-
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        setError(data.error || "Ошибка при возврате")
+        setError(data.error || "Ошибка при закрытии")
         return
       }
-
+      const data = await res.json().catch(() => ({}))
+      if (data?._templateDiscountWarning?.message) {
+        alert(data._templateDiscountWarning.message)
+      }
       setOpen(false)
       onSuccess()
     } catch {
@@ -423,18 +373,20 @@ function RefundSubscriptionDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogTrigger render={
-        <Button variant="ghost" size="icon" className="size-7" title="Возврат">
-          <Undo2 className="size-3.5 text-orange-500" />
-        </Button>
-      } />
+      <DialogTrigger
+        render={
+          <Button variant="ghost" size="icon" className="size-7" title="Закрыть">
+            <X className="size-3.5 text-muted-foreground" />
+          </Button>
+        }
+      />
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Возврат абонемента</DialogTitle>
+          <DialogTitle>Закрыть абонемент</DialogTitle>
         </DialogHeader>
 
         {loadingPreview ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">Расчёт...</p>
+          <p className="text-sm text-muted-foreground py-4 text-center">Расчёт…</p>
         ) : error && !preview?.canClose ? (
           <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
@@ -476,10 +428,6 @@ function RefundSubscriptionDialog({
                 <span className="font-medium">{preview.remainingLessons}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Цена занятия:</span>
-                <span>{formatMoney(preview.lessonPrice)}</span>
-              </div>
-              <div className="flex justify-between">
                 <span className="text-muted-foreground">Оплачено в счёт абонемента:</span>
                 <span>{formatMoney(preview.paidToSubscription)}</span>
               </div>
@@ -489,8 +437,8 @@ function RefundSubscriptionDialog({
               </div>
               <hr className="my-1 border-orange-200 dark:border-orange-800" />
               <div className="flex justify-between font-bold text-base">
-                <span>{preview.balanceDelta >= 0 ? "На баланс клиента:" : "В долг клиента:"}</span>
-                <span className={preview.balanceDelta >= 0 ? "text-orange-600" : "text-red-600"}>
+                <span>{preview.balanceDelta >= 0 ? "На баланс родителя:" : "В долг родителя:"}</span>
+                <span className={preview.balanceDelta >= 0 ? "text-green-700" : "text-red-600"}>
                   {preview.balanceDelta >= 0
                     ? `+${formatMoney(preview.balanceDelta)}`
                     : `−${formatMoney(Math.abs(preview.balanceDelta))}`}
@@ -498,194 +446,37 @@ function RefundSubscriptionDialog({
               </div>
             </div>
 
-            <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200">
-              {preview.balanceDelta > 0
-                ? "Абонемент будет закрыт, ученик отчислен из группы. Переплата возвращается на баланс клиента — он сможет потратить её на следующий абонемент."
-                : preview.balanceDelta < 0
-                  ? "Абонемент будет закрыт, ученик отчислен из группы. Долг по отработанным занятиям перейдёт на баланс клиента (минус). Клиент попадёт в список должников."
-                  : "Абонемент будет закрыт, ученик отчислен из группы. Баланс клиента не изменится — оплата и отработка сошлись."}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>
-                Причина отчисления <span className="text-red-500">*</span>
-              </Label>
-              {reasons.length === 0 ? (
-                <p className="text-xs text-red-600">
-                  В справочнике нет активных причин. Добавьте их в{" "}
-                  <Link href="/settings/withdrawal-reasons" className="underline">
-                    настройках
-                  </Link>
-                  .
-                </p>
-              ) : (
-                <Select value={reasonId} onValueChange={(v) => { if (v) setReasonId(v) }}>
-                  <SelectTrigger className="w-full">
-                    {reasons.find((r) => r.id === reasonId)?.name || "Выберите причину"}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {reasons.map((r) => (
-                      <SelectItem key={r.id} value={r.id}>
-                        {r.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Комментарий</Label>
-              <Input
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                placeholder="Дополнительные детали (опционально)"
-                maxLength={500}
-              />
+            <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200 space-y-1.5">
+              <p>
+                Используйте, когда период абонемента отходил штатно — все занятия проведены.
+                Абонемент помечается как <b>завершённый</b>, ребёнок <b>остаётся в группе</b> и
+                покупает следующий абонемент.
+              </p>
+              <p className="text-xs">
+                {preview.balanceDelta > 0
+                  ? "Остаток возвращается на баланс родителя — он сможет потратить его на следующий абонемент."
+                  : preview.balanceDelta < 0
+                    ? "По отработанным занятиям клиент не доплатил — долг перейдёт на баланс родителя, клиент попадёт в список должников."
+                    : "Оплата и отработка сошлись — баланс клиента не изменится."}
+              </p>
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>Отмена</Button>
-              <Button
-                variant="destructive"
-                onClick={handleRefund}
-                disabled={loading || !preview.canClose || !reasonId}
-              >
+              <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>
+                Отмена
+              </Button>
+              <Button onClick={handleClose} disabled={loading || !preview.canClose}>
                 {loading
-                  ? "Обработка..."
+                  ? "Закрытие…"
                   : preview.balanceDelta > 0
                     ? `Закрыть и вернуть ${formatMoney(preview.balanceDelta)}`
                     : preview.balanceDelta < 0
                       ? `Закрыть с долгом ${formatMoney(Math.abs(preview.balanceDelta))}`
-                      : "Закрыть"}
+                      : "Закрыть абонемент"}
               </Button>
             </DialogFooter>
           </div>
         ) : null}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ===== Close Subscription Dialog =====
-
-function CloseSubscriptionDialog({
-  subscription,
-  onSuccess,
-}: {
-  subscription: Subscription
-  onSuccess: () => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  function handleOpen(v: boolean) {
-    setOpen(v)
-    if (!v) setError(null)
-  }
-
-  async function handleClose() {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "closed" }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        setError(data.error || "Ошибка при закрытии")
-        return
-      }
-      const data = await res.json().catch(() => ({}))
-      if (data?._templateDiscountWarning?.message) {
-        alert(data._templateDiscountWarning.message)
-      }
-      setOpen(false)
-      onSuccess()
-    } catch {
-      setError("Ошибка сети")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const balance = Number(subscription.balance)
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogTrigger
-        render={
-          <Button variant="ghost" size="icon" className="size-7" title="Закрыть">
-            <X className="size-3.5 text-muted-foreground" />
-          </Button>
-        }
-      />
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Закрыть абонемент</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          {error && (
-            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </div>
-          )}
-
-          <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Направление:</span>
-              <span className="font-medium">{subscription.direction.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Группа:</span>
-              <span>{subscription.group.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Период:</span>
-              <span>
-                {formatSubPeriod(subscription)}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Всего занятий:</span>
-              <span>{subscription.totalLessons}</span>
-            </div>
-            {balance !== 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Остаток по абонементу:</span>
-                <span
-                  className={balance > 0 ? "text-orange-600 font-medium" : "text-muted-foreground"}
-                >
-                  {formatMoney(balance)}
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200 space-y-1.5">
-            <p>
-              Абонемент будет помечен как <b>завершённый</b>. Используйте, когда период
-              абонемента отходил штатно — все занятия проведены.
-            </p>
-            <p className="text-xs">
-              Деньги <b>не возвращаются</b>, ребёнок <b>остаётся в группе</b>. Если нужно
-              вернуть остаток и отчислить — используйте «Возврат» или «Отчислить».
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>
-              Отмена
-            </Button>
-            <Button onClick={handleClose} disabled={loading}>
-              {loading ? "Закрытие…" : "Закрыть абонемент"}
-            </Button>
-          </DialogFooter>
-        </div>
       </DialogContent>
     </Dialog>
   )
@@ -950,28 +741,7 @@ function WithdrawSubscriptionDialog({
   )
 }
 
-// ===== Transfer Balance Dialog =====
-
-interface TransferTarget {
-  id: string
-  direction: string
-  group: string
-  periodYear: number
-  periodMonth: number
-  balance: number
-  status: string
-}
-
-interface TransferInfo {
-  sourceId: string
-  direction: string
-  group: string
-  totalPaid: number
-  chargedAmount: number
-  available: number
-  balance: number
-  targets: TransferTarget[]
-}
+// ===== Extend Package Dialog =====
 
 function ExtendPackageDialog({
   subscription,
@@ -1078,220 +848,6 @@ function ExtendPackageDialog({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function TransferBalanceDialog({
-  subscription,
-  onSuccess,
-}: {
-  subscription: Subscription
-  onSuccess: () => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [loadingInfo, setLoadingInfo] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [info, setInfo] = useState<TransferInfo | null>(null)
-  const [targetId, setTargetId] = useState("")
-  const [amount, setAmount] = useState("")
-
-  async function loadTransferInfo() {
-    setLoadingInfo(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/subscriptions/${subscription.id}/transfer-balance`)
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        setError(data.error || "Ошибка загрузки")
-        return
-      }
-      const data: TransferInfo = await res.json()
-      setInfo(data)
-      setAmount(String(data.available))
-      if (data.targets.length === 1) {
-        setTargetId(data.targets[0].id)
-      }
-    } catch {
-      setError("Ошибка сети")
-    } finally {
-      setLoadingInfo(false)
-    }
-  }
-
-  function handleOpen(v: boolean) {
-    setOpen(v)
-    if (v) {
-      loadTransferInfo()
-    } else {
-      setInfo(null)
-      setTargetId("")
-      setAmount("")
-      setError(null)
-    }
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError(null)
-
-    if (!targetId) { setError("Выберите абонемент-получатель"); return }
-    const numAmount = Number(amount)
-    if (!numAmount || numAmount <= 0) { setError("Укажите сумму"); return }
-    if (info && numAmount > info.available) {
-      setError(`Максимальная сумма: ${info.available.toFixed(2)} ₽`)
-      return
-    }
-
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/subscriptions/${subscription.id}/transfer-balance`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetSubscriptionId: targetId,
-          amount: numAmount,
-        }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        setError(data.error || "Ошибка переноса")
-        return
-      }
-
-      setOpen(false)
-      onSuccess()
-    } catch {
-      setError("Ошибка сети")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const selectedTarget = info?.targets.find(t => t.id === targetId)
-  const numAmount = Number(amount) || 0
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogTrigger render={<Button variant="ghost" size="icon" className="size-7" title="Перенести баланс" />}>
-        <ArrowLeftRight className="size-3.5" />
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Перенос баланса</DialogTitle>
-        </DialogHeader>
-
-        {loadingInfo ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">Загрузка...</p>
-        ) : info && info.available <= 0 ? (
-          <div className="space-y-3">
-            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              На абонементе нет доступных средств для переноса
-            </div>
-            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Оплачено:</span>
-                <span>{formatMoney(info.totalPaid)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Использовано:</span>
-                <span>{formatMoney(info.chargedAmount)}</span>
-              </div>
-            </div>
-          </div>
-        ) : info && info.targets.length === 0 ? (
-          <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            У клиента нет других активных абонементов для переноса
-          </div>
-        ) : info ? (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </div>
-            )}
-
-            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
-              <div className="text-xs text-muted-foreground uppercase font-medium mb-1">Источник</div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Абонемент:</span>
-                <span className="font-medium">{info.direction} — {info.group}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Оплачено:</span>
-                <span>{formatMoney(info.totalPaid)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Использовано:</span>
-                <span>{formatMoney(info.chargedAmount)}</span>
-              </div>
-              <div className="flex justify-between font-bold">
-                <span>Доступно:</span>
-                <span className="text-green-600">{formatMoney(info.available)}</span>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Перенести на абонемент *</Label>
-              <Select value={targetId} onValueChange={(v) => { if (v) setTargetId(v) }}>
-                <SelectTrigger className="w-full">
-                  {selectedTarget
-                    ? `${selectedTarget.direction} — ${selectedTarget.group} (${MONTH_NAMES[selectedTarget.periodMonth]} ${selectedTarget.periodYear})`
-                    : "Выберите абонемент"}
-                </SelectTrigger>
-                <SelectContent>
-                  {info.targets.map(t => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.direction} — {t.group} ({MONTH_NAMES[t.periodMonth]} {t.periodYear})
-                      {t.balance > 0 ? ` \u2022 долг ${formatMoney(t.balance)}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Сумма переноса *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max={info.available}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">Максимум: {formatMoney(info.available)}</p>
-            </div>
-
-            {numAmount > 0 && selectedTarget && (
-              <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3 text-sm space-y-1">
-                <div className="text-xs text-blue-600 dark:text-blue-400 uppercase font-medium mb-1">Предпросмотр</div>
-                <div>
-                  Списать <span className="font-bold">{formatMoney(numAmount)}</span> с &laquo;{info.direction}&raquo;
-                </div>
-                <div>
-                  Зачислить на &laquo;{selectedTarget.direction}&raquo; ({MONTH_NAMES[selectedTarget.periodMonth]} {selectedTarget.periodYear})
-                </div>
-              </div>
-            )}
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                Отмена
-              </Button>
-              <Button type="submit" disabled={loading}>
-                {loading ? "Перенос..." : "Перенести"}
-              </Button>
-            </DialogFooter>
-          </form>
-        ) : error ? (
-          <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
       </DialogContent>
     </Dialog>
   )
@@ -1410,8 +966,6 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                           {s.type === "package" && (
                             <ExtendPackageDialog subscription={s} onSuccess={handleSubUpdated} />
                           )}
-                          <TransferBalanceDialog subscription={s} onSuccess={handleSubUpdated} />
-                          <RefundSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                           <CloseSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                           <WithdrawSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                         </div>
@@ -1999,7 +1553,7 @@ function AddSubscriptionDialog({
                 </p>
               ))}
               <p className="mt-1.5 text-xs text-blue-600 dark:text-blue-300">
-                После создания нового абонемента используйте кнопку ↔ для переноса баланса
+                Закройте предыдущий абонемент кнопкой ✕ — остаток вернётся на баланс родителя.
               </p>
             </div>
           )}

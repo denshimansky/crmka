@@ -169,6 +169,56 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     }
 
+    // «Закрыть» = closed → штатное завершение, период истёк, занятия отработаны:
+    //   1) посчитать дельту (paidToSub − usedAmount): переплата → +balance клиента,
+    //      долг → −balance (клиент попадёт в должников),
+    //   2) НЕ деактивировать GroupEnrollment (ребёнок остаётся в группе — он
+    //      просто покупает следующий абонемент),
+    //   3) обнулить subscription.balance, проставить endDate = последний день периода.
+    if (data.status === "closed" && existing.status !== "closed" && existing.status !== "withdrawn") {
+      const paidAgg = await tx.payment.aggregate({
+        where: {
+          tenantId: session.user.tenantId,
+          subscriptionId: id,
+          deletedAt: null,
+          type: "transfer_in",
+        },
+        _sum: { amount: true },
+      })
+      const usedAgg = await tx.attendance.aggregate({
+        where: {
+          tenantId: session.user.tenantId,
+          subscriptionId: id,
+        },
+        _sum: { chargeAmount: true },
+      })
+      const paidToSub = new Prisma.Decimal(paidAgg._sum.amount ?? 0)
+      const usedAmount = new Prisma.Decimal(usedAgg._sum.chargeAmount ?? 0)
+      const delta = paidToSub.minus(usedAmount)
+      balanceDelta = delta.toNumber()
+
+      if (!delta.isZero()) {
+        await applyBalanceDelta(tx, {
+          tenantId: session.user.tenantId,
+          clientId: existing.clientId,
+          delta,
+          type: "subscription_closed_refund",
+          refs: { subscriptionId: id, directionId: existing.directionId },
+          comment: delta.isPositive()
+            ? `Закрытие: возврат на баланс ${delta.toFixed(2)} ₽`
+            : `Закрытие: долг ${delta.abs().toFixed(2)} ₽`,
+          createdBy: session.user.employeeId,
+        })
+      }
+      updateData.balance = 0
+      // endDate = последний день периода (для package — сегодня).
+      if (existing.periodYear && existing.periodMonth) {
+        updateData.endDate = new Date(Date.UTC(existing.periodYear, existing.periodMonth, 0))
+      } else {
+        updateData.endDate = new Date()
+      }
+    }
+
     if (data.status) {
       updateData.status = data.status
       if (data.status === "active" && !existing.activatedAt) {
