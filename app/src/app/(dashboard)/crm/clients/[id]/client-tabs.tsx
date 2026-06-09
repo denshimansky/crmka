@@ -1750,6 +1750,8 @@ interface GroupOption {
   id: string
   name: string
   directionId: string
+  branchId: string
+  branch?: { id: string; name: string } | null
   templates: { dayOfWeek: number }[]
 }
 
@@ -1791,6 +1793,7 @@ function AddSubscriptionDialog({
     Number(s.balance) > 0 && (s.status === "closed" || s.status === "churned")
   )
 
+  const [branchId, setBranchId] = useState("")
   const [directionId, setDirectionId] = useState("")
   const [groupId, setGroupId] = useState("")
   const [wardId, setWardId] = useState("")
@@ -1825,6 +1828,13 @@ function AddSubscriptionDialog({
     }
     load()
   }, [open])
+
+  // При выборе филиала — сбрасываем направление и группу.
+  function handleBranchChange(id: string) {
+    setBranchId(id)
+    setDirectionId("")
+    setGroupId("")
+  }
 
   // При выборе направления — установить цену
   function handleDirectionChange(id: string) {
@@ -1866,6 +1876,7 @@ function AddSubscriptionDialog({
   }, [subscriptionType, packageTemplateId, packageTemplates])
 
   function reset() {
+    setBranchId("")
     setDirectionId("")
     setGroupId("")
     setWardId("")
@@ -1883,6 +1894,7 @@ function AddSubscriptionDialog({
     e.preventDefault()
     setError(null)
 
+    if (!branchId) { setError("Выберите филиал"); return }
     if (!directionId) { setError("Выберите направление"); return }
     if (!groupId) { setError("Выберите группу"); return }
     if (!lessonPrice || Number(lessonPrice) <= 0) { setError("Укажите цену занятия"); return }
@@ -1928,9 +1940,31 @@ function AddSubscriptionDialog({
     }
   }
 
-  const filteredGroups = directionId ? groups.filter(g => g.directionId === directionId) : []
+  // Список филиалов выводим из групп — нет смысла предлагать филиал, в котором
+  // нет ни одной группы. Дедуплицируем по id.
+  const branchOptions: { id: string; name: string }[] = []
+  {
+    const seen = new Set<string>()
+    for (const g of groups) {
+      if (!g.branchId || seen.has(g.branchId)) continue
+      seen.add(g.branchId)
+      branchOptions.push({ id: g.branchId, name: g.branch?.name ?? "Без названия" })
+    }
+    branchOptions.sort((a, b) => a.name.localeCompare(b.name, "ru"))
+  }
+  // Направление показываем только то, в котором есть группы выбранного филиала.
+  const branchDirectionIds = branchId
+    ? new Set(groups.filter(g => g.branchId === branchId).map(g => g.directionId))
+    : null
+  const filteredDirections = branchDirectionIds
+    ? directions.filter(d => branchDirectionIds.has(d.id))
+    : directions
+  const filteredGroups = directionId && branchId
+    ? groups.filter(g => g.directionId === directionId && g.branchId === branchId)
+    : []
   const totalAmount = (Number(lessonPrice) || 0) * (Number(totalLessons) || 0)
 
+  const selectedBranch = branchOptions.find(b => b.id === branchId)
   const selectedDirection = directions.find(d => d.id === directionId)
   const selectedGroup = filteredGroups.find(g => g.id === groupId)
   const selectedWard = wards.find(w => w.id === wardId)
@@ -1971,13 +2005,31 @@ function AddSubscriptionDialog({
           )}
 
           <div className="space-y-1.5">
-            <Label>Направление *</Label>
-            <Select value={directionId} onValueChange={(v) => { if (v) handleDirectionChange(v) }}>
+            <Label>Филиал *</Label>
+            <Select value={branchId} onValueChange={(v) => { if (v) handleBranchChange(v) }}>
               <SelectTrigger className="w-full">
-                {selectedDirection ? selectedDirection.name : "Выберите направление"}
+                {selectedBranch ? selectedBranch.name : "Выберите филиал"}
               </SelectTrigger>
               <SelectContent>
-                {directions.map(d => (
+                {branchOptions.map(b => (
+                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Направление *</Label>
+            <Select
+              value={directionId}
+              onValueChange={(v) => { if (v) handleDirectionChange(v) }}
+              disabled={!branchId}
+            >
+              <SelectTrigger className="w-full">
+                {selectedDirection ? selectedDirection.name : branchId ? "Выберите направление" : "Сначала выберите филиал"}
+              </SelectTrigger>
+              <SelectContent>
+                {filteredDirections.map(d => (
                   <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                 ))}
               </SelectContent>
