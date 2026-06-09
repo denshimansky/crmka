@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Banknote, Building, CreditCard, Globe } from "lucide-react"
 import { AddAccountDialog } from "./add-account-dialog"
+import { AddOperationDialog } from "./add-operation-dialog"
 import { EditAccountDialog } from "./edit-account-dialog"
 import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
@@ -119,6 +120,11 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
         </div>
         <div className="flex items-center gap-2">
           <MonthPicker />
+          {accounts.length >= 1 && (
+            <AddOperationDialog
+              accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
+            />
+          )}
           <AddAccountDialog branches={branches} />
         </div>
       </div>
