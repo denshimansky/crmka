@@ -6,7 +6,7 @@ import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, ChevronRight } from "lucide-react"
 import Link from "next/link"
 
 function formatMoney(amount: number): string {
@@ -21,7 +21,8 @@ export default async function SalaryByInstructorPage({ searchParams }: { searchP
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0))
 
-  // Все посещения за месяц с данными инструктора
+  // Все посещения за месяц с данными инструктора. Замена → ЗП считается
+  // заменяющему, поэтому группируем по substituteInstructorId || instructorId.
   const attendances = await db.attendance.findMany({
     where: {
       tenantId,
@@ -30,11 +31,17 @@ export default async function SalaryByInstructorPage({ searchParams }: { searchP
     select: {
       instructorPayAmount: true,
       instructorPayEnabled: true,
+      isTrial: true,
       lesson: {
         select: {
           id: true,
           instructorId: true,
+          substituteInstructorId: true,
+          isTrial: true,
           instructor: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+          substituteInstructor: {
             select: { id: true, firstName: true, lastName: true },
           },
         },
@@ -42,26 +49,30 @@ export default async function SalaryByInstructorPage({ searchParams }: { searchP
     },
   })
 
-  // Группировка по инструктору
+  // Группировка по эффективному инструктору (замена → заменяющий)
   const byInstructor = new Map<
     string,
     {
       name: string
       lessonsSet: Set<string>
+      trialLessonsSet: Set<string>
       studentsCount: number
       salaryAccrued: number
     }
   >()
 
   for (const a of attendances) {
-    const instrId = a.lesson.instructorId
+    const eff = a.lesson.substituteInstructor || a.lesson.instructor
+    const instrId = eff.id
     const prev = byInstructor.get(instrId) || {
-      name: [a.lesson.instructor.lastName, a.lesson.instructor.firstName].filter(Boolean).join(" ") || "Без имени",
+      name: [eff.lastName, eff.firstName].filter(Boolean).join(" ") || "Без имени",
       lessonsSet: new Set<string>(),
+      trialLessonsSet: new Set<string>(),
       studentsCount: 0,
       salaryAccrued: 0,
     }
     prev.lessonsSet.add(a.lesson.id)
+    if (a.lesson.isTrial || a.isTrial) prev.trialLessonsSet.add(a.lesson.id)
     prev.studentsCount += 1
     if (a.instructorPayEnabled) {
       prev.salaryAccrued += Number(a.instructorPayAmount)
@@ -74,6 +85,7 @@ export default async function SalaryByInstructorPage({ searchParams }: { searchP
       id,
       name: data.name,
       lessons: data.lessonsSet.size,
+      trialLessons: data.trialLessonsSet.size,
       students: data.studentsCount,
       salary: data.salaryAccrued,
     }))
@@ -142,15 +154,36 @@ export default async function SalaryByInstructorPage({ searchParams }: { searchP
                 <TableHead className="text-right">Занятий</TableHead>
                 <TableHead className="text-right">Учеников (посещений)</TableHead>
                 <TableHead className="text-right">Начислено ЗП</TableHead>
+                <TableHead className="w-8" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {instructorRows.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className="font-medium">{r.name}</TableCell>
+                <TableRow key={r.id} className="cursor-pointer hover:bg-muted/50">
+                  <TableCell className="font-medium">
+                    <Link
+                      href={`/reports/salary/by-instructor/${r.id}?year=${year}&month=${month}`}
+                      className="block hover:underline"
+                    >
+                      {r.name}
+                      {r.trialLessons > 0 && (
+                        <Badge variant="outline" className="ml-2 text-xs">
+                          пробных: {r.trialLessons}
+                        </Badge>
+                      )}
+                    </Link>
+                  </TableCell>
                   <TableCell className="text-right">{r.lessons}</TableCell>
                   <TableCell className="text-right">{r.students}</TableCell>
                   <TableCell className="text-right">{formatMoney(r.salary)}</TableCell>
+                  <TableCell className="text-right">
+                    <Link
+                      href={`/reports/salary/by-instructor/${r.id}?year=${year}&month=${month}`}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <ChevronRight className="size-4" />
+                    </Link>
+                  </TableCell>
                 </TableRow>
               ))}
               <TableRow className="font-bold">
@@ -158,6 +191,7 @@ export default async function SalaryByInstructorPage({ searchParams }: { searchP
                 <TableCell className="text-right">{totalLessons}</TableCell>
                 <TableCell className="text-right">{totalStudents}</TableCell>
                 <TableCell className="text-right">{formatMoney(totalSalary)}</TableCell>
+                <TableCell />
               </TableRow>
             </TableBody>
           </Table>
