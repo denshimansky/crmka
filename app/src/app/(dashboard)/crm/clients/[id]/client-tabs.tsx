@@ -1398,25 +1398,38 @@ function AddSubscriptionDialog({
     if (dir) setLessonPrice(String(Number(dir.lessonPrice)))
   }
 
-  // Авто-подсчёт количества занятий: только для calendar — по календарному месяцу группы.
+  // Авто-подсчёт количества занятий: только для calendar.
+  // Считаем по реальным Lesson-записям группы за выбранный месяц
+  // (status != cancelled) — это уважает ручные правки расписания: отмену
+  // конкретных дней, скорректированный effectiveFrom шаблонов, удаление
+  // отдельных занятий и т.п. Баг #71: наивный счёт по дням недели игнорировал
+  // эти правки и завышал totalLessons.
   useEffect(() => {
     if (subscriptionType !== "calendar") return
     if (!groupId || !periodYear || !periodMonth) return
-    const group = groups.find(g => g.id === groupId)
-    if (!group) return
     const year = Number(periodYear)
     const month = Number(periodMonth)
-    const scheduleDays = group.templates.map(t => t.dayOfWeek)
-    let count = 0
-    const daysInMonth = new Date(year, month, 0).getDate()
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dow = new Date(year, month - 1, day).getDay()
-      // В schema dayOfWeek: 0=пн, 1=вт... JS: 0=вс, 1=пн...
-      const ourDow = dow === 0 ? 6 : dow - 1
-      if (scheduleDays.includes(ourDow)) count++
-    }
-    setTotalLessons(String(count || 1))
-  }, [subscriptionType, groupId, periodYear, periodMonth, groups])
+    const monthStart = `${year}-${String(month).padStart(2, "0")}-01`
+    const cancelled = { cancelled: false }
+    ;(async () => {
+      try {
+        const res = await fetch(
+          `/api/groups/${groupId}/lessons?from=${monthStart}&includePast=1`
+        )
+        if (!res.ok || cancelled.cancelled) return
+        const lessons: { date: string }[] = await res.json()
+        // Endpoint фильтрует cancelled и берёт всё с from; обрезаем строго до
+        // выбранного месяца, чтобы не учесть занятия следующих периодов.
+        const count = lessons.filter((l) => {
+          const d = new Date(l.date)
+          return d.getUTCFullYear() === year && d.getUTCMonth() + 1 === month
+        }).length
+        if (cancelled.cancelled) return
+        setTotalLessons(String(count || 1))
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled.cancelled = true }
+  }, [subscriptionType, groupId, periodYear, periodMonth])
 
   // Для package: при выборе шаблона — автозаполнение totalLessons и validDays.
   useEffect(() => {
