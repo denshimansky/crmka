@@ -29,7 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Plus, Pencil, TrendingDown, Target, BarChart3, ChevronLeft, ChevronRight } from "lucide-react"
+import { Plus, Pencil, Trash2, Copy, TrendingDown, Target, BarChart3, ChevronLeft, ChevronRight } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
 
 const MONTH_NAMES = [
@@ -85,6 +85,7 @@ export default function PlannedExpensesPage() {
   const [formComment, setFormComment] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [copying, setCopying] = useState(false)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -131,6 +132,53 @@ export default function PlannedExpensesPage() {
     setFormComment(item.comment || "")
     setError(null)
     setDialogOpen(true)
+  }
+
+  async function handleDelete(item: PlannedExpense) {
+    const branchLabel = item.branchName ? ` (${item.branchName})` : ""
+    if (!confirm(`Удалить план «${item.categoryName}»${branchLabel}?`)) return
+    try {
+      const res = await fetch(`/api/planned-expenses/${item.id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || "Не удалось удалить план")
+        return
+      }
+      loadData()
+      router.refresh()
+    } catch {
+      alert("Ошибка сети")
+    }
+  }
+
+  async function handleCopyFromPrev() {
+    const sourceMonth = month === 1 ? 12 : month - 1
+    const sourceYear = month === 1 ? year - 1 : year
+    if (!confirm(
+      `Скопировать все плановые расходы с ${MONTH_NAMES[sourceMonth]} ${sourceYear} в ${MONTH_NAMES[month]} ${year}?`,
+    )) return
+
+    setCopying(true)
+    try {
+      const res = await fetch("/api/planned-expenses/copy-month", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceYear, sourceMonth, targetYear: year, targetMonth: month }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(data.error || "Не удалось скопировать")
+        return
+      }
+      const skippedNote = data.skipped > 0 ? ` (пропущено дублей: ${data.skipped})` : ""
+      alert(`Скопировано планов: ${data.copied}${skippedNote}`)
+      loadData()
+      router.refresh()
+    } catch {
+      alert("Ошибка сети")
+    } finally {
+      setCopying(false)
+    }
   }
 
   async function handleSave() {
@@ -211,10 +259,16 @@ export default function PlannedExpensesPage() {
             План vs факт по статьям расходов
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="mr-2 size-4" />
-          Добавить план
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleCopyFromPrev} disabled={copying}>
+            <Copy className="mr-2 size-4" />
+            {copying ? "Копирование..." : "Скопировать с прошлого месяца"}
+          </Button>
+          <Button onClick={openCreate}>
+            <Plus className="mr-2 size-4" />
+            Добавить план
+          </Button>
+        </div>
       </div>
 
       {/* Month navigation */}
@@ -302,14 +356,24 @@ export default function PlannedExpensesPage() {
                     {item.comment || "—"}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8"
-                      onClick={() => openEdit(item)}
-                    >
-                      <Pencil className="size-4 text-muted-foreground" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => openEdit(item)}
+                      >
+                        <Pencil className="size-4 text-muted-foreground" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => handleDelete(item)}
+                      >
+                        <Trash2 className="size-4 text-muted-foreground" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               )
