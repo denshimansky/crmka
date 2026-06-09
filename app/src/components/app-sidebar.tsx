@@ -7,8 +7,8 @@ import { signOut } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
-  Settings, Sparkles, ChevronDown, LogOut, Crown,
-  Target, Plug, Baby, Ticket, ClipboardCheck, Banknote,
+  Settings, Sparkles, ChevronDown, LogOut,
+  Baby, Ticket, ClipboardCheck, Banknote,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import {
@@ -53,11 +53,12 @@ const financeItems: NavItem[] = [
   { title: "Касса", href: "/finance/cash", icon: Banknote, permission: "finance.view" },
   { title: "Оплаты", href: "/finance/payments", icon: CreditCard, permission: "finance.view" },
   { title: "Расходы", href: "/finance/expenses", icon: Receipt, permission: "finance.view" },
-  { title: "Плановые расходы", href: "/finance/planned-expenses", icon: Target, permission: "finance.view" },
   { title: "ДДС", href: "/finance/dds", icon: ArrowDownUp, permission: "finance.result" },
   { title: "Должники", href: "/finance/debtors", icon: AlertTriangle, permission: "finance.view" },
 ]
 
+// «Плановые расходы», «Интеграции» и «Подписка» перенесены в Настройки →
+// вкладку «Персональные» — здесь не дублируем.
 const otherItems: NavItem[] = [
   { title: "Расписание", href: "/schedule", icon: Calendar, permission: "schedule.view" },
   { title: "Занятия", href: "/lessons", icon: ClipboardCheck, permission: "schedule.view" },
@@ -66,7 +67,6 @@ const otherItems: NavItem[] = [
   { title: "Задачи", href: "/tasks", icon: ClipboardList, permission: "clients.view" },
   { title: "Отчёты", href: "/reports", icon: BarChart3, permission: "reports.view" },
   { title: "Настройки", href: "/settings", icon: Settings, permission: "settings.view" },
-  { title: "Интеграции", href: "/settings/integrations", icon: Plug, permission: "settings.view" },
 ]
 
 function getInitials(name: string | null | undefined): string {
@@ -179,18 +179,6 @@ export function AppSidebar({
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>{renderItems(visibleOtherItems)}</SidebarMenu>
-            {(user?.role === "owner" || user?.role === "manager") && (
-              <>
-                <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton render={<Link href="/billing" onClick={handleNavClick} />} isActive={isActive("/billing")}>
-                      <Crown className="size-4" />
-                      <span>Подписка</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </SidebarMenu>
-              </>
-            )}
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

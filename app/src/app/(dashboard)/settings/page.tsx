@@ -21,6 +21,9 @@ import {
   Tag,
   Gift,
   Upload,
+  Crown,
+  Plug,
+  Target,
 } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
@@ -39,6 +42,7 @@ interface Tile {
 export default async function SettingsPage() {
   const session = await getSession()
   const isOwner = session.user.role === "owner"
+  const isOwnerOrManager = isOwner || session.user.role === "manager"
 
   const orgTiles: Tile[] = [
     {
@@ -160,6 +164,25 @@ export default async function SettingsPage() {
       description: "Миграция базы клиентов из 1С и синхронизация остатков",
       icon: Upload,
       show: isOwner,
+    },
+    {
+      href: "/finance/planned-expenses",
+      title: "Плановые расходы",
+      description: "План vs факт по статьям расходов: контроль бюджета",
+      icon: Target,
+    },
+    {
+      href: "/settings/integrations",
+      title: "Интеграции",
+      description: "Подключение внешних сервисов — почта, телефония, платёжки",
+      icon: Plug,
+    },
+    {
+      href: "/billing",
+      title: "Подписка",
+      description: "Тариф «Умной CRM», счета и оплата от партнёра",
+      icon: Crown,
+      show: isOwnerOrManager,
     },
   ]
 
