@@ -145,33 +145,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     include: { direction: true, room: true, instructor: { select: { firstName: true, lastName: true } } },
   })
 
-  // Если поменялись даты жизни группы — автоматически догенерируем занятия
-  // по текущим шаблонам. Существующие (отмеченные/оплаченные) не трогаем.
+  // При изменении дат жизни группы перегенерируем расписание относительно
+  // новых границ [startDate, endDate]: вне диапазона — удаляем занятия без
+  // посещений (с посещениями — оставляем); внутри — чистим неактуальные
+  // и догенерируем недостающие по шаблонам.
   if (startDate !== undefined || endDate !== undefined) {
-    const { regenerateGroupSchedule, getGenerationRange } = await import(
+    const { regenerateOnDateChange } = await import(
       "@/lib/schedule/generate-group-lessons"
     )
     const templates = await db.groupScheduleTemplate.findMany({
       where: { groupId: id, tenantId: session.user.tenantId },
     })
-    if (templates.length > 0) {
-      const { rangeStart, rangeEnd } = getGenerationRange(
-        group.startDate,
-        group.endDate,
-      )
-      await regenerateGroupSchedule({
-        tenantId: session.user.tenantId,
-        groupId: id,
-        instructorId: group.instructorId,
-        templates: templates.map((t) => ({
-          dayOfWeek: t.dayOfWeek,
-          startTime: t.startTime,
-          durationMinutes: t.durationMinutes,
-        })),
-        rangeStart,
-        rangeEnd,
-      })
-    }
+    await regenerateOnDateChange({
+      tenantId: session.user.tenantId,
+      groupId: id,
+      instructorId: group.instructorId,
+      templates: templates.map((t) => ({
+        dayOfWeek: t.dayOfWeek,
+        startTime: t.startTime,
+        durationMinutes: t.durationMinutes,
+      })),
+      startDate: group.startDate,
+      endDate: group.endDate,
+    })
   }
 
   return NextResponse.json(group)

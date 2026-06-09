@@ -223,6 +223,95 @@ export async function regenerateGroupSchedule(
 }
 
 /**
+ * Перегенерация при изменении дат жизни группы (startDate / endDate).
+ *
+ * Отличия от regenerateGroupSchedule (тот вызывается при смене шаблонов и
+ * замораживает прошлое относительно today):
+ * - Опорные точки — startDate и endDate группы, а не today.
+ * - Любое занятие ВНЕ [startDate, endDate]: с посещениями — оставляем,
+ *   без посещений — удаляем (как в прошлом, так и в будущем).
+ * - Внутри диапазона: занятие, не попадающее под текущие шаблоны и без
+ *   посещений — удаляем; с посещениями — оставляем.
+ * - Догенерируем недостающие занятия по шаблонам во всём [startDate, endDate],
+ *   включая прошлые даты (если startDate сдвинули влево).
+ *
+ * Если startDate/endDate группы = null — соответствующая граница «бесконечна»,
+ * по эту сторону чистка не выполняется.
+ */
+export async function regenerateOnDateChange(opts: {
+  tenantId: string
+  groupId: string
+  instructorId: string
+  templates: ScheduleTemplate[]
+  startDate: Date | null
+  endDate: Date | null
+}): Promise<GenerationResult> {
+  const { tenantId, groupId, instructorId, templates, startDate, endDate } = opts
+
+  const startBound = startDate ? new Date(startDate) : null
+  if (startBound) startBound.setHours(0, 0, 0, 0)
+  const endBound = endDate ? new Date(endDate) : null
+  if (endBound) endBound.setHours(0, 0, 0, 0)
+
+  const allLessons = await db.lesson.findMany({
+    where: { tenantId, groupId },
+    select: {
+      id: true,
+      date: true,
+      startTime: true,
+      attendances: { select: { id: true }, take: 1 },
+    },
+  })
+
+  const allowed = new Set(
+    templates.map((t) => `${t.dayOfWeek}_${t.startTime}`)
+  )
+
+  const toDelete: string[] = []
+
+  for (const l of allLessons) {
+    const lessonDay = new Date(l.date)
+    lessonDay.setHours(0, 0, 0, 0)
+    const hasAttendance = l.attendances.length > 0
+    const tooEarly = startBound !== null && lessonDay < startBound
+    const tooLate = endBound !== null && lessonDay > endBound
+
+    if (tooEarly || tooLate) {
+      if (!hasAttendance) toDelete.push(l.id)
+      continue
+    }
+    const tDay = jsDayToTemplateDay(l.date.getDay())
+    if (allowed.has(`${tDay}_${l.startTime}`)) continue
+    if (!hasAttendance) toDelete.push(l.id)
+  }
+
+  if (toDelete.length > 0) {
+    await db.lesson.deleteMany({ where: { id: { in: toDelete } } })
+  }
+
+  if (templates.length === 0) {
+    return { created: 0, deleted: toDelete.length, skippedNonWorking: 0, skippedDates: [] }
+  }
+
+  const { rangeStart, rangeEnd } = getGenerationRange(startDate, endDate)
+  const created = await generateGroupLessons({
+    tenantId,
+    groupId,
+    instructorId,
+    templates,
+    rangeStart,
+    rangeEnd,
+  })
+
+  return {
+    created: created.created,
+    deleted: toDelete.length,
+    skippedNonWorking: created.skippedNonWorking,
+    skippedDates: created.skippedDates,
+  }
+}
+
+/**
  * Возвращает диапазон [start, end] для автогенерации, исходя из
  * startDate / endDate группы. Если endDate не задан — год вперёд от startDate.
  */
