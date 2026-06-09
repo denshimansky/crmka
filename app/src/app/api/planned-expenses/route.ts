@@ -6,8 +6,11 @@ import { z } from "zod"
 
 const createSchema = z.object({
   categoryId: z.string().uuid("Выберите статью расхода"),
-  employeeId: z.string().uuid().optional(),
-  branchId: z.string().uuid().optional(),
+  // employeeId / branchId с фронта приходят как null для «без сотрудника» /
+  // «общее по компании». .optional() сам по себе null не принимает — добавляем
+  // .nullable(), чтобы получить «string | null | undefined».
+  employeeId: z.string().uuid().nullable().optional(),
+  branchId: z.string().uuid().nullable().optional(),
   periodYear: z.number().int().min(2020).max(2100),
   periodMonth: z.number().int().min(1).max(12),
   plannedAmount: z.number().min(0, "Сумма должна быть >= 0"),
