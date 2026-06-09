@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
   Settings, Sparkles, ChevronDown, LogOut, Crown,
-  Target, Plug, Baby, Ticket, ClipboardCheck,
+  Target, Plug, Baby, Ticket, ClipboardCheck, Banknote,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import {
@@ -50,6 +50,7 @@ const crmItems: NavItem[] = [
 ]
 
 const financeItems: NavItem[] = [
+  { title: "Касса", href: "/finance/cash", icon: Banknote, permission: "finance.view" },
   { title: "Оплаты", href: "/finance/payments", icon: CreditCard, permission: "finance.view" },
   { title: "Расходы", href: "/finance/expenses", icon: Receipt, permission: "finance.view" },
   { title: "Плановые расходы", href: "/finance/planned-expenses", icon: Target, permission: "finance.view" },
