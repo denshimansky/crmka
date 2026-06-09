@@ -38,7 +38,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { title: "Главная", href: "/", icon: LayoutDashboard },
+  { title: "Дашборд", href: "/", icon: LayoutDashboard },
 ]
 
 const crmItems: NavItem[] = [

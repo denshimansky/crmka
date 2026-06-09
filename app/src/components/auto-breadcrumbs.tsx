@@ -17,7 +17,7 @@ import {
  */
 const SEGMENT_LABELS: Record<string, string> = {
   // Корень
-  "": "Главная",
+  "": "Дашборд",
 
   // CRM
   crm: "CRM",
@@ -94,14 +94,14 @@ function isUuid(s: string): boolean {
 export function AutoBreadcrumbs() {
   const pathname = usePathname()
 
-  // Главная — не показываем крошки
+  // Дашборд — не показываем крошки
   if (pathname === "/") return null
 
   const segments = pathname.split("/").filter(Boolean)
 
   // Собираем крошки: [{ label, href }]
   const crumbs: { label: string; href: string }[] = [
-    { label: "Главная", href: "/" },
+    { label: "Дашборд", href: "/" },
   ]
 
   for (let i = 0; i < segments.length; i++) {
@@ -124,7 +124,7 @@ export function AutoBreadcrumbs() {
     }
   }
 
-  // Если только "Главная" — не показываем
+  // Если только "Дашборд" — не показываем
   if (crumbs.length <= 1) return null
 
   return (

@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { Settings2, ChevronUp, ChevronDown, RotateCcw } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Settings2, RotateCcw } from "lucide-react"
 
 export interface WidgetConfig {
   id: string
@@ -21,6 +22,7 @@ export interface WidgetConfig {
 
 const STORAGE_KEY = "dashboard-widget-config"
 const CHANGE_EVENT = "dashboard-widget-config-change"
+const MAX_VISIBLE = 10
 
 export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "stats", label: "Ключевые показатели", visible: true },
@@ -104,26 +106,30 @@ export function DashboardSettings({
     setOpen(isOpen)
   }
 
-  function toggle(id: string) {
-    setLocal((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, visible: !w.visible } : w))
-    )
-  }
+  const visibleCount = local.filter((w) => w.visible).length
 
-  function moveUp(index: number) {
-    if (index === 0) return
+  function toggle(id: string) {
     setLocal((prev) => {
-      const next = [...prev]
-      ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
-      return next
+      const visible = prev.filter((w) => w.visible).length
+      return prev.map((w) => {
+        if (w.id !== id) return w
+        if (!w.visible && visible >= MAX_VISIBLE) return w
+        return { ...w, visible: !w.visible }
+      })
     })
   }
 
-  function moveDown(index: number) {
+  function setOrder(id: string, raw: string) {
+    const parsed = Number.parseInt(raw, 10)
+    if (Number.isNaN(parsed)) return
     setLocal((prev) => {
-      if (index >= prev.length - 1) return prev
+      const idx = prev.findIndex((w) => w.id === id)
+      if (idx === -1) return prev
+      const target = Math.max(1, Math.min(prev.length, parsed)) - 1
+      if (target === idx) return prev
       const next = [...prev]
-      ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+      const [item] = next.splice(idx, 1)
+      next.splice(target, 0, item)
       return next
     })
   }
@@ -151,44 +157,44 @@ export function DashboardSettings({
         <DialogHeader>
           <DialogTitle>Настройка дашборда</DialogTitle>
           <DialogDescription>
-            Включайте/выключайте виджеты и меняйте их порядок
+            Включайте/выключайте виджеты и указывайте порядковый номер.
+            Максимум {MAX_VISIBLE} виджетов одновременно.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-1">
-          {local.map((widget, index) => (
-            <div
-              key={widget.id}
-              className="flex items-center gap-2 rounded-md border p-2"
-            >
-              <Switch
-                checked={widget.visible}
-                onCheckedChange={() => toggle(widget.id)}
-              />
-              <span className="flex-1 text-sm font-medium">
-                {widget.label}
-              </span>
-              <div className="flex gap-0.5">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => moveUp(index)}
-                  disabled={index === 0}
-                >
-                  <ChevronUp className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => moveDown(index)}
-                  disabled={index === local.length - 1}
-                >
-                  <ChevronDown className="size-4" />
-                </Button>
+          {local.map((widget, index) => {
+            const atLimit = !widget.visible && visibleCount >= MAX_VISIBLE
+            return (
+              <div
+                key={widget.id}
+                className="flex items-center gap-2 rounded-md border p-2"
+              >
+                <Switch
+                  checked={widget.visible}
+                  onCheckedChange={() => toggle(widget.id)}
+                  disabled={atLimit}
+                />
+                <span className="flex-1 text-sm font-medium">
+                  {widget.label}
+                </span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={local.length}
+                  value={index + 1}
+                  onChange={(e) => setOrder(widget.id, e.target.value)}
+                  className="h-8 w-14 text-center"
+                  aria-label={`Порядок: ${widget.label}`}
+                />
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
+
+        <p className="text-xs text-muted-foreground">
+          Включено {visibleCount} из {MAX_VISIBLE}
+        </p>
 
         <div className="flex items-center justify-between pt-2">
           <Button variant="ghost" size="sm" onClick={reset} className="gap-1.5">

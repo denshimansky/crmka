@@ -18,9 +18,9 @@ export interface HelpContent {
 }
 
 export const pageHelpContent: Record<string, HelpContent> = {
-  // ─── Главная ───
+  // ─── Дашборд ───
   dashboard: {
-    title: "Главная",
+    title: "Дашборд",
     subtitle: "Обзор ключевых показателей вашего центра",
     sections: [
       {
