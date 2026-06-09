@@ -66,6 +66,9 @@ export async function createTrialLessonForClient(
     })
     if (!group) return { ok: false, error: "Группа не найдена", status: 404 }
 
+    // Любое не-отменённое пробное (scheduled/attended/no_show) блокирует повторную
+    // запись — иначе после отметки «Пришёл» проверка по `status=scheduled` пускает
+    // создать дубль, и в карточке занятия один ребёнок появляется дважды.
     const existingTrial = await db.trialLesson.findFirst({
       where: {
         tenantId,
@@ -73,7 +76,7 @@ export async function createTrialLessonForClient(
         wardId: input.wardId,
         groupId: input.groupId,
         scheduledDate: date,
-        status: "scheduled",
+        status: { in: ["scheduled", "attended", "no_show"] },
       },
     })
     if (existingTrial) {
@@ -128,6 +131,7 @@ export async function createTrialLessonForClient(
     if (!room) return { ok: false, error: "Кабинет не найден", status: 404 }
     storedRoomId = input.roomId
 
+    // Аналогично групповому: блокируем все активные (не cancelled) пробные.
     const existingTrial = await db.trialLesson.findFirst({
       where: {
         tenantId,
@@ -135,7 +139,7 @@ export async function createTrialLessonForClient(
         wardId: input.wardId,
         scheduledDate: date,
         startTime: input.startTime,
-        status: "scheduled",
+        status: { in: ["scheduled", "attended", "no_show"] },
       },
     })
     if (existingTrial) {
