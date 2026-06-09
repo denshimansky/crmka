@@ -53,16 +53,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     where: { tenantId, deletedAt: null, status: "active" },
   })
 
-  // Выручка (списания с абонементов за месяц)
-  const revenueAttendances = await db.attendance.findMany({
+  // Доходы за месяц — приходы из ДДС (фактически полученные деньги).
+  // Не путаем с выручкой ОПИУ (отработанные занятия). На дашборде показываем
+  // именно деньги в кассу/на счёт. refund и transfer_in не считаем — это не
+  // «новые деньги», а возврат/внутреннее перемещение.
+  const monthIncomeData = await db.payment.aggregate({
     where: {
       tenantId,
-      lesson: { date: { gte: monthStart, lte: monthEnd } },
-      attendanceType: { countsAsRevenue: true },
+      deletedAt: null,
+      date: { gte: monthStart, lte: monthEnd },
+      type: "incoming",
     },
-    select: { chargeAmount: true },
+    _sum: { amount: true },
   })
-  const monthRevenue = revenueAttendances.reduce((s, a) => s + Number(a.chargeAmount), 0)
+  const monthIncome = Number(monthIncomeData._sum.amount || 0)
 
   // Расходы за месяц
   const monthExpensesData = await db.expense.aggregate({
@@ -248,7 +252,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const stats = [
     { title: "Активные абонементы", value: String(activeSubscriptions), icon: Users, color: "text-green-600", bg: "bg-green-50", href: "/crm/contacts?tab=active" },
-    { title: "Выручка за месяц", value: formatMoney(monthRevenue), icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50", href: "/reports/finance/pnl" },
+    { title: "Доходы", value: formatMoney(monthIncome), icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50", href: "/finance/dds?kind=income" },
     { title: "Расходы за месяц", value: formatMoney(monthExpenses), icon: TrendingDown, color: "text-red-600", bg: "bg-red-50", href: "/finance/expenses" },
     { title: "Должники", value: `${debtorCount} / ${formatMoney(totalDebt)}`, icon: AlertTriangle, color: "text-orange-600", bg: "bg-orange-50", href: "/finance/debtors" },
   ]
