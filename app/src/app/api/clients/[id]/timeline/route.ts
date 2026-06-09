@@ -293,10 +293,12 @@ export async function GET(
     })
 
     if ((s.status === "closed" || s.status === "withdrawn") && s.withdrawalDate) {
+      // withdrawalDate — @db.Date (без времени) → читается как 00:00 UTC → 03:00 МСК.
+      // Для реального времени события берём updatedAt (момент перехода в closed/withdrawn).
       events.push({
         id: `sub-closed-${s.id}`,
         kind: "subscription_closed",
-        date: s.withdrawalDate.toISOString(),
+        date: s.updatedAt.toISOString(),
         title: s.status === "withdrawn" ? "Абонемент отчислен" : "Абонемент закрыт",
         description: directionName,
         meta: { subscriptionId: s.id, status: s.status },
@@ -327,10 +329,12 @@ export async function GET(
       : isTransferIn
         ? `Списание с баланса в счёт абонемента ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
         : `Оплата ${amount.toLocaleString("ru-RU")} ₽ — пополнение баланса`
+    // Payment.date — @db.Date (без времени) → 03:00 МСК. Для таймлайна берём
+    // createdAt (момент создания записи в системе) — там полное время.
     events.push({
       id: `pay-${p.id}`,
       kind,
-      date: p.date.toISOString(),
+      date: p.createdAt.toISOString(),
       title,
       description: [
         !isTransferIn ? (METHOD_LABELS[p.method] || p.method) : null,
