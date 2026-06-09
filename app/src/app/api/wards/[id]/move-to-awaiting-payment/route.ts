@@ -197,8 +197,12 @@ export async function POST(
     // GroupEnrollment с awaiting_payment — это «у ребёнка занятия в группе,
     // но абонемент ещё не оплачен». В карточке занятия рядом с ФИО будет
     // флажок «Ожидаем оплату» (см. attendance-table.tsx).
-    // Если уже есть зачисление в этой группе — обновляем (paymentStatus,
-    // isActive); иначе создаём новое.
+    //
+    // enrolledAt = firstPaid (а не now), чтобы при выборе даты задним числом
+    // ребёнок появился в таблицах посещений прошлых занятий — админ сможет
+    // ретроспективно проставить «БЫЛ», и chargedAmount накопится до finalAmount.
+    // Для существующего зачисления берём min(existing, firstPaid), чтобы не
+    // потерять более раннюю историю (например, если пробное было до firstPaid).
     const existingEnrollment = await tx.groupEnrollment.findFirst({
       where: {
         tenantId,
@@ -208,12 +212,15 @@ export async function POST(
       },
     })
     if (existingEnrollment) {
+      const minEnrolledAt = existingEnrollment.enrolledAt
+        ? new Date(Math.min(existingEnrollment.enrolledAt.getTime(), firstPaid.getTime()))
+        : firstPaid
       await tx.groupEnrollment.update({
         where: { id: existingEnrollment.id },
         data: {
           paymentStatus: "awaiting_payment",
           isActive: true,
-          enrolledAt: existingEnrollment.enrolledAt || now,
+          enrolledAt: minEnrolledAt,
         },
       })
     } else {
@@ -225,7 +232,7 @@ export async function POST(
           wardId: ward.id,
           paymentStatus: "awaiting_payment",
           isActive: true,
-          enrolledAt: now,
+          enrolledAt: firstPaid,
         },
       })
     }

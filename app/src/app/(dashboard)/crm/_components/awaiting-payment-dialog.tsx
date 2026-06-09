@@ -158,8 +158,9 @@ export function AwaitingPaymentDialog({
   }, [open, defaultBranchId, defaultDirectionId, defaultGroupId])
 
   // Подгружаем реальные даты занятий выбранной группы — чтобы в календаре
-  // первого платного были подсвечены и кликабельны только фактические даты
-  // (тот же паттерн, что и в форме записи на пробное).
+  // первого платного были подсвечены и кликабельны только фактические даты.
+  // includePast=1 — разрешаем выбирать дату задним числом (ребёнок мог
+  // фактически уже отходить часть занятий до перевода в «Ожидание оплаты»).
   useEffect(() => {
     if (!groupId) {
       setGroupLessonDates(null)
@@ -168,7 +169,7 @@ export function AwaitingPaymentDialog({
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch(`/api/groups/${groupId}/lessons`)
+        const res = await fetch(`/api/groups/${groupId}/lessons?includePast=1`)
         if (cancelled) return
         if (!res.ok) {
           setGroupLessonDates([])
@@ -394,7 +395,7 @@ export function AwaitingPaymentDialog({
                     : undefined
                 }
                 disabled={!groupId}
-                emptyHint="У группы нет будущих занятий. Перегенерируйте расписание группы."
+                emptyHint="У группы нет занятий. Перегенерируйте расписание группы."
               />
             </div>
           </div>
