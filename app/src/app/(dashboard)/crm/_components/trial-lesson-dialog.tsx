@@ -75,25 +75,47 @@ export function TrialLessonDialog({
   // сначала пользователь выбирает, по какой создаём пробное.
   const [applications, setApplications] = useState<ActiveApplication[] | null>(null)
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
+  // Уже запланированные пробные (wardId+directionId) — чтобы помечать заявки,
+  // по которым пробное уже стоит в расписании (#75).
+  const [scheduledTrialKeys, setScheduledTrialKeys] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (!open) {
       setApplications(null)
       setSelectedAppId(null)
+      setScheduledTrialKeys(new Set())
       return
     }
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch(`/api/applications?clientId=${clientId}&status=active`)
-        if (!res.ok || cancelled) return
-        let data: ActiveApplication[] = await res.json()
-        // Если в модалку передан lockedWardId — оставляем только заявки этого ребёнка.
-        if (lockedWardId) data = data.filter((a) => a.wardId === lockedWardId)
+        const [appsRes, trialsRes] = await Promise.all([
+          fetch(`/api/applications?clientId=${clientId}&status=active`),
+          fetch(`/api/trial-lessons?clientId=${clientId}&status=scheduled`),
+        ])
         if (cancelled) return
-        setApplications(data)
+        let appsData: ActiveApplication[] = appsRes.ok ? await appsRes.json() : []
+        // Если в модалку передан lockedWardId — оставляем только заявки этого ребёнка.
+        if (lockedWardId) appsData = appsData.filter((a) => a.wardId === lockedWardId)
+        if (cancelled) return
+        setApplications(appsData)
         // Авто-выбор, если заявка одна.
-        if (data.length === 1) setSelectedAppId(data[0].id)
+        if (appsData.length === 1) setSelectedAppId(appsData[0].id)
+
+        if (trialsRes.ok) {
+          const trials: {
+            wardId: string | null
+            directionId: string | null
+            group: { directionId: string } | null
+          }[] = await trialsRes.json()
+          if (cancelled) return
+          const keys = new Set<string>()
+          for (const t of trials) {
+            const dirId = t.directionId ?? t.group?.directionId ?? null
+            if (t.wardId && dirId) keys.add(`${t.wardId}:${dirId}`)
+          }
+          setScheduledTrialKeys(keys)
+        }
       } catch {
         /* ignore */
       }
@@ -172,22 +194,36 @@ export function TrialLessonDialog({
               У ребёнка несколько активных заявок. Выберите, по какой создаём пробное:
             </div>
             <div className="space-y-2">
-              {applications!.map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  onClick={() => setSelectedAppId(a.id)}
-                  className="w-full rounded-md border p-3 text-left text-sm hover:bg-muted/40"
-                >
-                  <div className="font-medium">
-                    {formatWardName(a.ward)} · {a.direction.name}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Филиал: {a.branch.name} · от {new Date(a.createdAt).toLocaleDateString("ru-RU")}
-                    {a.comment ? ` · ${a.comment}` : ""}
-                  </div>
-                </button>
-              ))}
+              {applications!.map((a) => {
+                const alreadyScheduled = scheduledTrialKeys.has(`${a.wardId}:${a.directionId}`)
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setSelectedAppId(a.id)}
+                    className={`w-full rounded-md border p-3 text-left text-sm transition-colors ${
+                      alreadyScheduled
+                        ? "border-amber-300 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:hover:bg-amber-950/60"
+                        : "hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium">
+                        {formatWardName(a.ward)} · {a.direction.name}
+                      </div>
+                      {alreadyScheduled && (
+                        <span className="shrink-0 rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900 dark:bg-amber-800 dark:text-amber-100">
+                          уже записан
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Филиал: {a.branch.name} · от {new Date(a.createdAt).toLocaleDateString("ru-RU")}
+                      {a.comment ? ` · ${a.comment}` : ""}
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           </div>
         ) : (

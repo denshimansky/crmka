@@ -21,6 +21,45 @@ const createSchema = z.object({
   comment: z.string().optional(),
 })
 
+// GET /api/trial-lessons?clientId=...&status=scheduled
+// Лёгкая выборка для UI: какие пробные уже запланированы у клиента/подопечного.
+// Используется в TrialLessonDialog, чтобы пометить заявки с уже назначенным
+// пробным (баг #75).
+export async function GET(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { searchParams } = new URL(req.url)
+  const clientId = searchParams.get("clientId")
+  const status = searchParams.get("status")
+
+  if (!clientId) {
+    return NextResponse.json({ error: "Не указан clientId" }, { status: 400 })
+  }
+
+  const trials = await db.trialLesson.findMany({
+    where: {
+      tenantId: session.user.tenantId,
+      clientId,
+      ...(status === "scheduled" || status === "attended" || status === "no_show"
+        ? { status }
+        : {}),
+    },
+    select: {
+      id: true,
+      wardId: true,
+      directionId: true,
+      groupId: true,
+      scheduledDate: true,
+      status: true,
+      group: { select: { directionId: true } },
+    },
+    orderBy: { scheduledDate: "asc" },
+  })
+
+  return NextResponse.json(trials)
+}
+
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
