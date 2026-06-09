@@ -13,7 +13,10 @@ const updateSchema = z.object({
   lessonPrice: z.number().min(0, "Цена не может быть отрицательной").optional(),
   totalLessons: z.number().int().min(1, "Минимум 1 занятие").optional(),
   discountAmount: z.number().min(0).optional(),
-  wardId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  // Баг #72: было `: null` — undefined превращался в null и затирал wardId
+  // при ЛЮБОМ PATCH без него (withdrawn, closed, edit). Теперь корректно: при
+  // отсутствии в payload поле не трогаем.
+  wardId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   withdrawalDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   withdrawalReasonId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   // Продление срока пакетного абонемента (ISO-дата) — только для type='package'.
