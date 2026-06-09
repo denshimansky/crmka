@@ -387,13 +387,9 @@ export function AddExpenseDialog({
             />
           </div>
 
-          <label className="flex items-center gap-1.5 text-sm">
-            <Checkbox
-              checked={isRecurring}
-              onCheckedChange={(v) => setIsRecurring(v === true)}
-            />
-            Повторяющийся (автодублирование ежемесячно)
-          </label>
+          {/* Чекбокс «Повторяющийся» временно скрыт — нет настоящей автоматики,
+              есть только ручное копирование между месяцами. Возвращаем, когда
+              появится крон-генерация. Состояние оставляем (isRecurring=false по умолчанию). */}
 
           {/* Блок «Как провести в ОПИУ» */}
           <fieldset className="space-y-2 rounded-md border p-3">

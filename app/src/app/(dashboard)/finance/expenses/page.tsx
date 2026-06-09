@@ -7,7 +7,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { TrendingDown, Repeat, BarChart3 } from "lucide-react"
 import { AddExpenseDialog } from "./add-expense-dialog"
-import { CopyMonthButton } from "./copy-month-button"
+// CopyMonthButton временно скрыт — флаг «Повторяющийся» в формах тоже спрятан,
+// без него кнопка ничего не находит. Возвращаем оба элемента одновременно.
+// import { CopyMonthButton } from "./copy-month-button"
 import { PageHelp } from "@/components/page-help"
 import { ExpensesTable } from "./expenses-table"
 
@@ -151,7 +153,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
           <MonthPicker />
         </div>
         <div className="flex items-center gap-2">
-          <CopyMonthButton currentYear={year} currentMonth={month} />
+          {/* <CopyMonthButton currentYear={year} currentMonth={month} /> — скрыта вместе с чекбоксом «Повторяющийся» */}
           <AddExpenseDialog
             categories={categories}
             accounts={accounts}
