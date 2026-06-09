@@ -337,7 +337,7 @@ export function AddExpenseDialog({
               <Label>Направление</Label>
               <Select
                 value={directionId || NONE_VALUE}
-                onValueChange={(v) => setDirectionId(v === NONE_VALUE ? "" : v)}
+                onValueChange={(v) => setDirectionId(!v || v === NONE_VALUE ? "" : v)}
               >
                 <SelectTrigger className="w-full">
                   {selectedDirection ? selectedDirection.name : "Не указано (распределить по выручке)"}
@@ -360,7 +360,7 @@ export function AddExpenseDialog({
               <Label>Канал привлечения</Label>
               <Select
                 value={leadChannelId || NONE_VALUE}
-                onValueChange={(v) => setLeadChannelId(v === NONE_VALUE ? "" : v)}
+                onValueChange={(v) => setLeadChannelId(!v || v === NONE_VALUE ? "" : v)}
               >
                 <SelectTrigger className="w-full">
                   {selectedChannel ? selectedChannel.name : "Не указан"}
