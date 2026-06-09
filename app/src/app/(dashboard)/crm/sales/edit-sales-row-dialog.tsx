@@ -147,8 +147,9 @@ export function EditSalesRowDialog({
     [groups, branchId, directionId],
   )
 
-  // При смене группы — подгружаем её реальные занятия (только будущие,
-  // плюс текущая дата строки, если она в прошлом — чтобы select показывал её).
+  // При смене группы — подгружаем её реальные занятия. includePast=1 даёт
+  // последние 90 дней + будущие: разрешаем перенести пробное задним числом,
+  // если ребёнок реально пришёл и его нужно отметить.
   useEffect(() => {
     if (!trialEditable || !groupId) {
       setGroupLessonDates(null)
@@ -157,7 +158,7 @@ export function EditSalesRowDialog({
     let cancelled = false
     async function load() {
       try {
-        const res = await fetch(`/api/groups/${groupId}/lessons`)
+        const res = await fetch(`/api/groups/${groupId}/lessons?includePast=1`)
         if (!res.ok) {
           setGroupLessonDates([])
           return
@@ -166,7 +167,7 @@ export function EditSalesRowDialog({
         if (cancelled) return
         const dates = lessons.map((l) => l.date.slice(0, 10))
         // Если у строки уже выставлена дата (старое пробное) и она не попала в
-        // список (из-за поля from=today) — добавим, чтобы текущее значение было видимым.
+        // список (например, старше 90 дней) — добавим, чтобы select показывал её.
         const initial = isoToDate(row.scheduledDate)
         if (initial && !dates.includes(initial)) dates.unshift(initial)
         setGroupLessonDates(dates)
