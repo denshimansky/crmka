@@ -67,7 +67,17 @@ export default async function TrialConversionReportPage({
   const cancelledTrials = trialsAll.filter((t) => t.status === "cancelled")
   const scheduledTrials = trialsAll.filter((t) => t.status === "scheduled")
 
-  // Конверсия в покупку: те, кто был на пробном и потом купил
+  // Конверсия в покупку: клиенты, которые были на пробном и сейчас являются
+  // или были клиентами центра. Критерий «купил»:
+  //   funnelStatus = active_client  — прошли всю воронку до клиента
+  //                                   (включая импортированных из 1С: у них
+  //                                   firstPaymentDate обычно не заполнен,
+  //                                   но статус «активный клиент» проставлен),
+  //   ИЛИ есть отметка firstPaymentDate / firstPaidLessonDate
+  //                                  — реально провели оплату через систему,
+  //   ИЛИ есть хотя бы один абонемент
+  //                                  — для случая, когда абонемент завели,
+  //                                  но платёж ещё не зафиксирован.
   const attendedClientIds = [...new Set(attendedTrials.map((t) => t.clientId))]
   const purchased = attendedClientIds.length
     ? await db.client.findMany({
@@ -76,8 +86,10 @@ export default async function TrialConversionReportPage({
           tenantId,
           deletedAt: null,
           OR: [
+            { funnelStatus: "active_client" },
             { firstPaymentDate: { not: null } },
             { firstPaidLessonDate: { not: null } },
+            { subscriptions: { some: { deletedAt: null } } },
           ],
         },
         select: { id: true },
