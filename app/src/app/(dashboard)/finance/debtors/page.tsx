@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { AlertTriangle, Users } from "lucide-react"
 import Link from "next/link"
+import { cn } from "@/lib/utils"
 import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
 
@@ -18,172 +19,159 @@ function formatDate(date: Date | null): string {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
-export default async function DebtorsPage() {
+type TabKey = "planned" | "actual"
+
+export default async function DebtorsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const session = await getSession()
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
   const clientScope = scopeClientByBranch(scope)
 
-  // Должник = клиент с отрицательным балансом ИЛИ с любой не-отчисленной
-  // подпиской с непогашенным остатком (Subscription.balance > 0). Включаем
-  // closed-абонементы тоже: cron «закрытие неоплаченных» переводит подписку
-  // в closed, но баланс на ней оставляет — долг никуда не уходит, его и
-  // надо взыскать (см. lib/cron/close-unpaid-subscriptions.ts).
-  // Withdrawn-подписки исключены: при отчислении долг либо переносится на
-  // clientBalance проводкой subscription_closed_refund, либо обнуляется.
-  // ADM-04: сегментный scope.
-  const debtors = await db.client.findMany({
+  const sp = await searchParams
+  const tab: TabKey = sp.tab === "actual" ? "actual" : "planned"
+
+  // Подтягиваем клиентов, у которых ЕСТЬ потенциальный долг (любого типа):
+  //   - есть не-отчисленный абонемент с остатком к оплате (balance>0) — кандидат
+  //     в плановый долг;
+  //   - ИЛИ есть не-отчисленный абонемент с накоплёнными списаниями (chargedAmount>0) —
+  //     кандидат в фактический долг (он мог уже оплатить часть, но списано больше).
+  // Дальше отфильтруем уже в JS по выбранному tab'у.
+  const candidates = await db.client.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      OR: [
-        { clientBalance: { lt: 0 } },
-        {
-          subscriptions: {
-            some: {
-              deletedAt: null,
-              status: { not: "withdrawn" },
-              balance: { gt: 0 },
-            },
-          },
+      subscriptions: {
+        some: {
+          deletedAt: null,
+          status: { not: "withdrawn" },
+          OR: [{ balance: { gt: 0 } }, { chargedAmount: { gt: 0 } }],
         },
-      ],
+      },
       ...(Object.keys(clientScope).length > 0 ? clientScope : {}),
     },
     select: {
       id: true,
       firstName: true,
       lastName: true,
-      clientBalance: true,
       promisedPaymentDate: true,
-      firstPaymentDate: true,
       phone: true,
       branch: { select: { name: true } },
       subscriptions: {
         where: {
           deletedAt: null,
           status: { not: "withdrawn" },
-          balance: { gt: 0 },
         },
         select: {
           id: true,
           status: true,
           direction: { select: { name: true } },
+          periodYear: true,
+          periodMonth: true,
           balance: true,
+          finalAmount: true,
+          chargedAmount: true,
         },
-        take: 5,
-      },
-      payments: {
-        where: { deletedAt: null },
-        orderBy: { date: "desc" },
-        take: 1,
-        select: { date: true },
       },
     },
   })
 
-  // Источники долга: группируем транзакции по абонементу/направлению.
-  // Каждой строчке должника покажем разбивку «по чему он должен» — это даёт
-  // ответ на вопрос «откуда долг», который раньше можно было только догадаться.
-  const debtorIds = debtors.map((d) => d.id)
-  const txns = debtorIds.length
-    ? await db.clientBalanceTransaction.findMany({
-        where: {
-          tenantId,
-          clientId: { in: debtorIds },
-          // subscription_issued — устаревшие проводки от миграции
-          // balance_ledger_extend (откачены rollback_subscription_issued_balance);
-          // оставлены в ledger только для истории, на clientBalance не влияют.
-          // Долг по активному абонементу теперь живёт на Subscription.balance и
-          // показывается через subSources — иначе он бы задвоился.
-          type: { not: "subscription_issued" },
-        },
-        select: {
-          clientId: true,
-          amount: true,
-          type: true,
-          subscriptionId: true,
-          subscription: {
-            select: {
-              periodYear: true,
-              periodMonth: true,
-              direction: { select: { name: true } },
-            },
-          },
-          direction: { select: { name: true } },
-        },
-      })
-    : []
-
-  type DebtSourceRow = { key: string; label: string; amount: number; subscriptionId: string | null }
-  const sourcesByClient = new Map<string, DebtSourceRow[]>()
-  for (const t of txns) {
-    const key = t.subscriptionId ?? `direction:${t.direction?.name ?? "—"}`
-    const label = t.subscription
-      ? `${t.subscription.direction.name} (${String(t.subscription.periodMonth).padStart(2, "0")}.${t.subscription.periodYear})`
-      : t.direction?.name ?? "Прочее"
-    const list = sourcesByClient.get(t.clientId) ?? []
-    const found = list.find((r) => r.key === key)
-    const delta = Number(t.amount)
-    if (found) {
-      found.amount += delta
-    } else {
-      list.push({ key, label, amount: delta, subscriptionId: t.subscriptionId })
-    }
-    sourcesByClient.set(t.clientId, list)
-  }
-
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  // Полный долг = минус на балансе + сумма непогашенных абонементов.
-  // Источники: пункты ledger (от закрытий) + активные неоплаченные абонементы.
-  const rows = debtors.map((d) => {
-    const name = [d.lastName, d.firstName].filter(Boolean).join(" ") || "Без имени"
-    const balanceDebt = Math.max(0, -Number(d.clientBalance))
-    const subscriptionsDebt = d.subscriptions.reduce(
-      (s, sub) => s + Math.max(0, Number(sub.balance)),
-      0,
-    )
-    const debt = balanceDebt + subscriptionsDebt
-    const lastPayment = d.payments[0]?.date || null
-    const promised = d.promisedPaymentDate
-    const isOverdue = promised && promised < today
-    const directions = d.subscriptions.map(s => s.direction.name).join(", ") || "—"
-    const branchName = d.branch?.name || "—"
-    // Источники: сначала активные абонементы с долгом (из Subscription.balance),
-    // потом ledger-проводки. Те ledger-проводки, что ссылаются на активные
-    // абонементы из subSources, пропускаем — иначе один и тот же долг попал
-    // бы в список дважды (см. Баг #62).
-    const debtSubIds = new Set(
-      d.subscriptions
-        .filter((sub) => Number(sub.balance) > 0)
-        .map((sub) => sub.id),
-    )
-    const subSources: { key: string; label: string; amount: number }[] = d.subscriptions
-      .filter((sub) => Number(sub.balance) > 0)
-      .map((sub) => ({
-        key: `sub:${sub.id}`,
-        label:
-          sub.status === "closed"
-            ? `${sub.direction.name} (абонемент, закрыт)`
-            : `${sub.direction.name} (абонемент)`,
-        amount: -Number(sub.balance),
-      }))
-    const ledgerSources = (sourcesByClient.get(d.id) ?? []).filter(
-      (s) => s.amount < 0 && !(s.subscriptionId && debtSubIds.has(s.subscriptionId)),
-    )
-    const sources = [...subSources, ...ledgerSources]
-      .sort((a, b) => a.amount - b.amount)
-      .slice(0, 4)
+  type Source = { key: string; label: string; amount: number }
+  type Row = {
+    id: string
+    name: string
+    branchName: string
+    directions: string
+    debt: number
+    promised: Date | null
+    isOverdue: boolean
+    phone: string | null
+    sources: Source[]
+  }
 
-    return { id: d.id, name, debt, balanceDebt, subscriptionsDebt, branchName, directions, lastPayment, promised, isOverdue, phone: d.phone, sources }
-  })
-  // Сортируем по суммарному долгу убыванию.
+  function subLabel(s: { direction: { name: string }; periodMonth: number | null; periodYear: number | null; status: string }): string {
+    const period = s.periodMonth && s.periodYear
+      ? ` (${String(s.periodMonth).padStart(2, "0")}.${s.periodYear})`
+      : ""
+    const tag = s.status === "closed" ? ", закрыт" : ""
+    return `${s.direction.name}${period}${tag}`
+  }
+
+  const rows: Row[] = []
+  for (const c of candidates) {
+    const name = [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени"
+    const promised = c.promisedPaymentDate
+    const isOverdue = !!(promised && promised < today)
+    const branchName = c.branch?.name || "—"
+    const directionsSet = new Set<string>()
+
+    const sources: Source[] = []
+    let debt = 0
+    for (const sub of c.subscriptions) {
+      const balance = Number(sub.balance)
+      const finalAmount = Number(sub.finalAmount)
+      const chargedAmount = Number(sub.chargedAmount)
+      directionsSet.add(sub.direction.name)
+
+      if (tab === "planned") {
+        // Плановый долг по абонементу = balance (сколько ещё надо оплатить).
+        if (balance > 0) {
+          sources.push({
+            key: `sub:${sub.id}`,
+            label: subLabel(sub),
+            amount: balance,
+          })
+          debt += balance
+        }
+      } else {
+        // Фактический долг = списано (chargedAmount) − оплачено за этот абонемент.
+        // Оплачено = finalAmount − balance. Итого: chargedAmount + balance − finalAmount.
+        const fact = chargedAmount + balance - finalAmount
+        if (fact > 0) {
+          sources.push({
+            key: `sub:${sub.id}`,
+            label: subLabel(sub),
+            amount: fact,
+          })
+          debt += fact
+        }
+      }
+    }
+
+    if (debt <= 0) continue
+    sources.sort((a, b) => b.amount - a.amount)
+    rows.push({
+      id: c.id,
+      name,
+      branchName,
+      directions: directionsSet.size > 0 ? Array.from(directionsSet).join(", ") : "—",
+      debt,
+      promised,
+      isOverdue,
+      phone: c.phone,
+      sources: sources.slice(0, 4),
+    })
+  }
   rows.sort((a, b) => b.debt - a.debt)
 
   const totalDebt = rows.reduce((s, r) => s + r.debt, 0)
-  const overdueCount = debtors.filter(d => d.promisedPaymentDate && d.promisedPaymentDate < today).length
+  const overdueCount = rows.filter((r) => r.isOverdue).length
+
+  const tabs: { key: TabKey; label: string; href: string }[] = [
+    { key: "planned", label: "Плановый долг", href: "/finance/debtors" },
+    { key: "actual", label: "Фактический долг", href: "/finance/debtors?tab=actual" },
+  ]
+
+  const tabDescription =
+    tab === "planned"
+      ? "Сколько клиенты должны доплатить по выписанным абонементам (finalAmount − оплачено)."
+      : "Сколько фактически отработано сверх оплаченного (chargedAmount − оплачено)."
 
   return (
     <div className="space-y-6">
@@ -191,8 +179,8 @@ export default async function DebtorsPage() {
         <h1 className="text-2xl font-bold">Должники</h1>
         <PageHelp pageKey="finance/debtors" />
         <ReportExport
-          title="Должники"
-          filename="debtors"
+          title={tab === "planned" ? "Должники (плановый долг)" : "Должники (фактический долг)"}
+          filename={tab === "planned" ? "debtors-planned" : "debtors-actual"}
           columns={[
             { header: "Клиент", key: "name", width: 25 },
             { header: "Филиал", key: "branchName", width: 18 },
@@ -209,6 +197,28 @@ export default async function DebtorsPage() {
           }))}
         />
       </div>
+
+      <div className="border-b flex flex-wrap gap-1">
+        {tabs.map((t) => {
+          const active = t.key === tab
+          return (
+            <Link
+              key={t.key}
+              href={t.href}
+              scroll={false}
+              className={cn(
+                "relative px-3 py-2 text-sm font-medium transition-colors",
+                active
+                  ? "text-foreground after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t.label}
+            </Link>
+          )
+        })}
+      </div>
+      <p className="text-sm text-muted-foreground -mt-2">{tabDescription}</p>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
@@ -229,7 +239,7 @@ export default async function DebtorsPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Должников</p>
-              <p className="text-lg font-bold">{debtors.length}</p>
+              <p className="text-lg font-bold">{rows.length}</p>
             </div>
           </CardContent>
         </Card>
@@ -261,7 +271,6 @@ export default async function DebtorsPage() {
                 <TableHead>Филиал</TableHead>
                 <TableHead>Источник долга</TableHead>
                 <TableHead className="text-right">Долг</TableHead>
-                <TableHead>Последняя оплата</TableHead>
                 <TableHead>Обещанная дата</TableHead>
                 <TableHead>Телефон</TableHead>
               </TableRow>
@@ -283,14 +292,13 @@ export default async function DebtorsPage() {
                         {r.sources.map((s) => (
                           <div key={s.key} className="flex items-baseline gap-2 text-xs">
                             <span className="text-foreground">{s.label}</span>
-                            <span className="text-red-600 tabular-nums">−{formatMoney(Math.abs(s.amount))}</span>
+                            <span className="text-red-600 tabular-nums">−{formatMoney(s.amount)}</span>
                           </div>
                         ))}
                       </div>
                     )}
                   </TableCell>
                   <TableCell className="text-right font-medium text-red-600">{formatMoney(r.debt)}</TableCell>
-                  <TableCell className="text-muted-foreground">{formatDate(r.lastPayment)}</TableCell>
                   <TableCell>
                     {r.promised ? (
                       <span className={r.isOverdue ? "font-medium text-red-600" : ""}>
