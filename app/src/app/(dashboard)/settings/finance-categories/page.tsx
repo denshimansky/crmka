@@ -52,7 +52,10 @@ type CategoryKind = "expense" | "income"
 interface CategoryFormState {
   name: string
   isActive: boolean
-  isVariable: boolean
+  // null = пользователь ещё не выбрал «Постоянный/Переменный».
+  // Для новых категорий стартуем с null, чтобы выбор был осознанным;
+  // у существующих подставляем фактическое значение из БД.
+  isVariable: boolean | null
   isSalary: boolean
 }
 
@@ -69,7 +72,7 @@ export default function FinanceCategoriesPage() {
   const [form, setForm] = useState<CategoryFormState>({
     name: "",
     isActive: true,
-    isVariable: false,
+    isVariable: null,
     isSalary: false,
   })
   const [saving, setSaving] = useState(false)
@@ -79,8 +82,8 @@ export default function FinanceCategoriesPage() {
     setLoading(true)
     try {
       const [eRes, iRes] = await Promise.all([
-        fetch("/api/expense-categories"),
-        fetch("/api/income-categories"),
+        fetch("/api/expense-categories?includeInactive=true"),
+        fetch("/api/income-categories?includeInactive=true"),
       ])
       if (eRes.ok) setExpenses(await eRes.json())
       if (iRes.ok) setIncomes(await iRes.json())
@@ -99,7 +102,7 @@ export default function FinanceCategoriesPage() {
     setDialogKind(kind)
     setEditingId(null)
     setEditingIsSystem(false)
-    setForm({ name: "", isActive: true, isVariable: false, isSalary: false })
+    setForm({ name: "", isActive: true, isVariable: null, isSalary: false })
     setError(null)
     setDialogOpen(true)
   }
@@ -125,7 +128,7 @@ export default function FinanceCategoriesPage() {
     setForm({
       name: c.name,
       isActive: c.isActive,
-      isVariable: false,
+      isVariable: null,
       isSalary: false,
     })
     setError(null)
@@ -135,6 +138,10 @@ export default function FinanceCategoriesPage() {
   async function handleSave() {
     if (!form.name.trim() && !editingIsSystem) {
       setError("Укажите название")
+      return
+    }
+    if (dialogKind === "expense" && form.isVariable === null) {
+      setError("Выберите тип затрат: постоянный или переменный")
       return
     }
 
@@ -229,15 +236,16 @@ export default function FinanceCategoriesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Название</TableHead>
-                  <TableHead>Тип</TableHead>
-                  <TableHead>Атрибуты</TableHead>
+                  <TableHead>Источник</TableHead>
+                  <TableHead>ЗП</TableHead>
+                  <TableHead>Тип затрат</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead className="w-[80px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {expenses.map((c) => (
-                  <TableRow key={c.id}>
+                  <TableRow key={c.id} className={c.isActive ? "" : "opacity-60"}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell>
                       {c.isSystem ? (
@@ -247,16 +255,18 @@ export default function FinanceCategoriesPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
-                        {c.isVariable && <Badge variant="outline">Переменный</Badge>}
-                        {c.isSalary && <Badge variant="outline">ЗП</Badge>}
-                      </div>
+                      {c.isSalary && <Badge variant="outline">ЗП</Badge>}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={c.isVariable ? "default" : "outline"}>
+                        {c.isVariable ? "Переменный" : "Постоянный"}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       {c.isActive ? (
                         <Badge variant="default">Активна</Badge>
                       ) : (
-                        <Badge variant="secondary">Неактивна</Badge>
+                        <Badge variant="secondary">Архивная</Badge>
                       )}
                     </TableCell>
                     <TableCell>
@@ -269,7 +279,7 @@ export default function FinanceCategoriesPage() {
                         >
                           <Pencil className="size-4 text-muted-foreground" />
                         </Button>
-                        {!c.isSystem && (
+                        {!c.isSystem && c.isActive && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -309,14 +319,14 @@ export default function FinanceCategoriesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Название</TableHead>
-                  <TableHead>Тип</TableHead>
+                  <TableHead>Источник</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead className="w-[80px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {incomes.map((c) => (
-                  <TableRow key={c.id}>
+                  <TableRow key={c.id} className={c.isActive ? "" : "opacity-60"}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell>
                       {c.isSystem ? (
@@ -329,7 +339,7 @@ export default function FinanceCategoriesPage() {
                       {c.isActive ? (
                         <Badge variant="default">Активна</Badge>
                       ) : (
-                        <Badge variant="secondary">Неактивна</Badge>
+                        <Badge variant="secondary">Архивная</Badge>
                       )}
                     </TableCell>
                     <TableCell>
@@ -344,14 +354,16 @@ export default function FinanceCategoriesPage() {
                             >
                               <Pencil className="size-4 text-muted-foreground" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-8"
-                              onClick={() => handleDelete("income", c.id)}
-                            >
-                              <Trash2 className="size-4 text-muted-foreground" />
-                            </Button>
+                            {c.isActive && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-8"
+                                onClick={() => handleDelete("income", c.id)}
+                              >
+                                <Trash2 className="size-4 text-muted-foreground" />
+                              </Button>
+                            )}
                           </>
                         )}
                       </div>
@@ -405,23 +417,45 @@ export default function FinanceCategoriesPage() {
 
             {dialogKind === "expense" && (
               <>
-                <div className="flex items-center gap-3">
-                  <Label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={form.isVariable}
-                      onChange={(e) => setForm({ ...form, isVariable: e.target.checked })}
-                      className="size-4 rounded border"
-                    />
-                    <span>Переменный расход</span>
-                  </Label>
+                <div className="space-y-2">
+                  <Label>Тип затрат *</Label>
+                  <div className="flex flex-col gap-2">
+                    <Label className="flex cursor-pointer items-start gap-2">
+                      <input
+                        type="radio"
+                        name="cost-type"
+                        checked={form.isVariable === false}
+                        onChange={() => setForm({ ...form, isVariable: false })}
+                        className="mt-0.5 size-4"
+                      />
+                      <span className="flex flex-col">
+                        <span>Постоянный</span>
+                        <span className="text-xs font-normal text-muted-foreground">
+                          Не зависит от выручки (аренда, коммуналка). В ОПИУ распределяется
+                          по направлениям пропорционально выручке.
+                        </span>
+                      </span>
+                    </Label>
+                    <Label className="flex cursor-pointer items-start gap-2">
+                      <input
+                        type="radio"
+                        name="cost-type"
+                        checked={form.isVariable === true}
+                        onChange={() => setForm({ ...form, isVariable: true })}
+                        className="mt-0.5 size-4"
+                      />
+                      <span className="flex flex-col">
+                        <span>Переменный</span>
+                        <span className="text-xs font-normal text-muted-foreground">
+                          Зависит от объёма (расходники, эквайринг). В ОПИУ вычитается до маржи.
+                        </span>
+                      </span>
+                    </Label>
+                  </div>
                 </div>
-                <p className="-mt-2 ml-6 text-xs text-muted-foreground">
-                  Переменные расходы вычитаются до маржи в ОПИУ, постоянные распределяются по направлениям пропорционально выручке.
-                </p>
 
                 <div className="flex items-center gap-3">
-                  <Label className="flex items-center gap-2 cursor-pointer">
+                  <Label className="flex cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
                       checked={form.isSalary}

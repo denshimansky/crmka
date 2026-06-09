@@ -5,16 +5,20 @@ import { db } from "@/lib/db"
 import { z } from "zod"
 
 // GET /api/income-categories — системные (tenantId = null) + кастомные категории тенанта.
-export async function GET() {
+// По умолчанию только активные (для форм создания). Страница настроек тянет с
+// ?includeInactive=true, чтобы видеть и архивные — иначе их нельзя снова включить.
+export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const tenantId = (session.user as any).tenantId
+  const { searchParams } = new URL(request.url)
+  const includeInactive = searchParams.get("includeInactive") === "true"
 
   const categories = await db.incomeCategory.findMany({
     where: {
       OR: [{ tenantId: null }, { tenantId }],
-      isActive: true,
+      ...(includeInactive ? {} : { isActive: true }),
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   })

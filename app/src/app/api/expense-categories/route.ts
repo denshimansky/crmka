@@ -5,16 +5,21 @@ import { db } from "@/lib/db"
 import { z } from "zod"
 
 // GET /api/expense-categories — системные (tenantId = null) + кастомные категории тенанта.
-export async function GET() {
+// По умолчанию возвращаем только активные (для форм создания расхода). Странице
+// настроек /settings/finance-categories нужны все — она вызывает с ?includeInactive=true,
+// чтобы пользователь мог снова включить категорию, которую раньше деактивировал.
+export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const tenantId = (session.user as any).tenantId
+  const { searchParams } = new URL(request.url)
+  const includeInactive = searchParams.get("includeInactive") === "true"
 
   const categories = await db.expenseCategory.findMany({
     where: {
       OR: [{ tenantId: null }, { tenantId }],
-      isActive: true,
+      ...(includeInactive ? {} : { isActive: true }),
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   })
