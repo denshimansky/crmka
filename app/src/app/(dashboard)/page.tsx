@@ -406,23 +406,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const fmtMoney2 = (n: number) =>
     new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
-  // === НЕ ПРИШЛИ НА ПРОБНИК (пробные за месяц, кроме «Пришёл») ===
-  const TRIAL_STATUS_LABEL: Record<string, string> = {
-    scheduled: "Расписание",
-    no_show: "Неявка",
-    cancelled: "Отменён",
-  }
+  // === НЕ ПРИШЛИ НА ПРОБНИК (пробные за месяц со статусом «Неявка») ===
+  // Только no_show — ребёнок не пришёл на назначенное пробное.
   const missedTrialsRaw = await db.trialLesson.findMany({
     where: {
       tenantId,
       scheduledDate: { gte: monthStart, lte: monthEnd },
-      status: { not: "attended" },
+      status: "no_show",
     },
     select: {
       id: true,
       scheduledDate: true,
       startTime: true,
-      status: true,
+      ward: { select: { firstName: true, lastName: true } },
       client: { select: { firstName: true, lastName: true } },
       direction: { select: { name: true } },
       group: {
@@ -439,11 +435,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     const dd = String(d.getUTCDate()).padStart(2, "0")
     const mm = String(d.getUTCMonth() + 1).padStart(2, "0")
     const yy = String(d.getUTCFullYear()).slice(2)
+    // Лид — имя ребёнка (подопечного); если по какой-то причине пробное без
+    // ребёнка — показываем родителя.
+    const childName = t.ward
+      ? [t.ward.lastName, t.ward.firstName].filter(Boolean).join(" ")
+      : ""
+    const parentName = [t.client.lastName, t.client.firstName].filter(Boolean).join(" ")
     return {
       id: t.id,
       date: `${dd}.${mm}.${yy}${t.startTime ? " " + t.startTime : ""}`,
-      lead: [t.client.lastName, t.client.firstName].filter(Boolean).join(" ") || "—",
-      dayType: TRIAL_STATUS_LABEL[t.status] ?? t.status,
+      lead: childName || parentName || "—",
+      dayType: "Неявка",
       branch: t.group?.branch?.name ?? "—",
       direction: t.direction?.name ?? t.group?.direction?.name ?? "—",
     }
@@ -622,7 +624,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </CardHeader>
       <CardContent>
         {missedTrials.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Нет пробных без посещения за месяц</p>
+          <p className="text-sm text-muted-foreground">Нет неявок на пробные за месяц</p>
         ) : (
           <Table>
             <TableHeader>
