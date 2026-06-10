@@ -5,6 +5,14 @@ import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
   Users, TrendingUp, TrendingDown, AlertTriangle,
   Clock, BarChart3,
 } from "lucide-react"
@@ -229,24 +237,40 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   ]
   const maxFunnel = Math.max(...funnelStages.map(f => f.count), 1)
 
-  // Заполняемость групп (топ-5) — одноразовые технические группы не показываем.
+  // Заполняемость групп — на дашборд выводим только недозаполненные (≤ 50%),
+  // самые пустые сверху. Это «требуют внимания», полный отчёт — по ссылке.
+  // Одноразовые технические группы не показываем.
   const groups = await db.group.findMany({
     where: { tenantId, deletedAt: null, isActive: true, isOneTime: false },
     select: {
+      id: true,
       name: true,
       maxStudents: true,
+      branch: { select: { name: true } },
+      direction: { select: { name: true } },
       enrollments: { where: { isActive: true, deletedAt: null }, select: { id: true } },
     },
     orderBy: { name: "asc" },
-    take: 10,
   })
 
-  const groupCapacity = groups.map(g => ({
-    name: g.name,
-    enrolled: g.enrollments.length,
-    max: g.maxStudents,
-    percent: g.maxStudents > 0 ? Math.round((g.enrollments.length / g.maxStudents) * 100) : 0,
-  })).sort((a, b) => b.percent - a.percent).slice(0, 5)
+  const groupCapacity = groups
+    .map((g) => {
+      const enrolled = g.enrollments.length
+      const max = g.maxStudents
+      return {
+        id: g.id,
+        name: g.name,
+        branch: g.branch.name,
+        direction: g.direction.name,
+        enrolled,
+        max,
+        free: Math.max(0, max - enrolled),
+        percent: max > 0 ? Math.round((enrolled / max) * 100) : 0,
+      }
+    })
+    .filter((g) => g.percent <= 50)
+    .sort((a, b) => a.percent - b.percent)
+    .slice(0, 10)
 
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
@@ -349,34 +373,51 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     </Card>
   )
 
-  const capacityWidget = groupCapacity.length > 0 ? (
+  const capacityWidget = (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <BarChart3 className="size-5 text-muted-foreground" />
-          <Link href="/reports/schedule/capacity" className="hover:underline">Заполняемость групп</Link>
+        <CardTitle className="flex items-center justify-between text-base">
+          <span className="flex items-center gap-2">
+            <BarChart3 className="size-5 text-muted-foreground" />
+            <Link href="/reports/schedule/capacity" className="hover:underline">
+              Заполняемость групп
+            </Link>
+          </span>
+          <Badge variant="secondary">{groupCapacity.length}</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {groupCapacity.map((g) => (
-            <div key={g.name} className="space-y-1.5">
-              <div className="flex items-center justify-between text-sm">
-                <span className="truncate font-medium">{g.name}</span>
-                <span className="text-muted-foreground">{g.enrolled}/{g.max}</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-muted">
-                <div
-                  className={`h-2 rounded-full ${g.percent >= 90 ? "bg-red-500" : g.percent >= 70 ? "bg-yellow-500" : "bg-green-500"}`}
-                  style={{ width: `${Math.min(g.percent, 100)}%` }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
+        {groupCapacity.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Нет групп с заполнением 50% и ниже
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Филиал</TableHead>
+                <TableHead>Направление</TableHead>
+                <TableHead>Группа обучения</TableHead>
+                <TableHead className="text-right">Свободно мест</TableHead>
+                <TableHead className="text-right">% заполнения</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {groupCapacity.map((g) => (
+                <TableRow key={g.id}>
+                  <TableCell>{g.branch}</TableCell>
+                  <TableCell>{g.direction}</TableCell>
+                  <TableCell>{g.name}</TableCell>
+                  <TableCell className="text-right tabular-nums">{g.free}</TableCell>
+                  <TableCell className="text-right tabular-nums">{g.percent} %</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </CardContent>
     </Card>
-  ) : null
+  )
 
   return (
     <div className="space-y-6">

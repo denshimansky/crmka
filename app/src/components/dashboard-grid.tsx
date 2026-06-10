@@ -15,7 +15,7 @@ const WIDGET_LAYOUT: Record<string, "full" | "compact"> = {
   tasks: "compact",
   unmarked: "compact",
   funnel: "compact",
-  capacity: "full",
+  capacity: "compact",
 }
 
 interface DashboardGridProps {
