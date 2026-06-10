@@ -624,7 +624,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </CardHeader>
       <CardContent>
         {missedTrials.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Нет неявок на пробные за месяц</p>
+          <p className="text-sm text-muted-foreground">Нет пропущенных пробных в этом месяце</p>
         ) : (
           <Table>
             <TableHeader>
