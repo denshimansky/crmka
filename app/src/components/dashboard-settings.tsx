@@ -33,6 +33,7 @@ export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "unmarked", label: "Неотмеченные занятия", visible: true },
   { id: "funnel", label: "Воронка продаж", visible: true },
   { id: "capacity", label: "Заполняемость групп", visible: true },
+  { id: "cashBalances", label: "Остатки денег", visible: true },
 ]
 
 export function loadWidgetConfig(): WidgetConfig[] {

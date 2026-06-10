@@ -395,6 +395,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const activeSubsData = await computeActiveSubscriptionsByBranch(db, tenantId, year, month)
   const fmtCount = (n: number) => (n > 0 ? String(n) : "—")
 
+  // === ОСТАТКИ ДЕНЕГ (по счетам/кассам) ===
+  // Текущие остатки активных счетов — снимок «сейчас», не зависит от месяца.
+  const cashAccounts = await db.financialAccount.findMany({
+    where: { tenantId, isActive: true, deletedAt: null },
+    select: { id: true, name: true, balance: true },
+    orderBy: { name: "asc" },
+  })
+  const cashTotal = cashAccounts.reduce((s, a) => s + Number(a.balance), 0)
+  const fmtMoney2 = (n: number) =>
+    new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
   const stats = [
@@ -546,6 +557,44 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     : "—"}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{fmtIncome(incomeTotals.discount)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+
+  const cashBalancesWidget = (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">
+          <Link href="/finance/cash" className="hover:underline">
+            Остатки денег
+          </Link>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {cashAccounts.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Нет счетов</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Банковский счёт, касса</TableHead>
+                <TableHead className="text-right">Остаток</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {cashAccounts.map((a) => (
+                <TableRow key={a.id}>
+                  <TableCell>{a.name}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtMoney2(Number(a.balance))}</TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="border-t-2 bg-muted/30 font-semibold">
+                <TableCell>Итого</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtMoney2(cashTotal)}</TableCell>
               </TableRow>
             </TableBody>
           </Table>
@@ -716,6 +765,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           unmarked: unmarkedWidget,
           funnel: funnelWidget,
           capacity: capacityWidget,
+          cashBalances: cashBalancesWidget,
         }}
       />
     </div>
