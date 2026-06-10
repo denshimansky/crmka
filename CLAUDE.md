@@ -94,7 +94,7 @@ CRM-система для детских центров и сферы услуг
 - **Dev-сервер (Hetzner):** Proxmox VM (Ubuntu 24.04, 2 vCPU, 8GB RAM, 60GB SSD)
   - **IP:** 65.108.45.153, SSH порт 2280, пользователь deploy
   - **Домен:** dev.umnayacrm.ru (+ app.umnayacrm.ru), **CI/CD:** push в main → `deploy.yml`
-- **Прод-кандидат (Timeweb, MSK):** Ubuntu 24.04, 2 vCPU, 3.8GB RAM (+4G swap), 48GB SSD
+- **Прод-кандидат (Timeweb, MSK):** Ubuntu 24.04, 4 vCPU, 8GB RAM (+4G swap), 80GB SSD
   - **IP:** 201.51.1.81, SSH порт 22, пользователь deploy (root по нашему ключу)
   - **Домен:** msk1.umnayacrm.ru, **CI/CD:** push в main (как Hetzner) или ручной запуск → `deploy-timeweb.yml` (секрет `TIMEWEB_SSH_KEY`)
   - nginx-конфиг сервера-локальный: `/opt/crmka/nginx-msk1/conf.d/` + `docker-compose.override.yml` (НЕ в git — чтобы общий `nginx/conf.d/default.conf` оставался под dev.umnayacrm.ru и не ломал Hetzner)
