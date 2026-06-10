@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { createTrialLessonForClient } from "@/lib/services/trial-lesson"
+import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 
 const trialPayloadSchema = z.object({
   groupId: z.string().uuid().optional(),
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           action: "update",
           entityType: "Application",
           entityId: id,
-          changes: { status: { old: "active", new: "processed" }, processedToStatus: { old: null, new: "trial" } },
+          changes: { stage: { old: "application", new: "trial_scheduled" } },
         },
       })
     }
@@ -112,12 +113,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         data: { funnelStatus: newFunnelStatus },
       })
     }
-    // Скидываем Ward.salesStage с 'application' в 'none' — только если он действительно
-    // ещё на стадии заявки (если уже двинулся в trial_scheduled и т.п. — не трогаем).
-    await tx.ward.updateMany({
-      where: { id: application.wardId, salesStage: "application" },
-      data: { salesStage: "none", salesStageAt: new Date() },
-    })
+    // Эта заявка ушла из воронки. Зеркало Ward.salesStage пересчитываем как максимум
+    // по оставшимся активным заявкам ребёнка (другие направления остаются в воронке).
+    await recomputeWardSalesStage(tx, tenantId, application.wardId)
   })
 
   if (employeeId) {

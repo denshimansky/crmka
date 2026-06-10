@@ -4,8 +4,10 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
+import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 
 const moveSchema = z.object({
+  applicationId: z.string().uuid().optional(),
   branchId: z.string().uuid("Выберите филиал"),
   directionId: z.string().uuid("Выберите направление"),
   groupId: z.string().uuid("Выберите группу"),
@@ -62,17 +64,55 @@ export async function POST(
     return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
   }
 
-  // В awaiting_payment можно прийти из application или trial_attended.
-  // Из none — нельзя (нет открытой заявки). Из awaiting_payment — уже там.
-  // Из trial_scheduled — пусть сперва отметят пробное.
-  if (
-    ward.salesStage !== "application" &&
-    ward.salesStage !== "trial_attended"
-  ) {
+  // Воронка ведётся по заявке: переводим в «Ожидаем оплату» КОНКРЕТНУЮ заявку.
+  // Берём её по applicationId (строка «Продаж»), иначе — активную заявку этого
+  // направления, иначе — любую активную заявку ребёнка в подходящем этапе.
+  // В awaiting_payment можно прийти из «Заявка» (application) или «Прошёл пробное»
+  // (trial_attended); из «Пробное» — пусть сперва отметят пробное.
+  const eligibleStages = ["application", "trial_attended"] as const
+  const targetApp =
+    (parsed.data.applicationId
+      ? await db.application.findFirst({
+          where: {
+            id: parsed.data.applicationId,
+            tenantId,
+            wardId: ward.id,
+            status: "active",
+            deletedAt: null,
+            stage: { in: [...eligibleStages] },
+          },
+          select: { id: true, stage: true },
+        })
+      : null) ??
+    (await db.application.findFirst({
+      where: {
+        tenantId,
+        wardId: ward.id,
+        directionId: data.directionId,
+        status: "active",
+        deletedAt: null,
+        stage: { in: [...eligibleStages] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, stage: true },
+    })) ??
+    (await db.application.findFirst({
+      where: {
+        tenantId,
+        wardId: ward.id,
+        status: "active",
+        deletedAt: null,
+        stage: { in: [...eligibleStages] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, stage: true },
+    }))
+
+  if (!targetApp) {
     return NextResponse.json(
       {
         error:
-          "Перевести в «Ожидание оплаты» можно только из «Заявка» или «Прошёл пробное».",
+          "Перевести в «Ожидание оплаты» можно только заявку из «Заявка» или «Прошёл пробное».",
       },
       { status: 400 },
     )
@@ -237,23 +277,16 @@ export async function POST(
       })
     }
 
-    // Закрываем активные заявки этого ребёнка.
-    await tx.application.updateMany({
-      where: { tenantId, wardId: ward.id, status: "active", deletedAt: null },
-      data: {
-        status: "processed",
-        processedToStatus: "lead",
-        processedAt: now,
-        processedBy: session.user.employeeId ?? undefined,
-      },
+    // Переводим ИМЕННО эту заявку на этап «Ожидаем оплату» (остаётся активной).
+    // Остальные заявки ребёнка не трогаем — они продолжают свой путь в воронке.
+    await tx.application.update({
+      where: { id: targetApp.id },
+      data: { stage: "awaiting_payment" },
     })
 
-    // Стадия — awaiting_payment. Автоактивация по балансу отключена:
-    // оплата абонемента всегда ручная, через кнопку «Оплатить с баланса».
-    await tx.ward.update({
-      where: { id: ward.id },
-      data: { salesStage: "awaiting_payment", salesStageAt: now },
-    })
+    // Зеркало Ward.salesStage пересчитываем по активным заявкам. Автоактивация по
+    // балансу отключена: оплата абонемента всегда ручная («Оплатить с баланса»).
+    await recomputeWardSalesStage(tx, tenantId, ward.id, now)
 
     return { subscription }
   })
@@ -267,10 +300,8 @@ export async function POST(
         entityType: "Ward",
         entityId: ward.id,
         changes: {
-          salesStage: {
-            old: ward.salesStage,
-            new: "awaiting_payment",
-          },
+          applicationId: { new: targetApp.id },
+          stage: { old: targetApp.stage, new: "awaiting_payment" },
           subscriptionId: { new: result.subscription.id },
         },
       },

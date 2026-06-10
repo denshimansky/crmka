@@ -1563,6 +1563,7 @@ model TrialLesson {
   tenantId             String      @map("tenant_id") @db.Uuid
   clientId             String      @map("client_id") @db.Uuid
   wardId               String?     @map("ward_id") @db.Uuid
+  applicationId        String?     @map("application_id") @db.Uuid
   groupId              String?     @map("group_id") @db.Uuid
   lessonId             String?     @map("lesson_id") @db.Uuid
   directionId          String?     @map("direction_id") @db.Uuid
@@ -1582,6 +1583,7 @@ model TrialLesson {
   organization Organization @relation(fields: [tenantId], references: [id])
   client       Client       @relation(fields: [clientId], references: [id])
   ward         Ward?        @relation(fields: [wardId], references: [id])
+  application  Application? @relation(fields: [applicationId], references: [id])
   group        Group?       @relation(fields: [groupId], references: [id])
   lesson       Lesson?      @relation(fields: [lessonId], references: [id])
   direction    Direction?   @relation(fields: [directionId], references: [id])
@@ -1591,6 +1593,7 @@ model TrialLesson {
   @@index([tenantId, clientId])
   @@index([tenantId, groupId, scheduledDate])
   @@index([tenantId, instructorId, scheduledDate])
+  @@index([tenantId, applicationId])
   @@map("trial_lessons")
 }
 
@@ -1611,6 +1614,11 @@ model Application {
   branchId          String              @map("branch_id") @db.Uuid
   directionId       String              @map("direction_id") @db.Uuid
   status            ApplicationStatus   @default(active)
+  // Этап воронки продаж самой заявки (Заявка/Пробное/Прошёл пробное/Ожидаем оплату).
+  // Воронка ведётся по заявке: у одного ребёнка может быть несколько заявок на разных
+  // этапах. Ward.salesStage — денормализованное зеркало (макс. этап активных заявок).
+  // Для status='active' заявка показывается во вкладке = stage; 'none' тут не используется.
+  stage             WardSalesStage      @default(application)
   processedToStatus ApplicationOutcome? @map("processed_to_status")
   processedAt       DateTime?           @map("processed_at")
   processedBy       String?             @map("processed_by") @db.Uuid
@@ -1620,15 +1628,17 @@ model Application {
   updatedAt         DateTime            @updatedAt @map("updated_at")
   deletedAt         DateTime?           @map("deleted_at")
 
-  organization Organization @relation(fields: [tenantId], references: [id])
-  client       Client       @relation(fields: [clientId], references: [id])
-  ward         Ward         @relation(fields: [wardId], references: [id])
-  branch       Branch       @relation(fields: [branchId], references: [id])
-  direction    Direction    @relation(fields: [directionId], references: [id])
-  processor    Employee?    @relation("ApplicationProcessor", fields: [processedBy], references: [id])
+  organization Organization  @relation(fields: [tenantId], references: [id])
+  client       Client        @relation(fields: [clientId], references: [id])
+  ward         Ward          @relation(fields: [wardId], references: [id])
+  branch       Branch        @relation(fields: [branchId], references: [id])
+  direction    Direction     @relation(fields: [directionId], references: [id])
+  processor    Employee?     @relation("ApplicationProcessor", fields: [processedBy], references: [id])
+  trialLessons TrialLesson[]
 
   @@index([tenantId, status])
   @@index([tenantId, clientId, status])
+  @@index([tenantId, status, stage])
   @@map("applications")
 }
 
@@ -1641,6 +1651,7 @@ enum ApplicationOutcome {
   lead
   potential
   trial
+  won
 }
 
 // === ТРАНЗАКЦИИ БАЛАНСА КЛИЕНТА ===

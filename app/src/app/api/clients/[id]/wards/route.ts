@@ -29,8 +29,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!client) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
 
-  // Новый подопечный сразу падает в стадию «Заявка» — иначе он не появится на
-  // вкладке Продажи/Заявка (источник вкладки — Ward.salesStage='application').
+  // Новый подопечный создаётся вне воронки (salesStage='none' по умолчанию).
+  // Воронка теперь ведётся по заявкам: ребёнок появится в Продажах, когда по нему
+  // заведут заявку (кнопка «+ Заявка»). Так же ведут себя быстрое создание клиента
+  // и импорт — не плодим строки в «Заявке» без самой заявки.
   const ward = await db.ward.create({
     data: {
       tenantId: session.user.tenantId,
@@ -39,8 +41,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       lastName: data.lastName,
       birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
       notes: data.notes,
-      salesStage: "application",
-      salesStageAt: new Date(),
     },
   })
 

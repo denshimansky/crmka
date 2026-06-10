@@ -11,6 +11,7 @@ import { db } from "@/lib/db"
 const createSchema = z.object({
   clientId: z.string().uuid(),
   wardId: z.string().uuid(),
+  applicationId: z.string().uuid().optional(),
   groupId: z.string().uuid().optional(),
   directionId: z.string().uuid().optional(),
   instructorId: z.string().uuid().optional(),
@@ -114,10 +115,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const { applicationId, ...trialInput } = parsed.data
   const result = await createTrialLessonForClient(
     session.user.tenantId,
     session.user.employeeId ?? null,
-    parsed.data,
+    trialInput,
+    { applicationId },
   )
 
   if (!result.ok) {

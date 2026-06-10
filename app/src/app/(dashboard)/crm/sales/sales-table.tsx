@@ -142,9 +142,9 @@ export function SalesTable({
   // (PRD). На вкладках trial_done и awaiting_payment пункт скрываем.
   const canScheduleTrial = tab === "application" || tab === "trial"
 
-  async function removeFromFunnel(wardId: string) {
-    if (!confirm("Вывести подопечного из воронки? Связанные пробные и заявки будут отменены.")) return
-    const res = await fetch(`/api/wards/${wardId}/remove-from-funnel`, { method: "POST" })
+  async function removeFromFunnel(applicationId: string) {
+    if (!confirm("Убрать эту заявку из воронки? Её запланированные пробные будут отменены. Другие заявки ребёнка останутся.")) return
+    const res = await fetch(`/api/applications/${applicationId}/remove-from-funnel`, { method: "POST" })
     if (res.ok) router.refresh()
   }
 
@@ -516,9 +516,13 @@ export function SalesTable({
                   </ContextMenuSubContent>
                 </ContextMenuSub>
                 <ContextMenuSeparator />
-                <ContextMenuItem variant="destructive" onClick={() => removeFromFunnel(r.ward.id)}>
+                <ContextMenuItem
+                  variant="destructive"
+                  disabled={!r.applicationId}
+                  onClick={() => r.applicationId && removeFromFunnel(r.applicationId)}
+                >
                   <Trash2 className="size-3.5" />
-                  Удалить (вывести из воронки)
+                  Удалить заявку (вывести из воронки)
                 </ContextMenuItem>
               </ContextMenuContent>
               </ContextMenu>
@@ -568,6 +572,7 @@ export function SalesTable({
       {awaitingFor && (
         <AwaitingPaymentDialog
           wardId={awaitingFor.ward.id}
+          applicationId={awaitingFor.applicationId}
           wardName={wardName(awaitingFor.ward)}
           defaultBranchId={awaitingFor.branchId}
           defaultDirectionId={awaitingFor.directionId}

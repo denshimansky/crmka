@@ -17,15 +17,16 @@ const TAB_LABELS: Record<SalesTabKey, string> = {
 }
 const TAB_ORDER: SalesTabKey[] = ["application", "trial", "trial_done", "awaiting_payment"]
 
-const TAB_TO_STAGE: Record<Exclude<SalesTabKey, "application">, WardSalesStage> = {
+// Воронка ведётся по заявке (Application.stage). Вкладка = этап. Сумма строк по
+// всем вкладкам = число активных заявок.
+const TAB_TO_STAGE: Record<SalesTabKey, WardSalesStage> = {
+  application: "application",
   trial: "trial_scheduled",
   trial_done: "trial_attended",
   awaiting_payment: "awaiting_payment",
 }
 
 // Фильтр родителя для всех вкладок «Продаж»: исключаем только архив и ЧС.
-// Любой другой funnelStatus (включая active_client — родитель уже платил по другому ребёнку)
-// допустим, потому что воронка теперь живёт на Ward, а не на Client.
 function notArchivedClient(scope: BranchScope): Prisma.ClientWhereInput {
   const base: Prisma.ClientWhereInput = {
     deletedAt: null,
@@ -39,85 +40,40 @@ function notArchivedClient(scope: BranchScope): Prisma.ClientWhereInput {
   return base
 }
 
-function wardSalesWhere(
+// Where для активных заявок на конкретном этапе + фильтры филиал/направление.
+function appFunnelWhere(
   tenantId: string,
   stage: WardSalesStage,
+  branchFilter: string | null,
+  directionFilter: string | null,
   scope: BranchScope,
-): Prisma.WardWhereInput {
+): Prisma.ApplicationWhereInput {
   return {
     tenantId,
-    salesStage: stage,
+    status: "active",
+    deletedAt: null,
+    stage,
     client: notArchivedClient(scope),
+    ...(branchFilter ? { branchId: branchFilter } : {}),
+    ...(directionFilter ? { directionId: directionFilter } : {}),
   }
 }
 
-// Фильтр пробного занятия по филиалу + направлению. Возвращает {} если оба пусты.
-// AND нужен, когда заданы оба фильтра — без него Prisma переписала бы вторую OR
-// поверх первой.
-function trialFilter(
-  branchFilter: string | null,
-  directionFilter: string | null,
-): Prisma.TrialLessonWhereInput {
-  const groups: Prisma.TrialLessonWhereInput[] = []
-  if (branchFilter) {
-    groups.push({
-      OR: [
-        { group: { branchId: branchFilter } },
-        { room: { branchId: branchFilter } },
-      ],
-    })
-  }
-  if (directionFilter) {
-    groups.push({
-      OR: [
-        { directionId: directionFilter },
-        { group: { directionId: directionFilter } },
-      ],
-    })
-  }
-  if (groups.length === 0) return {}
-  if (groups.length === 1) return groups[0]
-  return { AND: groups }
-}
-
-// Сужает Ward по фильтрам бранч+направление с учётом текущей стадии.
-// На application — фильтр идёт по active Application; на trial-стадиях — по TrialLesson.
-function wardSalesWhereWithFilters(
-  tenantId: string,
-  stage: WardSalesStage,
-  branchFilter: string | null,
-  directionFilter: string | null,
-  scope: BranchScope,
-): Prisma.WardWhereInput {
-  const base = wardSalesWhere(tenantId, stage, scope)
-  if (!branchFilter && !directionFilter) return base
-
-  if (stage === "application") {
-    return {
-      ...base,
-      applications: {
-        some: {
-          status: "active",
-          deletedAt: null,
-          ...(branchFilter ? { branchId: branchFilter } : {}),
-          ...(directionFilter ? { directionId: directionFilter } : {}),
-        },
-      },
-    }
-  }
-
-  const tlStatus: Prisma.TrialLessonWhereInput =
-    stage === "trial_scheduled"
-      ? { status: "scheduled" }
-      : { status: { in: ["attended", "scheduled"] } }
-
-  return {
-    ...base,
-    trialLessons: {
-      some: { ...tlStatus, ...trialFilter(branchFilter, directionFilter) },
-    },
-  }
-}
+const CLIENT_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  phone: true,
+  socialLink: true,
+  comment: true,
+  nextContactDate: true,
+  assignedTo: true,
+  createdAt: true,
+  firstPaidLessonDate: true,
+  branch: { select: { id: true, name: true } },
+  channel: { select: { id: true, name: true } },
+  _count: { select: { payments: true } },
+} as const
 
 function fmtMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -146,6 +102,12 @@ export default async function SalesPage({
   const directionFilter =
     rawDirectionId && rawDirectionId !== "all" ? rawDirectionId : null
 
+  const branchWhere: Prisma.BranchWhereInput = {
+    tenantId,
+    deletedAt: null,
+    ...scopeBranch(scope),
+  }
+
   const [
     branches,
     directions,
@@ -156,7 +118,7 @@ export default async function SalesPage({
     countAwaitingPayment,
   ] = await Promise.all([
     db.branch.findMany({
-      where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
+      where: branchWhere,
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -170,28 +132,12 @@ export default async function SalesPage({
       select: { id: true, firstName: true, lastName: true },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
-    // Счётчики во ВСЕХ табах учитывают активные фильтры (баг #46): по филиалу и
-    // направлению — пользователь видит, сколько контактов в каждой стадии после
-    // применения фильтра. Для «trial» считаем пробные (а не подопечных) — один
-    // ребёнок с 2 пробными даст 2, чтобы число совпадало со списком (баг #49).
-    db.ward.count({
-      where: wardSalesWhereWithFilters(tenantId, "application", branchFilter, directionFilter, scope),
-    }),
-    db.trialLesson.count({
-      where: {
-        tenantId,
-        status: "scheduled",
-        ward: { salesStage: "trial_scheduled" },
-        client: notArchivedClient(scope),
-        ...trialFilter(branchFilter, directionFilter),
-      },
-    }),
-    db.ward.count({
-      where: wardSalesWhereWithFilters(tenantId, "trial_attended", branchFilter, directionFilter, scope),
-    }),
-    db.ward.count({
-      where: wardSalesWhereWithFilters(tenantId, "awaiting_payment", branchFilter, directionFilter, scope),
-    }),
+    // Счётчики = число активных заявок на каждом этапе (с учётом фильтров).
+    // Сумма по вкладкам = всего активных заявок.
+    db.application.count({ where: appFunnelWhere(tenantId, "application", branchFilter, directionFilter, scope) }),
+    db.application.count({ where: appFunnelWhere(tenantId, "trial_scheduled", branchFilter, directionFilter, scope) }),
+    db.application.count({ where: appFunnelWhere(tenantId, "trial_attended", branchFilter, directionFilter, scope) }),
+    db.application.count({ where: appFunnelWhere(tenantId, "awaiting_payment", branchFilter, directionFilter, scope) }),
   ])
 
   const counts: Record<SalesTabKey, number> = {
@@ -201,312 +147,99 @@ export default async function SalesPage({
     awaiting_payment: countAwaitingPayment,
   }
 
+  const where = appFunnelWhere(tenantId, TAB_TO_STAGE[tab], branchFilter, directionFilter, scope)
   let rows: SalesRow[] = []
 
   if (tab === "application") {
-    // Источник вкладки «Заявка» — Ward.salesStage='application', как и у других
-    // вкладок. Это: (а) включает свежесозданных подопечных без Application
-    // (новые клиенты с +); (б) переживает ручной возврат в «Заявку» из ПКМ-меню,
-    // даже если у подопечного никогда не было Application. Activной Application
-    // (если есть) даёт филиал/направление и applicationId для «Обработать заявку».
-    const wards = await db.ward.findMany({
-      where: wardSalesWhereWithFilters(tenantId, "application", branchFilter, directionFilter, scope),
+    // Этап «Заявка» — данные пробного/абонемента не нужны.
+    const apps = await db.application.findMany({
+      where,
       include: {
-        client: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            socialLink: true,
-            comment: true,
-            nextContactDate: true,
-            assignedTo: true,
-            createdAt: true,
-            firstPaidLessonDate: true,
-            branch: { select: { id: true, name: true } },
-            channel: { select: { id: true, name: true } },
-            _count: { select: { payments: true } },
-          },
-        },
-        applications: {
-          where: { status: "active", deletedAt: null },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          include: {
-            branch: { select: { id: true, name: true } },
-            direction: { select: { id: true, name: true } },
-          },
-        },
-      },
-      orderBy: { salesStageAt: "desc" },
-    })
-    rows = wards.map((w) => {
-      const app = w.applications[0]
-      return {
-        rowId: app?.id ?? w.id,
-        applicationId: app?.id,
-        clientId: w.client.id,
-        state: w.client._count.payments > 0 ? "client" : "lead",
-        firstName: w.client.firstName,
-        lastName: w.client.lastName,
-        phone: maskPhone(w.client.phone, role),
-        socialLink: w.client.socialLink,
-        channelName: w.client.channel?.name ?? null,
-        ward: { id: w.id, firstName: w.firstName, lastName: w.lastName },
-        branchId: app?.branch?.id ?? w.client.branch?.id ?? null,
-        branchName: app?.branch?.name ?? w.client.branch?.name ?? null,
-        directionId: app?.direction?.id ?? null,
-        directionName: app?.direction?.name ?? null,
-        groupId: null,
-        groupOrTimeLabel: null,
-        scheduledDate: null,
-        startTime: null,
-        lessonId: null,
-        firstPaidLessonDate: w.client.firstPaidLessonDate ? w.client.firstPaidLessonDate.toISOString() : null,
-        expectedSubscriptionAmount: null,
-        createdAt: app
-          ? app.createdAt.toISOString()
-          : w.salesStageAt
-            ? w.salesStageAt.toISOString()
-            : null,
-        nextContactDate: w.client.nextContactDate ? w.client.nextContactDate.toISOString() : null,
-        comment: app?.comment ?? null,
-        assignedTo: w.client.assignedTo,
-      }
-    })
-  } else if (tab === "trial") {
-    // Один TrialLesson (status='scheduled') = одна строка. У одного ребёнка
-    // может быть несколько запланированных пробных — каждый показываем отдельно
-    // (баг #49). Фильтр по Ward.salesStage='trial_scheduled' оставляем, чтобы
-    // показывать только тех детей, для кого пробное реально на повестке.
-    const trials = await db.trialLesson.findMany({
-      where: {
-        tenantId,
-        status: "scheduled",
-        ward: { salesStage: "trial_scheduled" },
-        client: notArchivedClient(scope),
-        ...trialFilter(branchFilter, directionFilter),
-      },
-      include: {
-        client: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            socialLink: true,
-            comment: true,
-            nextContactDate: true,
-            assignedTo: true,
-            firstPaidLessonDate: true,
-            branch: { select: { id: true, name: true } },
-            channel: { select: { id: true, name: true } },
-            _count: { select: { payments: true } },
-          },
-        },
+        client: { select: CLIENT_SELECT },
         ward: { select: { id: true, firstName: true, lastName: true } },
-        group: {
-          select: {
-            id: true,
-            name: true,
-            branch: { select: { id: true, name: true } },
-            direction: { select: { id: true, name: true, lessonPrice: true } },
-          },
-        },
-        direction: { select: { id: true, name: true, lessonPrice: true } },
-        room: {
-          select: {
-            id: true,
-            name: true,
-            branch: { select: { id: true, name: true } },
-          },
-        },
-        lesson: { select: { startTime: true } },
+        branch: { select: { id: true, name: true } },
+        direction: { select: { id: true, name: true } },
       },
-      orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
+      orderBy: { createdAt: "desc" },
     })
+    rows = apps.map((a) => ({
+      rowId: a.id,
+      applicationId: a.id,
+      clientId: a.client.id,
+      state: a.client._count.payments > 0 ? "client" : "lead",
+      firstName: a.client.firstName,
+      lastName: a.client.lastName,
+      phone: maskPhone(a.client.phone, role),
+      socialLink: a.client.socialLink,
+      channelName: a.client.channel?.name ?? null,
+      ward: { id: a.ward.id, firstName: a.ward.firstName, lastName: a.ward.lastName },
+      branchId: a.branch?.id ?? a.client.branch?.id ?? null,
+      branchName: a.branch?.name ?? a.client.branch?.name ?? null,
+      directionId: a.direction?.id ?? null,
+      directionName: a.direction?.name ?? null,
+      groupId: null,
+      groupOrTimeLabel: null,
+      scheduledDate: null,
+      startTime: null,
+      lessonId: null,
+      firstPaidLessonDate: a.client.firstPaidLessonDate ? a.client.firstPaidLessonDate.toISOString() : null,
+      expectedSubscriptionAmount: null,
+      createdAt: a.createdAt.toISOString(),
+      nextContactDate: a.client.nextContactDate ? a.client.nextContactDate.toISOString() : null,
+      comment: a.comment ?? null,
+      assignedTo: a.client.assignedTo,
+    }))
+  } else if (tab === "trial" || tab === "trial_done") {
+    // «Пробное» показывает заявки на этапе trial_scheduled, с представительным
+    // пробным (scheduled или no_show — «не пришёл» остаётся здесь). «Прошёл пробное»
+    // — этап trial_attended с attended-пробным.
+    const trialStatusFilter: Prisma.TrialLessonWhereInput =
+      tab === "trial"
+        ? { status: { in: ["scheduled", "no_show"] } }
+        : { status: "attended" }
 
-    // Заявки подтянем отдельным запросом — нужны для столбца «комментарий»
-    const trialClientIds = [...new Set(trials.map((t) => t.clientId))]
-    const apps = trialClientIds.length
-      ? await db.application.findMany({
-          where: { tenantId, clientId: { in: trialClientIds }, deletedAt: null },
-          orderBy: { createdAt: "desc" },
-          select: { id: true, clientId: true, comment: true },
-        })
-      : []
-    const appByClient = new Map<string, (typeof apps)[number]>()
-    for (const a of apps) if (!appByClient.has(a.clientId)) appByClient.set(a.clientId, a)
-
-    rows = trials.map((t) => {
-      const app = appByClient.get(t.clientId)
-      const direction = t.group?.direction ?? t.direction ?? null
-      return {
-        rowId: t.id,
-        applicationId: app?.id,
-        clientId: t.client.id,
-        state: t.client._count.payments > 0 ? "client" : "lead",
-        firstName: t.client.firstName,
-        lastName: t.client.lastName,
-        phone: maskPhone(t.client.phone, role),
-        socialLink: t.client.socialLink,
-        channelName: t.client.channel?.name ?? null,
-        ward: t.ward
-          ? { id: t.ward.id, firstName: t.ward.firstName, lastName: t.ward.lastName }
-          : { id: t.clientId, firstName: "—", lastName: null },
-        branchId:
-          t.group?.branch?.id ?? t.room?.branch?.id ?? t.client.branch?.id ?? null,
-        branchName:
-          t.group?.branch?.name ?? t.room?.branch?.name ?? t.client.branch?.name ?? null,
-        directionId: direction?.id ?? null,
-        directionName: direction?.name ?? null,
-        groupId: t.group?.id ?? null,
-        groupOrTimeLabel:
-          t.group?.name ??
-          (t.startTime
-            ? `Индив. ${t.startTime}${t.durationMinutes ? `, ${t.durationMinutes}мин` : ""}`
-            : null),
-        scheduledDate: t.scheduledDate ? t.scheduledDate.toISOString() : null,
-        startTime: t.startTime ?? t.lesson?.startTime ?? null,
-        lessonId: t.lessonId ?? null,
-        trialLessonId: t.id,
-        firstPaidLessonDate: t.client.firstPaidLessonDate
-          ? t.client.firstPaidLessonDate.toISOString()
-          : null,
-        expectedSubscriptionAmount: null,
-        createdAt: t.createdAt ? t.createdAt.toISOString() : null,
-        nextContactDate: t.client.nextContactDate
-          ? t.client.nextContactDate.toISOString()
-          : null,
-        comment: app?.comment ?? null,
-        assignedTo: t.client.assignedTo,
-      }
-    })
-  } else {
-    // tab in ('trial_done', 'awaiting_payment') — читаются по Ward.
-    // Один Ward = одна строка. salesStage определяет вкладку; для отображения
-    // подтягиваем последнее «представительное» пробное.
-    const stage = TAB_TO_STAGE[tab]
-    // attended-пробное основной кейс, но если стадия Ward была сдвинута вручную
-    // (через ПКМ-меню) без отметки в Расписании, scheduled-пробное всё ещё
-    // актуально и его данные нужно показать в строке.
-    const trialLessonFilter: Prisma.TrialLessonWhereInput = {
-      status: { in: ["attended", "scheduled"] },
-    }
-    // status asc: 'attended' < 'scheduled' алфавитно → attended вперёд.
-    const trialLessonOrder: Prisma.TrialLessonOrderByWithRelationInput[] = [
-      { status: "asc" },
-      { scheduledDate: "desc" },
-    ]
-
-    const wards = await db.ward.findMany({
-      where: wardSalesWhereWithFilters(tenantId, stage, branchFilter, directionFilter, scope),
+    const apps = await db.application.findMany({
+      where,
       include: {
-        client: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            socialLink: true,
-            comment: true,
-            nextContactDate: true,
-            assignedTo: true,
-            firstPaidLessonDate: true,
-            branch: { select: { id: true, name: true } },
-            channel: { select: { id: true, name: true } },
-            _count: { select: { payments: true } },
-          },
-        },
+        client: { select: CLIENT_SELECT },
+        ward: { select: { id: true, firstName: true, lastName: true } },
+        branch: { select: { id: true, name: true } },
+        direction: { select: { id: true, name: true } },
         trialLessons: {
-          where: trialLessonFilter,
-          orderBy: trialLessonOrder,
+          where: trialStatusFilter,
+          orderBy: { scheduledDate: "desc" },
           take: 1,
           include: {
-            group: {
-              select: {
-                id: true,
-                name: true,
-                branch: { select: { id: true, name: true } },
-                direction: { select: { id: true, name: true, lessonPrice: true } },
-              },
-            },
-            direction: { select: { id: true, name: true, lessonPrice: true } },
+            group: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
             room: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
-            // Для групповых пробных время хранится у связанного Lesson; у TrialLesson.startTime
-            // оно null. Подтягиваем для отображения «ДД.ММ.ГГГГ HH:MM».
             lesson: { select: { startTime: true } },
           },
         },
-        // Свежесозданный абонемент на стадии awaiting_payment — fallback для
-        // филиала/направления/группы и даты первого платного, когда пробного
-        // не было (Заявка → сразу Ожидание оплаты). На trial_done подписки
-        // ещё нет — массив придёт пустым, ничего не ломается.
-        subscriptions: {
-          where: { status: { in: ["pending", "active"] }, deletedAt: null },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: {
-            id: true,
-            startDate: true,
-            finalAmount: true,
-            direction: { select: { id: true, name: true, lessonPrice: true } },
-            group: {
-              select: {
-                id: true,
-                name: true,
-                branch: { select: { id: true, name: true } },
-              },
-            },
-          },
-        },
-        // Комментарий «по заявке» показываем во всех вкладках продаж — берём
-        // последнюю не-удалённую заявку подопечного (на этих стадиях она, как
-        // правило, уже processed).
-        applications: {
-          where: { deletedAt: null },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { id: true, comment: true },
-        },
       },
-      orderBy: { salesStageAt: "desc" },
+      orderBy: { updatedAt: "desc" },
     })
 
-    rows = wards.map((w) => {
-      const t = w.trialLessons[0]
-      const sub = w.subscriptions[0]
-      const app = w.applications[0]
-      // Источник истины — пробное; абонемент подхватывает пустоту для пути
-      // «Заявка → Ожидание оплаты» (пробного нет).
-      const direction =
-        t?.group?.direction ?? t?.direction ?? sub?.direction ?? null
-      const groupInfo = t?.group ?? sub?.group ?? null
-      const branchFromTrialOrSub =
-        t?.group?.branch ?? t?.room?.branch ?? sub?.group?.branch ?? null
-      const expected =
-        tab === "awaiting_payment" && sub
-          ? fmtMoney(Number(sub.finalAmount))
-          : null
+    rows = apps.map((a) => {
+      const t = a.trialLessons[0]
+      const branchFromTrial = t?.group?.branch ?? t?.room?.branch ?? null
       return {
-        rowId: w.id,
-        applicationId: app?.id,
-        clientId: w.client.id,
-        state: w.client._count.payments > 0 ? "client" : "lead",
-        firstName: w.client.firstName,
-        lastName: w.client.lastName,
-        phone: maskPhone(w.client.phone, role),
-        socialLink: w.client.socialLink,
-        channelName: w.client.channel?.name ?? null,
-        ward: { id: w.id, firstName: w.firstName, lastName: w.lastName },
-        branchId: branchFromTrialOrSub?.id ?? w.client.branch?.id ?? null,
-        branchName: branchFromTrialOrSub?.name ?? w.client.branch?.name ?? null,
-        directionId: direction?.id ?? null,
-        directionName: direction?.name ?? null,
-        groupId: groupInfo?.id ?? null,
+        rowId: a.id,
+        applicationId: a.id,
+        clientId: a.client.id,
+        state: a.client._count.payments > 0 ? "client" : "lead",
+        firstName: a.client.firstName,
+        lastName: a.client.lastName,
+        phone: maskPhone(a.client.phone, role),
+        socialLink: a.client.socialLink,
+        channelName: a.client.channel?.name ?? null,
+        ward: { id: a.ward.id, firstName: a.ward.firstName, lastName: a.ward.lastName },
+        branchId: a.branch?.id ?? branchFromTrial?.id ?? a.client.branch?.id ?? null,
+        branchName: a.branch?.name ?? branchFromTrial?.name ?? a.client.branch?.name ?? null,
+        directionId: a.direction?.id ?? null,
+        directionName: a.direction?.name ?? null,
+        groupId: t?.group?.id ?? null,
         groupOrTimeLabel:
-          groupInfo?.name ??
+          t?.group?.name ??
           (t?.startTime
             ? `Индив. ${t.startTime}${t.durationMinutes ? `, ${t.durationMinutes}мин` : ""}`
             : null),
@@ -514,18 +247,85 @@ export default async function SalesPage({
         startTime: t?.startTime ?? t?.lesson?.startTime ?? null,
         lessonId: t?.lessonId ?? null,
         trialLessonId: t?.id ?? null,
-        firstPaidLessonDate: w.client.firstPaidLessonDate
-          ? w.client.firstPaidLessonDate.toISOString()
+        firstPaidLessonDate: a.client.firstPaidLessonDate ? a.client.firstPaidLessonDate.toISOString() : null,
+        expectedSubscriptionAmount: null,
+        createdAt: a.createdAt.toISOString(),
+        nextContactDate: a.client.nextContactDate ? a.client.nextContactDate.toISOString() : null,
+        comment: a.comment ?? null,
+        assignedTo: a.client.assignedTo,
+      }
+    })
+  } else {
+    // «Ожидаем оплату» — этап awaiting_payment. Абонемент (pending/active) того же
+    // ребёнка и направления даёт стоимость, группу и дату первого платного.
+    const apps = await db.application.findMany({
+      where,
+      include: {
+        client: { select: CLIENT_SELECT },
+        ward: { select: { id: true, firstName: true, lastName: true } },
+        branch: { select: { id: true, name: true } },
+        direction: { select: { id: true, name: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+    })
+
+    const wardIds = [...new Set(apps.map((a) => a.wardId))]
+    const subs = wardIds.length
+      ? await db.subscription.findMany({
+          where: {
+            tenantId,
+            wardId: { in: wardIds },
+            status: { in: ["pending", "active"] },
+            deletedAt: null,
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            wardId: true,
+            directionId: true,
+            startDate: true,
+            finalAmount: true,
+            group: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
+          },
+        })
+      : []
+    const subByKey = new Map<string, (typeof subs)[number]>()
+    for (const s of subs) {
+      const key = `${s.wardId}:${s.directionId}`
+      if (!subByKey.has(key)) subByKey.set(key, s)
+    }
+
+    rows = apps.map((a) => {
+      const sub = subByKey.get(`${a.wardId}:${a.directionId}`)
+      return {
+        rowId: a.id,
+        applicationId: a.id,
+        clientId: a.client.id,
+        state: a.client._count.payments > 0 ? "client" : "lead",
+        firstName: a.client.firstName,
+        lastName: a.client.lastName,
+        phone: maskPhone(a.client.phone, role),
+        socialLink: a.client.socialLink,
+        channelName: a.client.channel?.name ?? null,
+        ward: { id: a.ward.id, firstName: a.ward.firstName, lastName: a.ward.lastName },
+        branchId: a.branch?.id ?? sub?.group?.branch?.id ?? a.client.branch?.id ?? null,
+        branchName: a.branch?.name ?? sub?.group?.branch?.name ?? a.client.branch?.name ?? null,
+        directionId: a.direction?.id ?? null,
+        directionName: a.direction?.name ?? null,
+        groupId: sub?.group?.id ?? null,
+        groupOrTimeLabel: sub?.group?.name ?? null,
+        scheduledDate: null,
+        startTime: null,
+        lessonId: null,
+        firstPaidLessonDate: a.client.firstPaidLessonDate
+          ? a.client.firstPaidLessonDate.toISOString()
           : sub?.startDate
             ? sub.startDate.toISOString()
             : null,
-        expectedSubscriptionAmount: expected,
-        createdAt: w.salesStageAt ? w.salesStageAt.toISOString() : null,
-        nextContactDate: w.client.nextContactDate
-          ? w.client.nextContactDate.toISOString()
-          : null,
-        comment: app?.comment ?? null,
-        assignedTo: w.client.assignedTo,
+        expectedSubscriptionAmount: sub ? fmtMoney(Number(sub.finalAmount)) : null,
+        createdAt: a.createdAt.toISOString(),
+        nextContactDate: a.client.nextContactDate ? a.client.nextContactDate.toISOString() : null,
+        comment: a.comment ?? null,
+        assignedTo: a.client.assignedTo,
       }
     })
   }

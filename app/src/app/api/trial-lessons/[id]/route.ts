@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { resolveRate } from "@/lib/salary/resolve-rate"
 import { calcPay } from "@/lib/salary/calc-pay"
+import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -114,16 +115,17 @@ export async function PATCH(
 
     // --- Эффекты, не зависящие от наличия Lesson (работают и для индивидуальных) ---
 
-    // attended → перевести подопечного в trial_attended, если он ещё в trial_scheduled.
-    // Если у Ward уже awaiting_payment (админ перевёл вручную) — не откатываем назад.
-    if (
-      status === "attended" &&
-      trial.wardId &&
-      trial.ward?.salesStage === "trial_scheduled"
-    ) {
-      await tx.ward.update({
-        where: { id: trial.wardId },
-        data: { salesStage: "trial_attended", salesStageAt: now },
+    // attended → переводим заявку на этап «Прошёл пробное», если она ещё на «Пробное».
+    // Если заявка уже двинута в awaiting_payment (вручную) — не откатываем (stage-фильтр).
+    if (status === "attended" && trial.applicationId) {
+      await tx.application.updateMany({
+        where: {
+          id: trial.applicationId,
+          tenantId,
+          status: "active",
+          stage: "trial_scheduled",
+        },
+        data: { stage: "trial_attended" },
       })
     }
 
@@ -145,40 +147,34 @@ export async function PATCH(
       })
     }
 
-    // Отмена последнего пробного у Ward: если у подопечного не осталось активных пробных
-    // и он ещё в trial_scheduled / trial_attended — возвращаем salesStage к 'none' либо
-    // к 'application', если по нему есть активная заявка. awaiting_payment не трогаем
-    // (это уже ручная отметка админа).
-    if (status === "cancelled" && trial.wardId) {
-      const wardStage = trial.ward?.salesStage
-      if (wardStage === "trial_scheduled" || wardStage === "trial_attended") {
-        const remainingActive = await tx.trialLesson.count({
+    // Отмена пробного возвращает заявку на этап «Заявка» (из «Пробное»/«Прошёл пробное»).
+    // Если у этой же заявки есть другое не-отменённое пробное — этап не откатываем.
+    // awaiting_payment и закрытые заявки не трогаем (stage-фильтр).
+    if (status === "cancelled" && trial.applicationId) {
+      const otherActiveTrials = await tx.trialLesson.count({
+        where: {
+          tenantId,
+          applicationId: trial.applicationId,
+          id: { not: id },
+          status: { not: "cancelled" },
+        },
+      })
+      if (otherActiveTrials === 0) {
+        await tx.application.updateMany({
           where: {
+            id: trial.applicationId,
             tenantId,
-            wardId: trial.wardId,
-            id: { not: id },
-            status: { not: "cancelled" },
+            status: "active",
+            stage: { in: ["trial_scheduled", "trial_attended"] },
           },
+          data: { stage: "application" },
         })
-        if (remainingActive === 0) {
-          const activeApplication = await tx.application.findFirst({
-            where: {
-              tenantId,
-              wardId: trial.wardId,
-              status: "active",
-              deletedAt: null,
-            },
-            select: { id: true },
-          })
-          await tx.ward.update({
-            where: { id: trial.wardId },
-            data: {
-              salesStage: activeApplication ? "application" : "none",
-              salesStageAt: now,
-            },
-          })
-        }
       }
+    }
+
+    // Пересчитываем зеркало Ward.salesStage по активным заявкам после смены этапа.
+    if (status !== undefined && trial.wardId) {
+      await recomputeWardSalesStage(tx, tenantId, trial.wardId, now)
     }
 
     // Каскад на уведомления: если триал переходит в терминальный статус

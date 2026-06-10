@@ -141,7 +141,8 @@ export function TrialLessonDialog({
       const res = await fetch("/api/trial-lessons", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId, ...payload }),
+        // Привязываем пробное к выбранной заявке — она переедет на этап «Пробное».
+        body: JSON.stringify({ clientId, applicationId: selectedApp?.id, ...payload }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
+import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { z } from "zod"
 import type { Prisma } from "@prisma/client"
 import {
@@ -138,19 +139,10 @@ export async function POST(req: NextRequest) {
         direction: { select: { id: true, name: true, color: true } },
       },
     })
-    // Новая активная заявка возвращает Ward на стадию «Заявка», чтобы её
-    // было видно на одноимённой вкладке Продаж. Исключение — awaiting_payment:
-    // в нём идёт оплата абонемента, и сбрасывать этот прогресс новой заявкой
-    // на другое направление не стоит. trial_scheduled/trial_attended от прошлого
-    // цикла обнуляем — иначе ребёнок «застревает» в Прошёл пробное и активная
-    // заявка нигде не видна.
-    await tx.ward.updateMany({
-      where: {
-        id: data.wardId,
-        salesStage: { notIn: ["application", "awaiting_payment"] },
-      },
-      data: { salesStage: "application", salesStageAt: new Date() },
-    })
+    // Новая заявка создаётся на этапе 'application' (default). Зеркало Ward.salesStage
+    // пересчитываем как максимум по активным заявкам: другие заявки (например, пробное
+    // по другому направлению) сохраняют свой этап, а новая видна во вкладке «Заявка».
+    await recomputeWardSalesStage(tx, tenantId, data.wardId)
     return created
   })
 

@@ -12,6 +12,7 @@
 import { db } from "@/lib/db"
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -149,10 +150,43 @@ export async function payFromBalance(
     })
 
     if (becameActive && sub.wardId) {
-      await t.ward.update({
-        where: { id: sub.wardId },
-        data: { salesStage: "none", salesStageAt: new Date() },
+      // Заявка, по которой выписан этот абонемент, выиграна (оплачена) — уходит из
+      // воронки (won). Остальные заявки ребёнка остаются. Матчим по направлению, а
+      // если не нашли и у ребёнка ровно одна заявка в «Ожидаем оплату» — берём её.
+      const wonData = {
+        status: "processed" as const,
+        processedToStatus: "won" as const,
+        processedAt: new Date(),
+        processedBy: input.createdBy ?? undefined,
+      }
+      const wonByDirection = await t.application.updateMany({
+        where: {
+          tenantId: input.tenantId,
+          wardId: sub.wardId,
+          directionId: sub.directionId,
+          status: "active",
+          stage: "awaiting_payment",
+          deletedAt: null,
+        },
+        data: wonData,
       })
+      if (wonByDirection.count === 0) {
+        const awaiting = await t.application.findMany({
+          where: {
+            tenantId: input.tenantId,
+            wardId: sub.wardId,
+            status: "active",
+            stage: "awaiting_payment",
+            deletedAt: null,
+          },
+          select: { id: true },
+        })
+        if (awaiting.length === 1) {
+          await t.application.update({ where: { id: awaiting[0].id }, data: wonData })
+        }
+      }
+      // Зеркало Ward.salesStage пересчитываем по оставшимся активным заявкам.
+      await recomputeWardSalesStage(t, input.tenantId, sub.wardId)
       await t.groupEnrollment.updateMany({
         where: {
           tenantId: input.tenantId,

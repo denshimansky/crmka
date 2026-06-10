@@ -1,5 +1,6 @@
 import { db } from "@/lib/db"
 import type { TrialLesson } from "@prisma/client"
+import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 
 export type CreateTrialLessonInput = {
   clientId: string
@@ -59,6 +60,9 @@ export async function createTrialLessonForClient(
   let storedRoomId: string | null = null
   let storedStartTime: string | null = null
   let storedDuration: number | null = null
+  // Направление пробного (из группы или индивидуальное) — по нему подбираем заявку,
+  // если applicationId не передан явно.
+  let effectiveDirectionId: string | null = null
 
   if (input.groupId) {
     const group = await db.group.findFirst({
@@ -98,6 +102,7 @@ export async function createTrialLessonForClient(
       }
     }
     lessonId = lesson.id
+    effectiveDirectionId = group.directionId
   } else {
     if (!input.directionId) {
       return { ok: false, error: "Для индивидуального пробного нужно направление", status: 400 }
@@ -150,6 +155,7 @@ export async function createTrialLessonForClient(
     storedInstructorId = input.instructorId
     storedStartTime = input.startTime
     storedDuration = input.durationMinutes ?? direction.lessonDuration ?? 60
+    effectiveDirectionId = input.directionId
   }
 
   let reminderAssigneeId: string | null = client.assignedTo ?? userEmployeeId ?? null
@@ -168,11 +174,17 @@ export async function createTrialLessonForClient(
   todayStart.setHours(0, 0, 0, 0)
   const taskDueDate = reminderDate < todayStart ? todayStart : reminderDate
 
+  // Подбираем заявку, к которой привяжем пробное и которую переведём на этап
+  // «Пробное» (заявка остаётся активной — воронка ведётся по заявке). Если
+  // applicationId передан явно — используем его; иначе ищем активную заявку
+  // подопечного на то же направление.
+  let targetApplicationId: string | null = null
   if (options.applicationId) {
     const application = await db.application.findFirst({
       where: {
         id: options.applicationId,
         tenantId,
+        wardId: input.wardId,
         deletedAt: null,
         status: "active",
       },
@@ -181,6 +193,20 @@ export async function createTrialLessonForClient(
     if (!application) {
       return { ok: false, error: "Заявка не найдена или уже обработана", status: 404 }
     }
+    targetApplicationId = application.id
+  } else if (effectiveDirectionId) {
+    const application = await db.application.findFirst({
+      where: {
+        tenantId,
+        wardId: input.wardId,
+        directionId: effectiveDirectionId,
+        deletedAt: null,
+        status: "active",
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    })
+    targetApplicationId = application?.id ?? null
   }
 
   const trial = await db.$transaction(async (tx) => {
@@ -189,6 +215,7 @@ export async function createTrialLessonForClient(
         tenantId,
         clientId: input.clientId,
         wardId: input.wardId,
+        applicationId: targetApplicationId,
         groupId: input.groupId ?? null,
         lessonId,
         directionId: storedDirectionId,
@@ -203,10 +230,15 @@ export async function createTrialLessonForClient(
       },
     })
 
-    await tx.ward.update({
-      where: { id: input.wardId },
-      data: { salesStage: "trial_scheduled", salesStageAt: new Date() },
-    })
+    // Заявку переводим на этап «Пробное», она остаётся активной (воронка по заявке).
+    // Зеркало Ward.salesStage пересчитаем как максимум по активным заявкам.
+    if (targetApplicationId) {
+      await tx.application.update({
+        where: { id: targetApplicationId },
+        data: { stage: "trial_scheduled" },
+      })
+    }
+    await recomputeWardSalesStage(tx, tenantId, input.wardId)
 
     // Если у клиента ещё нет ответственного — закрепляем за тем, кто записал
     // пробное. Не перезаписываем уже назначенного, чтобы не отбирать клиентов.
@@ -214,18 +246,6 @@ export async function createTrialLessonForClient(
       await tx.client.update({
         where: { id: input.clientId },
         data: { assignedTo: userEmployeeId },
-      })
-    }
-
-    if (options.applicationId) {
-      await tx.application.update({
-        where: { id: options.applicationId },
-        data: {
-          status: "processed",
-          processedToStatus: "trial",
-          processedAt: new Date(),
-          processedBy: userEmployeeId ?? undefined,
-        },
       })
     }
 

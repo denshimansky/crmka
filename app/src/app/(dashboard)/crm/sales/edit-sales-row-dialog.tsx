@@ -325,6 +325,7 @@ export function EditSalesRowDialog({
         const create = await jsonFetch(`/api/trial-lessons`, "POST", {
           clientId: row.clientId,
           wardId: row.ward.id,
+          applicationId: row.applicationId,
           groupId: groupId || undefined,
           scheduledDate,
         })

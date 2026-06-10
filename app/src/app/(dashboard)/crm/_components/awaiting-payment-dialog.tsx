@@ -55,6 +55,7 @@ interface GroupOption {
  */
 export function AwaitingPaymentDialog({
   wardId,
+  applicationId,
   wardName,
   defaultBranchId,
   defaultDirectionId,
@@ -63,6 +64,8 @@ export function AwaitingPaymentDialog({
   onOpenChange,
 }: {
   wardId: string
+  /** Заявка-строка «Продаж», которую переводим в «Ожидаем оплату». */
+  applicationId?: string
   wardName: string
   defaultBranchId?: string | null
   defaultDirectionId?: string | null
@@ -245,6 +248,7 @@ export function AwaitingPaymentDialog({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            applicationId,
             branchId,
             directionId,
             groupId,
