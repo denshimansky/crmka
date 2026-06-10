@@ -22,6 +22,7 @@ import { OnboardingWizard } from "@/components/onboarding-wizard"
 import { DashboardGrid } from "@/components/dashboard-grid"
 import { DashboardSettingsButton } from "@/components/dashboard-settings"
 import { DashboardTasksTable, type DashboardTaskRow } from "@/components/dashboard-tasks-table"
+import { computeMonthlySalaryForecast } from "@/lib/salary/forecast-month"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -355,6 +356,40 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const fmtIncome = (n: number) =>
     n > 0 ? new Intl.NumberFormat("ru-RU").format(Math.round(n)) : "—"
 
+  // === ПРОГНОЗ ПРИБЫЛИ (reports-logic §7.1, упрощённый под дашборд) ===
+  // Прибыль = Сумма абонементов − Прогноз ЗП педагогов − Прогноз постоянных
+  // платежей. «Сумма абонементов» — тот же subAmount, что в виджете
+  // «Ожидаемые поступления». ЗП — оклад или ставка×занятия (см. helper).
+  // Постоянные платежи — плановые расходы постоянных категорий за месяц
+  // (PlannedExpense, isVariable=false), «заполняется вручную раз в месяц».
+  // Переменные расходы в виджет не входят (на макете их нет).
+  const profitSubAmount = incomeTotals.subAmount
+
+  const [salaryForecast, plannedFixed] = await Promise.all([
+    computeMonthlySalaryForecast(db, tenantId, year, month),
+    db.plannedExpense.findMany({
+      where: {
+        tenantId,
+        periodYear: year,
+        periodMonth: month,
+        category: { isVariable: false },
+      },
+      select: { plannedAmount: true },
+    }),
+  ])
+  const fixedPaymentsForecast = plannedFixed.reduce(
+    (s, p) => s + Number(p.plannedAmount),
+    0
+  )
+  const profitForecast = profitSubAmount - salaryForecast - fixedPaymentsForecast
+
+  const monthStartLabel = monthStart.toLocaleDateString("ru-RU", { month: "long" })
+  const profitMonthLabel =
+    monthStartLabel.charAt(0).toUpperCase() +
+    monthStartLabel.slice(1) +
+    " " +
+    String(year).slice(2)
+
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
   const stats = [
@@ -514,6 +549,52 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     </Card>
   )
 
+  const profitForecastWidget = (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">
+          <Link href="/reports/finance/pnl" className="hover:underline">
+            Прогноз прибыли
+          </Link>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {profitSubAmount === 0 && salaryForecast === 0 && fixedPaymentsForecast === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Нет данных по прогнозу за выбранный месяц
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Месяц</TableHead>
+                <TableHead className="text-right">Сумма абонементов</TableHead>
+                <TableHead className="text-right">Прогноз зарплаты педагогов</TableHead>
+                <TableHead className="text-right">Прогноз постоянных платежей</TableHead>
+                <TableHead className="text-right">Прогноз прибыли</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow>
+                <TableCell className="font-medium">{profitMonthLabel}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtIncome(profitSubAmount)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtIncome(salaryForecast)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtIncome(fixedPaymentsForecast)}</TableCell>
+                <TableCell
+                  className={`text-right font-semibold tabular-nums ${
+                    profitForecast < 0 ? "text-red-600" : "text-green-600"
+                  }`}
+                >
+                  {new Intl.NumberFormat("ru-RU").format(Math.round(profitForecast))}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+
   const capacityWidget = (
     <Card>
       <CardHeader className="pb-3">
@@ -579,6 +660,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           stats: statsWidget,
           tasks: tasksWidget,
           expectedIncome: expectedIncomeWidget,
+          profitForecast: profitForecastWidget,
           unmarked: unmarkedWidget,
           funnel: funnelWidget,
           capacity: capacityWidget,
