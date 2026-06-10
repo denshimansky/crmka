@@ -406,6 +406,49 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const fmtMoney2 = (n: number) =>
     new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
+  // === НЕ ПРИШЛИ НА ПРОБНИК (пробные за месяц, кроме «Пришёл») ===
+  const TRIAL_STATUS_LABEL: Record<string, string> = {
+    scheduled: "Расписание",
+    no_show: "Неявка",
+    cancelled: "Отменён",
+  }
+  const missedTrialsRaw = await db.trialLesson.findMany({
+    where: {
+      tenantId,
+      scheduledDate: { gte: monthStart, lte: monthEnd },
+      status: { not: "attended" },
+    },
+    select: {
+      id: true,
+      scheduledDate: true,
+      startTime: true,
+      status: true,
+      client: { select: { firstName: true, lastName: true } },
+      direction: { select: { name: true } },
+      group: {
+        select: {
+          direction: { select: { name: true } },
+          branch: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
+  })
+  const missedTrials = missedTrialsRaw.map((t) => {
+    const d = t.scheduledDate
+    const dd = String(d.getUTCDate()).padStart(2, "0")
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0")
+    const yy = String(d.getUTCFullYear()).slice(2)
+    return {
+      id: t.id,
+      date: `${dd}.${mm}.${yy}${t.startTime ? " " + t.startTime : ""}`,
+      lead: [t.client.lastName, t.client.firstName].filter(Boolean).join(" ") || "—",
+      dayType: TRIAL_STATUS_LABEL[t.status] ?? t.status,
+      branch: t.group?.branch?.name ?? "—",
+      direction: t.direction?.name ?? t.group?.direction?.name ?? "—",
+    }
+  })
+
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
   const stats = [
@@ -558,6 +601,49 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{fmtIncome(incomeTotals.discount)}</TableCell>
               </TableRow>
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+
+  const missedTrialsWidget = (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center justify-between text-base">
+          <Link href="/crm/sales" className="hover:underline">
+            Не пришли на пробник
+          </Link>
+          <Badge variant={missedTrials.length > 0 ? "destructive" : "secondary"}>
+            {missedTrials.length}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {missedTrials.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Нет пробных без посещения за месяц</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Дата пробника</TableHead>
+                <TableHead>Лид</TableHead>
+                <TableHead>Тип дня</TableHead>
+                <TableHead>Филиал</TableHead>
+                <TableHead>Направление</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {missedTrials.map((t) => (
+                <TableRow key={t.id}>
+                  <TableCell className="tabular-nums">{t.date}</TableCell>
+                  <TableCell>{t.lead}</TableCell>
+                  <TableCell>{t.dayType}</TableCell>
+                  <TableCell>{t.branch}</TableCell>
+                  <TableCell>{t.direction}</TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         )}
@@ -742,7 +828,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   )
 
   return (
-    <div className="space-y-6">
+    // pb-24 — нижний отступ, чтобы плавающая иконка AI-агента не перекрывала
+    // данные последних виджетов при прокрутке до конца.
+    <div className="space-y-6 pb-24">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Дашборд</h1>
@@ -762,6 +850,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           expectedIncome: expectedIncomeWidget,
           activeSubs: activeSubsWidget,
           profitForecast: profitForecastWidget,
+          missedTrials: missedTrialsWidget,
           unmarked: unmarkedWidget,
           funnel: funnelWidget,
           capacity: capacityWidget,

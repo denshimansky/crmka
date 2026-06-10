@@ -22,7 +22,7 @@ export interface WidgetConfig {
 
 const STORAGE_KEY = "dashboard-widget-config"
 const CHANGE_EVENT = "dashboard-widget-config-change"
-const MAX_VISIBLE = 10
+const MAX_VISIBLE = 14
 
 export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "stats", label: "Ключевые показатели", visible: true },
@@ -30,6 +30,7 @@ export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "expectedIncome", label: "Ожидаемые поступления средств", visible: true },
   { id: "activeSubs", label: "Активные абонементы", visible: true },
   { id: "profitForecast", label: "Прогноз прибыли", visible: true },
+  { id: "missedTrials", label: "Не пришли на пробник", visible: true },
   { id: "unmarked", label: "Неотмеченные занятия", visible: true },
   { id: "funnel", label: "Воронка продаж", visible: true },
   { id: "capacity", label: "Заполняемость групп", visible: true },

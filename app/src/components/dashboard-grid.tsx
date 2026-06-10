@@ -16,6 +16,7 @@ const WIDGET_LAYOUT: Record<string, "full" | "compact"> = {
   expectedIncome: "compact",
   activeSubs: "full",
   profitForecast: "full",
+  missedTrials: "full",
   unmarked: "compact",
   funnel: "compact",
   capacity: "compact",
