@@ -386,28 +386,28 @@ export async function ClientCardContent({
               }))}
               disabledReason={trialDisabledReason}
             />
-            {client.clientStatus && (
-              <>
-                <AddPaymentDialog
-                  clients={[]}
-                  incomeCategories={[]}
-                  accounts={accounts.map((a) => ({ id: a.id, name: a.name, type: a.type }))}
-                  lockedClient={{
-                    id: client.id,
-                    name:
-                      [client.lastName, client.firstName].filter(Boolean).join(" ") ||
-                      "Без имени",
-                  }}
-                  triggerButton={
-                    <Button>
-                      <CreditCard className="mr-2 size-4" />
-                      Оплата
-                    </Button>
-                  }
-                />
-                <PortalLinkButton clientId={client.id} />
-              </>
-            )}
+            {/* «Оплата» доступна и лиду: первая оплата — это и есть конверсия
+                лид → клиент (PRD: переход автоматический при первой оплате).
+                Баг #77 — раньше кнопка пряталась под client.clientStatus. */}
+            <AddPaymentDialog
+              clients={[]}
+              incomeCategories={[]}
+              accounts={accounts.map((a) => ({ id: a.id, name: a.name, type: a.type }))}
+              lockedClient={{
+                id: client.id,
+                name:
+                  [client.lastName, client.firstName].filter(Boolean).join(" ") ||
+                  "Без имени",
+              }}
+              triggerButton={
+                <Button>
+                  <CreditCard className="mr-2 size-4" />
+                  Оплата
+                </Button>
+              }
+            />
+            {/* Личный кабинет — для тех, кто уже клиент (есть clientStatus). */}
+            {client.clientStatus && <PortalLinkButton clientId={client.id} />}
           </>
         )}
         <LeadStatusActions
