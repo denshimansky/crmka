@@ -147,6 +147,13 @@ export default async function LessonsAbsencesPage({
   }
   if (Object.keys(groupWhere).length > 0) lessonWhereBase.group = groupWhere
   if (instructorId) lessonWhereBase.instructorId = instructorId
+  // Инструктор видит только свои занятия (ведущий или замена) — чужие пропуски не показываем.
+  if (session.user.role === "instructor") {
+    lessonWhereBase.OR = [
+      { instructorId: session.user.employeeId },
+      { substituteInstructorId: session.user.employeeId },
+    ]
+  }
 
   // === Вкладка 1: "Не был" (no_show) ===
   const noShowAttendances = await db.attendance.findMany({

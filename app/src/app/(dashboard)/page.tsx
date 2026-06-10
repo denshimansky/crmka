@@ -51,6 +51,27 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     }
   }
 
+  // Инструктору (педагогу) дашборд с виджетами не показываем — это управленческая
+  // сводка. Отдаём простую главную со ссылками на его рабочие поверхности. Выходим
+  // до загрузки данных виджетов — не считаем и не отдаём лишнего.
+  if (session.user.role === "instructor") {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold">Главная</h1>
+        <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+          <p className="text-base text-foreground">Здравствуйте, {session.user.name}!</p>
+          <p className="mt-2">
+            Откройте{" "}
+            <Link href="/schedule" className="text-primary hover:underline">Расписание</Link>{" "}
+            или{" "}
+            <Link href="/lessons" className="text-primary hover:underline">Занятия</Link>
+            , чтобы посмотреть свои занятия и отметить посещаемость.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const { year, month } = getMonthFromParams(await searchParams)
   const now = new Date()
   const monthStart = new Date(Date.UTC(year, month - 1, 1))

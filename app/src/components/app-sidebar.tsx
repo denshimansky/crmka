@@ -112,7 +112,10 @@ export function AppSidebar({
   const filterByPerm = (items: NavItem[]) =>
     items.filter((i) => !i.permission || permissions[i.permission])
 
-  const visibleNavItems = filterByPerm(navItems)
+  // Инструктору «Дашборд» не показываем — у него главная без виджетов.
+  const visibleNavItems = filterByPerm(navItems).filter(
+    (i) => !(user?.role === "instructor" && i.href === "/"),
+  )
   const visibleCrmItems = filterByPerm(crmItems)
   const visibleFinanceItems = filterByPerm(financeItems)
   const visibleOtherItems = filterByPerm(otherItems)

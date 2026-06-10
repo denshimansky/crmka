@@ -73,6 +73,20 @@ export function scopeLessonForInstructor(
   }
 }
 
+// Group для инструктора: только его группы (он ведущий) ИЛИ группы, где он
+// заменяет на каком-то занятии. Та же логика, что scopeLessonForInstructor, но
+// на уровне группы — для страниц/селекторов, работающих по группам (посещаемость).
+export function scopeGroupForInstructor(
+  employeeId: string,
+): Prisma.GroupWhereInput {
+  return {
+    OR: [
+      { instructorId: employeeId },
+      { lessons: { some: { substituteInstructorId: employeeId } } },
+    ],
+  }
+}
+
 // Subscription → через group.branchId. У Subscription нет своего branchId.
 export function scopeSubscription(
   scope: BranchScope,

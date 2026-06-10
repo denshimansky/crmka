@@ -8,16 +8,23 @@ import {
 } from "@/lib/schedule/generate-group-lessons"
 import { bracketSchema, validateForScheme } from "@/lib/salary/rate-schema"
 import { findDuplicateTemplateIndexes } from "@/lib/schedule/group-conflicts"
+import { scopeGroupForInstructor } from "@/lib/branch-scope"
 
 // GET /api/groups — список групп организации
 export async function GET() {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
+  // Инструктор видит только свои группы (ведущий или замена).
+  const instructorFilter =
+    session.user.role === "instructor"
+      ? scopeGroupForInstructor(session.user.employeeId)
+      : {}
+
   const groups = await db.group.findMany({
     // Скрываем технические одноразовые группы — они существуют только как
     // контейнер для разового Lesson и не должны светиться в списках.
-    where: { tenantId, deletedAt: null, isOneTime: false },
+    where: { tenantId, deletedAt: null, isOneTime: false, ...instructorFilter },
     include: {
       direction: true,
       branch: true,

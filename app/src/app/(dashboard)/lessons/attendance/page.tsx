@@ -2,7 +2,7 @@ import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
-import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee } from "@/lib/branch-scope"
+import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee, scopeGroupForInstructor } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
@@ -109,7 +109,18 @@ export default async function LessonsAttendancePage({
     }),
   ])
 
-  const groupWhere: Prisma.GroupWhereInput = { tenantId, deletedAt: null, isOneTime: false }
+  // Инструктор видит только свои группы (ведущий или замена) — остальные не показываем.
+  const instructorGroupFilter =
+    session.user.role === "instructor"
+      ? scopeGroupForInstructor(session.user.employeeId)
+      : null
+
+  const groupWhere: Prisma.GroupWhereInput = {
+    tenantId,
+    deletedAt: null,
+    isOneTime: false,
+    ...(instructorGroupFilter ?? {}),
+  }
   if (branchId) groupWhere.branchId = branchId
   else if (scope.mode === "limited") groupWhere.branchId = { in: scope.branchIds }
   if (roomId) groupWhere.roomId = roomId
@@ -140,6 +151,7 @@ export default async function LessonsAttendancePage({
       deletedAt: null,
       isOneTime: false,
       ...(scope.mode === "limited" ? { branchId: { in: scope.branchIds } } : {}),
+      ...(instructorGroupFilter ?? {}),
     },
     select: {
       id: true,
