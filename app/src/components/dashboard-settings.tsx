@@ -22,7 +22,6 @@ export interface WidgetConfig {
 
 const STORAGE_KEY = "dashboard-widget-config"
 const CHANGE_EVENT = "dashboard-widget-config-change"
-const MAX_VISIBLE = 14
 
 export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "stats", label: "Ключевые показатели", visible: true },
@@ -38,6 +37,9 @@ export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "birthdays", label: "Дни рождения", visible: true },
   { id: "workedSubs", label: "Отработанные абонементы", visible: true },
 ]
+
+// Лимит = число существующих виджетов: включить можно все, счётчик «N из N».
+const MAX_VISIBLE = DEFAULT_WIDGETS.length
 
 export function loadWidgetConfig(): WidgetConfig[] {
   if (typeof window === "undefined") return DEFAULT_WIDGETS
@@ -165,7 +167,6 @@ export function DashboardSettings({
           <DialogTitle>Настройка дашборда</DialogTitle>
           <DialogDescription>
             Включайте/выключайте виджеты и указывайте порядковый номер.
-            Максимум {MAX_VISIBLE} виджетов одновременно.
           </DialogDescription>
         </DialogHeader>
 
@@ -200,7 +201,7 @@ export function DashboardSettings({
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Включено {visibleCount} из {MAX_VISIBLE}
+          Включено {visibleCount} из {local.length}
         </p>
 
         <div className="flex items-center justify-between pt-2">
