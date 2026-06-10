@@ -23,6 +23,7 @@ import { DashboardGrid } from "@/components/dashboard-grid"
 import { DashboardSettingsButton } from "@/components/dashboard-settings"
 import { DashboardTasksTable, type DashboardTaskRow } from "@/components/dashboard-tasks-table"
 import { computeMonthlySalaryForecast } from "@/lib/salary/forecast-month"
+import { computeActiveSubscriptionsByBranch } from "@/lib/dashboard/active-subscriptions"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -390,6 +391,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     " " +
     String(year).slice(2)
 
+  // === АКТИВНЫЕ АБОНЕМЕНТЫ (по филиалам, за месяц) ===
+  const activeSubsData = await computeActiveSubscriptionsByBranch(db, tenantId, year, month)
+  const fmtCount = (n: number) => (n > 0 ? String(n) : "—")
+
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
   const stats = [
@@ -549,6 +554,52 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     </Card>
   )
 
+  const activeSubsWidget = (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">
+          <Link href="/reports/crm/active-subs-dynamics" className="hover:underline">
+            Активные абонементы
+          </Link>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {activeSubsData.rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Нет активированных абонементов за выбранный месяц
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Филиал</TableHead>
+                <TableHead className="text-right">Количество абонементов за месяц</TableHead>
+                <TableHead className="text-right">Продленные абонементы</TableHead>
+                <TableHead className="text-right">Количество активных на конец месяца</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {activeSubsData.rows.map((r) => (
+                <TableRow key={r.branchId}>
+                  <TableCell>{r.branch}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtCount(r.created)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtCount(r.renewed)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtCount(r.activeNow)}</TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="border-t-2 bg-muted/30 font-semibold">
+                <TableCell>Итого</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtCount(activeSubsData.totals.created)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtCount(activeSubsData.totals.renewed)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtCount(activeSubsData.totals.activeNow)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+
   const profitForecastWidget = (
     <Card>
       <CardHeader className="pb-3">
@@ -660,6 +711,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           stats: statsWidget,
           tasks: tasksWidget,
           expectedIncome: expectedIncomeWidget,
+          activeSubs: activeSubsWidget,
           profitForecast: profitForecastWidget,
           unmarked: unmarkedWidget,
           funnel: funnelWidget,
