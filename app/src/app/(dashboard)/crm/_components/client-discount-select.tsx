@@ -17,7 +17,11 @@ interface TemplateOption {
   systemKey: string | null
 }
 
-function shortTitle(t: TemplateOption): string {
+function shortTitle(t: {
+  name: string
+  valueType: "percent" | "fixed"
+  value: string | number
+}): string {
   const v = Number(t.value)
   const suffix =
     t.valueType === "percent" ? `${v}%` : `${v.toLocaleString("ru-RU")} ₽/занятие`
@@ -45,10 +49,20 @@ function unavailableReason(
 export function ClientDiscountSelect({
   clientId,
   initialTemplateId,
+  initialTemplate,
   wardsCount,
 }: {
   clientId: string
   initialTemplateId: string | null
+  // Текущий шаблон скидки — чтобы показать название СРАЗУ, не дожидаясь
+  // открытия дропдауна (список шаблонов грузится лениво). Без этого триггер
+  // показывал «…» вместо названия (баг #74).
+  initialTemplate?: {
+    id: string
+    name: string
+    valueType: "percent" | "fixed"
+    value: string | number
+  } | null
   wardsCount: number
 }) {
   const router = useRouter()
@@ -90,8 +104,16 @@ export function ClientDiscountSelect({
     }
   }
 
+  // Название берём из загруженного списка; пока он не загружен (или шаблон уже
+  // деактивирован и в списке его нет) — из initialTemplate, переданного сервером.
   const selected = options.find((o) => o.id === value)
-  const label = selected ? shortTitle(selected) : value === "none" ? "Без скидки" : "…"
+  const label = selected
+    ? shortTitle(selected)
+    : value === "none"
+      ? "Без скидки"
+      : initialTemplate
+        ? shortTitle(initialTemplate)
+        : "…"
 
   return (
     <Select

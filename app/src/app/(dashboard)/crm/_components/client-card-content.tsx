@@ -306,6 +306,16 @@ export async function ClientCardContent({
             <ClientDiscountSelect
               clientId={client.id}
               initialTemplateId={client.discountTemplateId ?? null}
+              initialTemplate={
+                client.discountTemplate
+                  ? {
+                      id: client.discountTemplate.id,
+                      name: client.discountTemplate.name,
+                      valueType: client.discountTemplate.valueType,
+                      value: Number(client.discountTemplate.value),
+                    }
+                  : null
+              }
               wardsCount={client.wards.length}
             />
           </div>
