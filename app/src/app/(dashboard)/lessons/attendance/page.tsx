@@ -2,7 +2,7 @@ import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
-import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee, scopeGroupForInstructor } from "@/lib/branch-scope"
+import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
@@ -109,17 +109,33 @@ export default async function LessonsAttendancePage({
     }),
   ])
 
-  // Инструктор видит только свои группы (ведущий или замена) — остальные не показываем.
-  const instructorGroupFilter =
+  // Инструктор видит только СВОИ занятия — где он назначен преподом (instructorId)
+  // или стоит на замене (substituteInstructorId). В сетке это значит: показываем
+  // только группы, в которых есть его занятия в этом месяце, и только эти занятия
+  // (в чужой группе, где он заменяет одно занятие, видна только эта колонка).
+  const instructorLessonFilter: Prisma.LessonWhereInput | null =
     session.user.role === "instructor"
-      ? scopeGroupForInstructor(session.user.employeeId)
+      ? {
+          OR: [
+            { instructorId: session.user.employeeId },
+            { substituteInstructorId: session.user.employeeId },
+          ],
+        }
       : null
 
   const groupWhere: Prisma.GroupWhereInput = {
     tenantId,
     deletedAt: null,
     isOneTime: false,
-    ...(instructorGroupFilter ?? {}),
+  }
+  if (instructorLessonFilter) {
+    groupWhere.lessons = {
+      some: {
+        ...instructorLessonFilter,
+        date: { gte: dateFrom, lte: dateTo },
+        status: { not: "cancelled" },
+      },
+    }
   }
   if (branchId) groupWhere.branchId = branchId
   else if (scope.mode === "limited") groupWhere.branchId = { in: scope.branchIds }
@@ -151,7 +167,7 @@ export default async function LessonsAttendancePage({
       deletedAt: null,
       isOneTime: false,
       ...(scope.mode === "limited" ? { branchId: { in: scope.branchIds } } : {}),
-      ...(instructorGroupFilter ?? {}),
+      ...(instructorLessonFilter ? { lessons: { some: instructorLessonFilter } } : {}),
     },
     select: {
       id: true,
@@ -200,6 +216,8 @@ export default async function LessonsAttendancePage({
           date: { gte: dateFrom, lte: dateTo },
           status: { not: "cancelled" },
           groupId: { in: effectiveGroupIds },
+          // Инструктору — только его занятия (преподаёт или заменяет).
+          ...(instructorLessonFilter ?? {}),
         },
         select: {
           id: true,
