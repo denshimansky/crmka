@@ -36,6 +36,7 @@ export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "capacity", label: "Заполняемость групп", visible: true },
   { id: "cashBalances", label: "Остатки денег", visible: true },
   { id: "birthdays", label: "Дни рождения", visible: true },
+  { id: "workedSubs", label: "Отработанные абонементы", visible: true },
 ]
 
 export function loadWidgetConfig(): WidgetConfig[] {

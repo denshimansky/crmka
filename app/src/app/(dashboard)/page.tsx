@@ -458,6 +458,36 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const birthdaysData = await computeUpcomingBirthdays(db, tenantId, realToday)
   const birthdaysCount = birthdaysData.children.length + birthdaysData.staff.length
 
+  // === ОТРАБОТАННЫЕ АБОНЕМЕНТЫ (по филиалам, за месяц) — reports-logic §5.10 ===
+  // Сумма абонементов = SUM(finalAmount) всех выписанных за период; Отработано
+  // = SUM(chargedAmount) — накопленные списания с абонемента (доход в финрезе).
+  const workedSubsRaw = await db.subscription.findMany({
+    where: { tenantId, deletedAt: null, periodYear: year, periodMonth: month },
+    select: {
+      finalAmount: true,
+      chargedAmount: true,
+      group: { select: { branch: { select: { id: true, name: true } } } },
+    },
+  })
+  interface WorkedRow { branchId: string; branch: string; subAmount: number; worked: number }
+  const workedMap = new Map<string, WorkedRow>()
+  for (const s of workedSubsRaw) {
+    const b = s.group.branch
+    let row = workedMap.get(b.id)
+    if (!row) {
+      row = { branchId: b.id, branch: b.name, subAmount: 0, worked: 0 }
+      workedMap.set(b.id, row)
+    }
+    row.subAmount += Number(s.finalAmount)
+    row.worked += Number(s.chargedAmount)
+  }
+  const workedRows = [...workedMap.values()].sort((a, b) => a.branch.localeCompare(b.branch, "ru"))
+  const workedTotals = workedRows.reduce(
+    (acc, r) => ({ subAmount: acc.subAmount + r.subAmount, worked: acc.worked + r.worked }),
+    { subAmount: 0, worked: 0 }
+  )
+  const fmtRub = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n))
+
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
   const stats = [
@@ -719,6 +749,47 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     </Card>
   )
 
+  const workedSubsWidget = (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">
+          <Link href="/reports/finance/revenue" className="hover:underline">
+            Отработанные абонементы
+          </Link>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {workedRows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Нет абонементов за выбранный месяц</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Филиал</TableHead>
+                <TableHead className="text-right">Сумма абонементов</TableHead>
+                <TableHead className="text-right">Отработано</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {workedRows.map((r) => (
+                <TableRow key={r.branchId}>
+                  <TableCell>{r.branch}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtRub(r.subAmount)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtRub(r.worked)}</TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="border-t-2 bg-muted/30 font-semibold">
+                <TableCell>Итого</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtRub(workedTotals.subAmount)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtRub(workedTotals.worked)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+
   const cashBalancesWidget = (
     <Card>
       <CardHeader className="pb-3">
@@ -924,6 +995,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           capacity: capacityWidget,
           cashBalances: cashBalancesWidget,
           birthdays: birthdaysWidget,
+          workedSubs: workedSubsWidget,
         }}
       />
     </div>
