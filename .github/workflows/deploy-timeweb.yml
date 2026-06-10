@@ -1,0 +1,61 @@
+name: Deploy to Timeweb
+
+# Параллельный прод-кандидат на Timeweb (msk1.umnayacrm.ru).
+# Hetzner-dev (deploy.yml) деплоится на каждый push в main — его НЕ трогаем.
+# Timeweb деплоится только по тегу vX.Y.Z или вручную (workflow_dispatch),
+# чтобы прод не катился на каждый коммит.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          # По тегу — деплоим именно этот тег; вручную — последний main.
+          # Передаём через env (не инлайним в script) — защита от инъекции через имя тега.
+          TARGET_REF: ${{ github.ref_type == 'tag' && github.ref_name || 'main' }}
+        with:
+          host: 201.51.1.81
+          port: 22
+          username: deploy
+          key: ${{ secrets.TIMEWEB_SSH_KEY }}
+          envs: TARGET_REF
+          script: |
+            cd /opt/crmka
+            git fetch --all --tags --prune
+            echo "Deploying ref: $TARGET_REF"
+            git checkout -f "$TARGET_REF"
+            if [ "$TARGET_REF" = "main" ]; then git pull --ff-only origin main; fi
+            # Гарантируем ALLOW_DESTRUCTIVE_API (для seed/reset на стенде)
+            if ! grep -q "^ALLOW_DESTRUCTIVE_API=" .env 2>/dev/null; then
+              echo "ALLOW_DESTRUCTIVE_API=true" >> .env
+            fi
+            docker compose build app
+            docker compose up -d
+            # Baseline: если _prisma_migrations не существует, создаём и помечаем initial как applied
+            docker compose exec -T db psql -U crmka -c "
+              CREATE TABLE IF NOT EXISTS \"_prisma_migrations\" (
+                id VARCHAR(36) PRIMARY KEY,
+                checksum VARCHAR(64) NOT NULL,
+                finished_at TIMESTAMPTZ,
+                migration_name VARCHAR(255) NOT NULL,
+                logs TEXT,
+                rolled_back_at TIMESTAMPTZ,
+                started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                applied_steps_count INTEGER NOT NULL DEFAULT 0
+              );
+              INSERT INTO \"_prisma_migrations\" (id, checksum, migration_name, finished_at, applied_steps_count)
+              SELECT gen_random_uuid(), '', '20260331093420_initial', NOW(), 1
+              WHERE NOT EXISTS (SELECT 1 FROM \"_prisma_migrations\" WHERE migration_name = '20260331093420_initial');
+            "
+            docker compose exec -T app npx prisma migrate deploy
+            # Чистим build cache старше 7 дней (образы НЕ трогаем — node:22-alpine остаётся в кеше)
+            docker builder prune -af --filter "until=168h" || true
+            echo "Deploy complete: $(date)"
