@@ -7,7 +7,7 @@ export interface ActiveSubsRow {
   branch: string
   /** Количество абонементов за месяц — активированных (списание/оплата) в месяце. */
   created: number
-  /** Продлённые — из активированных те, чей клиент был активен в прошлом месяце. */
+  /** Продлённые — из активированных те, где тот же ребёнок ходил в ту же группу в прошлом месяце. */
   renewed: number
   /** Количество активных на конец — абонементы со статусом active прямо сейчас. */
   activeNow: number
@@ -27,9 +27,10 @@ export interface ActiveSubsData {
  *     (Attendance с типом partOfFact = «посетил/прогулял») ИЛИ оплата
  *     (Payment incoming, привязанный к абонементу). Выписанные, но «мёртвые»
  *     (без посещений и оплат) абонементы НЕ считаются.
- *   • «Продлённые» — из активированных в этом месяце те, чей клиент был
- *     активен и в ПРОШЛОМ месяце (та же логика активности, применённая к
- *     предыдущему месяцу).
+ *   • «Продлённые» — из активированных в этом месяце те, где ТОТ ЖЕ ребёнок
+ *     (ward) ходил в ТУ ЖЕ группу и в прошлом месяце (была активность —
+ *     занятие со списанием или оплата — по абонементу той же группы). Смена
+ *     направления/группы (английский → скорочтение) продлением НЕ считается.
  *   • «Количество активных на конец месяца» — абонементы со статусом active
  *     на текущий момент («активные на минуту сейчас»). Для прошлых месяцев
  *     это тоже текущий срез, а не исторический.
@@ -74,18 +75,19 @@ export async function computeActiveSubscriptionsByBranch(
       },
       select: { subscriptionId: true },
     }),
-    // Прошлый месяц: клиенты с занятиями со списанием.
+    // Прошлый месяц: пары (ребёнок + группа) с занятиями со списанием.
     db.attendance.findMany({
       where: {
         tenantId,
         subscriptionId: { not: null },
         isPending: false,
+        wardId: { not: null },
         ...factType,
         lesson: { date: { gte: prevStart, lte: prevEnd } },
       },
-      select: { clientId: true },
+      select: { wardId: true, lesson: { select: { groupId: true } } },
     }),
-    // Прошлый месяц: клиенты с оплатами абонементов.
+    // Прошлый месяц: пары (ребёнок + группа) с оплатами абонементов.
     db.payment.findMany({
       where: {
         tenantId,
@@ -94,7 +96,7 @@ export async function computeActiveSubscriptionsByBranch(
         subscriptionId: { not: null },
         date: { gte: prevStart, lte: prevEnd },
       },
-      select: { clientId: true },
+      select: { subscription: { select: { wardId: true, groupId: true } } },
     }),
     // Активные на текущий момент.
     db.subscription.findMany({
@@ -109,17 +111,26 @@ export async function computeActiveSubscriptionsByBranch(
   for (const a of attCur) if (a.subscriptionId) activatedIds.add(a.subscriptionId)
   for (const p of payCur) if (p.subscriptionId) activatedIds.add(p.subscriptionId)
 
-  const prevActiveClients = new Set<string>()
-  for (const a of attPrev) prevActiveClients.add(a.clientId)
-  for (const p of payPrev) if (p.clientId) prevActiveClients.add(p.clientId)
+  // Продление считаем по паре «ребёнок + группа»: тот же ward ходил в ту же
+  // группу в прошлом месяце.
+  const prevActivePairs = new Set<string>()
+  const pairKey = (wardId: string, groupId: string) => `${wardId}:${groupId}`
+  for (const a of attPrev) {
+    if (a.wardId) prevActivePairs.add(pairKey(a.wardId, a.lesson.groupId))
+  }
+  for (const p of payPrev) {
+    const sub = p.subscription
+    if (sub?.wardId) prevActivePairs.add(pairKey(sub.wardId, sub.groupId))
+  }
 
-  // Абонементы, активированные в этом месяце, — с клиентом и филиалом.
+  // Абонементы, активированные в этом месяце, — с ребёнком, группой и филиалом.
   const activatedSubs =
     activatedIds.size > 0
       ? await db.subscription.findMany({
           where: { tenantId, id: { in: [...activatedIds] } },
           select: {
-            clientId: true,
+            wardId: true,
+            groupId: true,
             group: { select: { branchId: true, branch: { select: { name: true } } } },
           },
         })
@@ -138,7 +149,7 @@ export async function computeActiveSubscriptionsByBranch(
   for (const s of activatedSubs) {
     const row = bucket(s.group.branchId, s.group.branch.name)
     row.created += 1
-    if (prevActiveClients.has(s.clientId)) row.renewed += 1
+    if (s.wardId && prevActivePairs.has(pairKey(s.wardId, s.groupId))) row.renewed += 1
   }
   for (const s of activeNow) {
     bucket(s.group.branchId, s.group.branch.name).activeNow += 1
