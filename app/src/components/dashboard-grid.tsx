@@ -21,6 +21,7 @@ const WIDGET_LAYOUT: Record<string, "full" | "compact"> = {
   funnel: "compact",
   capacity: "compact",
   cashBalances: "compact",
+  birthdays: "compact",
 }
 
 interface DashboardGridProps {

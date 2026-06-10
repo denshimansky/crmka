@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table"
 import {
   Users, TrendingUp, TrendingDown, AlertTriangle,
-  Clock, BarChart3,
+  Clock, BarChart3, Cake,
 } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
@@ -24,6 +24,7 @@ import { DashboardSettingsButton } from "@/components/dashboard-settings"
 import { DashboardTasksTable, type DashboardTaskRow } from "@/components/dashboard-tasks-table"
 import { computeMonthlySalaryForecast } from "@/lib/salary/forecast-month"
 import { computeActiveSubscriptionsByBranch } from "@/lib/dashboard/active-subscriptions"
+import { computeUpcomingBirthdays } from "@/lib/dashboard/upcoming-birthdays"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -451,6 +452,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     }
   })
 
+  // === ДНИ РОЖДЕНИЯ (дети с активным абонементом + сотрудники, окно 30 дней) ===
+  // Отсчёт от реального «сегодня», не зависит от выбранного месяца.
+  const realToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const birthdaysData = await computeUpcomingBirthdays(db, tenantId, realToday)
+  const birthdaysCount = birthdaysData.children.length + birthdaysData.staff.length
+
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
   const stats = [
@@ -646,6 +653,65 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   <TableCell>{t.direction}</TableCell>
                 </TableRow>
               ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+
+  const birthdaysWidget = (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center justify-between text-base">
+          <span className="flex items-center gap-2">
+            <Cake className="size-5 text-muted-foreground" />
+            Дни рождения
+          </span>
+          <Badge variant="secondary">{birthdaysCount}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {birthdaysCount === 0 ? (
+          <p className="text-sm text-muted-foreground">Нет дней рождения в ближайшие 30 дней</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ФИО</TableHead>
+                <TableHead>Дата ДР</TableHead>
+                <TableHead>Сколько исполнится</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {birthdaysData.children.length > 0 && (
+                <>
+                  <TableRow className="bg-muted/30">
+                    <TableCell colSpan={3} className="font-semibold">Дети</TableCell>
+                  </TableRow>
+                  {birthdaysData.children.map((r) => (
+                    <TableRow key={`c-${r.id}`}>
+                      <TableCell>{r.fio}</TableCell>
+                      <TableCell className="tabular-nums">{r.dateLabel}</TableCell>
+                      <TableCell>{r.turnsLabel}</TableCell>
+                    </TableRow>
+                  ))}
+                </>
+              )}
+              {birthdaysData.staff.length > 0 && (
+                <>
+                  <TableRow className="bg-muted/30">
+                    <TableCell colSpan={3} className="font-semibold">Сотрудники</TableCell>
+                  </TableRow>
+                  {birthdaysData.staff.map((r) => (
+                    <TableRow key={`s-${r.id}`}>
+                      <TableCell>{r.fio}</TableCell>
+                      <TableCell className="tabular-nums">{r.dateLabel}</TableCell>
+                      <TableCell>{r.turnsLabel}</TableCell>
+                    </TableRow>
+                  ))}
+                </>
+              )}
             </TableBody>
           </Table>
         )}
@@ -857,6 +923,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           funnel: funnelWidget,
           capacity: capacityWidget,
           cashBalances: cashBalancesWidget,
+          birthdays: birthdaysWidget,
         }}
       />
     </div>
