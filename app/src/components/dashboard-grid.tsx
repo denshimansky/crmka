@@ -13,6 +13,7 @@ import {
 const WIDGET_LAYOUT: Record<string, "full" | "compact"> = {
   stats: "full",
   tasks: "compact",
+  expectedIncome: "compact",
   unmarked: "compact",
   funnel: "compact",
   capacity: "compact",

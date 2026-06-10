@@ -116,11 +116,6 @@ export function DashboardTasksTable({ tasks }: { tasks: DashboardTaskRow[] }) {
 
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-[28px_120px_1fr] items-center gap-3 px-3 pb-1 text-xs font-medium text-muted-foreground">
-        <span />
-        <span>Дата</span>
-        <span>Суть</span>
-      </div>
       {sorted.map((t) => (
         <DashboardTaskRow key={t.id} task={t} />
       ))}

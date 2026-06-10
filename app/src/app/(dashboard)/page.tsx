@@ -272,6 +272,89 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     .sort((a, b) => a.percent - b.percent)
     .slice(0, 10)
 
+  // Ожидаемые поступления средств — финансовый отчёт по филиалам за выбранный месяц.
+  // Логика повторяет /api/reports/expected-income: активные/pending абонементы
+  // активных клиентов; calendar — фильтр по periodYear/Month, package — пересечение
+  // действия пакета с диапазоном месяца.
+  const orgInfo = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionType: true },
+  })
+  const isPackageOrg = orgInfo?.subscriptionType === "package"
+  const monthEndDt = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
+
+  const expectedSubs = await db.subscription.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      status: { in: ["active", "pending"] },
+      client: { clientStatus: "active" },
+      ...(isPackageOrg
+        ? {
+            type: "package",
+            startDate: { lte: monthEndDt },
+            OR: [{ expiresAt: null }, { expiresAt: { gte: monthStart } }],
+          }
+        : { periodYear: year, periodMonth: month }),
+    },
+    select: {
+      finalAmount: true,
+      discountAmount: true,
+      balance: true,
+      group: { select: { branch: { select: { id: true, name: true } } } },
+    },
+  })
+
+  interface IncomeRow {
+    branchId: string
+    branch: string
+    subAmount: number
+    expected: number
+    paid: number
+    discount: number
+  }
+  const incomeMap = new Map<string, IncomeRow>()
+  for (const s of expectedSubs) {
+    const branchId = s.group.branch.id
+    let row = incomeMap.get(branchId)
+    if (!row) {
+      row = {
+        branchId,
+        branch: s.group.branch.name,
+        subAmount: 0,
+        expected: 0,
+        paid: 0,
+        discount: 0,
+      }
+      incomeMap.set(branchId, row)
+    }
+    const finalAmt = Number(s.finalAmount)
+    const bal = Number(s.balance)
+    row.subAmount += finalAmt
+    if (bal > 0) row.expected += bal
+    row.discount += Number(s.discountAmount)
+  }
+  for (const r of incomeMap.values()) {
+    // paid = subAmount − expected: то, что уже фактически списано в счёт абонементов.
+    r.paid = r.subAmount - r.expected
+  }
+  const incomeRows = [...incomeMap.values()].sort((a, b) =>
+    a.branch.localeCompare(b.branch, "ru")
+  )
+  const incomeTotals = incomeRows.reduce(
+    (acc, r) => ({
+      subAmount: acc.subAmount + r.subAmount,
+      expected: acc.expected + r.expected,
+      paid: acc.paid + r.paid,
+      discount: acc.discount + r.discount,
+    }),
+    { subAmount: 0, expected: 0, paid: 0, discount: 0 }
+  )
+  const incomePct = (part: number, total: number) =>
+    total > 0 ? Math.round((part / total) * 100) : 0
+  const fmtIncome = (n: number) =>
+    n > 0 ? new Intl.NumberFormat("ru-RU").format(Math.round(n)) : "—"
+
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
   const stats = [
@@ -373,6 +456,64 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     </Card>
   )
 
+  const expectedIncomeWidget = (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">
+          <Link href="/finance/debtors" className="hover:underline">
+            Ожидаемые поступления средств
+          </Link>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {incomeRows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Нет абонементов за выбранный месяц
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Филиал</TableHead>
+                <TableHead className="text-right">Сумма абонементов</TableHead>
+                <TableHead className="text-right">Ожидаемые поступления</TableHead>
+                <TableHead className="text-right">Оплачено</TableHead>
+                <TableHead className="text-right">% долга от суммы абонементов</TableHead>
+                <TableHead className="text-right">Сумма скидок</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {incomeRows.map((r) => (
+                <TableRow key={r.branchId}>
+                  <TableCell>{r.branch}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtIncome(r.subAmount)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtIncome(r.expected)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtIncome(r.paid)}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {r.expected > 0 ? `${incomePct(r.expected, r.subAmount)} %` : "—"}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{fmtIncome(r.discount)}</TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="border-t-2 bg-muted/30 font-semibold">
+                <TableCell>Итого</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtIncome(incomeTotals.subAmount)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtIncome(incomeTotals.expected)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtIncome(incomeTotals.paid)}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {incomeTotals.expected > 0
+                    ? `${incomePct(incomeTotals.expected, incomeTotals.subAmount)} %`
+                    : "—"}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{fmtIncome(incomeTotals.discount)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+
   const capacityWidget = (
     <Card>
       <CardHeader className="pb-3">
@@ -437,6 +578,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         widgets={{
           stats: statsWidget,
           tasks: tasksWidget,
+          expectedIncome: expectedIncomeWidget,
           unmarked: unmarkedWidget,
           funnel: funnelWidget,
           capacity: capacityWidget,

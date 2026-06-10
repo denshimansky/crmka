@@ -27,6 +27,7 @@ const MAX_VISIBLE = 10
 export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "stats", label: "Ключевые показатели", visible: true },
   { id: "tasks", label: "Задачи на сегодня", visible: true },
+  { id: "expectedIncome", label: "Ожидаемые поступления средств", visible: true },
   { id: "unmarked", label: "Неотмеченные занятия", visible: true },
   { id: "funnel", label: "Воронка продаж", visible: true },
   { id: "capacity", label: "Заполняемость групп", visible: true },
