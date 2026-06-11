@@ -51,11 +51,13 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data
 
-  // ADM-04: для admin/instructor требуем ≥1 филиал при создании. Для существующих
+  // ADM-04: для admin требуем ≥1 филиал при создании — без привязок он видел бы
+  // данные всех филиалов. Инструктору филиал необязателен: его видимость и так
+  // ограничена своими занятиями (scopeLessonForInstructor). Для существующих
   // сотрудников без привязок политика не меняется (см. branch-scope.ts).
-  if ((data.role === "admin" || data.role === "instructor") && (!data.branchIds || data.branchIds.length === 0)) {
+  if (data.role === "admin" && (!data.branchIds || data.branchIds.length === 0)) {
     return NextResponse.json(
-      { error: "Для роли «администратор» и «инструктор» нужно выбрать хотя бы один филиал" },
+      { error: "Для роли «администратор» нужно выбрать хотя бы один филиал" },
       { status: 400 },
     )
   }

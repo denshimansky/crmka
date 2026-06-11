@@ -59,26 +59,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // ADM-04: при редактировании сотрудника с ролью admin/instructor — нельзя
   // явно «обнулить» привязки. Считаем эффективную роль и эффективный набор.
   // Если ни роль, ни branchIds не меняются — пропускаем проверку.
+  // ADM-04: требование «≥1 филиал» действует только для admin — без привязок он
+  // видел бы данные всех филиалов. Инструктору филиал необязателен: его видимость
+  // и так ограничена своими занятиями (scopeLessonForInstructor).
   const effectiveRole = data.role ?? existing.role
-  if ((effectiveRole === "admin" || effectiveRole === "instructor") && data.branchIds !== undefined) {
+  if (effectiveRole === "admin" && data.branchIds !== undefined) {
     if (data.branchIds.length === 0) {
       return NextResponse.json(
-        { error: "Для роли «администратор» и «инструктор» нужно оставить хотя бы один филиал" },
+        { error: "Для роли «администратор» нужно оставить хотя бы один филиал" },
         { status: 400 },
       )
     }
   }
-  // Если сменили роль на admin/instructor без передачи branchIds — проверяем
+  // Если сменили роль на admin без передачи branchIds — проверяем
   // текущие привязки в БД. Если их нет — отбойник.
-  if (
-    data.role &&
-    (data.role === "admin" || data.role === "instructor") &&
-    data.branchIds === undefined
-  ) {
+  if (data.role === "admin" && data.branchIds === undefined) {
     const linksCount = await db.employeeBranch.count({ where: { employeeId: id } })
     if (linksCount === 0) {
       return NextResponse.json(
-        { error: "Для роли «администратор» и «инструктор» нужно выбрать хотя бы один филиал" },
+        { error: "Для роли «администратор» нужно выбрать хотя бы один филиал" },
         { status: 400 },
       )
     }

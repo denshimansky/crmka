@@ -153,9 +153,10 @@ export function CreateEmployeeDialog({
       return
     }
 
-    // ADM-04: admin/instructor требуют хотя бы один филиал.
-    if ((role === "admin" || role === "instructor") && selectedBranches.length === 0) {
-      setError("Для роли «администратор» и «инструктор» нужно выбрать хотя бы один филиал")
+    // ADM-04: хотя бы один филиал нужен только администратору (ограничивает
+    // видимость данных). Инструктор и так видит только свои занятия.
+    if (role === "admin" && selectedBranches.length === 0) {
+      setError("Для роли «администратор» нужно выбрать хотя бы один филиал")
       return
     }
 
@@ -311,7 +312,7 @@ export function CreateEmployeeDialog({
             {branches.length > 0 && (
               <div>
                 <Label>
-                  Филиалы{role === "admin" || role === "instructor" ? " *" : ""}
+                  Филиалы{role === "admin" ? " *" : ""}
                 </Label>
                 <div className="mt-1 space-y-2">
                   {branches.map((branch) => (
@@ -327,10 +328,15 @@ export function CreateEmployeeDialog({
                     </label>
                   ))}
                 </div>
-                {(role === "admin" || role === "instructor") && (
+                {role === "admin" && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Для администратора и инструктора — обязательно хотя бы один филиал
+                    Для администратора — обязательно хотя бы один филиал
                     (ограничивает видимость данных в CRM).
+                  </p>
+                )}
+                {role === "instructor" && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Необязательно: инструктор видит только свои занятия.
                   </p>
                 )}
               </div>
