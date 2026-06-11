@@ -7,7 +7,7 @@ import { signOut } from "next-auth/react"
 import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
-  Settings, Sparkles, ChevronDown, LogOut,
+  Settings, Sparkles, LogOut,
   Baby, Ticket, ClipboardCheck, Banknote,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
@@ -148,10 +148,6 @@ export function AppSidebar({
             )}
           </div>
         </div>
-        <button className="mt-2 flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent">
-          <span>Все филиалы</span>
-          <ChevronDown className="size-3" />
-        </button>
       </SidebarHeader>
 
       <SidebarContent className="overflow-x-hidden overscroll-contain touch-pan-y">
