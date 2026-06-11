@@ -10,7 +10,7 @@ export interface DuplicateMatch {
   clientStatus: string | null
 }
 
-// Ярлыки совпадают с табами «Контакты» (/crm/contacts).
+// Ярлыки совпадают с табами «Клиенты» (/crm/contacts).
 const STATUS_LABELS: Record<string, string> = {
   new: "Лид",
   trial_scheduled: "Пробное записано",

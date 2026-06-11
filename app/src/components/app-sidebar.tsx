@@ -42,7 +42,7 @@ const navItems: NavItem[] = [
 ]
 
 const crmItems: NavItem[] = [
-  { title: "Контакты", href: "/crm/contacts", icon: Users, permission: "clients.view" },
+  { title: "Клиенты", href: "/crm/contacts", icon: Users, permission: "clients.view" },
   { title: "Продажи", href: "/crm/sales", icon: Filter, permission: "clients.view" },
   { title: "Дети", href: "/crm/children", icon: Baby, permission: "clients.view" },
   { title: "Абонементы", href: "/crm/subscriptions", icon: Ticket, permission: "clients.view" },

@@ -25,18 +25,18 @@ test.describe("CRM: Контакты и Продажи", () => {
   test("Старая /crm/leads редиректит на /crm/contacts?tab=leads", async ({ page }) => {
     await page.goto("/crm/leads")
     await expect(page).toHaveURL(/\/crm\/contacts\?tab=leads/)
-    await expect(page.locator("h1")).toContainText("Контакты")
+    await expect(page.locator("h1")).toContainText("Клиенты")
   })
 
   test("Старая /crm/clients редиректит на /crm/contacts?tab=active", async ({ page }) => {
     await page.goto("/crm/clients")
     await expect(page).toHaveURL(/\/crm\/contacts\?tab=active/)
-    await expect(page.locator("h1")).toContainText("Контакты")
+    await expect(page.locator("h1")).toContainText("Клиенты")
   })
 
   test("Страница Контактов: все вкладки видны", async ({ page }) => {
     await page.goto("/crm/contacts")
-    await expect(page.locator("h1")).toContainText("Контакты")
+    await expect(page.locator("h1")).toContainText("Клиенты")
     // Проверяем что все 8 вкладок отрендерены
     for (const label of ["Лиды", "Потенциал", "Нецелевой", "Активные", "Выбывшие", "Архив", "Чёрный список", "Все"]) {
       await expect(page.locator(`a:has-text("${label}")`).first()).toBeVisible()
