@@ -57,3 +57,19 @@ jobs:
             # Чистим build cache старше 7 дней (образы НЕ трогаем — node:22-alpine остаётся в кеше)
             docker builder prune -af --filter "until=168h" || true
             echo "Deploy complete: $(date)"
+            # Уведомление в Telegram (токен в .env на сервере; экранируем HTML в теме коммита)
+            SUBJ=$(git log -1 --pretty='%h — %s' | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+            ./scripts/notify-telegram.sh "<b>✅ Деплой msk1 OK</b>
+            ${SUBJ}"
+
+      - name: Notify failure via Telegram
+        if: failure()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 201.51.1.81
+          port: 22
+          username: deploy
+          key: ${{ secrets.TIMEWEB_SSH_KEY }}
+          script: |
+            /opt/crmka/scripts/notify-telegram.sh "<b>❌ Деплой msk1 УПАЛ</b>
+            лог: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
