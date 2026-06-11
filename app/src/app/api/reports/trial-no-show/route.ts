@@ -11,10 +11,14 @@ export async function GET(req: NextRequest) {
   const { dateFrom, dateTo } = dateRange
   const branchId = searchParams.get("branchId")
 
+  // Только реальные неявки (no_show). cancelled — технический статус
+  // (перенос даты на «Продажах», удаление заявки), а не «клиент не пришёл»;
+  // каждая неявка — отдельная запись TrialLesson, считаем все.
   const where: any = {
     tenantId,
     scheduledDate: { gte: dateFrom, lte: dateTo },
-    status: { in: ["no_show", "cancelled"] },
+    status: "no_show",
+    client: { deletedAt: null },
   }
   if (branchId) where.group = { branchId }
 
@@ -57,8 +61,7 @@ export async function GET(req: NextRequest) {
     data,
     metadata: {
       total: trials.length,
-      noShow: trials.filter((t) => t.status === "no_show").length,
-      cancelled: trials.filter((t) => t.status === "cancelled").length,
+      noShow: trials.length,
       dateFrom: dateFrom.toISOString(),
       dateTo: dateTo.toISOString(),
     },

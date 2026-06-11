@@ -301,10 +301,8 @@ export function EditSalesRowDialog({
       }
     }
 
-    // 4. Пробное — если меняются «дата/филиал/направление/группа», старую запись
-    // отменяем и создаём новую. row.rowId на вкладках trial/trial_done/awaiting_payment
-    // равен Ward.id; конкретный TrialLesson.id у нас через row.lessonId не хранится,
-    // поэтому грузим текущее scheduled-пробное Ward через API.
+    // 4. Пробное — если меняются «дата/филиал/направление/группа», создаём новую
+    // запись; старую отменяем, только если она ещё не отмечена (scheduled).
     if (trialEditable && showsTrialFields) {
       const trialChanged =
         scheduledDate !== isoToDate(row.scheduledDate) ||
@@ -312,7 +310,36 @@ export function EditSalesRowDialog({
         (directionId && selectedDirectionName !== row.directionName) ||
         (groupId && selectedGroupName !== row.groupOrTimeLabel)
       if (trialChanged) {
-        if (row.trialLessonId) {
+        // Без группы пересоздаём индивидуальное пробное с прежними
+        // педагогом/кабинетом/временем. Если их нет (например, группа была
+        // переименована и не сопоставилась по имени) — отказ ДО отмены старого,
+        // иначе пробное будет отменено, а новое не создастся.
+        const individualPayload = !groupId
+          ? {
+              directionId: directionId || row.trialDirectionId || undefined,
+              instructorId: row.trialInstructorId ?? undefined,
+              roomId: row.trialRoomId ?? undefined,
+              startTime: row.startTime ?? undefined,
+              durationMinutes: row.trialDurationMinutes ?? undefined,
+            }
+          : null
+        if (
+          individualPayload &&
+          (!individualPayload.directionId ||
+            !individualPayload.instructorId ||
+            !individualPayload.roomId ||
+            !individualPayload.startTime)
+        ) {
+          setError(
+            "Выберите группу для нового пробного: пересоздать запись без группы не из чего (нет педагога/кабинета/времени старого пробного)."
+          )
+          setSubmitting(false)
+          return
+        }
+        // Отменяем только не отмеченное (scheduled) пробное. Если строка
+        // представляет неявку (no_show) — её не трогаем: «не пришёл» должен
+        // остаться в истории и в отчёте, просто создаём новое пробное.
+        if (row.trialLessonId && row.trialStatus === "scheduled") {
           const cancel = await jsonFetch(`/api/trial-lessons/${row.trialLessonId}`, "PATCH", {
             status: "cancelled",
           })
@@ -326,11 +353,15 @@ export function EditSalesRowDialog({
           clientId: row.clientId,
           wardId: row.ward.id,
           applicationId: row.applicationId,
-          groupId: groupId || undefined,
+          ...(groupId ? { groupId } : individualPayload),
           scheduledDate,
         })
         if (!create.ok) {
-          setError("Старое пробное отменили, новое создать не удалось: " + create.error)
+          setError(
+            row.trialStatus === "scheduled"
+              ? "Старое пробное отменили, новое создать не удалось: " + create.error
+              : "Не удалось создать новое пробное: " + create.error
+          )
           setSubmitting(false)
           return
         }

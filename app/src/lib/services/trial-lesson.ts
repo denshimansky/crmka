@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import type { TrialLesson } from "@prisma/client"
+import { Prisma, type TrialLesson } from "@prisma/client"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 
 export type CreateTrialLessonInput = {
@@ -209,6 +209,26 @@ export async function createTrialLessonForClient(
     targetApplicationId = application?.id ?? null
   }
 
+  // Одна заявка — одно назначенное пробное: пока по заявке висит не отмеченное
+  // (scheduled) пробное, второе не создаём. Перезапись после «Не пришёл» и
+  // перенос даты на «Продажах» (cancel → create) проходят: no_show и cancelled
+  // не блокируют.
+  if (targetApplicationId) {
+    const activeTrial = await db.trialLesson.findFirst({
+      where: { tenantId, applicationId: targetApplicationId, status: "scheduled" },
+      select: { scheduledDate: true },
+    })
+    if (activeTrial) {
+      const d = activeTrial.scheduledDate
+      const dateLabel = `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.${d.getUTCFullYear()}`
+      return {
+        ok: false,
+        error: `По этой заявке уже назначено пробное на ${dateLabel}. Перенесите его («Продажи» → «Изменить») или удалите заявку из воронки.`,
+        status: 409,
+      }
+    }
+  }
+
   const trial = await db.$transaction(async (tx) => {
     const created = await tx.trialLesson.create({
       data: {
@@ -267,7 +287,21 @@ export async function createTrialLessonForClient(
     }
 
     return created
+  }).catch((e: unknown) => {
+    // Частичный уникальный индекс trial_lessons_application_scheduled_uniq:
+    // проигравший гонку параллельный запрос получает тот же 409, что и обычный дубль.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return null
+    throw e
   })
+
+  if (!trial) {
+    return {
+      ok: false,
+      error:
+        "По этой заявке уже назначено пробное. Перенесите его («Продажи» → «Изменить») или удалите заявку из воронки.",
+      status: 409,
+    }
+  }
 
   return { ok: true, trial }
 }

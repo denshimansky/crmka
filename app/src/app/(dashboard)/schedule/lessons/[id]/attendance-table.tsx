@@ -131,14 +131,14 @@ const TRIAL_STATUS_LABELS: Record<string, string> = {
   scheduled: "Не отмечен",
   attended: "Пришёл",
   no_show: "Не пришёл",
-  cancelled: "Отменено",
 }
 
+// Отмены записи здесь нет: пробное переносят или удаляют вместе с заявкой
+// на странице «Продажи» — из журнала заявка не должна откатываться в «Заявку».
 const TRIAL_STATUS_OPTIONS = [
   { value: "scheduled", label: "Не отмечен" },
   { value: "attended", label: "Пришёл" },
   { value: "no_show", label: "Не пришёл" },
-  { value: "cancelled", label: "Отменить запись" },
 ]
 
 interface AttendanceTableProps {
@@ -557,7 +557,7 @@ export function AttendanceTable({
       0
     )
 
-  // Изменить статус пробного занятия (явка / не пришёл / отменено)
+  // Изменить статус пробного занятия (явка / не пришёл)
   async function updateTrialStatus(trial: TrialStudentData, newStatus: string) {
     if (!newStatus || newStatus === trial.status) return
     setLoadingTrialId(trial.trialId)
@@ -568,18 +568,13 @@ export function AttendanceTable({
         body: JSON.stringify({ status: newStatus }),
       })
       if (res.ok) {
-        if (newStatus === "cancelled") {
-          // Запись на пробное снята — убираем строку из таблицы
-          setTrialStudents((prev) => prev.filter((t) => t.trialId !== trial.trialId))
-        } else {
-          setTrialStudents((prev) =>
-            prev.map((t) =>
-              t.trialId === trial.trialId
-                ? { ...t, status: newStatus as TrialStudentData["status"] }
-                : t
-            )
+        setTrialStudents((prev) =>
+          prev.map((t) =>
+            t.trialId === trial.trialId
+              ? { ...t, status: newStatus as TrialStudentData["status"] }
+              : t
           )
-        }
+        )
         router.refresh()
       }
     } catch {

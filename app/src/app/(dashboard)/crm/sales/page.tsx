@@ -207,8 +207,8 @@ export default async function SalesPage({
         direction: { select: { id: true, name: true } },
         trialLessons: {
           where: trialStatusFilter,
-          orderBy: { scheduledDate: "desc" },
-          take: 1,
+          orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }],
+          take: 5,
           include: {
             group: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
             room: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
@@ -220,7 +220,10 @@ export default async function SalesPage({
     })
 
     rows = apps.map((a) => {
-      const t = a.trialLessons[0]
+      // Представительное пробное: активное (scheduled) приоритетнее неявки,
+      // даже если неявка датирована позже — иначе строка скрывает живое пробное
+      // и его невозможно перенести («Изменить» не отменит, создание упрётся в 409).
+      const t = a.trialLessons.find((x) => x.status === "scheduled") ?? a.trialLessons[0]
       const branchFromTrial = t?.group?.branch ?? t?.room?.branch ?? null
       return {
         rowId: a.id,
@@ -247,6 +250,11 @@ export default async function SalesPage({
         startTime: t?.startTime ?? t?.lesson?.startTime ?? null,
         lessonId: t?.lessonId ?? null,
         trialLessonId: t?.id ?? null,
+        trialStatus: t?.status ?? null,
+        trialDirectionId: t?.directionId ?? null,
+        trialInstructorId: t?.instructorId ?? null,
+        trialRoomId: t?.roomId ?? null,
+        trialDurationMinutes: t?.durationMinutes ?? null,
         firstPaidLessonDate: a.client.firstPaidLessonDate ? a.client.firstPaidLessonDate.toISOString() : null,
         expectedSubscriptionAmount: null,
         createdAt: a.createdAt.toISOString(),

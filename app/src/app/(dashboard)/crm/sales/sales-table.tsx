@@ -58,6 +58,13 @@ export interface SalesRow {
   lessonId?: string | null
   /** TrialLesson.id «представительного» пробного — используется при редактировании. */
   trialLessonId?: string | null
+  /** Статус представительного пробного (scheduled | no_show): при переносе даты отменяем только scheduled — неявка остаётся в истории. */
+  trialStatus?: string | null
+  /** Параметры индивидуального пробного (без группы) — нужны, чтобы пересоздать его при переносе даты. */
+  trialDirectionId?: string | null
+  trialInstructorId?: string | null
+  trialRoomId?: string | null
+  trialDurationMinutes?: number | null
   firstPaidLessonDate: string | null
   expectedSubscriptionAmount: string | null
   createdAt: string | null

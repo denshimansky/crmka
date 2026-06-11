@@ -75,7 +75,7 @@
 | Записать на пробное | `lib/services/trial-lesson.ts`, `applications/[id]/process`, `api/trial-lessons` POST, `trial-lesson-dialog.tsx` | app→processed(trial), ward→trial_scheduled | трибуем `applicationId`; trial.applicationId=app; app.stage=trial_scheduled (status active); recompute |
 | Пробное «Пришёл» | `api/trial-lessons/[id]` PATCH attended | ward→trial_attended | linked app.stage=trial_attended; recompute |
 | Пробное «Не пришёл» | `api/trial-lessons/[id]` PATCH no_show | — | app.stage без изменений (остаётся trial_scheduled → вкладка «Пробное») |
-| Пробное «Отменить» | `api/trial-lessons/[id]` PATCH cancelled | откат ward (с багом) | linked app.stage=application; recompute (по заявке, надёжно) |
+| Пробное «Отменить» (только системно) | `api/trial-lessons/[id]` PATCH cancelled | откат ward (с багом) | linked app.stage=application; recompute. Пунктов отмены в UI нет (убраны из журнала занятия и карточки клиента) — cancelled ставят только перенос даты на «Продажах» (отменяется лишь scheduled-пробное, no_show остаётся в истории), «Удалить заявку» и каскад `wards/[id]/remove-from-funnel` (без UI-вызовов) |
 | В «Ожидание оплаты» | `move-to-awaiting-payment`, `awaiting-payment-dialog.tsx` | закрывал все заявки, ward→awaiting_payment | трибуем `applicationId`; **только эта** app.stage=awaiting_payment; siblings не трогаем; recompute |
 | Оплата (выигрыш) | `lib/subscriptions/pay-from-balance.ts` | ward→none | матч заявки по wardId+directionId → status=processed, processedToStatus=won; recompute (ward остаётся в воронке, если есть др. активные) |
 | Вывести из воронки (строка) | `sales-table.tsx` + новый `api/applications/[id]/remove-from-funnel` | per-ward remove-from-funnel | soft-delete **этой** заявки + отмена её пробного; recompute |
@@ -107,7 +107,8 @@
 
 Обновить/добавить:
 - мульти-заявка видна целиком в «Продажах» (3 заявки = 3 строки);
-- отмена пробного → заявка в «Заявка» (даже при наличии др. пробных);
+- перенос даты пробного → старое scheduled-пробное cancelled, новое scheduled, заявка остаётся в «Пробное»; для no_show-строки старое пробное не трогается;
+- повторная запись на пробное по заявке с активным (scheduled) пробным → 409;
 - no_show → заявка остаётся в «Пробное»;
 - оплата одной → остальные остаются в воронке;
 - перевод в ожидание оплаты — только выбранная заявка.

@@ -1796,10 +1796,8 @@ function formatScheduleDate(iso: string): string {
 }
 
 function ScheduleTab({ clientId }: { clientId: string }) {
-  const router = useRouter()
   const [lessons, setLessons] = useState<ScheduleLesson[]>([])
   const [loading, setLoading] = useState(true)
-  const [cancellingTrialId, setCancellingTrialId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1811,34 +1809,6 @@ function ScheduleTab({ clientId }: { clientId: string }) {
   }, [clientId])
 
   useEffect(() => { load() }, [load])
-
-  async function cancelTrial(trialId: string) {
-    const otherTrials = lessons.filter((l) => l.isTrial && l.trialId && l.trialId !== trialId)
-    const isLast = otherTrials.length === 0
-    const message = isLast
-      ? "Отменить пробное занятие?\n\nЭто единственное пробное у лида — он вернётся в статус «Новый»."
-      : "Отменить пробное занятие?"
-    if (!confirm(message)) return
-    setCancellingTrialId(trialId)
-    try {
-      const res = await fetch(`/api/trial-lessons/${trialId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "cancelled" }),
-      })
-      if (res.ok) {
-        await load()
-        router.refresh()
-      } else {
-        const data = await res.json().catch(() => ({}))
-        alert(data.error || "Ошибка")
-      }
-    } catch {
-      alert("Ошибка сети")
-    } finally {
-      setCancellingTrialId(null)
-    }
-  }
 
   return (
     <Card>
@@ -1865,7 +1835,6 @@ function ScheduleTab({ clientId }: { clientId: string }) {
                 <TableHead>Группа</TableHead>
                 <TableHead>Педагог</TableHead>
                 <TableHead>Кабинет</TableHead>
-                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1884,20 +1853,6 @@ function ScheduleTab({ clientId }: { clientId: string }) {
                   <TableCell>{l.groupName}</TableCell>
                   <TableCell className="text-muted-foreground">{l.instructorName}</TableCell>
                   <TableCell className="text-muted-foreground">{l.roomName}</TableCell>
-                  <TableCell>
-                    {l.isTrial && l.trialId && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-destructive hover:bg-destructive/10"
-                        onClick={() => cancelTrial(l.trialId!)}
-                        disabled={cancellingTrialId === l.trialId}
-                        title="Отменить пробное"
-                      >
-                        <X className="size-4" />
-                      </Button>
-                    )}
-                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

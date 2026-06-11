@@ -227,9 +227,9 @@ const modules: Module[] = [
         id: "CRM-32",
         name: "Не пришли на пробники",
         data: [
-          { what: "Пробное занятие: статус «не пришёл» / «отменено»", from: "Отметка занятия в карточке lesson или авто (если дата прошла и нет attendedAt)" },
+          { what: "Пробное занятие: статус «не пришёл»", from: "Отметка «Не пришёл» в журнале занятия" },
         ],
-        formula: "COUNT(TrialLesson WHERE status IN ('no_show', 'cancelled') OR (scheduledDate < TODAY AND attendedAt IS NULL))",
+        formula: "COUNT(TrialLesson WHERE status = 'no_show'). Каждая неявка — отдельная запись. «Отменено» (перенос даты, удаление заявки) — технический статус, не учитывается",
         status: "ok",
       },
       {

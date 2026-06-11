@@ -435,6 +435,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       tenantId,
       scheduledDate: { gte: monthStart, lte: monthEnd },
       status: "no_show",
+      client: { deletedAt: null },
     },
     select: {
       id: true,
