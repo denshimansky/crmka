@@ -39,13 +39,15 @@ test.describe("Модуль 7: Отчёты", () => {
   test("2. Воронка продаж", async ({ page }) => {
     await page.goto("/reports/crm/funnel")
     await expect(page.locator("h1")).toContainText("Воронка продаж")
-    // Метрики
-    await expect(page.locator("text=Всего клиентов")).toBeVisible()
-    await expect(page.locator("p:has-text('Конверсия')").first()).toBeVisible()
-    // Воронка — новые за месяц
-    await expect(page.locator("text=Воронка — новые за месяц").first()).toBeVisible({ timeout: 10000 })
-    await expect(page.locator("text=Новый").first()).toBeVisible()
-    await expect(page.locator("text=Активный клиент").first()).toBeVisible()
+    // Сводные карточки месяца
+    await expect(page.locator("text=Заявки").first()).toBeVisible({ timeout: 10000 })
+    await expect(page.locator("text=Пришли на пробное").first()).toBeVisible()
+    await expect(page.locator("text=Купили").first()).toBeVisible()
+    // Две схемы воронки и этапы
+    await expect(page.locator("text=С пробным").first()).toBeVisible()
+    await expect(page.locator("text=Без пробного").first()).toBeVisible()
+    await expect(page.locator("text=Лид").first()).toBeVisible()
+    await expect(page.locator("text=Перетекающие").first()).toBeVisible()
     // Кнопка назад (ArrowLeft icon link, не сайдбар)
     await page.locator("a[href='/reports'] svg").first().click()
     await expect(page.locator("h1")).toContainText("Отчёты")

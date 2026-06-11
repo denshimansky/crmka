@@ -51,8 +51,9 @@ export function DrillDownSheet({
         side="right"
         // Sheet по умолчанию имеет data-[side=right]:sm:max-w-sm (384px) и width:3/4.
         // Для drill-down это узко и появляется горизонтальный скролл. Перекрываем
-        // max-width на десктопе — до 1280px, fit-content по факту.
-        className="w-full data-[side=right]:sm:max-w-none sm:w-[min(92vw,1280px)] overflow-y-auto"
+        // с тем же модификатором data-[side=right] — иначе базовые классы побеждают
+        // по специфичности и ширина остаётся 3/4.
+        className="data-[side=right]:w-full data-[side=right]:sm:max-w-none data-[side=right]:sm:w-[min(92vw,1280px)] overflow-y-auto"
       >
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>

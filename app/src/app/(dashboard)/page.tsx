@@ -25,6 +25,8 @@ import { DashboardTasksTable, type DashboardTaskRow } from "@/components/dashboa
 import { computeMonthlySalaryForecast } from "@/lib/salary/forecast-month"
 import { computeActiveSubscriptionsByBranch } from "@/lib/dashboard/active-subscriptions"
 import { computeUpcomingBirthdays } from "@/lib/dashboard/upcoming-birthdays"
+import { computeSalesFunnel, summarizeSalesFunnel } from "@/lib/reports/sales-funnel"
+import { branchScopeFromSession } from "@/lib/branch-scope"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -230,35 +232,27 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     })
     .slice(0, 5)
 
-  // Воронка — лиды по Client.funnelStatus, сделочные стадии — по Ward.salesStage,
-  // активные — по Client.clientStatus (текущий статус работы, обновляется cron'ом
-  // check-inactive-clients и при отчислении). funnelStatus='active_client' для
-  // активных не годится — это исторический флаг «когда-либо платил», он не
-  // сбрасывается, и счётчик включал бы всех выбывших.
-  const [funnelCounts, wardStageCounts, activeCount] = await Promise.all([
-    db.client.groupBy({
-      by: ["funnelStatus"],
-      where: { tenantId, deletedAt: null },
-      _count: true,
-    }),
-    db.ward.groupBy({
-      by: ["salesStage"],
-      where: { tenantId, client: { deletedAt: null } },
-      _count: true,
-    }),
-    db.client.count({
-      where: { tenantId, deletedAt: null, clientStatus: "active" },
-    }),
-  ])
-
-  const funnelMap = new Map(funnelCounts.map(f => [f.funnelStatus, f._count]))
-  const wardStageMap = new Map(wardStageCounts.map(w => [w.salesStage, w._count]))
-  const funnelStages = [
-    { stage: "Новые", count: funnelMap.get("new") || 0, color: "bg-blue-500" },
-    { stage: "Пробное записано", count: wardStageMap.get("trial_scheduled") || 0, color: "bg-cyan-500" },
-    { stage: "Ожидание оплаты", count: wardStageMap.get("awaiting_payment") || 0, color: "bg-yellow-500" },
-    { stage: "Активные", count: activeCount, color: "bg-green-500" },
-  ]
+  // Воронка продаж (CRM-13) — те же цифры, что и в отчёте /reports/crm/funnel:
+  // событийная воронка по заявкам за месяц, на дашборде каждый этап одной
+  // суммарной цифрой (текущий месяц + перетекающие). ADM-04: scope сессии.
+  const funnelMonth = summarizeSalesFunnel(
+    await computeSalesFunnel(tenantId, year, month, {
+      withRows: false,
+      scope: branchScopeFromSession(session.user.allowedBranchIds),
+    })
+  )
+  const funnelStageColors: Record<string, string> = {
+    lead: "bg-blue-500",
+    application: "bg-sky-500",
+    trial: "bg-cyan-500",
+    trial_attended: "bg-teal-500",
+    won: "bg-green-500",
+  }
+  const funnelStages = funnelMonth.map((s) => ({
+    stage: s.label,
+    count: s.count,
+    color: funnelStageColors[s.key] ?? "bg-gray-400",
+  }))
   const maxFunnel = Math.max(...funnelStages.map(f => f.count), 1)
 
   // Заполняемость групп — на дашборд выводим только недозаполненные (≤ 50%),
@@ -591,6 +585,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <CardTitle className="text-base">
           <Link href="/reports/crm/funnel" className="hover:underline">Воронка продаж</Link>
         </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          За месяц, включая перетекающие заявки — детали в отчёте
+        </p>
       </CardHeader>
       <CardContent className="space-y-3">
         {funnelStages.map((stage) => (

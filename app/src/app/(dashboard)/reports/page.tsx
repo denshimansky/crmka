@@ -35,7 +35,7 @@ const reportGroups: ReportGroup[] = [
     icon: Filter,
     color: "text-blue-600",
     reports: [
-      { name: "Воронка продаж", href: "/reports/crm/funnel", description: "Лиды по статусам, конверсии между этапами", source: "clients" },
+      { name: "Воронка продаж", href: "/reports/crm/funnel", description: "Заявки по этапам за месяц: новые/действующие, с пробным/без, детализация", source: "clients" },
       { name: "Конверсия пробных", href: "/reports/crm/trial-conversion", description: "Пробные → клиенты по педагогам", source: "trials" },
       { name: "Средний чек", href: "/reports/crm/avg-check", description: "Оплачено / кол-во платежей", source: "payments" },
       { name: "Допродажи", href: "/reports/crm/upsell", description: "Одно направление, истекающие, снизили активность", source: "subscriptions" },

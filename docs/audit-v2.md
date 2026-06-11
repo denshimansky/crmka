@@ -43,7 +43,7 @@
 | CRM-10 | Защита от дублей по телефону | MVP | PARTIAL | Поиск есть, предупреждение нет |
 | CRM-11 | Чёрный список | MVP | DONE | funnelStatus=blacklisted |
 | CRM-12 | Объединение дубликатов | v1.1 | NOT_DONE | Нет API merge |
-| CRM-13 | Отчёт «Воронка продаж» | MVP | DONE | /api/reports/funnel |
+| CRM-13 | Отчёт «Воронка продаж» | MVP | DONE | /reports/crm/funnel + lib/reports/sales-funnel.ts (API /api/reports/funnel — обёртка) |
 | CRM-14 | Отчёт «Конверсия пробных по инструкторам» | MVP | DONE | /api/reports/trial-conversion |
 | CRM-15 | Отчёт «Лиды по каналам и менеджерам» | MVP | DONE | /api/reports/leads-by-manager |
 | CRM-16 | Отчёт «Доходимость» | MVP | DONE | /api/reports/reachability |

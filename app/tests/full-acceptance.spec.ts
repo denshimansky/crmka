@@ -311,7 +311,7 @@ test.describe("PART 2: Глубинное тестирование", () => {
       await page.waitForTimeout(1000)
       await assertNoError(page)
       await expect(page.locator("h1")).toContainText("Воронка")
-      await expect(page.locator("text=Всего клиентов")).toBeVisible()
+      await expect(page.locator("text=Заявки").first()).toBeVisible()
     })
 
     test("P&L report has data", async ({ page }) => {

@@ -481,6 +481,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             data: {
               funnelStatus: "active_client",
               clientStatus: "active",
+              // Дата первого платного занятия — этой отметкой клиент и стал
+              // покупателем (используется воронкой продаж и отчётами конверсии).
+              ...(client.firstPaidLessonDate ? {} : { firstPaidLessonDate: lesson.date }),
             },
           })
         }
@@ -581,7 +584,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         if (client && client.funnelStatus !== "active_client" && client.clientStatus !== "active") {
           await tx.client.update({
             where: { id: data.clientId },
-            data: { funnelStatus: "active_client", clientStatus: "active" },
+            data: {
+              funnelStatus: "active_client",
+              clientStatus: "active",
+              ...(client.firstPaidLessonDate ? {} : { firstPaidLessonDate: lesson.date }),
+            },
           })
         }
       }

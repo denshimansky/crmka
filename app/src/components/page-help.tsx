@@ -27,7 +27,7 @@ export function PageHelp({ pageKey }: PageHelpProps) {
       >
         ?
       </SheetTrigger>
-      <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
+      <SheetContent side="right" className="overflow-y-auto data-[side=right]:sm:max-w-md">
         <SheetHeader>
           <SheetTitle>{content.title}</SheetTitle>
           <SheetDescription>{content.subtitle}</SheetDescription>

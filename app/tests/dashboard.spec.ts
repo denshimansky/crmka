@@ -34,8 +34,8 @@ test.describe("Модуль 9: Дашборд", () => {
     await page.goto("/")
     await expect(page.locator("text=Воронка продаж")).toBeVisible({ timeout: 10000 })
     // Этапы воронки всегда отрисовываются (даже с нулевыми значениями)
-    await expect(page.locator("text=Новые").first()).toBeVisible({ timeout: 5000 })
-    await expect(page.locator("text=Пробное записано").first()).toBeVisible({ timeout: 5000 })
+    await expect(page.locator("text=Лиды").first()).toBeVisible({ timeout: 5000 })
+    await expect(page.locator("text=Купили").first()).toBeVisible({ timeout: 5000 })
   })
 
   test("4. Ссылки ведут в разделы", async ({ page }) => {
