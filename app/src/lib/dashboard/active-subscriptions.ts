@@ -24,9 +24,10 @@ export interface ActiveSubsData {
  * Определения (согласованы с владельцем 10.06.2026):
  *   • «Количество абонементов за месяц» — абонемент засчитывается, если в
  *     выбранном месяце по нему было хотя бы 1 занятие со списанием
- *     (Attendance с типом partOfFact = «посетил/прогулял») ИЛИ оплата
- *     (Payment incoming, привязанный к абонементу). Выписанные, но «мёртвые»
- *     (без посещений и оплат) абонементы НЕ считаются.
+ *     (Attendance с типом partOfFact = «посетил/прогулял») ИЛИ оплата,
+ *     привязанная к абонементу: Payment incoming (прямая) или transfer_in
+ *     (списание с баланса родителя — основной поток оплат). Выписанные, но
+ *     «мёртвые» (без посещений и оплат) абонементы НЕ считаются.
  *   • «Продлённые» — из активированных в этом месяце те, где ТОТ ЖЕ ребёнок
  *     (ward) ходил в ТУ ЖЕ группу и в прошлом месяце (была активность —
  *     занятие со списанием или оплата — по абонементу той же группы). Смена
@@ -65,11 +66,14 @@ export async function computeActiveSubscriptionsByBranch(
       select: { subscriptionId: true },
     }),
     // Текущий месяц: оплаты абонементов → активированные абонементы.
+    // incoming — прямая оплата; transfer_in — оплата с баланса родителя
+    // (двухшаговый поток: incoming падает на баланс без привязки к абонементу,
+    // к абонементу привязан именно transfer_in).
     db.payment.findMany({
       where: {
         tenantId,
         deletedAt: null,
-        type: "incoming",
+        type: { in: ["incoming", "transfer_in"] },
         subscriptionId: { not: null },
         date: { gte: monthStart, lte: monthEnd },
       },
@@ -92,7 +96,7 @@ export async function computeActiveSubscriptionsByBranch(
       where: {
         tenantId,
         deletedAt: null,
-        type: "incoming",
+        type: { in: ["incoming", "transfer_in"] },
         subscriptionId: { not: null },
         date: { gte: prevStart, lte: prevEnd },
       },
