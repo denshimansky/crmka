@@ -630,7 +630,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <TableHead className="text-right">Сумма абонементов</TableHead>
                 <TableHead className="text-right">Ожидаемые поступления</TableHead>
                 <TableHead className="text-right">Оплачено</TableHead>
-                <TableHead className="text-right">% долга от суммы абонементов</TableHead>
+                <TableHead className="text-right">% долга</TableHead>
                 <TableHead className="text-right">Сумма скидок</TableHead>
               </TableRow>
             </TableHeader>
