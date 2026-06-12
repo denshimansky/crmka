@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Search } from "lucide-react"
 import { CreateApplicationDialog } from "../_components/create-application-dialog"
 import { formatWardName } from "@/lib/format-name"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { truncateGroupName } from "@/lib/format-group"
 import {
   EditableDateCell,
@@ -216,7 +217,7 @@ export function ContactsTable({
   return (
     <>
     {searchBar}
-    <div className="overflow-x-auto rounded-lg border bg-card">
+    <StickyHScroll className="rounded-lg border bg-card">
       <Table>
         <TableHeader>
           <TableRow>
@@ -354,7 +355,7 @@ export function ContactsTable({
           ))}
         </TableBody>
       </Table>
-    </div>
+    </StickyHScroll>
     </>
   )
 }

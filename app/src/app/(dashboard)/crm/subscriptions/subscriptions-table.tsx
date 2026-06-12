@@ -11,6 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@/components/ui/select"
 import { Search, ArrowDown, ArrowUp } from "lucide-react"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { cn } from "@/lib/utils"
 import { truncateGroupName } from "@/lib/format-group"
 import { RenewButton } from "./renew-button"
@@ -210,7 +211,7 @@ export function SubscriptionsTable({
           В этой категории пока пусто
         </div>
       ) : (
-        <div className="rounded-lg border bg-card">
+        <StickyHScroll className="rounded-lg border bg-card">
           <Table>
             <TableHeader>
               <TableRow>
@@ -254,7 +255,7 @@ export function SubscriptionsTable({
               ))}
             </TableBody>
           </Table>
-        </div>
+        </StickyHScroll>
       )}
     </div>
   )

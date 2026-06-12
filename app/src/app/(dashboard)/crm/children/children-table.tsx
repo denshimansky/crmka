@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 import { EditableTextCell } from "../_components/editable-cell"
 import { formatWardName as fmtWardName } from "@/lib/format-name"
@@ -345,7 +346,7 @@ export function ChildrenTable({
           Нет подопечных, подходящих под фильтры
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border bg-card">
+        <StickyHScroll className="rounded-lg border bg-card">
           <Table>
             <TableHeader>
               <TableRow>
@@ -393,7 +394,7 @@ export function ChildrenTable({
               ))}
             </TableBody>
           </Table>
-        </div>
+        </StickyHScroll>
       )}
     </>
   )

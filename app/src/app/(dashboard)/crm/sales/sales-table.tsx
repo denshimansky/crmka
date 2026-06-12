@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -407,7 +408,7 @@ export function SalesTable({
   return (
     <>
       {searchBar}
-      <div className="overflow-x-auto rounded-lg border bg-card">
+      <StickyHScroll className="rounded-lg border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -602,7 +603,7 @@ export function SalesTable({
             ))}
           </TableBody>
         </Table>
-      </div>
+      </StickyHScroll>
 
       {processing && processing.applicationId && (
         <ProcessApplicationDialog
