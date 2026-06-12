@@ -71,10 +71,29 @@ export async function GET(req: NextRequest) {
     take: 200,
   })
 
+  // Возвраты на баланс при закрытии (subscription_closed_refund, amount > 0):
+  // вычитаются из «Оплачено» в UI, чтобы закрытый с возвратом абонемент
+  // не выглядел оплаченным (отрицательные суммы — перенос долга, не возврат).
+  const subIds = subscriptions.map((s) => s.id)
+  const refunds = subIds.length
+    ? await db.clientBalanceTransaction.groupBy({
+        by: ["subscriptionId"],
+        where: {
+          tenantId: session.user.tenantId,
+          subscriptionId: { in: subIds },
+          type: "subscription_closed_refund",
+          amount: { gt: 0 },
+        },
+        _sum: { amount: true },
+      })
+    : []
+  const refundBySub = new Map(refunds.map((r) => [r.subscriptionId, Number(r._sum.amount ?? 0)]))
+
   // Маскирование телефонов для инструктора.
   const masked = subscriptions.map((s) => ({
     ...s,
     client: { ...s.client, phone: maskPhone(s.client.phone, session.user.role) },
+    refundedToBalance: refundBySub.get(s.id) ?? 0,
   }))
 
   return NextResponse.json(masked)

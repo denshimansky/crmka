@@ -58,6 +58,8 @@ interface Subscription {
   group: { id: string; name: string }
   ward: { id: string; firstName: string; lastName: string | null } | null
   payments: { id: string; amount: string; date: string; method: string }[]
+  /** Возвращено на баланс клиента при закрытии абонемента (subscription_closed_refund). */
+  refundedToBalance?: number
 }
 
 interface Payment {
@@ -907,7 +909,11 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
             </TableHeader>
             <TableBody>
               {subs.map((s) => {
-                const paid = s.payments.reduce((sum, p) => sum + Number(p.amount), 0)
+                const paidIn = s.payments.reduce((sum, p) => sum + Number(p.amount), 0)
+                // «Оплачено» = внесено минус возвращённое на баланс при закрытии:
+                // отчисленный с полным возвратом не должен выглядеть оплаченным.
+                const refunded = Number(s.refundedToBalance) || 0
+                const paid = Math.max(0, paidIn - refunded)
                 const balance = Number(s.balance)
                 const finalAmount = Number(s.finalAmount)
                 const lessonPrice = Number(s.lessonPrice) || 0
@@ -940,10 +946,23 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                     <TableCell className="text-right text-sm text-muted-foreground">
                       {formatMoney(finalAmount)}
                     </TableCell>
-                    <TableCell className={`text-right font-medium ${balance > 0 ? "text-red-600" : "text-green-600"}`}>
-                      {balance > 0 ? formatMoney(balance) : "Оплачен"}
-                    </TableCell>
-                    <TableCell className="text-right text-green-600">
+                    {s.status === "withdrawn" ? (
+                      // Отчисленному нечего «оплачивать»: balance обнулён закрытием,
+                      // зелёный «Оплачен» здесь вводил в заблуждение.
+                      <TableCell className="text-right text-muted-foreground">—</TableCell>
+                    ) : (
+                      <TableCell className={`text-right font-medium ${balance > 0 ? "text-red-600" : "text-green-600"}`}>
+                        {balance > 0 ? formatMoney(balance) : "Оплачен"}
+                      </TableCell>
+                    )}
+                    <TableCell
+                      className={`text-right ${paid > 0 ? "text-green-600" : "text-muted-foreground"}`}
+                      title={
+                        refunded > 0
+                          ? `Внесено ${formatMoney(paidIn)}, возвращено на баланс ${formatMoney(refunded)}`
+                          : undefined
+                      }
+                    >
                       {paid > 0 ? formatMoney(paid) : "—"}
                     </TableCell>
                     <TableCell className="text-right text-sm">

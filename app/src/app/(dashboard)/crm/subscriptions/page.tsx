@@ -136,6 +136,24 @@ export default async function SubscriptionsPage({
     }),
   ])
 
+  // Возвраты на баланс при закрытии (subscription_closed_refund, amount > 0):
+  // balance у закрытого абонемента обнулён, поэтому без этой поправки
+  // «Оплачено» показывало бы полную сумму даже после возврата.
+  const rowIds = rows.map((s) => s.id)
+  const refunds = rowIds.length
+    ? await db.clientBalanceTransaction.groupBy({
+        by: ["subscriptionId"],
+        where: {
+          tenantId,
+          subscriptionId: { in: rowIds },
+          type: "subscription_closed_refund",
+          amount: { gt: 0 },
+        },
+        _sum: { amount: true },
+      })
+    : []
+  const refundBySub = new Map(refunds.map((r) => [r.subscriptionId, Number(r._sum.amount ?? 0)]))
+
   const mapped: SubscriptionRow[] = rows.map((s) => {
     const wardName =
       s.ward
@@ -166,9 +184,13 @@ export default async function SubscriptionsPage({
       groupName: s.group.name,
       finalAmount: Number(s.finalAmount),
       // «Оплачено» = реальные транши с баланса родителя в счёт абонемента =
-      // finalAmount − balance. chargedAmount хранит отработанные занятия,
-      // он не равен «оплачено» (раньше путали из-за общей семантики).
-      paidAmount: Number(s.finalAmount) - Number(s.balance),
+      // finalAmount − balance − возвращённое на баланс при закрытии.
+      // chargedAmount хранит отработанные занятия, он не равен «оплачено»
+      // (раньше путали из-за общей семантики).
+      paidAmount: Math.max(
+        0,
+        Number(s.finalAmount) - Number(s.balance) - (refundBySub.get(s.id) ?? 0),
+      ),
       startDate: s.startDate.toISOString(),
       endDate: s.endDate ? s.endDate.toISOString() : null,
       expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null,
