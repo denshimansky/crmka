@@ -114,6 +114,7 @@ export function ClientHistory({
     // В ward-режиме посещений мало (только этого ребёнка) — включаем по умолчанию.
     att: !!wardId,
     status: true,
+    discount: true,
   })
 
   const visibleFilters = useMemo(

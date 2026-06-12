@@ -1149,6 +1149,12 @@ function PaymentsTab({ clientId }: { clientId: string }) {
                 const amt = Number(p.amount)
                 const isRefund = p.type === "refund" || amt < 0
                 const isTransfer = p.type === "transfer_in"
+                // Виртуальные проводки (списание с баланса, перенос между
+                // абонементами) не двигают деньги по кассам — способ и счёт
+                // у них фиктивные, не показываем.
+                const isVirtual =
+                  isTransfer ||
+                  (isRefund && amt < 0 && !!p.comment?.startsWith("Перенос"))
                 const subInfo = p.subscription
                   ? `${p.subscription.direction.name} (${String(p.subscription.periodMonth).padStart(2, "0")}.${p.subscription.periodYear})`
                   : p.comment || "—"
@@ -1170,9 +1176,15 @@ function PaymentsTab({ clientId }: { clientId: string }) {
                       {isRefund ? `−${formatMoney(Math.abs(amt))}` : formatMoney(amt)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{METHOD_LABELS[p.method] || p.method}</Badge>
+                      {isVirtual ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <Badge variant="outline">{METHOD_LABELS[p.method] || p.method}</Badge>
+                      )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{p.account.name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {isVirtual ? "—" : p.account.name}
+                    </TableCell>
                   </TableRow>
                 )
               })}

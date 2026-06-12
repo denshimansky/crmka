@@ -104,6 +104,9 @@ export async function payFromBalance(
       )
     }
 
+    // accountId — техническая заглушка под NOT NULL-колонку: деньги по кассам
+    // не двигаются, поэтому счёт у transfer_in в UI и кассовых отчётах не
+    // отображается и в поступления не считается (Баг #3).
     const account = await t.financialAccount.findFirst({
       where: {
         tenantId: input.tenantId,

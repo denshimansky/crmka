@@ -11,7 +11,18 @@ type TimelineCommunication = Prisma.CommunicationGetPayload<{
   include: { employee: { select: { firstName: true; lastName: true } } }
 }>
 type TimelinePayment = Prisma.PaymentGetPayload<{
-  include: { account: { select: { name: true } } }
+  include: {
+    account: { select: { name: true } }
+    subscription: {
+      select: {
+        periodYear: true
+        periodMonth: true
+        direction: { select: { name: true } }
+        group: { select: { name: true } }
+        ward: { select: { firstName: true; lastName: true } }
+      }
+    }
+  }
 }>
 type TimelineAuditLog = Prisma.AuditLogGetPayload<{
   include: { employee: { select: { firstName: true; lastName: true } } }
@@ -23,10 +34,22 @@ type TimelineBalanceTxn = Prisma.ClientBalanceTransactionGetPayload<{
         periodYear: true
         periodMonth: true
         direction: { select: { name: true } }
+        ward: { select: { firstName: true; lastName: true } }
       }
     }
+    direction: { select: { name: true } }
+    lesson: { select: { date: true; startTime: true } }
+    attendance: { select: { wardId: true } }
   }
 }>
+
+/** «MM.YYYY» абонемента или null, если период не заполнен. */
+function periodLabel(
+  s: { periodMonth: number | null; periodYear: number | null } | null | undefined,
+): string | null {
+  if (!s?.periodMonth || !s?.periodYear) return null
+  return `${String(s.periodMonth).padStart(2, "0")}.${s.periodYear}`
+}
 
 /**
  * GET /api/clients/[id]/timeline
@@ -136,6 +159,7 @@ export async function GET(
         direction: { select: { name: true } },
         group: { select: { name: true } },
         ward: { select: { firstName: true, lastName: true } },
+        withdrawalReason: { select: { name: true } },
       },
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -146,6 +170,15 @@ export async function GET(
           where: { tenantId, clientId, deletedAt: null },
           include: {
             account: { select: { name: true } },
+            subscription: {
+              select: {
+                periodYear: true,
+                periodMonth: true,
+                direction: { select: { name: true } },
+                group: { select: { name: true } },
+                ward: { select: { firstName: true, lastName: true } },
+              },
+            },
           },
           orderBy: { date: "desc" },
           take: 200,
@@ -154,6 +187,7 @@ export async function GET(
       where: { tenantId, clientId, ...(wardId ? { wardId } : {}) },
       include: {
         attendanceType: { select: { name: true, code: true } },
+        absenceReason: { select: { name: true } },
         lesson: {
           select: {
             date: true,
@@ -189,13 +223,34 @@ export async function GET(
                 periodYear: true,
                 periodMonth: true,
                 direction: { select: { name: true } },
+                ward: { select: { firstName: true, lastName: true } },
               },
             },
+            direction: { select: { name: true } },
+            lesson: { select: { date: true, startTime: true } },
+            attendance: { select: { wardId: true } },
           },
           orderBy: { createdAt: "desc" },
           take: 300,
         }),
   ])
+
+  // Имена детей для посещений и операций баланса: Attendance.wardId — голая
+  // колонка без Prisma-relation, поэтому подтягиваем батчем.
+  const wardIds = new Set<string>()
+  for (const a of attendances) if (a.wardId) wardIds.add(a.wardId)
+  for (const t of balanceTxns) if (t.attendance?.wardId) wardIds.add(t.attendance.wardId)
+  const wardNameById = new Map<string, string>()
+  if (wardIds.size > 0) {
+    const wards = await db.ward.findMany({
+      where: { id: { in: Array.from(wardIds) }, tenantId },
+      select: { id: true, firstName: true, lastName: true },
+    })
+    for (const w of wards) {
+      const n = formatWardName(w, "")
+      if (n) wardNameById.set(w.id, n)
+    }
+  }
 
   const events: TimelineEvent[] = []
 
@@ -251,13 +306,20 @@ export async function GET(
     })
 
     // событие итога: пришёл / не пришёл / отменено
+    const trialOutcomeDescription = [
+      directionName,
+      wardName ? `подопечный: ${wardName}` : null,
+      instructorName ? `педагог: ${instructorName}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ")
     if (t.status === "attended" && t.attendedAt) {
       events.push({
         id: `trial-attended-${t.id}`,
         kind: "trial_attended",
         date: t.attendedAt.toISOString(),
         title: "Пробное посещено",
-        description: directionName,
+        description: trialOutcomeDescription,
       })
     } else if (t.status === "no_show") {
       events.push({
@@ -265,7 +327,7 @@ export async function GET(
         kind: "trial_no_show",
         date: t.scheduledDate.toISOString(),
         title: "Не пришёл на пробное",
-        description: directionName,
+        description: trialOutcomeDescription,
       })
     }
   }
@@ -275,20 +337,23 @@ export async function GET(
     const wardName = s.ward ? formatWardName(s.ward, "") || null : null
     const directionName = s.direction?.name || ""
     const amount = Number(s.finalAmount)
+    const period = periodLabel(s)
+    // Общий «паспорт» абонемента — чтобы из любого события было понятно,
+    // о каком именно абонементе речь (на семью их может быть много).
+    const subDescription = [
+      directionName,
+      wardName ? `подопечный: ${wardName}` : null,
+      s.group ? `группа: ${s.group.name}` : null,
+      period ? `период: ${period}` : null,
+      `сумма: ${amount.toLocaleString("ru-RU")} ₽`,
+    ].filter(Boolean)
 
     events.push({
       id: `sub-created-${s.id}`,
       kind: "subscription_created",
       date: s.createdAt.toISOString(),
       title: "Абонемент создан",
-      description: [
-        directionName,
-        wardName ? `подопечный: ${wardName}` : null,
-        s.group ? `группа: ${s.group.name}` : null,
-        `сумма: ${amount.toLocaleString("ru-RU")} ₽`,
-      ]
-        .filter(Boolean)
-        .join(" · "),
+      description: subDescription.join(" · "),
       meta: { subscriptionId: s.id, amount },
     })
 
@@ -300,7 +365,15 @@ export async function GET(
         kind: "subscription_closed",
         date: s.updatedAt.toISOString(),
         title: s.status === "withdrawn" ? "Абонемент отчислен" : "Абонемент закрыт",
-        description: directionName,
+        description: [
+          ...subDescription,
+          s.status === "withdrawn"
+            ? `дата отчисления: ${s.withdrawalDate.toLocaleDateString("ru-RU")}`
+            : null,
+          s.withdrawalReason ? `причина: ${s.withdrawalReason.name}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
         meta: { subscriptionId: s.id, status: s.status },
       })
     }
@@ -319,13 +392,32 @@ export async function GET(
     const amount = Number(p.amount)
     const isRefund = p.type === "refund"
     const isTransferIn = p.type === "transfer_in"
+    // Отрицательный transfer_in — сторно «возврат по скидке» (Скидки v2);
+    // в ленте его уже показывает ledger-событие discount_refund, пропускаем.
+    if (isTransferIn && amount < 0) continue
+    // К какому абонементу относится платёж: для transfer_in это главная
+    // информация (кассу не показываем — деньги по кассам не двигаются),
+    // для оплат/возвратов с привязкой — уточнение.
+    const subPeriod = periodLabel(p.subscription)
+    const subWardName = p.subscription?.ward
+      ? formatWardName(p.subscription.ward, "") || null
+      : null
+    const subLabel = p.subscription
+      ? [
+          `${p.subscription.direction.name}${subPeriod ? ` (${subPeriod})` : ""}`,
+          subWardName ? `подопечный: ${subWardName}` : null,
+          p.subscription.group ? `группа: ${p.subscription.group.name}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : null
     const kind: EventKind = isRefund
       ? "payment_refund"
       : isTransferIn
         ? "subscription_paid_from_balance"
         : "payment_in"
     const title = isRefund
-      ? `Возврат ${amount.toLocaleString("ru-RU")} ₽`
+      ? `Возврат ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
       : isTransferIn
         ? `Списание с баланса в счёт абонемента ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
         : `Оплата ${amount.toLocaleString("ru-RU")} ₽ — пополнение баланса`
@@ -336,13 +428,16 @@ export async function GET(
       kind,
       date: p.createdAt.toISOString(),
       title,
-      description: [
-        !isTransferIn ? (METHOD_LABELS[p.method] || p.method) : null,
-        p.account?.name,
-        p.comment,
-      ]
-        .filter(Boolean)
-        .join(" · "),
+      description: isTransferIn
+        ? [subLabel, p.comment].filter(Boolean).join(" · ")
+        : [
+            METHOD_LABELS[p.method] || p.method,
+            p.account?.name,
+            subLabel ? (isRefund ? `абонемент: ${subLabel}` : `в счёт: ${subLabel}`) : null,
+            p.comment,
+          ]
+            .filter(Boolean)
+            .join(" · "),
       meta: { paymentId: p.id, amount, method: p.method },
     })
   }
@@ -360,8 +455,17 @@ export async function GET(
   for (const t of balanceTxns) {
     if (LEDGER_SKIP.has(t.type)) continue
     const amount = Number(t.amount)
+    const ledgerPeriod = periodLabel(t.subscription)
+    // Без абонемента (разовое посещение и т.п.) направление берём из
+    // собственной ссылки транзакции.
     const subLabel = t.subscription
-      ? `${t.subscription.direction.name} (${String(t.subscription.periodMonth).padStart(2, "0")}.${t.subscription.periodYear})`
+      ? `${t.subscription.direction.name}${ledgerPeriod ? ` (${ledgerPeriod})` : ""}`
+      : t.direction?.name || null
+    const ledgerWardName =
+      (t.subscription?.ward ? formatWardName(t.subscription.ward, "") || null : null) ||
+      (t.attendance?.wardId ? wardNameById.get(t.attendance.wardId) || null : null)
+    const lessonLabel = t.lesson
+      ? `занятие ${t.lesson.date.toLocaleDateString("ru-RU")}${t.lesson.startTime ? ` ${t.lesson.startTime}` : ""}`
       : null
     const kind: EventKind = amount >= 0 ? "balance_credit" : "balance_debit"
     const title =
@@ -385,7 +489,14 @@ export async function GET(
       kind,
       date: t.createdAt.toISOString(),
       title,
-      description: [subLabel, t.comment].filter(Boolean).join(" · "),
+      description: [
+        subLabel,
+        ledgerWardName ? `подопечный: ${ledgerWardName}` : null,
+        lessonLabel,
+        t.comment,
+      ]
+        .filter(Boolean)
+        .join(" · "),
       meta: { ledgerId: t.id, ledgerType: t.type, amount },
     })
   }
@@ -401,12 +512,19 @@ export async function GET(
     const lessonDate = a.lesson.date.toLocaleDateString("ru-RU")
     const groupName = a.lesson.group?.name
     const directionName = a.lesson.group?.direction?.name
+    // На карточке ребёнка (ward-режим) имя подопечного избыточно.
+    const attWardName = !wardId && a.wardId ? wardNameById.get(a.wardId) || null : null
     events.push({
       id: `att-${a.id}`,
       kind: ATT_CODE_KIND[code] || "attendance_other",
       date: a.markedAt.toISOString(),
       title: `${a.attendanceType.name} · ${lessonDate} ${a.lesson.startTime}`,
-      description: [directionName, groupName ? `группа: ${groupName}` : null]
+      description: [
+        directionName,
+        groupName ? `группа: ${groupName}` : null,
+        attWardName ? `подопечный: ${attWardName}` : null,
+        a.absenceReason ? `причина: ${a.absenceReason.name}` : null,
+      ]
         .filter(Boolean)
         .join(" · "),
       meta: { attendanceId: a.id, charge: Number(a.chargeAmount) },
@@ -414,6 +532,21 @@ export async function GET(
   }
 
   // --- Смены статуса (Client AuditLog) + автоматическое снятие шаблонной скидки
+  // Русские подписи для funnelStatus + clientStatus — иначе в ленту просачиваются
+  // сырые enum-коды (lead → active_client).
+  const STATUS_LABELS: Record<string, string> = {
+    new: "Лид",
+    trial_scheduled: "Пробное записано",
+    trial_attended: "Прошёл пробное",
+    awaiting_payment: "Ожидание оплаты",
+    active_client: "Активный клиент",
+    potential: "Потенциальный",
+    non_target: "Не целевой",
+    blacklisted: "Чёрный список",
+    archived: "Архив",
+    active: "Активный",
+    churned: "Выбывший",
+  }
   for (const log of auditLogs) {
     const changes = (log.changes as Record<string, unknown> | null) || null
     if (!changes) continue
@@ -448,6 +581,7 @@ export async function GET(
       const author = log.employee
         ? [log.employee.lastName, log.employee.firstName].filter(Boolean).join(" ")
         : null
+      const label = (v: string | null) => (v ? STATUS_LABELS[v] || v : "—")
       events.push({
         id: `audit-${log.id}-${field}`,
         kind: "status_change",
@@ -456,7 +590,7 @@ export async function GET(
           field === "funnelStatus"
             ? "Смена статуса в воронке"
             : "Смена статуса клиента",
-        description: `${oldVal ?? "—"} → ${newVal ?? "—"}`,
+        description: `${label(oldVal)} → ${label(newVal)}`,
         meta: { author, field },
       })
     }

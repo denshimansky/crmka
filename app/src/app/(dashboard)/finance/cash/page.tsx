@@ -101,10 +101,13 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
   }
   for (const p of paymentSums) {
     if (!monthTotals[p.accountId]) continue
-    // Скидки v2: отрицательный transfer_in — сторно «возврат по скидке»,
-    // деньги по кассе не двигаются, в поступления не включаем.
-    if (p.type === "transfer_in" && Number(p.amount) < 0) continue
-    if (p.type === "incoming" || p.type === "transfer_in") {
+    // transfer_in — виртуальное списание с баланса родителя в счёт абонемента
+    // (или сторно скидки): деньги по кассам не двигаются, а accountId у таких
+    // платежей — техническая заглушка (первый счёт организации). В поступления
+    // месяца не включаем, как в ДДС, — иначе двойной счёт и приписывание суммы
+    // чужой кассе (Баг #3).
+    if (p.type === "transfer_in") continue
+    if (p.type === "incoming") {
       monthTotals[p.accountId].incoming += Number(p.amount)
     } else {
       monthTotals[p.accountId].outgoing += Number(p.amount)
