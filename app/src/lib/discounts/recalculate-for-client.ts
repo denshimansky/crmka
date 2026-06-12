@@ -1,8 +1,6 @@
-// Применение/снятие шаблонной скидки клиента. Условие linked-шаблонов
-// проверяется по всем живым (pending/active) абонементам, получатель —
-// один самый дешёвый из не оплаченных и без списаний. Идемпотентно: можно
-// вызывать после любого изменения состава абонементов (создание, выписка,
-// смена статуса) или смены Client.discountTemplateId.
+// Применение/снятие шаблонной скидки клиента ко всем его не оплаченным
+// pending/active абонементам. Идемпотентно: можно вызывать после любого
+// изменения состава абонементов или смены Client.discountTemplateId.
 //
 // Старые записи Discount без templateId — не трогаем (это исторический пласт
 // recalcLinkedDiscounts). Здесь работаем только с шаблонами новой логики.
@@ -42,7 +40,6 @@ interface SubLite {
   discountAmount: Prisma.Decimal
   finalAmount: Prisma.Decimal
   chargedAmount: Prisma.Decimal
-  paymentsCount: number
 }
 
 function decimalCmp(a: Prisma.Decimal, b: Prisma.Decimal): number {
@@ -67,29 +64,26 @@ function computeDiscountAmount(
 }
 
 /**
- * Для linked-шаблонов проверяет условие применимости (по ВСЕМ живым
- * pending/active абонементам — оплаченные и начатые тоже подтверждают,
- * что ребёнок/направление действующие) и возвращает список (ровно одного)
- * абонемента-получателя — самого дешёвого по finalAmount из кандидатов
- * (не оплаченных и без списаний). Для permanent возвращает всех кандидатов.
+ * Для linked-шаблонов проверяет условие применимости и возвращает список
+ * (ровно одного) абонемента-получателя — самого дешёвого по finalAmount.
+ * Для permanent возвращает все.
  */
 function pickRecipients(
   kind: "permanent" | "linked_sibling" | "linked_second_direction",
-  eligible: SubLite[],
-  candidates: SubLite[],
+  subs: SubLite[],
 ): SubLite[] {
-  if (kind === "permanent") return candidates
-  if (candidates.length === 0) return []
+  if (kind === "permanent") return subs
+  if (subs.length === 0) return []
 
   if (kind === "linked_sibling") {
-    const wardIds = new Set(eligible.map((s) => s.wardId ?? ""))
+    const wardIds = new Set(subs.map((s) => s.wardId ?? ""))
     // Условие: ≥ 2 разных ward (включая «нет ward» как отдельный).
     const wardsCount = [...wardIds].filter((w) => w !== "").length
     if (wardsCount < 2) return []
   } else {
     // linked_second_direction
     const byWard = new Map<string, Set<string>>()
-    for (const s of eligible) {
+    for (const s of subs) {
       const w = s.wardId ?? ""
       if (!w) continue
       if (!byWard.has(w)) byWard.set(w, new Set())
@@ -100,7 +94,7 @@ function pickRecipients(
   }
 
   // Самый дешёвый по finalAmount, при равенстве — стабильно по id ASC.
-  const sorted = [...candidates].sort((a, b) => {
+  const sorted = [...subs].sort((a, b) => {
     const c = decimalCmp(a.finalAmount, b.finalAmount)
     return c !== 0 ? c : a.id.localeCompare(b.id)
   })
@@ -125,16 +119,15 @@ export async function recalculateDiscountsForClient(
       })
     : null
 
-  // Все живые абонементы клиента: по ним проверяется УСЛОВИЕ linked-шаблонов
-  // (второй ребёнок/направление считается и по оплаченным/начатым абонементам).
-  // Кандидаты на скидку — только не оплаченные и без списаний: пересчёт
-  // оплаченного некорректен (для корректировки — возврат), начатого — тем более.
+  // Кандидаты: pending/active абонементы без оплат. Оплаченные не трогаем —
+  // пересчёт скидки уже не корректен, надо делать возврат отдельно.
   const subsRaw = await db.subscription.findMany({
     where: {
       tenantId: input.tenantId,
       clientId: input.clientId,
       deletedAt: null,
       status: { in: ["pending", "active"] },
+      chargedAmount: { equals: 0 },
     },
     select: {
       id: true,
@@ -148,7 +141,6 @@ export async function recalculateDiscountsForClient(
       chargedAmount: true,
       ward: { select: { firstName: true, lastName: true } },
       direction: { select: { name: true } },
-      _count: { select: { payments: { where: { deletedAt: null } } } },
     },
   })
 
@@ -162,16 +154,11 @@ export async function recalculateDiscountsForClient(
     discountAmount: new Prisma.Decimal(s.discountAmount),
     finalAmount: new Prisma.Decimal(s.finalAmount),
     chargedAmount: new Prisma.Decimal(s.chargedAmount),
-    paymentsCount: s._count.payments,
   }))
-  const candidates = subs.filter(
-    (s) => s.chargedAmount.isZero() && s.paymentsCount === 0,
-  )
-  const candidateIds = candidates.map((s) => s.id)
 
   // Назначаем кому какую скидку дать. Если шаблон неактивен — обнуляем как при null.
   const targetRecipients =
-    template && template.isActive ? pickRecipients(template.kind, subs, candidates) : []
+    template && template.isActive ? pickRecipients(template.kind, subs) : []
   const targetIds = new Set(targetRecipients.map((s) => s.id))
 
   // Запоминаем, у каких абонементов была применена шаблонная скидка ДО пересчёта.
@@ -179,7 +166,7 @@ export async function recalculateDiscountsForClient(
   // ручную скидку, введённую в форме создания/редактирования абонемента.
   const priorTemplateDiscounts = await db.discount.findMany({
     where: {
-      subscriptionId: { in: candidateIds },
+      subscription: { clientId: input.clientId, tenantId: input.tenantId },
       templateId: { not: null },
       isActive: true,
     },
@@ -189,19 +176,17 @@ export async function recalculateDiscountsForClient(
     priorTemplateDiscounts.map((d) => d.subscriptionId),
   )
 
-  // Снимаем шаблонные Discount только у кандидатов. Оплаченные/начатые
-  // абонементы не трогаем: их Discount-записи — история для отчёта
-  // «Связанные скидки» и колонки «Скидка» в реестре.
+  // Снимаем все шаблонные Discount у клиента в этих абонах.
   await db.discount.deleteMany({
     where: {
-      subscriptionId: { in: candidateIds },
+      subscription: { clientId: input.clientId, tenantId: input.tenantId },
       templateId: { not: null },
       isActive: true,
     },
   })
 
-  // Для каждого кандидата — целевая сумма скидки и пересчёт Subscription.
-  for (const sub of candidates) {
+  // Для каждого абонемента — целевая сумма скидки и пересчёт Subscription.
+  for (const sub of subs) {
     let newDiscount = new Prisma.Decimal(0)
     let appliedTemplate = false
     if (template && targetIds.has(sub.id)) {
@@ -314,9 +299,6 @@ export async function recalculateDiscountsForClient(
       const clientName =
         [fullClient?.lastName, fullClient?.firstName].filter(Boolean).join(" ") ||
         "Клиент"
-      // Если получатель есть — скидка не исчезла, а переехала на самый
-      // дешёвый неоплаченный абонемент; текст уведомления различаем.
-      const moved = targetIds.size > 0
       for (const removal of result.removed) {
         const who = removal.wardName ? `${removal.wardName} · ` : ""
         await db.notification.createMany({
@@ -324,12 +306,8 @@ export async function recalculateDiscountsForClient(
             tenantId: input.tenantId,
             employeeId: r.id,
             type: "linked_discount_warning" as const,
-            title: moved
-              ? `Скидка «${removal.templateName}» перенесена — ${clientName}`
-              : `Снята скидка «${removal.templateName}» — ${clientName}`,
-            message: moved
-              ? `${who}${removal.directionName}. Скидка переехала на самый дешёвый неоплаченный абонемент (было −${removal.previousAmount.toLocaleString("ru-RU")} ₽).`
-              : `${who}${removal.directionName}. Условие шаблона больше не выполняется (было −${removal.previousAmount.toLocaleString("ru-RU")} ₽).`,
+            title: `Снята скидка «${removal.templateName}» — ${clientName}`,
+            message: `${who}${removal.directionName}. Условие шаблона больше не выполняется (было −${removal.previousAmount.toLocaleString("ru-RU")} ₽).`,
             entityType: "Client",
             entityId: input.clientId,
           })),

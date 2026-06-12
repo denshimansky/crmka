@@ -179,9 +179,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   })
 
   // Смена шаблона скидки на клиенте НЕ пересчитывает уже выписанные
-  // абонементы сама по себе. Скидка применится при следующем событии
-  // (создание/выписка/изменение абонемента) — см. recalculateDiscountsForClient:
-  // ровно один самый дешёвый неоплаченный абонемент.
+  // абонементы. Шаблонные скидки применяются только к абонементам,
+  // выписанным ПОСЛЕ установки шаблона (см. applyDiscountToNewSubscription).
 
   return NextResponse.json(client)
 }
