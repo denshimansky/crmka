@@ -5,7 +5,6 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { Button } from "@/components/ui/button"
 import { PageHelp } from "@/components/page-help"
-import { QuickLeadButton } from "@/components/quick-lead-button"
 import { CreateClientDialog } from "../clients/create-client-dialog"
 import { ContactsTabs, type ContactsTab } from "./contacts-tabs"
 import { ContactsTable, type ContactRow, type ContactsTabKey } from "./contacts-table"
@@ -308,8 +307,6 @@ export default async function ContactsPage({
       <ContactsTabs tabs={tabs} current={tab} />
 
       <ContactsTable tab={tab} rows={rows} employees={employees} initialQuery={query} />
-
-      <QuickLeadButton />
     </div>
   )
 }
