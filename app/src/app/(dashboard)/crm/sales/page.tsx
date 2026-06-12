@@ -251,6 +251,7 @@ export default async function SalesPage({
         lessonId: t?.lessonId ?? null,
         trialLessonId: t?.id ?? null,
         trialStatus: t?.status ?? null,
+        trialConfirmed: t?.confirmed ?? null,
         trialDirectionId: t?.directionId ?? null,
         trialInstructorId: t?.instructorId ?? null,
         trialRoomId: t?.roomId ?? null,

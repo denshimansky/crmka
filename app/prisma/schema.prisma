@@ -1575,6 +1575,8 @@ model TrialLesson {
   scheduledDate        DateTime    @map("scheduled_date") @db.Date
   attendedAt           DateTime?   @map("attended_at")
   instructorPayEnabled Boolean     @default(false) @map("instructor_pay_enabled")
+  /// Родитель подтвердил, что придут на пробное — ручной чекбокс на вкладке «Пробное» в «Продажах»
+  confirmed            Boolean     @default(false)
   comment              String?
   createdBy            String?     @map("created_by") @db.Uuid
   createdAt            DateTime    @default(now()) @map("created_at")

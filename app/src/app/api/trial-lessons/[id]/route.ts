@@ -12,10 +12,15 @@ const updateSchema = z
   .object({
     status: z.enum(["scheduled", "attended", "no_show", "cancelled"]).optional(),
     instructorPayEnabled: z.boolean().optional(),
+    confirmed: z.boolean().optional(),
   })
-  .refine((d) => d.status !== undefined || d.instructorPayEnabled !== undefined, {
-    message: "Нечего обновлять",
-  })
+  .refine(
+    (d) =>
+      d.status !== undefined ||
+      d.instructorPayEnabled !== undefined ||
+      d.confirmed !== undefined,
+    { message: "Нечего обновлять" },
+  )
 
 // Расчёт ставки инструктора за пробное через единые утилиты.
 // Для пробных currentChargeAmount=0 (пробное не списывает с абонемента),
@@ -51,7 +56,8 @@ async function computeTrialPay(
   })
 }
 
-// PATCH /api/trial-lessons/[id] — изменить статус или флаг оплаты инструктору
+// PATCH /api/trial-lessons/[id] — изменить статус, флаг оплаты инструктору
+// или отметку «подтвердили пробное» (confirmed — без побочных эффектов)
 // attended → создаёт Attendance(isTrial=true), переводит Ward.salesStage в trial_attended (если ещё trial_scheduled)
 // no_show / cancelled → удаляет Attendance + закрывает автозадачу-напоминание
 // Изменение instructorPayEnabled — обновляет TrialLesson и (если уже attended) пересчитывает Attendance
@@ -68,7 +74,7 @@ export async function PATCH(
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
-  const { status, instructorPayEnabled } = parsed.data
+  const { status, instructorPayEnabled, confirmed } = parsed.data
   const tenantId = session.user.tenantId
 
   const trial = await db.trialLesson.findFirst({
@@ -110,6 +116,7 @@ export async function PATCH(
           attendedAt: status === "attended" ? now : null,
         }),
         ...(instructorPayEnabled !== undefined && { instructorPayEnabled }),
+        ...(confirmed !== undefined && { confirmed }),
       },
     })
 

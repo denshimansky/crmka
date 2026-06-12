@@ -1,10 +1,11 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
   ContextMenu,
@@ -60,6 +61,8 @@ export interface SalesRow {
   trialLessonId?: string | null
   /** Статус представительного пробного (scheduled | no_show): при переносе даты отменяем только scheduled — неявка остаётся в истории. */
   trialStatus?: string | null
+  /** Родитель подтвердил, что придут на пробное — ручной чекбокс на вкладке «Пробное». */
+  trialConfirmed?: boolean | null
   /** Параметры индивидуального пробного (без группы) — нужны, чтобы пересоздать его при переносе даты. */
   trialDirectionId?: string | null
   trialInstructorId?: string | null
@@ -98,9 +101,55 @@ function fmtDateTime(iso: string | null, time: string | null | undefined): strin
   return time ? `${d} ${time}` : d
 }
 
+/** Чекбокс «Подтвердили пробное» — пишет TrialLesson.confirmed (оптимистично, с откатом при ошибке). */
+function TrialConfirmedCheckbox({
+  trialLessonId,
+  initialValue,
+}: {
+  trialLessonId: string
+  initialValue: boolean
+}) {
+  const router = useRouter()
+  const [checked, setChecked] = useState(initialValue)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setChecked(initialValue)
+  }, [initialValue])
+
+  async function commit(next: boolean) {
+    setChecked(next)
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/trial-lessons/${trialLessonId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmed: next }),
+      })
+      if (res.ok) router.refresh()
+      else setChecked(!next)
+    } catch {
+      setChecked(!next)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Checkbox
+      checked={checked}
+      disabled={saving}
+      onCheckedChange={(v) => commit(Boolean(v))}
+      aria-label="Подтвердили пробное"
+      title={checked ? "Пробное подтверждено" : "Отметить: родитель подтвердил, что придут"}
+    />
+  )
+}
+
 /** Все сортируемые колонки таблицы Продаж. */
 type SortKey =
   | "state"
+  | "confirmed"
   | "parent"
   | "phone"
   | "channel"
@@ -176,6 +225,8 @@ export function SalesTable({
     switch (key) {
       case "state":
         return r.state
+      case "confirmed":
+        return r.trialConfirmed ? "1" : "0"
       case "parent":
         return fullName(r).toLowerCase()
       case "phone":
@@ -361,6 +412,9 @@ export function SalesTable({
           <TableHeader>
             <TableRow>
               <SortableHead label="Состояние" sortKey="state" />
+              {tab === "trial" && (
+                <SortableHead label="Подтвердили пробное" sortKey="confirmed" className="w-[110px]" />
+              )}
               {tab === "application" && <TableHead className="w-[40px]"></TableHead>}
               <SortableHead label="ФИО родителя" sortKey="parent" />
               <SortableHead label="Телефон" sortKey="phone" />
@@ -401,6 +455,18 @@ export function SalesTable({
                 <TableCell className="text-xs font-medium">
                   {r.state === "client" ? "Клиент" : "Лид"}
                 </TableCell>
+                {tab === "trial" && (
+                  <TableCell>
+                    {r.trialLessonId ? (
+                      <TrialConfirmedCheckbox
+                        trialLessonId={r.trialLessonId}
+                        initialValue={r.trialConfirmed ?? false}
+                      />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                )}
                 {tab === "application" && (
                   <TableCell>
                     {r.applicationId ? (
