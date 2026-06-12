@@ -13,7 +13,7 @@
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { countLessonsForGroup } from "@/lib/schedule/count-lessons"
-import { applyDiscountToNewSubscription } from "@/lib/discounts/apply-to-new-subscription"
+import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
 
 export interface BulkRenewInput {
   tenantId: string
@@ -318,13 +318,15 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
       totalIssuedAmount = totalIssuedAmount.add(finalAmount)
     }
 
-    // Применяем шаблонные скидки только к НОВЫМ абонементам.
-    // Старые абонементы клиента не пересчитываем.
-    for (const { subId, clientId } of createdSubs) {
-      await applyDiscountToNewSubscription(tx, {
+    // Пересчёт шаблонных скидок — один раз на клиента после выписки всех
+    // его абонементов: linked-скидка ложится ровно на один самый дешёвый
+    // неоплаченный абонемент, а не на каждый новый (раньше семья с двумя
+    // детьми получала скидку на оба новых абонемента).
+    const clientIds = [...new Set(createdSubs.map((c) => c.clientId))]
+    for (const clientId of clientIds) {
+      await recalculateDiscountsForClient(tx, {
         tenantId: opts.tenantId,
         clientId,
-        subscriptionId: subId,
         createdBy: opts.createdBy ?? null,
       })
     }
