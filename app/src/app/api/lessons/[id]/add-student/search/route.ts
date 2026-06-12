@@ -71,7 +71,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           periodYear,
           periodMonth,
         },
-        select: { id: true, wardId: true, balance: true, lessonPrice: true },
+        select: { id: true, wardId: true, balance: true, lessonPrice: true, discountPerLesson: true },
       },
     },
     take: 30,
@@ -119,7 +119,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         wardName: [w.lastName, w.firstName].filter(Boolean).join(" ") || "Без имени",
         subscription:
           sub && Number(sub.balance) > 0
-            ? { id: sub.id, balance: Number(sub.balance), lessonPrice: Number(sub.lessonPrice) }
+            ? {
+                id: sub.id,
+                balance: Number(sub.balance),
+                // Скидки v2: показываем эффективную цену занятия.
+                lessonPrice: Math.max(
+                  0,
+                  Number(sub.lessonPrice) - Number(sub.discountPerLesson ?? 0),
+                ),
+              }
             : null,
       })
     }

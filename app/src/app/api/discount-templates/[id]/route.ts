@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import {
+  recalcAllClientsForType1,
+  TYPE1_SYSTEM_KEY,
+} from "@/lib/discounts/recalc-client-discounts"
 import { z } from "zod"
 
 const updateSchema = z.object({
@@ -43,10 +47,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   })
   if (!existing) return NextResponse.json({ error: "Шаблон скидки не найден" }, { status: 404 })
 
+  // Скидки v2: легаси-шаблоны редактировать нельзя (история).
+  if (existing.isLegacy) {
+    return NextResponse.json(
+      { error: "Шаблон старой логики скидок: редактирование недоступно" },
+      { status: 400 },
+    )
+  }
+
   // Системные шаблоны (systemKey != null) защищаем от переименования:
   // меняются только valueType/value/isActive.
   const isSystem = existing.systemKey !== null
-  const data: typeof parsed.data = { ...parsed.data }
+  const data: typeof parsed.data & { activatedAt?: Date } = { ...parsed.data }
   if (isSystem && parsed.data.name !== undefined && parsed.data.name !== existing.name) {
     return NextResponse.json(
       { error: "Системный шаблон нельзя переименовать" },
@@ -54,7 +66,27 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     )
   }
 
+  // Скидки v2: включение тоггла типа 1 фиксирует activatedAt — скидка
+  // действует на абонементы с периодом со СЛЕДУЮЩЕГО месяца.
+  const isType1 = existing.systemKey === TYPE1_SYSTEM_KEY
+  const turningOn = isType1 && parsed.data.isActive === true && !existing.isActive
+  if (turningOn) {
+    data.activatedAt = new Date()
+  }
+
   const item = await db.discountTemplate.update({ where: { id }, data })
+
+  // Разовый пересчёт уже выписанных абонементов будущих месяцев (продлённые
+  // заранее получают скидку сразу). Текущий месяц не трогается.
+  if (turningOn) {
+    const processed = await recalcAllClientsForType1(
+      db,
+      session.user.tenantId,
+      session.user.employeeId ?? null,
+    )
+    return NextResponse.json({ ...item, _recalculatedClients: processed })
+  }
+
   return NextResponse.json(item)
 }
 

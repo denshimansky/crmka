@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
+import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { z } from "zod"
 
 // PATCH — частичное обновление: отсутствующее в теле поле должно остаться
@@ -120,28 +121,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  // Шаблон скидки — проверка применимости. linked-виды требуют наличия
-  // подопечных, иначе шаблон молча не сработает (см. pickRecipients).
+  // Скидки v2: вручную выбирается только постоянный шаблон (тип 2).
+  // Автоскидка «за второй абонемент» (тип 1) и легаси-шаблоны не выбираются.
   if (data.discountTemplateId !== undefined && data.discountTemplateId !== null) {
     const tpl = await db.discountTemplate.findFirst({
       where: { id: data.discountTemplateId, tenantId: session.user.tenantId },
-      select: { kind: true },
+      select: { kind: true, isActive: true, isLegacy: true },
     })
     if (!tpl) {
       return NextResponse.json({ error: "Шаблон скидки не найден" }, { status: 404 })
     }
-    if (tpl.kind === "linked_sibling" || tpl.kind === "linked_second_direction") {
-      const wardsCount = await db.ward.count({
-        where: { clientId: id, tenantId: session.user.tenantId },
-      })
-      const required = tpl.kind === "linked_sibling" ? 2 : 1
-      if (wardsCount < required) {
-        const msg =
-          tpl.kind === "linked_sibling"
-            ? "Скидка «За 2-го ребёнка» требует минимум 2 подопечных у клиента"
-            : "Скидка «За 2-е направление» требует хотя бы одного подопечного"
-        return NextResponse.json({ error: msg }, { status: 400 })
-      }
+    if (tpl.kind !== "permanent" || tpl.isLegacy) {
+      return NextResponse.json(
+        { error: "Вручную можно выбрать только постоянную скидку" },
+        { status: 400 },
+      )
+    }
+    if (!tpl.isActive) {
+      return NextResponse.json(
+        { error: "Шаблон скидки выключен — включите его в настройках" },
+        { status: 400 },
+      )
     }
   }
 
@@ -178,9 +178,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     include: { wards: true, branch: { select: { id: true, name: true } } },
   })
 
-  // Смена шаблона скидки на клиенте НЕ пересчитывает уже выписанные
-  // абонементы. Шаблонные скидки применяются только к абонементам,
-  // выписанным ПОСЛЕ установки шаблона (см. applyDiscountToNewSubscription).
+  // Скидки v2: смена шаблона — триггер пересчёта. Установка типа 2 заменяет
+  // выданные тип-1-скидки (оставшиеся занятия), старые без скидки не трогает;
+  // снятие («Без скидки») снимает тип-2-скидки и возвращает инвариант типа 1.
+  if (data.discountTemplateId !== undefined) {
+    await db.$transaction(async (tx) => {
+      await recalcClientDiscounts(tx, {
+        tenantId: session.user.tenantId,
+        clientId: id,
+        createdBy: session.user.employeeId ?? null,
+      })
+    })
+  }
 
   return NextResponse.json(client)
 }

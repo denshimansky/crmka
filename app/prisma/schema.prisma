@@ -737,6 +737,11 @@ model Subscription {
   finalAmount            Decimal            @map("final_amount") @db.Decimal(12, 2)
   balance                Decimal            @default(0) @db.Decimal(12, 2)
   chargedAmount          Decimal            @default(0) @map("charged_amount") @db.Decimal(12, 2)
+  /// Скидки v2: текущая скидка за занятие (эффективная цена = max(0, lessonPrice − discountPerLesson)).
+  /// Будущие списания идут по эффективной цене; прошлые — снимок, не пересчитываются.
+  discountPerLesson      Decimal            @default(0) @map("discount_per_lesson") @db.Decimal(12, 2)
+  /// Скидки v2: источник текущей скидки (type1/type2/legacy/none).
+  discountSource         SubscriptionDiscountSource @default(none) @map("discount_source")
   startDate              DateTime           @map("start_date") @db.Date
   endDate                DateTime?          @map("end_date") @db.Date
   expiresAt              DateTime?          @map("expires_at") @db.Date
@@ -844,6 +849,10 @@ model Discount {
   valueType        DiscountValueType @map("value_type")
   value            Decimal           @db.Decimal(12, 2)
   calculatedAmount Decimal           @map("calculated_amount") @db.Decimal(12, 2)
+  /// Скидки v2: скидка за занятие на момент применения (для percent — вычисленная).
+  perLessonValue   Decimal?          @map("per_lesson_value") @db.Decimal(12, 2)
+  /// Скидки v2: сколько занятий оставалось на момент применения (calculatedAmount = perLessonValue × lessonsRemaining).
+  lessonsRemaining Int?              @map("lessons_remaining")
   linkedClientId   String?           @map("linked_client_id") @db.Uuid
   comment          String?
   startDate        DateTime          @map("start_date") @db.Date
@@ -1318,6 +1327,8 @@ enum DiscountType {
   permanent
   one_time
   linked
+  // Скидки v2 (docs/discounts-v2.md): автоскидка «за второй абонемент»
+  second_subscription
 }
 
 enum DiscountValueType {
@@ -1326,10 +1337,24 @@ enum DiscountValueType {
 }
 
 // Поведенческая категория шаблона. Определяет условие применения и круг абонов.
+// Скидки v2 (docs/discounts-v2.md): рабочие kind — second_subscription (тип 1,
+// системный, автоматический) и permanent (тип 2, ручной выбор в карточке).
+// linked_sibling / linked_second_direction — легаси, новые не создаются.
 enum DiscountKind {
   permanent
   linked_sibling
   linked_second_direction
+  second_subscription
+}
+
+// Источник текущей скидки абонемента (Скидки v2).
+// legacy — замороженная скидка старой логики: не изменяется ни одним триггером,
+// абонемент участвует в составе месяца по totalAmount как обычный.
+enum SubscriptionDiscountSource {
+  none
+  type1
+  type2
+  legacy
 }
 
 enum EnrollmentPaymentStatus {
@@ -1699,6 +1724,8 @@ enum BalanceTransactionType {
   lesson_refund
   personal_lesson_charge
   attendance_revert
+  // Скидки v2: возврат на баланс при пересчёте скидки (оплачено > новой стоимости)
+  discount_refund
 }
 
 enum NotificationType {
@@ -1757,6 +1784,12 @@ model DiscountTemplate {
   value       Decimal           @db.Decimal(12, 2)
   isStackable Boolean           @default(false) @map("is_stackable")
   isActive    Boolean           @default(true) @map("is_active")
+  /// Скидки v2: момент последнего включения тип-1 (тоггл). Тип 1 действует на
+  /// абонементы с периодом со СЛЕДУЮЩЕГО месяца после включения.
+  activatedAt DateTime?         @map("activated_at")
+  /// Скидки v2: легаси-шаблон старой логики (старые системные linked и fixed со
+  /// старой семантикой value). Деактивирован, в UI не предлагается, история жива.
+  isLegacy    Boolean           @default(false) @map("is_legacy")
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
 

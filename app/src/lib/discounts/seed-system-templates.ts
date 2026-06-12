@@ -1,21 +1,44 @@
-// Ленивый seed двух системных шаблонов скидок для тенанта.
+// Ленивый seed системных шаблонов скидок для тенанта (Скидки v2).
 // Срабатывает при первом обращении к /api/discount-templates GET и
 // при загрузке списка из карточки клиента. Идемпотентен (uniq по
 // tenantId+systemKey, см. миграцию).
+//
+// Набор (docs/discounts-v2.md §1):
+//  - тип 1 «Скидка за второй абонемент» — автоматическая, создаётся
+//    ВЫКЛЮЧЕННОЙ (фикс 50 ₽/занятие), организация включает сама;
+//  - тип 2 «Постоянная скидка» — пример постоянного шаблона для ручного
+//    выбора в карточке (10%); применяется только при явном выборе.
 
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
+import { TYPE1_SYSTEM_KEY } from "@/lib/discounts/recalc-client-discounts"
 
 const SYSTEM_TEMPLATES: Array<{
   systemKey: string
   name: string
-  kind: "linked_sibling" | "linked_second_direction"
+  kind: "second_subscription" | "permanent"
+  type: "second_subscription" | "permanent"
+  valueType: "percent" | "fixed"
+  value: number
+  isActive: boolean
 }> = [
-  { systemKey: "linked_sibling", name: "За 2-го ребёнка", kind: "linked_sibling" },
   {
-    systemKey: "linked_second_direction",
-    name: "За 2-е направление",
-    kind: "linked_second_direction",
+    systemKey: TYPE1_SYSTEM_KEY,
+    name: "Скидка за второй абонемент",
+    kind: "second_subscription",
+    type: "second_subscription",
+    valueType: "fixed",
+    value: 50,
+    isActive: false,
+  },
+  {
+    systemKey: "permanent_default",
+    name: "Постоянная скидка",
+    kind: "permanent",
+    type: "permanent",
+    valueType: "percent",
+    value: 10,
+    isActive: true,
   },
 ]
 
@@ -28,11 +51,10 @@ export async function ensureSystemDiscountTemplates(tenantId: string): Promise<v
           name: t.name,
           kind: t.kind,
           systemKey: t.systemKey,
-          // type — наследие старой схемы; для linked_* пишем `linked`.
-          type: "linked",
-          valueType: "percent",
-          value: new Prisma.Decimal(0),
-          isActive: false,
+          type: t.type,
+          valueType: t.valueType,
+          value: new Prisma.Decimal(t.value),
+          isActive: t.isActive,
           isStackable: false,
         },
       })

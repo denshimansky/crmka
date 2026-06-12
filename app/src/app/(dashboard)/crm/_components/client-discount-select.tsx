@@ -7,10 +7,15 @@ import {
 } from "@/components/ui/select"
 import { Tag } from "lucide-react"
 
+// Скидки v2: вручную выбирается только постоянная скидка (тип 2).
+// Автоскидка «за второй абонемент» (тип 1) показывается индикатором,
+// когда она действует на абонементах клиента, — выбрать или снять её
+// руками нельзя (управляется только тогглом в настройках организации).
+
 interface TemplateOption {
   id: string
   name: string
-  kind: "permanent" | "linked_sibling" | "linked_second_direction"
+  kind: string
   valueType: "percent" | "fixed"
   value: string | number
   isActive: boolean
@@ -24,33 +29,15 @@ function shortTitle(t: {
 }): string {
   const v = Number(t.value)
   const suffix =
-    t.valueType === "percent" ? `${v}%` : `${v.toLocaleString("ru-RU")} ₽/занятие`
+    t.valueType === "percent" ? `${v}%` : `−${v.toLocaleString("ru-RU")} ₽/занятие`
   return `${t.name} (${suffix})`
-}
-
-// Минимальное число подопечных у клиента для linked-видов шаблона.
-function requiredWardsFor(kind: TemplateOption["kind"]): number {
-  if (kind === "linked_sibling") return 2
-  if (kind === "linked_second_direction") return 1
-  return 0
-}
-
-function unavailableReason(
-  kind: TemplateOption["kind"],
-  wardsCount: number,
-): string | null {
-  const need = requiredWardsFor(kind)
-  if (wardsCount >= need) return null
-  if (kind === "linked_sibling") return "Нужно минимум 2 подопечных"
-  if (kind === "linked_second_direction") return "Нужен хотя бы один подопечный"
-  return null
 }
 
 export function ClientDiscountSelect({
   clientId,
   initialTemplateId,
   initialTemplate,
-  wardsCount,
+  hasType1Discount,
 }: {
   clientId: string
   initialTemplateId: string | null
@@ -63,7 +50,8 @@ export function ClientDiscountSelect({
     valueType: "percent" | "fixed"
     value: string | number
   } | null
-  wardsCount: number
+  /** Действует ли на абонементах клиента автоскидка «за второй абонемент». */
+  hasType1Discount?: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -74,7 +62,7 @@ export function ClientDiscountSelect({
 
   useEffect(() => {
     if (!open || loaded) return
-    fetch("/api/discount-templates?isActive=true")
+    fetch("/api/discount-templates?isActive=true&kind=permanent")
       .then((r) => r.ok ? r.json() : [])
       .then((data) => {
         setOptions(Array.isArray(data) ? data : [])
@@ -109,11 +97,13 @@ export function ClientDiscountSelect({
   const selected = options.find((o) => o.id === value)
   const label = selected
     ? shortTitle(selected)
-    : value === "none"
-      ? "Без скидки"
-      : initialTemplate
-        ? shortTitle(initialTemplate)
-        : "…"
+    : value !== "none" && initialTemplate
+      ? shortTitle(initialTemplate)
+      : value !== "none"
+        ? "…"
+        : hasType1Discount
+          ? "Скидка за второй абонемент (авто)"
+          : "Без скидки"
 
   return (
     <Select
@@ -126,18 +116,14 @@ export function ClientDiscountSelect({
         <span className="truncate" title={label}>{label}</span>
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="none">Без скидки</SelectItem>
-        {options.map((o) => {
-          const reason = unavailableReason(o.kind, wardsCount)
-          return (
-            <SelectItem key={o.id} value={o.id} disabled={reason !== null}>
-              {shortTitle(o)}
-              {reason && (
-                <span className="ml-2 text-xs text-muted-foreground">— {reason}</span>
-              )}
-            </SelectItem>
-          )
-        })}
+        <SelectItem value="none">
+          {hasType1Discount ? "Без скидки (действует автоскидка)" : "Без скидки"}
+        </SelectItem>
+        {options.map((o) => (
+          <SelectItem key={o.id} value={o.id}>
+            {shortTitle(o)}
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   )

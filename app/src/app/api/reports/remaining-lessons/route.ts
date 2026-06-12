@@ -50,12 +50,14 @@ export async function GET(req: NextRequest) {
 
   // Count attended lessons per subscription
   const subIds = subs.map((s) => s.id)
+  // Скидки v2: «отхожено» по отметкам (включая бесплатные при 100% скидке).
   const attendanceCounts = await db.attendance.groupBy({
     by: ["subscriptionId"],
     where: {
       tenantId,
       subscriptionId: { in: subIds },
-      chargeAmount: { gt: 0 },
+      isPending: false,
+      attendanceType: { chargesSubscription: true },
     },
     _count: true,
   })

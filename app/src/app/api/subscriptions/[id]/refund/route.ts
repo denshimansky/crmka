@@ -102,11 +102,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
       _sum: { chargeAmount: true },
     })
+    // Скидки v2: «отхожено» = отметки, списывающие занятие (включая бесплатные
+    // при 100% скидке), а не chargeAmount > 0.
     const attendedCount = await tx.attendance.count({
       where: {
         tenantId: session.user.tenantId,
         subscriptionId: id,
-        chargeAmount: { gt: 0 },
+        isPending: false,
+        attendanceType: { chargesSubscription: true },
       },
     })
 
@@ -220,11 +223,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     },
     _sum: { chargeAmount: true },
   })
+  // Скидки v2: «отхожено» по отметкам, не по chargeAmount > 0.
   const attendedCount = await db.attendance.count({
     where: {
       tenantId: session.user.tenantId,
       subscriptionId: id,
-      chargeAmount: { gt: 0 },
+      isPending: false,
+      attendanceType: { chargesSubscription: true },
     },
   })
 

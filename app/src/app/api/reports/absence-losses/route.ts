@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
         select: { code: true, chargesSubscription: true },
       },
       client: { select: { firstName: true, lastName: true } },
-      subscription: { select: { direction: { select: { name: true } }, lessonPrice: true } },
+      subscription: { select: { direction: { select: { name: true } }, lessonPrice: true, discountPerLesson: true } },
     },
   })
 
@@ -67,7 +67,11 @@ export async function GET(req: NextRequest) {
       absenceAmount: 0,
     }
     prev.recalcCount += 1
-    prev.recalcAmount += Number(a.subscription?.lessonPrice || 0)
+    // Скидки v2: потери считаем по эффективной цене занятия.
+    prev.recalcAmount += Math.max(
+      0,
+      Number(a.subscription?.lessonPrice || 0) - Number(a.subscription?.discountPerLesson || 0),
+    )
     clientStats.set(a.clientId, prev)
   }
 

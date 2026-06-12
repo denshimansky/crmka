@@ -74,6 +74,9 @@ export async function computeActiveSubscriptionsByBranch(
         tenantId,
         deletedAt: null,
         type: { in: ["incoming", "transfer_in"] },
+        // Скидки v2: отрицательный transfer_in — сторно «возврат по скидке»,
+        // активацией абонемента не считается.
+        amount: { gt: 0 },
         subscriptionId: { not: null },
         date: { gte: monthStart, lte: monthEnd },
       },
@@ -97,6 +100,7 @@ export async function computeActiveSubscriptionsByBranch(
         tenantId,
         deletedAt: null,
         type: { in: ["incoming", "transfer_in"] },
+        amount: { gt: 0 },
         subscriptionId: { not: null },
         date: { gte: prevStart, lte: prevEnd },
       },

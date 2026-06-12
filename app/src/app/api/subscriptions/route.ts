@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
-import { applyDiscountToNewSubscription } from "@/lib/discounts/apply-to-new-subscription"
+import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
 import { z } from "zod"
@@ -19,7 +19,6 @@ const createSchema = z.object({
   totalLessons: z.number().int().min(1, "Минимум 1 занятие"),
   wardId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   startDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
-  discountAmount: z.number().min(0).default(0),
   // Поля только для пакетного типа
   packageTemplateId: z.string().uuid().optional(),
   validDays: z.number().int().min(1).max(3650).optional(),
@@ -89,11 +88,29 @@ export async function GET(req: NextRequest) {
     : []
   const refundBySub = new Map(refunds.map((r) => [r.subscriptionId, Number(r._sum.amount ?? 0)]))
 
+  // Скидки v2: «отхожено» = число отметок, списывающих занятие (включая
+  // бесплатные при 100% скидке) — деление chargedAmount/lessonPrice больше
+  // не работает, цены занятий внутри абонемента могут различаться.
+  const attendedRows = subIds.length
+    ? await db.attendance.groupBy({
+        by: ["subscriptionId"],
+        where: {
+          tenantId: session.user.tenantId,
+          subscriptionId: { in: subIds },
+          isPending: false,
+          attendanceType: { chargesSubscription: true },
+        },
+        _count: { _all: true },
+      })
+    : []
+  const attendedBySub = new Map(attendedRows.map((r) => [r.subscriptionId, r._count._all]))
+
   // Маскирование телефонов для инструктора.
   const masked = subscriptions.map((s) => ({
     ...s,
     client: { ...s.client, phone: maskPhone(s.client.phone, session.user.role) },
     refundedToBalance: refundBySub.get(s.id) ?? 0,
+    attendedLessons: attendedBySub.get(s.id) ?? 0,
   }))
 
   return NextResponse.json(masked)
@@ -191,8 +208,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Скидки v2: абонемент создаётся без скидки; шаблонные скидки (тип 1/тип 2)
+  // применит recalcClientDiscounts после создания. Ручной скидки больше нет.
   const totalAmount = data.lessonPrice * data.totalLessons
-  const finalAmount = totalAmount - data.discountAmount
+  const finalAmount = totalAmount
   const balance = finalAmount // Сколько ещё нужно оплатить
 
   // Дата начала: startDate, либо для calendar — 1-е число месяца, либо сегодня (package).
@@ -222,7 +241,6 @@ export async function POST(req: NextRequest) {
         lessonPrice: data.lessonPrice,
         totalLessons: data.totalLessons,
         totalAmount,
-        discountAmount: data.discountAmount,
         finalAmount,
         balance,
         startDate,
@@ -261,14 +279,14 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Применяем шаблон скидки клиента ТОЛЬКО к новому абонементу.
-    // Старые абонементы клиента не пересчитываем — шаблонные скидки
-    // применяются к выпискам ПОСЛЕ установки шаблона.
-    await applyDiscountToNewSubscription(tx, {
+    // Скидки v2: пересчёт скидок клиента — новый абонемент получает тип 2
+    // (если выбран в карточке), иначе срабатывает инвариант типа 1 по месяцу
+    // (скидка на все абонементы месяца, кроме самого дорогого).
+    await recalcClientDiscounts(tx, {
       tenantId: session.user.tenantId,
       clientId: data.clientId,
-      subscriptionId: sub.id,
       createdBy: session.user.employeeId ?? null,
+      newSubscriptionIds: [sub.id],
     })
 
     return sub

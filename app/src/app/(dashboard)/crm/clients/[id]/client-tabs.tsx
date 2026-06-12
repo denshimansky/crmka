@@ -60,6 +60,8 @@ interface Subscription {
   payments: { id: string; amount: string; date: string; method: string }[]
   /** Возвращено на баланс клиента при закрытии абонемента (subscription_closed_refund). */
   refundedToBalance?: number
+  /** Скидки v2: число отметок, списавших занятие (включая бесплатные при 100% скидке). */
+  attendedLessons?: number
 }
 
 interface Payment {
@@ -916,11 +918,10 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                 const paid = Math.max(0, paidIn - refunded)
                 const balance = Number(s.balance)
                 const finalAmount = Number(s.finalAmount)
-                const lessonPrice = Number(s.lessonPrice) || 0
-                const chargedAmount = Number(s.chargedAmount) || 0
-                // Subscription.balance / chargedAmount хранятся в ₽; занятие списывает
-                // ровно lessonPrice, поэтому делением получаем целое число занятий.
-                const usedLessons = lessonPrice > 0 ? Math.round(chargedAmount / lessonPrice) : 0
+                // Скидки v2: «отхожено» приходит с сервера числом отметок —
+                // цены занятий внутри абонемента могут различаться (скидка
+                // применяется к оставшимся занятиям), деление сумм не работает.
+                const usedLessons = s.attendedLessons ?? 0
                 const remainingLessons = Math.max(0, s.totalLessons - usedLessons)
                 const canEdit = s.status === "pending" || s.status === "active"
                 const wardLabel = s.ward ? formatWardName(s.ward) : null

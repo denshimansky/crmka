@@ -38,6 +38,12 @@ function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " \u20BD"
 }
 
+// \u0421\u043A\u0438\u0434\u043A\u0438 v2: \u0441\u0443\u043C\u043C\u0430 \u043F\u0440\u0435\u0434\u0441\u0442\u043E\u044F\u0449\u0435\u0433\u043E \u0441\u043F\u0438\u0441\u0430\u043D\u0438\u044F = \u044D\u0444\u0444\u0435\u043A\u0442\u0438\u0432\u043D\u0430\u044F \u0446\u0435\u043D\u0430 \u0437\u0430\u043D\u044F\u0442\u0438\u044F.
+function effPrice(sub: { lessonPrice: unknown; discountPerLesson?: unknown } | null | undefined): number | null {
+  if (!sub) return null
+  return Math.max(0, Number(sub.lessonPrice) - Number(sub.discountPerLesson ?? 0))
+}
+
 export default async function LessonCardPage({
   params,
 }: {
@@ -62,7 +68,7 @@ export default async function LessonCardPage({
       attendances: {
         include: {
           attendanceType: true,
-          subscription: { select: { id: true, lessonPrice: true, balance: true } },
+          subscription: { select: { id: true, lessonPrice: true, discountPerLesson: true, balance: true } },
         },
       },
     },
@@ -144,6 +150,7 @@ export default async function LessonCardPage({
       clientId: true,
       wardId: true,
       lessonPrice: true,
+      discountPerLesson: true,
       balance: true,
     },
   })
@@ -232,7 +239,7 @@ export default async function LessonCardPage({
     },
     include: {
       client: { select: { id: true, firstName: true, lastName: true, phone: true } },
-      subscription: { select: { id: true, lessonPrice: true } },
+      subscription: { select: { id: true, lessonPrice: true, discountPerLesson: true } },
       lesson: {
         select: {
           id: true,
@@ -405,7 +412,7 @@ export default async function LessonCardPage({
         wardId: a.wardId,
         wardName: ward ? [ward.lastName, ward.firstName].filter(Boolean).join(" ") : null,
         subscriptionId: a.subscriptionId,
-        lessonPrice: a.subscription ? Number(a.subscription.lessonPrice) : 0,
+        lessonPrice: effPrice(a.subscription) ?? 0,
         isMakeup: true as const,
         makeupSource: sourceLesson
           ? {
@@ -442,7 +449,7 @@ export default async function LessonCardPage({
         wardId: a.wardId,
         wardName: w ? [w.lastName, w.firstName].filter(Boolean).join(" ") : null,
         subscriptionId: a.subscriptionId,
-        lessonPrice: a.subscription ? Number(a.subscription.lessonPrice) : 0,
+        lessonPrice: effPrice(a.subscription) ?? 0,
         isMakeup: true as const,
         makeupSource: {
           lessonId: a.lesson.id,
@@ -497,9 +504,8 @@ export default async function LessonCardPage({
       )
     )
 
-    const lessonPrice = subscription
-      ? Number(subscription.lessonPrice)
-      : Number(lesson.group.direction.lessonPrice)
+    const lessonPrice =
+      effPrice(subscription) ?? Number(lesson.group.direction.lessonPrice)
 
     const madeUp = madeUpAttendances.find(
       (m) =>
@@ -562,11 +568,11 @@ export default async function LessonCardPage({
   const oneTimeStudents = oneTimeAttendances.map((a) => {
     const client = oneTimeClients.find((c) => c.id === a.clientId)
     const ward = a.wardId ? oneTimeWards.find((w) => w.id === a.wardId) : null
-    const lessonPrice = a.subscription
-      ? Number(a.subscription.lessonPrice)
-      : Number(
-          lesson.group.direction.singleVisitPrice ?? lesson.group.direction.lessonPrice,
-        )
+    const lessonPrice =
+      effPrice(a.subscription) ??
+      Number(
+        lesson.group.direction.singleVisitPrice ?? lesson.group.direction.lessonPrice,
+      )
     return {
       enrollmentId: `onetime-${a.id}`,
       clientId: a.clientId,

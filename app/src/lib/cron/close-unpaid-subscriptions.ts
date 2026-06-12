@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
+import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 
 /**
  * Авто-закрытие неоплаченных абонементов.
@@ -99,9 +99,10 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
         })
         churnedClients += res.count
       }
-      // Шаблонные linked-скидки могли «сломаться» — пересчитываем.
+      // Скидки v2: закрытый без отметок аннулирован и выпадает из состава
+      // месяца — пересчитываем скидки оставшихся абонементов клиента.
       await db.$transaction(async (tx) => {
-        await recalculateDiscountsForClient(tx, {
+        await recalcClientDiscounts(tx, {
           tenantId: t.id,
           clientId,
           createdBy: null,

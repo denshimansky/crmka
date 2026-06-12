@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { recalcLinkedDiscounts } from "@/lib/linked-discount"
 
 // PATCH /api/enrollments/[id] — деактивировать зачисление (отчислить ученика из группы)
 export async function PATCH(
@@ -43,14 +42,9 @@ export async function PATCH(
       },
     })
 
-    // SUB-07: пересчитать связанные скидки при деактивации зачисления
-    const linkedDiscountChanges = await recalcLinkedDiscounts(
-      tx,
-      tenantId,
-      enrollment.clientId
-    )
-
-    return { enrollment: updated, linkedDiscountChanges }
+    // Скидки v2: деактивация зачисления абонементы не меняет — пересчёт
+    // скидок не требуется (старый recalcLinkedDiscounts выведен из эксплуатации).
+    return { enrollment: updated }
   })
 
   if (!result) {
@@ -60,13 +54,5 @@ export async function PATCH(
     )
   }
 
-  const response: any = { ...result.enrollment }
-  if (result.linkedDiscountChanges.length > 0) {
-    response._linkedDiscountWarning = {
-      message: `Связанная скидка снята с ${result.linkedDiscountChanges.length} абонемент(ов), т.к. активных абонементов стало меньше 2`,
-      affected: result.linkedDiscountChanges,
-    }
-  }
-
-  return NextResponse.json(response)
+  return NextResponse.json({ ...result.enrollment })
 }

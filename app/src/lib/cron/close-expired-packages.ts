@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
+import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 
 /**
  * Закрывает все пакетные абонементы, у которых истёк срок (expiresAt < today).
@@ -43,7 +43,7 @@ export async function closeExpiredPackages(now: Date = new Date()) {
     if (seen.has(key)) continue
     seen.add(key)
     await db.$transaction(async (tx) => {
-      await recalculateDiscountsForClient(tx, {
+      await recalcClientDiscounts(tx, {
         tenantId: c.tenantId,
         clientId: c.clientId,
         createdBy: null,

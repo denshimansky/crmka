@@ -13,7 +13,7 @@
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { countLessonsForGroup } from "@/lib/schedule/count-lessons"
-import { applyDiscountToNewSubscription } from "@/lib/discounts/apply-to-new-subscription"
+import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 
 export interface BulkRenewInput {
   tenantId: string
@@ -318,14 +318,20 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
       totalIssuedAmount = totalIssuedAmount.add(finalAmount)
     }
 
-    // Применяем шаблонные скидки только к НОВЫМ абонементам.
-    // Старые абонементы клиента не пересчитываем.
+    // Скидки v2: один пересчёт на клиента ПОСЛЕ выписки всей его пачки —
+    // тип 1 ляжет на все новые абонементы месяца, кроме самого дорогого
+    // (порядок создания внутри пачки роли не играет).
+    const byClient = new Map<string, string[]>()
     for (const { subId, clientId } of createdSubs) {
-      await applyDiscountToNewSubscription(tx, {
+      if (!byClient.has(clientId)) byClient.set(clientId, [])
+      byClient.get(clientId)!.push(subId)
+    }
+    for (const [clientId, subIds] of byClient) {
+      await recalcClientDiscounts(tx, {
         tenantId: opts.tenantId,
         clientId,
-        subscriptionId: subId,
         createdBy: opts.createdBy ?? null,
+        newSubscriptionIds: subIds,
       })
     }
   })

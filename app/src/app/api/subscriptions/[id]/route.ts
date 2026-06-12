@@ -4,15 +4,17 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
-import { recalcLinkedDiscounts } from "@/lib/linked-discount"
-import { recalculateDiscountsForClient } from "@/lib/discounts/recalculate-for-client"
+import {
+  recalcClientDiscounts,
+  repriceSubscription,
+  type RecalcDiscountsResult,
+} from "@/lib/discounts/recalc-client-discounts"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
   lessonPrice: z.number().min(0, "Цена не может быть отрицательной").optional(),
   totalLessons: z.number().int().min(1, "Минимум 1 занятие").optional(),
-  discountAmount: z.number().min(0).optional(),
   // Баг #72: было `: null` — undefined превращался в null и затирал wardId
   // при ЛЮБОМ PATCH без него (withdrawn, closed, edit). Теперь корректно: при
   // отсутствии в payload поле не трогаем.
@@ -90,28 +92,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     })
     if (!existing) return null
 
-    // Пересчёт сумм при изменении цены/кол-ва занятий/скидки
+    // Пересчёт сумм при изменении цены/кол-ва занятий.
     const lessonPrice = data.lessonPrice ?? Number(existing.lessonPrice)
     const totalLessons = data.totalLessons ?? existing.totalLessons
-    const discountAmount = data.discountAmount ?? Number(existing.discountAmount)
     const totalAmount = lessonPrice * totalLessons
-    const finalAmount = totalAmount - discountAmount
-
-    // Пересчитываем баланс: finalAmount - сумма оплат
-    const paidSum = await tx.payment.aggregate({
-      where: { subscriptionId: id, deletedAt: null },
-      _sum: { amount: true },
-    })
-    const paid = Number(paidSum._sum.amount || 0)
-    const balance = finalAmount - paid
+    const priceChanged = data.lessonPrice !== undefined || data.totalLessons !== undefined
 
     const updateData: any = {
       lessonPrice,
       totalLessons,
       totalAmount,
-      discountAmount,
-      finalAmount,
-      balance,
+    }
+
+    // Скидки v2: для legacy-абонементов (замороженная скидка старой логики)
+    // сохраняем старую формулу. Остальным finalAmount/balance пересчитает
+    // repriceSubscription после update (снимок списаний + остаток × эфф. цена).
+    if (priceChanged && existing.discountSource === "legacy") {
+      const discountAmount = Number(existing.discountAmount)
+      const finalAmount = totalAmount - discountAmount
+      const paidSum = await tx.payment.aggregate({
+        where: { subscriptionId: id, deletedAt: null },
+        _sum: { amount: true },
+      })
+      updateData.finalAmount = finalAmount
+      updateData.balance = finalAmount - Number(paidSum._sum.amount || 0)
     }
 
     // «Отчислить» = withdrawn → дополнительно:
@@ -266,50 +270,57 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       },
     })
 
-    // SUB-07: при отчислении/закрытии пересчитать связанные скидки
-    // (старая логика для записей без templateId).
-    let linkedDiscountChanges: Awaited<ReturnType<typeof recalcLinkedDiscounts>> = []
-    let templateRecalc: Awaited<ReturnType<typeof recalculateDiscountsForClient>> = { removed: [] }
-    if (data.status === "withdrawn" || data.status === "closed") {
-      linkedDiscountChanges = await recalcLinkedDiscounts(
-        tx,
-        session.user.tenantId,
-        existing.clientId,
-        id
-      )
-      // Новая логика: пересчитать шаблонные скидки клиента — состав
-      // активных абонементов изменился, для linked может смениться адресат.
-      templateRecalc = await recalculateDiscountsForClient(tx, {
+    // Скидки v2: пересчёт денег абонемента после правки цены/занятий
+    // (не для legacy и не для только что закрытых/отчисленных — у них
+    // balance уже выставлен закрытием).
+    if (
+      priceChanged &&
+      existing.discountSource !== "legacy" &&
+      data.status !== "withdrawn" &&
+      data.status !== "closed"
+    ) {
+      await repriceSubscription(tx, {
+        tenantId: session.user.tenantId,
+        subscriptionId: id,
+        createdBy: session.user.employeeId ?? null,
+      })
+    }
+
+    // Скидки v2: изменение состава месяца (отчисление/аннулирование) или цены
+    // (мог смениться «самый дорогой») — пересчёт скидок клиента.
+    let discountRecalc: RecalcDiscountsResult = { changes: [] }
+    if (priceChanged || data.status === "withdrawn" || data.status === "closed") {
+      discountRecalc = await recalcClientDiscounts(tx, {
         tenantId: session.user.tenantId,
         clientId: existing.clientId,
         createdBy: session.user.employeeId ?? null,
       })
     }
 
-    return { subscription, linkedDiscountChanges, templateRecalc, balanceDelta }
+    return { subscription, discountRecalc, balanceDelta }
   })
 
   if (!result) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
 
   const response: any = { ...result.subscription }
-  if (result.linkedDiscountChanges.length > 0) {
-    response._linkedDiscountWarning = {
-      message: `Связанная скидка снята с ${result.linkedDiscountChanges.length} абонемент(ов), т.к. активных абонементов стало меньше 2`,
-      affected: result.linkedDiscountChanges,
-    }
-  }
-  if (result.templateRecalc.removed.length > 0) {
-    const items = result.templateRecalc.removed
-      .map((r) => {
-        const who = r.wardName ? `${r.wardName} · ` : ""
-        return `${who}${r.directionName}`
-      })
-      .join("; ")
+  const removed = result.discountRecalc.changes.filter((c) => c.action === "removed")
+  const refundedTotal = result.discountRecalc.changes.reduce(
+    (s, c) => s + c.refundedToBalance,
+    0,
+  )
+  if (removed.length > 0) {
     response._templateDiscountWarning = {
       message:
-        `Скидка «${result.templateRecalc.removed[0].templateName}» снята автоматически: ${items}. ` +
-        "Условие шаблона больше не выполняется.",
-      affected: result.templateRecalc.removed,
+        `Автоскидка снята с ${removed.length} абонемент(ов): состав абонементов месяца изменился.` +
+        (refundedTotal > 0
+          ? ` Возвращено на баланс родителя: ${refundedTotal.toLocaleString("ru-RU")} ₽.`
+          : ""),
+      affected: removed,
+    }
+  } else if (refundedTotal > 0) {
+    response._templateDiscountWarning = {
+      message: `Пересчёт скидок: возвращено на баланс родителя ${refundedTotal.toLocaleString("ru-RU")} ₽.`,
+      affected: result.discountRecalc.changes,
     }
   }
   if (result.balanceDelta !== 0) {
@@ -335,14 +346,35 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     })
     if (!existing) return null
 
+    // Скидки v2 §11.1: удалять можно только абонементы без денег — иначе
+    // оплаченное «повисает в воздухе». С оплатами/списаниями — отчисление.
+    const paymentsCount = await tx.payment.count({
+      where: { tenantId: session.user.tenantId, subscriptionId: id, deletedAt: null },
+    })
+    if (paymentsCount > 0 || Number(existing.chargedAmount) > 0) {
+      return {
+        error:
+          "Нельзя удалить абонемент с оплатами или списаниями за занятия. " +
+          "Используйте «Отчислить» — деньги будут пересчитаны и возвращены на баланс.",
+      }
+    }
+
     await tx.subscription.update({
       where: { id },
       data: { deletedAt: new Date() },
     })
-    return true
+
+    // Скидки v2: удалённый выпадает из состава месяца — пересчёт остальных.
+    await recalcClientDiscounts(tx, {
+      tenantId: session.user.tenantId,
+      clientId: existing.clientId,
+      createdBy: session.user.employeeId ?? null,
+    })
+    return { ok: true as const }
   })
 
   if (!deleted) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
+  if ("error" in deleted) return NextResponse.json({ error: deleted.error }, { status: 422 })
 
   return NextResponse.json({ ok: true })
 }

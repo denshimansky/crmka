@@ -145,6 +145,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       clientId: true,
       wardId: true,
       lessonPrice: true,
+      discountPerLesson: true,
       balance: true,
       chargedAmount: true,
     },
@@ -198,7 +199,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         : null,
       subscriptionId: subscription?.id || null,
       subscriptionBalance: subscription ? Number(subscription.balance) : null,
-      lessonPrice: subscription ? Number(subscription.lessonPrice) : Number(lesson.group.direction.lessonPrice),
+      // Скидки v2: сумма предстоящего списания = эффективная цена занятия.
+      lessonPrice: subscription
+        ? Math.max(0, Number(subscription.lessonPrice) - Number(subscription.discountPerLesson ?? 0))
+        : Number(lesson.group.direction.lessonPrice),
       attendance: attendance
         ? {
             id: attendance.id,

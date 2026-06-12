@@ -101,6 +101,9 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
   }
   for (const p of paymentSums) {
     if (!monthTotals[p.accountId]) continue
+    // Скидки v2: отрицательный transfer_in — сторно «возврат по скидке»,
+    // деньги по кассе не двигаются, в поступления не включаем.
+    if (p.type === "transfer_in" && Number(p.amount) < 0) continue
     if (p.type === "incoming" || p.type === "transfer_in") {
       monthTotals[p.accountId].incoming += Number(p.amount)
     } else {

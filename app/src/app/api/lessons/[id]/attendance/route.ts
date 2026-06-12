@@ -9,6 +9,7 @@ import { resolveRate } from "@/lib/salary/resolve-rate"
 import { calcPay } from "@/lib/salary/calc-pay"
 import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
+import { effectiveLessonPrice } from "@/lib/discounts/effective-price"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
@@ -307,7 +308,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         where: { id: subscriptionId, tenantId, deletedAt: null, status: { in: ["active", "pending"] } },
       })
       if (subscription) {
-        chargeAmount = subscription.lessonPrice
+        // Скидки v2: списание по эффективной цене (цена − скидка за занятие).
+        chargeAmount = effectiveLessonPrice(subscription)
       }
     } else if (attendanceType.chargesSubscription && !subscriptionId) {
       const lessonDate = new Date(lesson.date)
@@ -349,7 +351,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
       if (subscription) {
         subscriptionId = subscription.id
-        chargeAmount = subscription.lessonPrice
+        // Скидки v2: списание по эффективной цене (цена − скидка за занятие).
+        chargeAmount = effectiveLessonPrice(subscription)
       }
     }
 
@@ -807,7 +810,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
       let chargeAmount = new Prisma.Decimal(0)
       if (effectiveType.chargesSubscription && subscription) {
-        chargeAmount = subscription.lessonPrice
+        // Скидки v2: списание по эффективной цене (цена − скидка за занятие).
+        chargeAmount = effectiveLessonPrice(subscription)
       }
 
       let instructorPayAmount = new Prisma.Decimal(0)

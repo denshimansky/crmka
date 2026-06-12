@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
+import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 
 const moveSchema = z.object({
   applicationId: z.string().uuid().optional(),
@@ -221,6 +222,15 @@ export async function POST(
         startDate: firstPaid,
         createdBy: session.user.employeeId,
       },
+    })
+
+    // Скидки v2: выписка из воронки — такой же путь создания абонемента,
+    // шаблонные скидки применяются единым пересчётом.
+    await recalcClientDiscounts(tx, {
+      tenantId,
+      clientId: ward.clientId,
+      createdBy: session.user.employeeId ?? null,
+      newSubscriptionIds: [subscription.id],
     })
 
     // ADM-04: денормализуем филиал последнего абонемента + счётчик абонементов.

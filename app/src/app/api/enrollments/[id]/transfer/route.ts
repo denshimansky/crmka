@@ -3,7 +3,6 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
-import { recalcLinkedDiscounts } from "@/lib/linked-discount"
 
 const transferSchema = z.object({
   targetGroupId: z.string().uuid("Некорректный ID группы"),
@@ -129,23 +128,10 @@ export async function POST(
       },
     })
 
-    // SUB-07: пересчитать связанные скидки при деактивации зачисления
-    const linkedDiscountChanges = await recalcLinkedDiscounts(
-      tx,
-      tenantId,
-      enrollment.clientId
-    )
-
-    return { newEnrollment, linkedDiscountChanges }
+    // Скидки v2: перевод между группами абонементы не меняет — пересчёт
+    // скидок не требуется (старый recalcLinkedDiscounts выведен из эксплуатации).
+    return { newEnrollment }
   })
 
-  const response: any = { ...result.newEnrollment }
-  if (result.linkedDiscountChanges.length > 0) {
-    response._linkedDiscountWarning = {
-      message: `Связанная скидка снята с ${result.linkedDiscountChanges.length} абонемент(ов), т.к. активных абонементов стало меньше 2`,
-      affected: result.linkedDiscountChanges,
-    }
-  }
-
-  return NextResponse.json(response, { status: 201 })
+  return NextResponse.json({ ...result.newEnrollment }, { status: 201 })
 }

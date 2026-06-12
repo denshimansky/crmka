@@ -35,7 +35,7 @@ import { PageHelp } from "@/components/page-help"
 interface DiscountTemplate {
   id: string
   name: string
-  kind: "permanent" | "linked_sibling" | "linked_second_direction"
+  kind: "permanent" | "second_subscription" | "linked_sibling" | "linked_second_direction"
   systemKey: string | null
   valueType: "percent" | "fixed"
   value: number
@@ -44,18 +44,19 @@ interface DiscountTemplate {
 
 const TYPE_LABELS: Record<string, string> = {
   percent: "Процент",
-  fixed: "Фиксированная сумма",
+  fixed: "Скидка за занятие",
 }
 
 const KIND_LABELS: Record<DiscountTemplate["kind"], string> = {
   permanent: "Постоянная",
-  linked_sibling: "За 2-го ребёнка",
-  linked_second_direction: "За 2-е направление",
+  second_subscription: "Автоматическая",
+  linked_sibling: "За 2-го ребёнка (устар.)",
+  linked_second_direction: "За 2-е направление (устар.)",
 }
 
 function formatValue(valueType: string, value: number): string {
   if (valueType === "percent") return `${value}%`
-  return new Intl.NumberFormat("ru-RU").format(value) + " ₽"
+  return "−" + new Intl.NumberFormat("ru-RU").format(value) + " ₽/занятие"
 }
 
 export default function DiscountTemplatesPage() {
@@ -121,6 +122,19 @@ export default function DiscountTemplatesPage() {
       return
     }
 
+    // Скидки v2 §11.4: изменение размера НЕ пересчитывает уже выданные скидки —
+    // предупреждаем явно.
+    if (
+      editTemplate &&
+      (Number(formValue) !== Number(editTemplate.value) ||
+        formType !== editTemplate.valueType)
+    ) {
+      const ok = confirm(
+        "Размер скидки изменён. Уже выданные скидки НЕ пересчитаются — новое значение применится только к будущим применениям. Продолжить?",
+      )
+      if (!ok) return
+    }
+
     setSaving(true)
     setError(null)
 
@@ -153,6 +167,15 @@ export default function DiscountTemplatesPage() {
         const data = await res.json().catch(() => ({}))
         setError(data.error || "Ошибка при сохранении")
         return
+      }
+
+      // Включение автоскидки: сервер пересчитал будущие месяцы.
+      const saved = await res.json().catch(() => ({}))
+      if (typeof saved?._recalculatedClients === "number") {
+        alert(
+          `Автоскидка включена. Действует на абонементы со следующего месяца; ` +
+            `уже выписанные абонементы будущих месяцев пересчитаны (клиентов: ${saved._recalculatedClients}).`,
+        )
       }
 
       setDialogOpen(false)
@@ -338,9 +361,18 @@ export default function DiscountTemplatesPage() {
 
             {formType === "fixed" && (
               <p className="text-xs text-muted-foreground">
-                Для типа «Фиксированная сумма» укажите <b>стоимость занятия СО
-                скидкой</b> (а не размер скидки). Например, если занятие
-                стоит 350 ₽ и со скидкой должно стоить 250 ₽ — введите 250.
+                Укажите <b>размер скидки за одно занятие</b>. Например, занятие
+                стоит 350 ₽, скидка 100 ₽ — клиент платит 250 ₽ за занятие.
+                Если скидка больше цены занятия — занятие становится бесплатным.
+              </p>
+            )}
+
+            {editTemplate?.kind === "second_subscription" && (
+              <p className="text-xs text-muted-foreground">
+                Автоматическая скидка: при двух и более абонементах у родителя в
+                одном месяце применяется ко всем, кроме самого дорогого. После
+                включения действует на абонементы со следующего месяца; текущий
+                месяц не пересчитывается.
               </p>
             )}
 

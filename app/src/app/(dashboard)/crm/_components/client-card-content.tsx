@@ -316,7 +316,9 @@ export async function ClientCardContent({
                     }
                   : null
               }
-              wardsCount={client.wards.length}
+              hasType1Discount={activeSubscriptions.some(
+                (s) => s.discountSource === "type1",
+              )}
             />
           </div>
         </div>

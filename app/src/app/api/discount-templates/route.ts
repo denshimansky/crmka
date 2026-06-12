@@ -27,6 +27,9 @@ export async function GET(req: NextRequest) {
 
   const where: any = {
     tenantId: session.user.tenantId,
+    // Скидки v2: легаси-шаблоны старой логики в списках не показываем
+    // (история записей Discount на них остаётся).
+    isLegacy: false,
   }
 
   if (isActive !== null) where.isActive = isActive === "true"

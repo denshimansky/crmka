@@ -523,12 +523,12 @@ const modules: Module[] = [
       },
       {
         id: "FIN-25",
-        name: "Связанные скидки",
+        name: "Действующие скидки",
         data: [
-          { what: "Скидка: тип «связанная», клиент-основание", from: "Раздел «Скидка» в EditSubscriptionDialog (карточка клиента → абонемент) — выбор типа «связанная» и клиента-основания" },
-          { what: "Клиент: статус в воронке, дата отчисления", from: "Авто (funnelStatus, withdrawalDate при отчислении абонемента)" },
+          { what: "Скидка: источник (автоскидка за 2-й абонемент / постоянная / старая логика), скидка за занятие, сумма", from: "Subscription.discountSource/discountPerLesson/discountAmount — выставляются автоматическим пересчётом (recalcClientDiscounts) и тогглом автоскидки в Настройках → Шаблоны скидок" },
+          { what: "Шаблон скидки", from: "Активная Discount-запись абонемента → DiscountTemplate.name" },
         ],
-        formula: "SELECT Discount WHERE type = linked. Для каждой: ученик-основание, ученик-связанный, направления, статусы, флаги неактивности, сумма, дата начала",
+        formula: "SELECT Subscription WHERE status IN (pending, active) AND discountSource != none. Для каждого: родитель, ребёнок, направление, группа, период, тип скидки, скидка за занятие, сумма скидки",
         status: "ok",
       },
       {
