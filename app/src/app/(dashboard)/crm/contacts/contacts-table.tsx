@@ -241,7 +241,9 @@ export function ContactsTable({
             {tab === "active" && <TableHead>Группа</TableHead>}
             {tab === "active" && <TableHead>Педагог</TableHead>}
             {tab === "leads" && <TableHead>Дата создания</TableHead>}
-            {tab === "leads" && <TableHead>След. связь</TableHead>}
+            {(tab === "leads" || tab === "potential" || tab === "active" || tab === "churned") && (
+              <TableHead>След. связь</TableHead>
+            )}
             {(tab === "leads" || tab === "potential" || tab === "nontarget" || tab === "active" || tab === "all") && (
               <TableHead>Комментарий</TableHead>
             )}
@@ -317,7 +319,7 @@ export function ContactsTable({
                 <TableCell className="text-sm">{r.activeSubscription?.instructor.name || "—"}</TableCell>
               )}
               {tab === "leads" && <TableCell className="text-sm">{fmtDate(r.createdAt)}</TableCell>}
-              {tab === "leads" && (
+              {(tab === "leads" || tab === "potential" || tab === "active" || tab === "churned") && (
                 <TableCell>
                   <EditableDateCell
                     initialValue={r.nextContactDate ? r.nextContactDate.slice(0, 10) : ""}
