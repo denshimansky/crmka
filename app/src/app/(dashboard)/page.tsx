@@ -110,7 +110,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const monthExpenses = Number(monthExpensesData._sum.amount || 0)
 
   // Должники: минус на балансе ИЛИ любая не-отчисленная подписка с
-  // непогашенным остатком (включая closed после авто-закрытия cron'ом).
+  // непогашенным остатком. Авто-закрытые cron'ом неоплаченные сюда больше не
+  // попадают (Баг #4: их balance обнуляется сверкой); closed с balance>0 —
+  // это истёкшие пакеты и legacy-данные.
   // Та же формула, что в /finance/debtors — должно совпадать.
   const debtors = await db.client.findMany({
     where: {

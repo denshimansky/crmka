@@ -947,9 +947,14 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                     <TableCell className="text-right text-sm text-muted-foreground">
                       {formatMoney(finalAmount)}
                     </TableCell>
-                    {s.status === "withdrawn" ? (
-                      // Отчисленному нечего «оплачивать»: balance обнулён закрытием,
-                      // зелёный «Оплачен» здесь вводил в заблуждение.
+                    {s.status === "withdrawn" ||
+                    (s.status === "closed" && balance === 0 && paid === 0 && usedLessons === 0) ? (
+                      // Отчисленному и аннулированному (закрыт без оплат и
+                      // посещений, напр. автозакрытием неоплаченных) нечего
+                      // «оплачивать»: balance обнулён закрытием, зелёный
+                      // «Оплачен» здесь вводил в заблуждение. Закрытый с
+                      // непогашенным остатком (истёкший пакет) продолжает
+                      // показывать красную сумму — он и в должниках.
                       <TableCell className="text-right text-muted-foreground">—</TableCell>
                     ) : (
                       <TableCell className={`text-right font-medium ${balance > 0 ? "text-red-600" : "text-green-600"}`}>

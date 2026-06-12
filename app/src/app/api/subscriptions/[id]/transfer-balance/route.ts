@@ -73,13 +73,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return { error: "Перенос возможен только в активный или ожидающий абонемент", status: 400 }
     }
 
-    // 4. Считаем доступную сумму на источнике
+    // 4. Считаем доступную сумму на источнике. Из неё вычитаем то, что при
+    // закрытии уже вернулось на баланс родителя (subscription_closed_refund > 0):
+    // деньги с закрытого абонемента нельзя унести переносом второй раз (Баг #4).
     const sourcePaidAgg = await tx.payment.aggregate({
       where: { subscriptionId: sourceId, deletedAt: null },
       _sum: { amount: true },
     })
+    const refundedAgg = await tx.clientBalanceTransaction.aggregate({
+      where: {
+        tenantId: session.user.tenantId,
+        subscriptionId: sourceId,
+        type: "subscription_closed_refund",
+        amount: { gt: 0 },
+      },
+      _sum: { amount: true },
+    })
     const sourcePaid = Number(sourcePaidAgg._sum.amount || 0)
-    const sourceAvailable = sourcePaid - Number(source.chargedAmount)
+    const sourceAvailable =
+      sourcePaid - Number(source.chargedAmount) - Number(refundedAgg._sum.amount || 0)
 
     if (sourceAvailable <= 0) {
       return { error: "На абонементе нет доступных средств для переноса", status: 400 }
@@ -212,13 +224,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
   }
 
-  // Считаем доступную сумму
+  // Считаем доступную сумму (за вычетом возвращённого на баланс при закрытии —
+  // как в POST, иначе превью разрешит унести уже возвращённые деньги).
   const paidAgg = await db.payment.aggregate({
     where: { subscriptionId: id, deletedAt: null },
     _sum: { amount: true },
   })
+  const refundedAgg = await db.clientBalanceTransaction.aggregate({
+    where: {
+      tenantId: session.user.tenantId,
+      subscriptionId: id,
+      type: "subscription_closed_refund",
+      amount: { gt: 0 },
+    },
+    _sum: { amount: true },
+  })
   const totalPaid = Number(paidAgg._sum.amount || 0)
-  const available = Math.max(0, totalPaid - Number(subscription.chargedAmount))
+  const available = Math.max(
+    0,
+    totalPaid - Number(subscription.chargedAmount) - Number(refundedAgg._sum.amount || 0),
+  )
 
   // Находим другие абонементы этого клиента (active/pending)
   const targets = await db.subscription.findMany({

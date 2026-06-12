@@ -10,6 +10,7 @@ import {
   type RecalcDiscountsResult,
 } from "@/lib/discounts/recalc-client-discounts"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -125,15 +126,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     //   3) обнулить subscription.balance.
     let balanceDelta = 0
     if (data.status === "withdrawn" && existing.status !== "withdrawn") {
-      const paidAgg = await tx.payment.aggregate({
-        where: {
-          tenantId: session.user.tenantId,
-          subscriptionId: id,
-          deletedAt: null,
-          type: "transfer_in",
-        },
-        _sum: { amount: true },
-      })
+      // Нетто-оплачено (transfer_in минус унесённое возвратом/переносом) —
+      // иначе уже унесённые деньги вернулись бы на баланс второй раз (Баг #4).
+      const paidToSub = await netPaidToSubscription(tx, session.user.tenantId, id)
       const usedAgg = await tx.attendance.aggregate({
         where: {
           tenantId: session.user.tenantId,
@@ -141,9 +136,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         },
         _sum: { chargeAmount: true },
       })
-      const paidToSub = new Prisma.Decimal(paidAgg._sum.amount ?? 0)
       const usedAmount = new Prisma.Decimal(usedAgg._sum.chargeAmount ?? 0)
-      const delta = paidToSub.minus(usedAmount)
+      // Минус уже применённые сверки прошлых закрытий (знаковая сумма):
+      // отчисление ранее закрытого/реактивированного не двигает баланс дважды.
+      const priorAgg = await tx.clientBalanceTransaction.aggregate({
+        where: {
+          tenantId: session.user.tenantId,
+          subscriptionId: id,
+          type: "subscription_closed_refund",
+        },
+        _sum: { amount: true },
+      })
+      const delta = paidToSub
+        .minus(usedAmount)
+        .minus(new Prisma.Decimal(priorAgg._sum.amount ?? 0))
       balanceDelta = delta.toNumber()
 
       if (!delta.isZero()) {
@@ -183,15 +189,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     //      просто покупает следующий абонемент),
     //   3) обнулить subscription.balance, проставить endDate = последний день периода.
     if (data.status === "closed" && existing.status !== "closed" && existing.status !== "withdrawn") {
-      const paidAgg = await tx.payment.aggregate({
-        where: {
-          tenantId: session.user.tenantId,
-          subscriptionId: id,
-          deletedAt: null,
-          type: "transfer_in",
-        },
-        _sum: { amount: true },
-      })
+      // Нетто-оплачено и вычет прошлых сверок — см. ветку withdrawn выше.
+      const paidToSub = await netPaidToSubscription(tx, session.user.tenantId, id)
       const usedAgg = await tx.attendance.aggregate({
         where: {
           tenantId: session.user.tenantId,
@@ -199,9 +198,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         },
         _sum: { chargeAmount: true },
       })
-      const paidToSub = new Prisma.Decimal(paidAgg._sum.amount ?? 0)
       const usedAmount = new Prisma.Decimal(usedAgg._sum.chargeAmount ?? 0)
-      const delta = paidToSub.minus(usedAmount)
+      const priorAgg = await tx.clientBalanceTransaction.aggregate({
+        where: {
+          tenantId: session.user.tenantId,
+          subscriptionId: id,
+          type: "subscription_closed_refund",
+        },
+        _sum: { amount: true },
+      })
+      const delta = paidToSub
+        .minus(usedAmount)
+        .minus(new Prisma.Decimal(priorAgg._sum.amount ?? 0))
       balanceDelta = delta.toNumber()
 
       if (!delta.isZero()) {

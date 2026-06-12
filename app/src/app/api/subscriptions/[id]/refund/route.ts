@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
@@ -24,12 +25,15 @@ const refundSchema = z.object({
  * Закрытие абонемента с учётом фактически оплаченного и отработанного.
  *
  * Расчёт дельты для Client.clientBalance:
- *   delta = paidToSub - usedAmount
- *     paidToSub  = сумма Payment.transfer_in, привязанных к этому абонементу
- *                  (т.е. суммы, реально списанные с баланса родителя через
- *                  «Оплатить с баланса»).
+ *   delta = paidToSub - usedAmount - priorRefunds
+ *     paidToSub  = нетто-оплачено (transfer_in минус унесённое возвратом из
+ *                  кассы/переносом баланса — Payment type=refund c минусом),
+ *                  см. netPaidToSubscription (Баг #4).
  *     usedAmount = сумма Attendance.chargeAmount этого абонемента (стоимость
  *                  отработанных занятий).
+ *     priorRefunds = уже применённые при прошлых закрытиях сверки
+ *                  (subscription_closed_refund) — повторное закрытие после
+ *                  реактивации не двигает баланс второй раз.
  *
  * delta > 0 → клиент переплатил, возвращаем на баланс (кредит на следующий).
  * delta < 0 → клиент не доплатил за отработанное, переносим долг на баланс.
@@ -87,15 +91,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return { error: "Закрытие возможно только для активного или ожидающего абонемента", status: 400 }
     }
 
-    const paidAgg = await tx.payment.aggregate({
-      where: {
-        tenantId: session.user.tenantId,
-        subscriptionId: id,
-        deletedAt: null,
-        type: "transfer_in",
-      },
-      _sum: { amount: true },
-    })
+    const paidToSub = await netPaidToSubscription(tx, session.user.tenantId, id)
     const usedAgg = await tx.attendance.aggregate({
       where: {
         tenantId: session.user.tenantId,
@@ -113,10 +109,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         attendanceType: { chargesSubscription: true },
       },
     })
+    // Уже применённые сверки прошлых закрытий (знаковая сумма): повторное
+    // закрытие после реактивации применяет только недостающую часть.
+    const priorAgg = await tx.clientBalanceTransaction.aggregate({
+      where: {
+        tenantId: session.user.tenantId,
+        subscriptionId: id,
+        type: "subscription_closed_refund",
+      },
+      _sum: { amount: true },
+    })
 
-    const paidToSub = new Prisma.Decimal(paidAgg._sum.amount ?? 0)
     const usedAmount = new Prisma.Decimal(usedAgg._sum.chargeAmount ?? 0)
-    const delta = paidToSub.minus(usedAmount)
+    const delta = paidToSub
+      .minus(usedAmount)
+      .minus(new Prisma.Decimal(priorAgg._sum.amount ?? 0))
     const remainingLessons = Math.max(0, subscription.totalLessons - attendedCount)
 
     if (!delta.isZero()) {
@@ -217,15 +224,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
   }
 
-  const paidAgg = await db.payment.aggregate({
-    where: {
-      tenantId: session.user.tenantId,
-      subscriptionId: id,
-      deletedAt: null,
-      type: "transfer_in",
-    },
-    _sum: { amount: true },
-  })
+  // Та же нетто-формула, что в действии (POST здесь и PATCH closed/withdrawn) —
+  // иначе превью «вернётся X» расходится с фактическим возвратом (Баг #4).
+  const paidToSubDec = await netPaidToSubscription(db, session.user.tenantId, id)
   const usedAgg = await db.attendance.aggregate({
     where: {
       tenantId: session.user.tenantId,
@@ -242,10 +243,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       attendanceType: { chargesSubscription: true },
     },
   })
+  const priorAgg = await db.clientBalanceTransaction.aggregate({
+    where: {
+      tenantId: session.user.tenantId,
+      subscriptionId: id,
+      type: "subscription_closed_refund",
+    },
+    _sum: { amount: true },
+  })
 
-  const paidToSub = Number(paidAgg._sum.amount ?? 0)
+  const paidToSub = paidToSubDec.toNumber()
   const usedAmount = Number(usedAgg._sum.chargeAmount ?? 0)
-  const balanceDelta = paidToSub - usedAmount
+  const balanceDelta = paidToSub - usedAmount - Number(priorAgg._sum.amount ?? 0)
   const remainingLessons = Math.max(0, subscription.totalLessons - attendedCount)
 
   return NextResponse.json({
