@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -161,8 +162,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     })
 
+    // Скидки v2: отчисленный выпадает из состава месяца — пересчёт скидок
+    // оставшихся абонементов клиента (/refund — основной путь отчисления).
+    const discountRecalc = await recalcClientDiscounts(tx, {
+      tenantId: session.user.tenantId,
+      clientId: subscription.clientId,
+      createdBy: session.user.employeeId ?? null,
+    })
+
     return {
       data: {
+        discountChanges: discountRecalc.changes,
         subscriptionId: id,
         balanceDelta: delta.toNumber(),
         paidToSubscription: paidToSub.toNumber(),

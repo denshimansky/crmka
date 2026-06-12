@@ -152,44 +152,47 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (data.funnelStatus === "archived" || data.funnelStatus === "blacklisted") &&
     data.clientStatus === undefined
 
-  const client = await db.client.update({
-    where: { id },
-    data: {
-      ...(data.firstName !== undefined && { firstName: data.firstName }),
-      ...(data.lastName !== undefined && { lastName: data.lastName }),
-      ...(data.patronymic !== undefined && { patronymic: data.patronymic }),
-      ...(data.phone !== undefined && { phone: data.phone }),
-      ...(data.phone2 !== undefined && { phone2: data.phone2 }),
-      ...(data.email !== undefined && { email: data.email }),
-      ...(data.socialLink !== undefined && { socialLink: data.socialLink }),
-      ...(data.funnelStatus && { funnelStatus: data.funnelStatus }),
-      ...(movingToArchived
-        ? { clientStatus: null }
-        : data.clientStatus !== undefined && { clientStatus: data.clientStatus }),
-      ...(data.branchId !== undefined && { branchId: data.branchId }),
-      ...(data.assignedTo !== undefined && { assignedTo: data.assignedTo }),
-      ...(data.comment !== undefined && { comment: data.comment }),
-      ...(data.nextContactDate !== undefined && { nextContactDate: data.nextContactDate ? new Date(data.nextContactDate) : null }),
-      ...(data.blacklistReason && { blacklistReason: data.blacklistReason, blacklistedBy: session.user.employeeId }),
-      ...(data.promisedPaymentDate !== undefined && { promisedPaymentDate: data.promisedPaymentDate ? new Date(data.promisedPaymentDate) : null }),
-      ...(data.firstPaidLessonDate !== undefined && { firstPaidLessonDate: data.firstPaidLessonDate ? new Date(data.firstPaidLessonDate) : null }),
-      ...(data.discountTemplateId !== undefined && { discountTemplateId: data.discountTemplateId }),
-    },
-    include: { wards: true, branch: { select: { id: true, name: true } } },
-  })
-
   // Скидки v2: смена шаблона — триггер пересчёта. Установка типа 2 заменяет
   // выданные тип-1-скидки (оставшиеся занятия), старые без скидки не трогает;
   // снятие («Без скидки») снимает тип-2-скидки и возвращает инвариант типа 1.
-  if (data.discountTemplateId !== undefined) {
-    await db.$transaction(async (tx) => {
+  // Update и пересчёт — одна транзакция: при сбое пересчёта выбор шаблона
+  // тоже откатывается (нет рассинхрона «шаблон сменён, скидки старые»).
+  const client = await db.$transaction(async (tx) => {
+    const updated = await tx.client.update({
+      where: { id },
+      data: {
+        ...(data.firstName !== undefined && { firstName: data.firstName }),
+        ...(data.lastName !== undefined && { lastName: data.lastName }),
+        ...(data.patronymic !== undefined && { patronymic: data.patronymic }),
+        ...(data.phone !== undefined && { phone: data.phone }),
+        ...(data.phone2 !== undefined && { phone2: data.phone2 }),
+        ...(data.email !== undefined && { email: data.email }),
+        ...(data.socialLink !== undefined && { socialLink: data.socialLink }),
+        ...(data.funnelStatus && { funnelStatus: data.funnelStatus }),
+        ...(movingToArchived
+          ? { clientStatus: null }
+          : data.clientStatus !== undefined && { clientStatus: data.clientStatus }),
+        ...(data.branchId !== undefined && { branchId: data.branchId }),
+        ...(data.assignedTo !== undefined && { assignedTo: data.assignedTo }),
+        ...(data.comment !== undefined && { comment: data.comment }),
+        ...(data.nextContactDate !== undefined && { nextContactDate: data.nextContactDate ? new Date(data.nextContactDate) : null }),
+        ...(data.blacklistReason && { blacklistReason: data.blacklistReason, blacklistedBy: session.user.employeeId }),
+        ...(data.promisedPaymentDate !== undefined && { promisedPaymentDate: data.promisedPaymentDate ? new Date(data.promisedPaymentDate) : null }),
+        ...(data.firstPaidLessonDate !== undefined && { firstPaidLessonDate: data.firstPaidLessonDate ? new Date(data.firstPaidLessonDate) : null }),
+        ...(data.discountTemplateId !== undefined && { discountTemplateId: data.discountTemplateId }),
+      },
+      include: { wards: true, branch: { select: { id: true, name: true } } },
+    })
+
+    if (data.discountTemplateId !== undefined) {
       await recalcClientDiscounts(tx, {
         tenantId: session.user.tenantId,
         clientId: id,
         createdBy: session.user.employeeId ?? null,
       })
-    })
-  }
+    }
+    return updated
+  })
 
   return NextResponse.json(client)
 }

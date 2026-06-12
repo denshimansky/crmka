@@ -289,7 +289,18 @@ export async function POST(req: NextRequest) {
       newSubscriptionIds: [sub.id],
     })
 
-    return sub
+    // Возвращаем СВЕЖИЕ суммы (пересчёт мог применить скидку) — интеграции
+    // и тесты платят по finalAmount из ответа.
+    const fresh = await tx.subscription.findFirst({
+      where: { id: sub.id },
+      include: {
+        client: { select: { id: true, firstName: true, lastName: true } },
+        direction: { select: { id: true, name: true } },
+        group: { select: { id: true, name: true } },
+        ward: { select: { id: true, firstName: true, lastName: true } },
+      },
+    })
+    return fresh ?? sub
   })
 
   return NextResponse.json(subscription, { status: 201 })

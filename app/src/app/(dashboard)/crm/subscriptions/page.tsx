@@ -28,9 +28,12 @@ function buildWhere(
   else if (tab === "pending") base.status = "pending"
   else {
     base.status = { in: ["closed", "withdrawn"] }
-    // Не стартовавшие абонементы (ни одного списания за занятие) не считаем
-    // «закончившимися» — их в этой вкладке быть не должно.
-    base.chargedAmount = { gt: 0 }
+    // Не стартовавшие абонементы (ни одной отметки за занятие) не считаем
+    // «закончившимися». Скидки v2: считаем по отметкам, не по chargedAmount —
+    // занятия со 100% скидкой бесплатны, но абонемент состоялся.
+    base.attendances = {
+      some: { isPending: false, attendanceType: { chargesSubscription: true } },
+    }
   }
 
   if (filters.directionId) base.directionId = filters.directionId

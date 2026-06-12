@@ -22,10 +22,13 @@ export async function GET(req: NextRequest) {
   const prevYear = prevDate.getUTCFullYear()
   const prevMonth = prevDate.getUTCMonth() + 1
 
-  // Get attendances with charges in current month (= active subscription)
+  // Отметки, списывающие занятие, в текущем месяце (= активный абонемент).
+  // Скидки v2: по типу отметки, не по chargeAmount > 0 — занятия со 100%
+  // скидкой бесплатны, но абонемент активен.
   const currentWhere: any = {
     tenantId,
-    chargeAmount: { gt: 0 },
+    isPending: false,
+    attendanceType: { chargesSubscription: true },
     lesson: { date: { gte: dateFrom, lte: dateTo } },
   }
   if (branchId) currentWhere.lesson = { ...currentWhere.lesson, group: { branchId } }
@@ -63,7 +66,8 @@ export async function GET(req: NextRequest) {
   const prevAttendances = await db.attendance.findMany({
     where: {
       tenantId,
-      chargeAmount: { gt: 0 },
+      isPending: false,
+      attendanceType: { chargesSubscription: true },
       lesson: { date: { gte: prevMonthStart, lte: prevMonthEnd } },
     },
     select: { subscriptionId: true },

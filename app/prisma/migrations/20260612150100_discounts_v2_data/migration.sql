@@ -14,12 +14,13 @@ SET "is_legacy" = true, "is_active" = false
 WHERE "kind" IN ('linked_sibling', 'linked_second_direction')
    OR "value_type" = 'fixed';
 
--- 3. Сброс выбора старых linked-шаблонов в карточках клиентов («Без скидки»).
+-- 3. Сброс выбора легаси-шаблонов в карточках клиентов («Без скидки»):
+-- старые linked И деактивированные fixed (их value в старой семантике).
 UPDATE "clients" c
 SET "discount_template_id" = NULL
 FROM "discount_templates" t
 WHERE c."discount_template_id" = t."id"
-  AND t."kind" IN ('linked_sibling', 'linked_second_direction');
+  AND t."is_legacy" = true;
 
 -- 4. Посев системного шаблона тип 1 «Скидка за второй абонемент» всем
 -- организациям: ВЫКЛЮЧЕН, фикс 50 ₽ за занятие (новая семантика value).

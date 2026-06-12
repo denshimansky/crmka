@@ -334,6 +334,15 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
         newSubscriptionIds: subIds,
       })
     }
+
+    // «Выписано на сумму» — по фактическим finalAmount ПОСЛЕ применения скидок.
+    if (createdSubs.length > 0) {
+      const issuedAgg = await tx.subscription.aggregate({
+        where: { id: { in: createdSubs.map((c) => c.subId) } },
+        _sum: { finalAmount: true },
+      })
+      totalIssuedAmount = new Prisma.Decimal(issuedAgg._sum.finalAmount ?? 0)
+    }
   })
 
   if (opts.createdBy) {

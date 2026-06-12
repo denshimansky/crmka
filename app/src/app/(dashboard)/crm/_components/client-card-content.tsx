@@ -485,17 +485,19 @@ export async function ClientCardContent({
                         const valueLabel =
                           d.valueType === "percent"
                             ? `${Number(d.value)}%`
-                            : formatMoney(Number(d.value))
+                            : `−${formatMoney(Number(d.value))}/занятие`
                         const calcLabel =
                           Number(d.calculatedAmount) > 0
                             ? ` (−${formatMoney(Number(d.calculatedAmount))})`
                             : ""
                         const typeLabel =
-                          d.type === "linked"
-                            ? "Связанная"
-                            : d.type === "permanent"
-                              ? "Постоянная"
-                              : "Разовая"
+                          d.type === "second_subscription"
+                            ? "За 2-й абонемент (авто)"
+                            : d.type === "linked"
+                              ? "Связанная"
+                              : d.type === "permanent"
+                                ? "Постоянная"
+                                : "Разовая"
                         const linkedName = d.linkedClientId
                           ? linkedClientNameById.get(d.linkedClientId)
                           : null

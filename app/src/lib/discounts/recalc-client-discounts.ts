@@ -122,10 +122,17 @@ async function recomputeMoney(
   const effective = Prisma.Decimal.max(new Prisma.Decimal(0), lessonPrice.minus(perLesson))
   const newFinal = new Prisma.Decimal(sub.chargedAmount).plus(effective.mul(remaining))
 
-  // «Оплачено» — как в закрытии абонемента: суммы transfer_in (включая
-  // отрицательные сторно прошлых возвратов по скидке).
+  // «Оплачено» = transfer_in (включая отрицательные сторно прошлых возвратов
+  // по скидке) МИНУС возвраты/переносы с абонемента (Payment type=refund с
+  // отрицательной суммой: реальный возврат из кассы и перенос баланса) —
+  // иначе возврат по скидке вернул бы уже унесённые деньги второй раз.
   const paidAgg = await t.payment.aggregate({
-    where: { tenantId, subscriptionId: sub.id, deletedAt: null, type: "transfer_in" },
+    where: {
+      tenantId,
+      subscriptionId: sub.id,
+      deletedAt: null,
+      OR: [{ type: "transfer_in" }, { type: "refund", amount: { lt: 0 } }],
+    },
     _sum: { amount: true },
   })
   const paid = new Prisma.Decimal(paidAgg._sum.amount ?? 0)
@@ -143,6 +150,11 @@ async function recomputeMoney(
       orderBy: { createdAt: "asc" },
       select: { id: true },
     })
+    if (!account) {
+      // Возврат без счёта невозможен — откатываем транзакцию пересчёта,
+      // иначе переплата клиента молча исчезла бы из учёта.
+      throw new Error("Возврат по скидке невозможен: нет активного счёта (кассы)")
+    }
     if (account) {
       const storno = await t.payment.create({
         data: {
@@ -226,7 +238,10 @@ export async function repriceSubscription(
       discountSource: true,
     },
   })
+  // Только живые: пересчёт закрытого/отчисленного перетёр бы balance,
+  // выставленный закрытием, и мог бы вернуть деньги второй раз.
   if (!sub || sub.discountSource === "legacy") return
+  if (sub.status !== "pending" && sub.status !== "active") return
   const attended = await countAttendedLessons(t, input.tenantId, sub.id)
   // Скидка за занятие зафиксирована в рублях — при смене цены не пересчитывается
   // (только капится новой ценой).
@@ -257,28 +272,44 @@ export async function recalcClientDiscounts(
   })
   if (!client) return result
 
-  // Тип 2: выбранный в карточке активный permanent-шаблон (не легаси).
-  const t2 = client.discountTemplateId
+  // Тип 2: выбранный в карточке permanent-шаблон (не легаси). Грузим и
+  // выключенный: «выключение шаблона — выданные скидки доживают», поэтому
+  // выключенный, но выбранный шаблон блокирует любые изменения скидок клиента.
+  const t2Row = client.discountTemplateId
     ? await t.discountTemplate.findFirst({
         where: {
           id: client.discountTemplateId,
           tenantId: input.tenantId,
           kind: "permanent",
-          isActive: true,
           isLegacy: false,
         },
-        select: { id: true, name: true, valueType: true, value: true },
+        select: { id: true, name: true, valueType: true, value: true, isActive: true },
       })
     : null
+  if (t2Row && !t2Row.isActive) {
+    // Шаблон типа 2 выключен организацией, но выбран у клиента: выданные
+    // скидки доживают, новые абонементы — без скидки, тип 1 не действует
+    // (эксклюзивность по выбору в карточке сохраняется).
+    return result
+  }
+  const t2 = t2Row
 
-  // Тип 1: системный шаблон. Действует, если включён; на месяц периода —
-  // только начиная со СЛЕДУЮЩЕГО месяца после включения (activatedAt).
+  // Тип 1: системный шаблон. Новые скидки выдаются, только если включён;
+  // на месяц периода — начиная со СЛЕДУЮЩЕГО месяца после включения
+  // (activatedAt). Выданные ранее скидки при выключенном шаблоне доживают.
   const t1 = await t.discountTemplate.findFirst({
-    where: { tenantId: input.tenantId, systemKey: TYPE1_SYSTEM_KEY, isActive: true },
-    select: { id: true, name: true, valueType: true, value: true, activatedAt: true },
+    where: { tenantId: input.tenantId, systemKey: TYPE1_SYSTEM_KEY },
+    select: {
+      id: true,
+      name: true,
+      valueType: true,
+      value: true,
+      isActive: true,
+      activatedAt: true,
+    },
   })
   const t1MinMonth =
-    t1?.activatedAt != null
+    t1?.isActive && t1.activatedAt != null
       ? monthIndex(t1.activatedAt.getFullYear(), t1.activatedAt.getMonth() + 1) + 1
       : null
 
@@ -381,6 +412,7 @@ export async function recalcClientDiscounts(
     // История применений: активную запись закрываем, новую создаём при выдаче.
     await t.discount.updateMany({
       where: {
+        tenantId: input.tenantId,
         subscriptionId: sub.id,
         isActive: true,
         type: { in: ["second_subscription", "permanent"] },
@@ -435,10 +467,14 @@ export async function recalcClientDiscounts(
     return result
   }
 
-  // Тип 2 не выбран. Пакетные с тип-2-скидкой — снять (шаблон снят с клиента).
-  for (const sub of packageSubs) {
-    if (sub.discountSource === "type2" && (sub.status === "pending" || sub.status === "active")) {
-      await setDiscount(sub, null)
+  // Тип 2 не выбран. Пакетные с тип-2-скидкой — снять, но только если клиент
+  // действительно снял выбор («Без скидки»); если шаблон удалён/легаси —
+  // скидки доживают.
+  if (client.discountTemplateId === null) {
+    for (const sub of packageSubs) {
+      if (sub.discountSource === "type2" && (sub.status === "pending" || sub.status === "active")) {
+        await setDiscount(sub, null)
+      }
     }
   }
 
@@ -461,6 +497,7 @@ export async function recalcClientDiscounts(
         (s.status === "closed" && (attendedBySub.get(s.id) ?? 0) > 0),
     )
 
+    // t1MinMonth = null, если шаблон выключен или ещё не включался.
     const t1ActiveForMonth = !!t1 && t1MinMonth != null && mi >= t1MinMonth
     let exemptId: string | null = null
     if (t1ActiveForMonth && roster.length > 1) {
@@ -483,12 +520,23 @@ export async function recalcClientDiscounts(
 
       if (shouldHaveType1) {
         // Уже выданную тип-1-скидку не пересчитываем (изменение размера
-        // шаблона не трогает выданные); source=type2 здесь означает «шаблон
-        // снят с клиента» — заменяем на тип 1.
+        // шаблона не трогает выданные).
         if (sub.discountSource === "type1") continue
+        // source=type2 при снятом выборе («Без скидки») — заменяем на тип 1;
+        // если выбор ещё стоит (легаси/недоступный шаблон) — скидка доживает.
+        if (sub.discountSource === "type2" && client.discountTemplateId !== null) continue
         await setDiscount(sub, { tpl: t1!, source: "type1" })
       } else {
-        if (sub.discountSource === "type1" || sub.discountSource === "type2") {
+        // Снятие типа 2 — только когда клиент явно вернул «Без скидки».
+        if (sub.discountSource === "type2") {
+          if (client.discountTemplateId === null) await setDiscount(sub, null)
+          continue
+        }
+        // Выданные тип-1-скидки снимаем ТОЛЬКО когда тип 1 действует для
+        // месяца, но инвариант состава нарушен (стал самым дорогим / в месяце
+        // остался один абонемент). При выключенном шаблоне или вне зоны
+        // activatedAt выданные скидки доживают (§7 спеки).
+        if (sub.discountSource === "type1" && t1ActiveForMonth) {
           await setDiscount(sub, null)
         }
       }

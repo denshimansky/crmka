@@ -10,6 +10,7 @@ import { calcPay } from "@/lib/salary/calc-pay"
 import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { effectiveLessonPrice } from "@/lib/discounts/effective-price"
+import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
@@ -276,6 +277,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
                 chargedAmount: { decrement: existingOnL2.chargeAmount },
               },
             })
+            // Скидки v2: выравниваем finalAmount/balance после отката списания.
+            await repriceSubscription(tx, {
+              tenantId,
+              subscriptionId: existingOnL2.subscriptionId,
+              createdBy: employeeId,
+            })
           }
         }
         if (Number(existingOnL2.instructorPayAmount) > 0) {
@@ -491,6 +498,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           })
         }
       }
+
+      // Скидки v2: смена отметки могла заменить списание по старой цене
+      // списанием по новой (скидка применена/снята между отметками) —
+      // выравниваем finalAmount/balance по фактическому снимку списаний.
+      await repriceSubscription(tx, {
+        tenantId,
+        subscriptionId,
+        createdBy: employeeId,
+      })
     } else {
       // No subscription — разовое посещение (или нет подходящего абонемента).
       // Для типов с chargesSubscription=true списываем стоимость разового
@@ -1112,6 +1128,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         data: {
           chargedAmount: { decrement: existing.chargeAmount },
         },
+      })
+      // Скидки v2: занятие вернулось в «оставшиеся» — повторное списание
+      // пойдёт по текущей эффективной цене; выравниваем finalAmount/balance.
+      await repriceSubscription(tx, {
+        tenantId,
+        subscriptionId: existing.subscriptionId,
+        createdBy: employeeId,
       })
     }
 

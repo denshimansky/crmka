@@ -346,12 +346,23 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     })
     if (!existing) return null
 
-    // Скидки v2 §11.1: удалять можно только абонементы без денег — иначе
-    // оплаченное «повисает в воздухе». С оплатами/списаниями — отчисление.
-    const paymentsCount = await tx.payment.count({
-      where: { tenantId: session.user.tenantId, subscriptionId: id, deletedAt: null },
-    })
-    if (paymentsCount > 0 || Number(existing.chargedAmount) > 0) {
+    // Скидки v2 §11.1: удалять можно только абонементы без денег и без
+    // посещений — иначе оплаченное/отхоженное «повисает в воздухе».
+    // Отметки считаем по числу (бесплатные занятия при 100% скидке тоже).
+    const [paymentsCount, attendedCount] = await Promise.all([
+      tx.payment.count({
+        where: { tenantId: session.user.tenantId, subscriptionId: id, deletedAt: null },
+      }),
+      tx.attendance.count({
+        where: {
+          tenantId: session.user.tenantId,
+          subscriptionId: id,
+          isPending: false,
+          attendanceType: { chargesSubscription: true },
+        },
+      }),
+    ])
+    if (paymentsCount > 0 || attendedCount > 0 || Number(existing.chargedAmount) > 0) {
       return {
         error:
           "Нельзя удалить абонемент с оплатами или списаниями за занятия. " +

@@ -236,13 +236,14 @@ export async function GET(req: NextRequest) {
         .sort((a, b) => b.amount - a.amount)
         .map(r => [r.employee, r.direction, r.lessons, r.amount])
     } else if (field === "payments" || field === "income") {
-      // ДДС-приход (по дате платежа).
+      // ДДС-приход (по дате платежа). Отрицательные transfer_in — сторно
+      // «возврат по скидке» (Скидки v2), деньги по кассе не двигаются.
       const payments = await db.payment.findMany({
         where: {
           tenantId,
           deletedAt: null,
           date: { gte: monthStart, lte: monthEnd },
-          type: { in: ["incoming", "transfer_in"] },
+          OR: [{ type: "incoming" }, { type: "transfer_in", amount: { gt: 0 } }],
         },
         select: {
           amount: true,

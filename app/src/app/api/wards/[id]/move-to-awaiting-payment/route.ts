@@ -298,7 +298,9 @@ export async function POST(
     // балансу отключена: оплата абонемента всегда ручная («Оплатить с баланса»).
     await recomputeWardSalesStage(tx, tenantId, ward.id, now)
 
-    return { subscription }
+    // Свежие суммы: пересчёт скидок мог изменить finalAmount/balance.
+    const freshSub = await tx.subscription.findFirst({ where: { id: subscription.id } })
+    return { subscription: freshSub ?? subscription }
   })
 
   if (session.user.employeeId) {

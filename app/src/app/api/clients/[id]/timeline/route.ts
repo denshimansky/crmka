@@ -375,9 +375,11 @@ export async function GET(
             ? `Разовое посещение: ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
             : t.type === "lesson_refund"
               ? `Возврат за занятие: +${amount.toLocaleString("ru-RU")} ₽`
-              : t.type === "attendance_revert"
-                ? `Отмена посещения: +${amount.toLocaleString("ru-RU")} ₽`
-                : `Операция (${t.type}) ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+              : t.type === "discount_refund"
+                ? `Возврат по скидке: +${amount.toLocaleString("ru-RU")} ₽`
+                : t.type === "attendance_revert"
+                  ? `Отмена посещения: +${amount.toLocaleString("ru-RU")} ₽`
+                  : `Операция (${t.type}) ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ₽`
     events.push({
       id: `ledger-${t.id}`,
       kind,
