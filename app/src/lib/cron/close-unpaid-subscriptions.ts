@@ -156,7 +156,7 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
     }
   }
 
-  const healedSubs = await healAnnulledSubscriptions(tenants.map((t) => t.id))
+  const healedSubs = await healAnnulledSubscriptions()
 
   return { closedSubs, churnedClients, healedSubs }
 }
@@ -200,27 +200,23 @@ async function refundNetPaid(
 }
 
 /**
- * Восстановление после Бага #4: абонементы, закрытые автозакрытием до фикса,
- * остались с balance > 0 — «К оплате» висело долгом в карточке клиента,
- * в должниках и в виджете дашборда, хотя занятий не было и выручки нет.
+ * Восстановление сломанных закрытий (Баг #4): закрытый абонемент с balance > 0 —
+ * «К оплате» висит долгом в карточке клиента, в должниках и в виджете
+ * дашборда, хотя занятий не было и выручки нет. Источники: автозакрытие до
+ * фикса и ручное закрытие старыми версиями кода (без денежной сверки) —
+ * поэтому лечим по всем тенантам, без привязки к настройке автозакрытия.
  *
  * Критерии аннулированного: status='closed', есть «долг», ни одной отметки,
- * ни рубля списаний за занятия. Ограничения зоны действия:
- *   — только тенанты с включённым автозакрытием (баг возникал только у них;
- *     остаточный риск: настройку могли выключить после инцидента);
- *   — пакетные не лечим: close-expired-packages намеренно оставляет долг
- *     («остаток сгорает, возврат — только вручную»).
+ * ни рубля списаний за занятия. Пакетные не лечим: close-expired-packages
+ * намеренно оставляет долг («остаток сгорает, возврат — только вручную»).
  *
  * Сверка та же, что при закрытии: нетто-оплаченное (за вычетом уже сделанных
  * возвратов) — на баланс родителя, balance → 0. Идемпотентно, безопасно
  * выполняется при каждом запуске.
  */
-async function healAnnulledSubscriptions(tenantIds: string[]): Promise<number> {
-  if (tenantIds.length === 0) return 0
-
+async function healAnnulledSubscriptions(): Promise<number> {
   const broken = await db.subscription.findMany({
     where: {
-      tenantId: { in: tenantIds },
       deletedAt: null,
       status: "closed",
       type: { not: "package" },
