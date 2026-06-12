@@ -24,6 +24,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  // Обратная сторона инварианта (Баг #5): «Выбывший» с активным абонементом —
+  // всегда рассинхрон. Вручную так сделать нельзя (PATCH клиента запрещает
+  // churned при активных абонементах); возникает, когда клиента выбыли при
+  // pending-абонементах, а повторная оплата/активация не возвращала статус.
+  // Возвращаем таких в активные.
+  const reactivated = await db.client.updateMany({
+    where: {
+      deletedAt: null,
+      clientStatus: "churned",
+      subscriptions: { some: { status: "active", deletedAt: null } },
+    },
+    data: { clientStatus: "active", withdrawalDate: null },
+  })
+
   const thresholdDays = 30
   const threshold = new Date()
   threshold.setDate(threshold.getDate() - thresholdDays)
@@ -72,7 +86,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (toChurn.length === 0) {
-    return NextResponse.json({ ok: true, checked: candidates.length, churned: 0 })
+    return NextResponse.json({
+      ok: true,
+      checked: candidates.length,
+      churned: 0,
+      reactivated: reactivated.count,
+    })
   }
 
   await db.client.updateMany({
@@ -87,6 +106,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     checked: candidates.length,
     churned: toChurn.length,
+    reactivated: reactivated.count,
     thresholdDays,
   })
 }

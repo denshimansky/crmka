@@ -12,6 +12,7 @@
 import { db } from "@/lib/db"
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { reactivateChurnedClient } from "@/lib/clients/reactivate-churned"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 
 type Tx = Prisma.TransactionClient | PrismaClient
@@ -151,6 +152,11 @@ export async function payFromBalance(
         ...(becameActive ? { status: "active", activatedAt: new Date() } : {}),
       },
     })
+
+    if (becameActive) {
+      // Активация абонемента «Выбывшего» — клиент вернулся (Баг #5).
+      await reactivateChurnedClient(t, input.tenantId, sub.clientId)
+    }
 
     if (becameActive && sub.wardId) {
       // Заявка, по которой выписан этот абонемент, выиграна (оплачена) — уходит из

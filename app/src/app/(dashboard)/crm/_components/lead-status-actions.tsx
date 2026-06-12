@@ -87,8 +87,8 @@ export function LeadStatusActions({
     setStatusLoading(true)
     try {
       const body =
-        value === "churned"
-          ? { clientStatus: "churned" }
+        value === "churned" || value === "active"
+          ? { clientStatus: value }
           : { funnelStatus: value }
       const res = await fetch(`/api/clients/${clientId}`, {
         method: "PATCH",
@@ -141,7 +141,14 @@ export function LeadStatusActions({
             {currentBucketLabel}
           </SelectTrigger>
           <SelectContent>
-            {ACTIVE_TRANSITIONS.map((s) => (
+            {/* Выбывшему с активными абонементами даём путь назад (Баг #5):
+                повторная оплата возвращает автоматически, но и вручную можно. */}
+            {clientStatus === "churned" && (
+              <SelectItem value="active">Вернуть в Активные</SelectItem>
+            )}
+            {ACTIVE_TRANSITIONS.filter(
+              (s) => !(clientStatus === "churned" && s.value === "churned"),
+            ).map((s) => (
               <SelectItem key={s.value} value={s.value}>
                 {s.label}
               </SelectItem>

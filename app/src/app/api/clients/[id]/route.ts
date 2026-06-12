@@ -172,6 +172,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(movingToArchived
           ? { clientStatus: null }
           : data.clientStatus !== undefined && { clientStatus: data.clientStatus }),
+        // Возврат из «Выбывших» (Баг #5) — дата выбытия больше не актуальна.
+        ...(data.clientStatus === "active" &&
+          existing.clientStatus === "churned" && { withdrawalDate: null }),
         ...(data.branchId !== undefined && { branchId: data.branchId }),
         ...(data.assignedTo !== undefined && { assignedTo: data.assignedTo }),
         ...(data.comment !== undefined && { comment: data.comment }),

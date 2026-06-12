@@ -6,6 +6,7 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { reactivateChurnedClient } from "@/lib/clients/reactivate-churned"
 import { requirePermission } from "@/lib/api-permissions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
@@ -209,6 +210,10 @@ export async function POST(req: NextRequest) {
           saleDate: new Date(data.date),
         },
       })
+    } else {
+      // Повторная оплата «Выбывшего» — клиент вернулся (Баг #5):
+      // раньше статус возвращала только первая оплата.
+      await reactivateChurnedClient(tx, session.user.tenantId, data.clientId)
     }
 
     return p

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { reactivateChurnedClient } from "@/lib/clients/reactivate-churned"
 
 /**
  * YooKassa webhook handler (FIN-21)
@@ -266,6 +267,9 @@ async function handlePaymentSucceeded(
           saleDate: paymentDate,
         },
       })
+    } else {
+      // Повторная оплата «Выбывшего» — клиент вернулся (Баг #5).
+      await reactivateChurnedClient(tx, tenantId, clientId)
     }
   })
 

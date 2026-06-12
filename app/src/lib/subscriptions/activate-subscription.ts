@@ -8,6 +8,7 @@
 
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
+import { reactivateChurnedClient } from "@/lib/clients/reactivate-churned"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -34,6 +35,9 @@ export async function activateSubscription(
     where: { id: sub.id },
     data: { status: "active", activatedAt: new Date() },
   })
+
+  // Активация абонемента «Выбывшего» — клиент вернулся (Баг #5).
+  await reactivateChurnedClient(t, tenantId, sub.clientId)
 
   if (!sub.wardId) return
 
