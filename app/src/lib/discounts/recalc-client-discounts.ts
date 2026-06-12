@@ -548,18 +548,28 @@ export async function recalcClientDiscounts(
 
 /**
  * Разовый пересчёт после включения тоггла типа 1: все клиенты тенанта с
- * абонементами будущих месяцев (продлённые заранее получают скидку сразу).
- * Вызывать ПОСЛЕ установки isActive=true + activatedAt.
+ * абонементами в зоне действия скидки (месяцы >= месяц(activatedAt)+1 —
+ * заранее выписанные будущие месяцы получают скидку сразу; при включении
+ * «с текущего месяца» activatedAt смещён на месяц назад, и зона включает
+ * текущий). Вызывать ПОСЛЕ установки isActive=true + activatedAt.
  */
 export async function recalcAllClientsForType1(
   db: PrismaClient,
   tenantId: string,
   createdBy?: string | null,
 ): Promise<number> {
+  const t1 = await db.discountTemplate.findFirst({
+    where: { tenantId, systemKey: TYPE1_SYSTEM_KEY, isActive: true },
+    select: { activatedAt: true },
+  })
+  if (!t1?.activatedAt) return 0
+  const minIdx =
+    monthIndex(t1.activatedAt.getFullYear(), t1.activatedAt.getMonth() + 1) + 1
+  // Прошедшие месяцы не трогаем в любом случае.
   const now = new Date()
-  const nextMonthIdx = monthIndex(now.getFullYear(), now.getMonth() + 1) + 1
-  const nextYear = Math.floor(nextMonthIdx / 12)
-  const nextMonth = (nextMonthIdx % 12) + 1
+  const fromIdx = Math.max(minIdx, monthIndex(now.getFullYear(), now.getMonth() + 1))
+  const fromYear = Math.floor(fromIdx / 12)
+  const fromMonth = (fromIdx % 12) + 1
 
   const rows = await db.subscription.findMany({
     where: {
@@ -568,8 +578,8 @@ export async function recalcAllClientsForType1(
       type: { not: "package" },
       status: { in: ["pending", "active"] },
       OR: [
-        { periodYear: { gt: nextYear } },
-        { periodYear: nextYear, periodMonth: { gte: nextMonth } },
+        { periodYear: { gt: fromYear } },
+        { periodYear: fromYear, periodMonth: { gte: fromMonth } },
       ],
     },
     select: { clientId: true },

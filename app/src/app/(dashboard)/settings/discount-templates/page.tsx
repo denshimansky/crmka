@@ -72,6 +72,9 @@ export default function DiscountTemplatesPage() {
   const [formValue, setFormValue] = useState("")
   const [formDescription, setFormDescription] = useState("")
   const [formIsActive, setFormIsActive] = useState(true)
+  // Скидки v2: при включении автоскидки — применить уже к ТЕКУЩЕМУ месяцу
+  // (для свежезалитой базы). По умолчанию действует со следующего месяца.
+  const [formApplyCurrentMonth, setFormApplyCurrentMonth] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -104,6 +107,7 @@ export default function DiscountTemplatesPage() {
     setFormValue(String(t.value))
     setFormDescription("")
     setFormIsActive(t.isActive)
+    setFormApplyCurrentMonth(false)
     setError(null)
     setDialogOpen(true)
   }
@@ -151,6 +155,14 @@ export default function DiscountTemplatesPage() {
         value: Number(formValue),
         isActive: formIsActive,
       }
+      // Включение автоскидки: опционально применить уже к текущему месяцу.
+      if (
+        editTemplate?.kind === "second_subscription" &&
+        formIsActive &&
+        !editTemplate.isActive
+      ) {
+        body.applyFromCurrentMonth = formApplyCurrentMonth
+      }
       // Системным шаблонам нельзя менять name, новым — kind не выбирается (только permanent).
       if (!isSystem) {
         body.name = formName.trim()
@@ -169,12 +181,13 @@ export default function DiscountTemplatesPage() {
         return
       }
 
-      // Включение автоскидки: сервер пересчитал будущие месяцы.
+      // Включение автоскидки: сервер пересчитал месяцы в зоне действия.
       const saved = await res.json().catch(() => ({}))
       if (typeof saved?._recalculatedClients === "number") {
         alert(
-          `Автоскидка включена. Действует на абонементы со следующего месяца; ` +
-            `уже выписанные абонементы будущих месяцев пересчитаны (клиентов: ${saved._recalculatedClients}).`,
+          formApplyCurrentMonth
+            ? `Автоскидка включена с ТЕКУЩЕГО месяца. Уже выписанные абонементы текущего и будущих месяцев пересчитаны (клиентов: ${saved._recalculatedClients}).`
+            : `Автоскидка включена. Действует на абонементы со следующего месяца; уже выписанные абонементы будущих месяцев пересчитаны (клиентов: ${saved._recalculatedClients}).`,
         )
       }
 
@@ -396,6 +409,28 @@ export default function DiscountTemplatesPage() {
                 <span>Активен</span>
               </Label>
             </div>
+
+            {editTemplate?.kind === "second_subscription" &&
+              formIsActive &&
+              !editTemplate.isActive && (
+                <div className="space-y-1 rounded-md border p-3">
+                  <Label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formApplyCurrentMonth}
+                      onChange={(e) => setFormApplyCurrentMonth(e.target.checked)}
+                      className="size-4 rounded border"
+                    />
+                    <span>Применить уже к текущему месяцу</span>
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    По умолчанию скидка действует на абонементы со следующего
+                    месяца. Отметьте, если база заполняется с нуля и скидка
+                    нужна уже на абонементах текущего месяца — они будут
+                    пересчитаны (с возвратом переплат на баланс).
+                  </p>
+                </div>
+              )}
           </div>
 
           <DialogFooter>

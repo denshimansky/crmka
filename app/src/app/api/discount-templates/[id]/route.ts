@@ -13,6 +13,9 @@ const updateSchema = z.object({
   valueType: z.enum(["percent", "fixed"]).optional(),
   value: z.number().min(0).optional(),
   isActive: z.boolean().optional(),
+  // Скидки v2: при включении тип-1 — применять уже к абонементам ТЕКУЩЕГО
+  // месяца (для свежезалитой базы). По умолчанию — со следующего месяца.
+  applyFromCurrentMonth: z.boolean().optional(),
 })
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -67,11 +70,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   // Скидки v2: включение тоггла типа 1 фиксирует activatedAt — скидка
-  // действует на абонементы с периодом со СЛЕДУЮЩЕГО месяца.
+  // действует на абонементы с периодом со СЛЕДУЮЩЕГО месяца после activatedAt.
+  // Опция «применить уже к текущему месяцу» (свежая база) смещает activatedAt
+  // на месяц назад — текущий месяц попадает в зону действия; прошедшие месяцы
+  // не пересчитываются в любом случае.
   const isType1 = existing.systemKey === TYPE1_SYSTEM_KEY
   const turningOn = isType1 && parsed.data.isActive === true && !existing.isActive
+  const applyFromCurrentMonth = parsed.data.applyFromCurrentMonth === true
+  delete (data as Record<string, unknown>).applyFromCurrentMonth
   if (turningOn) {
-    data.activatedAt = new Date()
+    const now = new Date()
+    data.activatedAt = applyFromCurrentMonth
+      ? new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      : now
   }
 
   const item = await db.discountTemplate.update({ where: { id }, data })
