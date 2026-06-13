@@ -1,10 +1,11 @@
 /**
- * Регрессия: этап «Лид» воронки = контакты в статусе «Новый», созданные за месяц.
+ * Регрессия: этап «Лид» воронки = контакты, СТАВШИЕ лидом (вошедшие в статус
+ * «Новый») в выбранном месяце — независимо от их текущего статуса.
  *  - ручной лид («Новый») → +1;
- *  - контакт в нелид-статусе («Архив») → +0 (раньше выбывшие/архив/потенциал
- *    раздували «Лид» до 812);
- *  - импортированный контакт (CSV-импорт ставит «Новый») → +1 — импорт исторической
- *    базы как «Новый» считается лидом, источник роли не играет (фильтр по статусу).
+ *  - тот же лид, переведённый в другой статус (потенциал/актив) → ОСТАЁТСЯ в счёте
+ *    месяца (ключевой кейс: считается момент входа в статус, а не текущий статус);
+ *  - контакт, созданный сразу в нелид-статусе («Архив») → +0;
+ *  - импортированный контакт (CSV-импорт ставит «Новый») → +1.
  *
  * Через HTTP на dev-сервере (как trial-funnel.test.ts). Скип без seed/auth.
  */
@@ -14,7 +15,6 @@ import { getAuthCookie, apiCall } from "./helpers"
 
 const BASE_URL = process.env.TEST_BASE_URL || "https://dev.umnayacrm.ru"
 
-// Счётчик этапа «Лид» воронки за текущий месяц (без параметров = текущий месяц).
 async function leadCount(cookie: string): Promise<number> {
   const res = await apiCall("GET", "/api/reports/funnel", { cookie })
   const funnel: any[] = res.data?.data?.funnel ?? []
@@ -32,7 +32,7 @@ async function findClientIdByPhone(cookie: string, phone: string): Promise<strin
   return found?.id ?? list[0]?.id ?? null
 }
 
-describe("Воронка: «Лид» = статус «Новый», созданные за месяц", () => {
+describe("Воронка: «Лид» = стал лидом в этом месяце (по входу в статус)", () => {
   let cookie: string | null = null
   const cleanup: string[] = []
 
@@ -40,7 +40,7 @@ describe("Воронка: «Лид» = статус «Новый», создан
     cookie = await getAuthCookie("owner")
   })
 
-  it("Новый → +1; Архив → +0; импортированный (Новый) → +1", async (t) => {
+  it("Новый → +1; перевод в др. статус НЕ убирает; Архив → +0; импорт (Новый) → +1", async (t) => {
     if (!cookie) { t.skip("Auth недоступна (seed не применён?)"); return }
     const c = cookie
     const suffix = Date.now().toString().slice(-7)
@@ -56,10 +56,20 @@ describe("Воронка: «Лид» = статус «Новый», создан
     assert.equal(r1.status, 201, `новый лид создан: ${JSON.stringify(r1.data)}`)
     cleanup.push(r1.data.id)
     const afterNew = await leadCount(c)
-    assert.equal(afterNew, base + 1, "лид в статусе «Новый» увеличил «Лид» на 1")
+    assert.equal(afterNew, base + 1, "лид «Новый» увеличил «Лид» на 1")
 
-    // 2) Контакт в нелид-статусе («Архив») — НЕ меняет «Лид».
-    const r2 = await apiCall("POST", "/api/clients", {
+    // 2) КЛЮЧЕВОЙ КЕЙС: переводим лида в другой статус — он ОСТАЁТСЯ в счёте месяца
+    //    (becameLeadAt уже проставлен, текущий статус роли не играет).
+    const patch = await apiCall("PATCH", `/api/clients/${r1.data.id}`, {
+      cookie: c,
+      body: { funnelStatus: "potential" },
+    })
+    assert.equal(patch.status, 200, `статус изменён: ${JSON.stringify(patch.data)}`)
+    const afterMove = await leadCount(c)
+    assert.equal(afterMove, afterNew, "переведённый из «Нового» лид ОСТАЛСЯ в счёте месяца")
+
+    // 3) Контакт, созданный сразу в нелид-статусе («Архив») — НЕ меняет «Лид».
+    const r3 = await apiCall("POST", "/api/clients", {
       cookie: c,
       body: {
         firstName: "Архивный",
@@ -68,12 +78,12 @@ describe("Воронка: «Лид» = статус «Новый», создан
         funnelStatus: "archived",
       },
     })
-    assert.equal(r2.status, 201, `архивный контакт создан: ${JSON.stringify(r2.data)}`)
-    cleanup.push(r2.data.id)
+    assert.equal(r3.status, 201, `архивный контакт создан: ${JSON.stringify(r3.data)}`)
+    cleanup.push(r3.data.id)
     const afterArchived = await leadCount(c)
-    assert.equal(afterArchived, afterNew, "контакт в статусе «Архив» НЕ увеличил «Лид»")
+    assert.equal(afterArchived, afterMove, "контакт, созданный «Архивом», НЕ увеличил «Лид»")
 
-    // 3) Импортированный контакт (CSV-импорт ставит статус «Новый») — +1.
+    // 4) Импортированный контакт (CSV-импорт ставит статус «Новый») — +1.
     const importedPhone = `+7903${suffix}`
     const csv = `Имя;Фамилия;Телефон\nИмпорт;Тест${suffix};${importedPhone}\n`
     const form = new FormData()

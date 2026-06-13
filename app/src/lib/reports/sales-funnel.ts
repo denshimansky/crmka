@@ -50,7 +50,7 @@ export async function computeSalesFunnel(
 
   const clientScope = scopeClientByBranch(scope)
 
-  const [apps, monthClients] = await Promise.all([
+  const [apps, leadClients] = await Promise.all([
     // Заявки, у которых возможно событие в выбранном месяце: созданы в месяце
     // («Заявка» + текущий разрез) либо созданы раньше, но в месяце есть пробное,
     // выигрыш или первое платное занятие клиента (перетекающие). Без этого OR
@@ -108,12 +108,16 @@ export async function computeSalesFunnel(
         },
       },
     }),
-    // Этап «Лид» — контакты, созданные в выбранном месяце.
+    // Этап «Лид» — контакты, СТАВШИЕ лидом (вошедшие в статус «Новый») в выбранном
+    // месяце. Фильтр по becameLeadAt (его ведёт триггер БД), а не по createdAt:
+    // лид мог за месяц уже уйти в актив/потенциал — он всё равно считается в своём
+    // месяце. Импорт-база, залитая сразу выбывшими/потенциалом/архивом, becameLeadAt
+    // не имеет и сюда не попадает.
     db.client.findMany({
       where: {
         tenantId,
         deletedAt: null,
-        createdAt: { gte: monthStart, lte: monthEnd },
+        becameLeadAt: { gte: monthStart, lte: monthEnd },
         ...(Object.keys(clientScope).length > 0 ? { AND: [clientScope] } : {}),
       },
       select: {
@@ -121,7 +125,7 @@ export async function computeSalesFunnel(
         firstName: true,
         lastName: true,
         phone: true,
-        funnelStatus: true,
+        becameLeadAt: true,
         firstPaymentDate: true,
         firstPaidLessonDate: true,
         createdAt: true,
@@ -135,7 +139,7 @@ export async function computeSalesFunnel(
   ])
 
   const clientIds = Array.from(
-    new Set([...apps.map((a) => a.client.id), ...monthClients.map((c) => c.id)]),
+    new Set([...apps.map((a) => a.client.id), ...leadClients.map((c) => c.id)]),
   )
 
   // Лёгкие агрегаты по клиентам выборки: купленные абонементы (becameClientAt +
@@ -192,7 +196,7 @@ export async function computeSalesFunnel(
     bump(a.client.id, a.client.firstPaymentDate)
     bump(a.client.id, a.client.firstPaidLessonDate)
   }
-  for (const c of monthClients) {
+  for (const c of leadClients) {
     bump(c.id, c.firstPaymentDate)
     bump(c.id, c.firstPaidLessonDate)
   }
@@ -358,16 +362,13 @@ export async function computeSalesFunnel(
     }
   }
 
-  // Этап «Лид» (только вкладка «новые»): контакты, вошедшие в воронку новым лидом
-  // в выбранном месяце — созданы в месяце и сейчас в статусе «Новый» (funnelStatus
-  // = new). Это совпадает со вкладкой «Лиды» в списке контактов и НЕ зависит от
-  // источника: импортированная база, залитая сразу выбывшими/потенциалом/архивом/
-  // активными, в «Лиды» не попадает (именно она раздувала цифру), а реальные лиды —
-  // в т.ч. импортированные как «Новый» — считаются. Контакты, ушедшие дальше по
-  // воронке (заявка/пробное/покупка), статус «Новый» уже потеряли и видны в своих
-  // этапах через apps, поэтому здесь не двоятся.
-  for (const c of monthClients) {
-    if (c.funnelStatus !== "new") continue
+  // Этап «Лид» (только вкладка «новые»): контакты, ставшие лидом (вошедшие в статус
+  // «Новый») в выбранном месяце — каждый ровно один раз (выборка уже по becameLeadAt,
+  // одна строка на контакт), независимо от текущего статуса. Лид, конвертированный
+  // за месяц в актив/потенциал/др., остаётся; залитые импортом сразу выбывшими/
+  // потенциалом/архивом becameLeadAt не имеют и сюда не попали. Контакты, ушедшие
+  // дальше по воронке, видны и в своих этапах через apps — это нормально для воронки.
+  for (const c of leadClients) {
     const row: FunnelDetailRow = {
       clientId: c.id,
       parentName: fullName(c.firstName, c.lastName),
@@ -377,7 +378,7 @@ export async function computeSalesFunnel(
       directionName: null,
       groupName: null,
       carryover: false,
-      date: c.createdAt.toISOString(),
+      date: (c.becameLeadAt ?? c.createdAt).toISOString(),
     }
     // Лид ещё не имеет заявки, поэтому схема неизвестна — показываем одинаково
     // в обеих схемах вкладки «новые» (в сводке считается один раз).

@@ -287,9 +287,14 @@ model Client {
   segment                 ClientSegment     @default(new_client) @map("segment")
   // Источник появления контакта: ручное создание/быстрый «+»/quick-create
   // (manual) или массовый импорт исторической базы из старой системы (import).
-  // Импортированные не считаются «новыми лидами месяца» в воронке и отчётах
-  // по лидам — у них createdAt = дата импорта, а не реального обращения.
+  // Используется отчётом «Лиды по менеджерам» (импорт не зачисляется менеджеру).
   source                  ClientSource      @default(manual) @map("source")
+  // Момент входа контакта в статус «Новый» (Лид). Этап «Лид» воронки = контакты,
+  // СТАВШИЕ лидом в выбранном месяце (becameLeadAt в месяце), независимо от текущего
+  // статуса — конвертированный в актив/потенциал лид остаётся в счёте своего месяца.
+  // Поддерживается триггером БД set_client_became_lead_at (любой путь записи):
+  // при создании со статусом new → created_at, при возврате в new → now().
+  becameLeadAt            DateTime?         @map("became_lead_at")
   totalSubscriptionsCount Int               @default(0) @map("total_subscriptions_count")
   channelId               String?           @map("channel_id") @db.Uuid
   assignedTo              String?           @map("assigned_to") @db.Uuid
