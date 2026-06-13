@@ -121,8 +121,7 @@ export async function computeSalesFunnel(
         firstName: true,
         lastName: true,
         phone: true,
-        clientStatus: true,
-        source: true,
+        funnelStatus: true,
         firstPaymentDate: true,
         firstPaidLessonDate: true,
         createdAt: true,
@@ -359,20 +358,16 @@ export async function computeSalesFunnel(
     }
   }
 
-  // Этап «Лид» (только вкладка «новые»): контакты, созданные в месяце лидами.
-  // Массовый импорт исторической базы (source=import) исключаем целиком — у него
-  // createdAt = дата импорта, а не реального обращения, иначе вся залитая база
-  // считается «новыми лидами месяца». Импортированных сразу действующими (или
-  // выбывшими) тоже не считаем; покупка в день создания контакта — это конверсия
-  // лида, а не импорт. (Реальные заявки/пробные/покупки импортированных, если они
-  // были в месяце, остаются в остальных этапах — фильтруется только сам «Лид».)
+  // Этап «Лид» (только вкладка «новые»): контакты, вошедшие в воронку новым лидом
+  // в выбранном месяце — созданы в месяце и сейчас в статусе «Новый» (funnelStatus
+  // = new). Это совпадает со вкладкой «Лиды» в списке контактов и НЕ зависит от
+  // источника: импортированная база, залитая сразу выбывшими/потенциалом/архивом/
+  // активными, в «Лиды» не попадает (именно она раздувала цифру), а реальные лиды —
+  // в т.ч. импортированные как «Новый» — считаются. Контакты, ушедшие дальше по
+  // воронке (заявка/пробное/покупка), статус «Новый» уже потеряли и видны в своих
+  // этапах через apps, поэтому здесь не двоятся.
   for (const c of monthClients) {
-    if (c.source === "import") continue
-    const became = becameClientAt.get(c.id)
-    const importedAsClient =
-      (became && utcDayStart(became) < utcDayStart(c.createdAt)) ||
-      (!became && (c.clientStatus === "active" || c.clientStatus === "churned"))
-    if (importedAsClient) continue
+    if (c.funnelStatus !== "new") continue
     const row: FunnelDetailRow = {
       clientId: c.id,
       parentName: fullName(c.firstName, c.lastName),
