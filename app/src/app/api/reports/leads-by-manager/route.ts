@@ -23,10 +23,13 @@ export async function GET(req: NextRequest) {
 
   const empMap = new Map(employees.map((e) => [e.id, [e.lastName, e.firstName].filter(Boolean).join(" ")]))
 
-  // Clients created in period
+  // Clients created in period.
+  // Массовый импорт (source=import) исключаем — его createdAt = дата импорта,
+  // иначе вся залитая база падает «новыми лидами» на одного менеджера-импортёра.
   const clientWhere: any = {
     tenantId,
     deletedAt: null,
+    source: { not: "import" },
     createdAt: { gte: dateFrom, lte: dateTo },
   }
   if (branchId) clientWhere.branchId = branchId

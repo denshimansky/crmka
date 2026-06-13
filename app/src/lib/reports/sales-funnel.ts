@@ -122,6 +122,7 @@ export async function computeSalesFunnel(
         lastName: true,
         phone: true,
         clientStatus: true,
+        source: true,
         firstPaymentDate: true,
         firstPaidLessonDate: true,
         createdAt: true,
@@ -359,9 +360,14 @@ export async function computeSalesFunnel(
   }
 
   // Этап «Лид» (только вкладка «новые»): контакты, созданные в месяце лидами.
-  // Импортированных сразу действующими (или выбывшими) не считаем; покупка
-  // в день создания контакта — это конверсия лида, а не импорт.
+  // Массовый импорт исторической базы (source=import) исключаем целиком — у него
+  // createdAt = дата импорта, а не реального обращения, иначе вся залитая база
+  // считается «новыми лидами месяца». Импортированных сразу действующими (или
+  // выбывшими) тоже не считаем; покупка в день создания контакта — это конверсия
+  // лида, а не импорт. (Реальные заявки/пробные/покупки импортированных, если они
+  // были в месяце, остаются в остальных этапах — фильтруется только сам «Лид».)
   for (const c of monthClients) {
+    if (c.source === "import") continue
     const became = becameClientAt.get(c.id)
     const importedAsClient =
       (became && utcDayStart(became) < utcDayStart(c.createdAt)) ||

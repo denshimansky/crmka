@@ -404,6 +404,9 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
             socialLink: socialLink ?? null,
             funnelStatus: dbStatus.funnelStatus,
             clientStatus: dbStatus.clientStatus ?? undefined,
+            // Импорт исторической базы из 1С — не «новый лид месяца»
+            // (createdAt = дата импорта, а не реального обращения).
+            source: "import",
             createdBy: opts.createdBy ?? undefined,
           },
           select: { id: true },

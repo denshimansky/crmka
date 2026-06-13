@@ -161,6 +161,8 @@ export async function POST(req: NextRequest) {
           channelId,
           comment: data.comment || undefined,
           funnelStatus: "new",
+          // Массовый импорт — не «новый лид месяца» в воронке/отчётах по лидам.
+          source: "import",
           createdBy: session.user.employeeId,
           wards: data.wardName
             ? {

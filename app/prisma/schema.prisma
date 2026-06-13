@@ -285,6 +285,11 @@ model Client {
   funnelStatus            FunnelStatus      @default(new) @map("funnel_status")
   clientStatus            ClientWorkStatus? @map("client_status")
   segment                 ClientSegment     @default(new_client) @map("segment")
+  // Источник появления контакта: ручное создание/быстрый «+»/quick-create
+  // (manual) или массовый импорт исторической базы из старой системы (import).
+  // Импортированные не считаются «новыми лидами месяца» в воронке и отчётах
+  // по лидам — у них createdAt = дата импорта, а не реального обращения.
+  source                  ClientSource      @default(manual) @map("source")
   totalSubscriptionsCount Int               @default(0) @map("total_subscriptions_count")
   channelId               String?           @map("channel_id") @db.Uuid
   assignedTo              String?           @map("assigned_to") @db.Uuid
@@ -1268,6 +1273,11 @@ enum ClientSegment {
   standard
   regular
   vip
+}
+
+enum ClientSource {
+  manual
+  import
 }
 
 enum LessonStatus {
