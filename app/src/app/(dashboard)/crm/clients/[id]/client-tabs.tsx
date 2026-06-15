@@ -1399,6 +1399,13 @@ function AddSubscriptionDialog({
   const [periodMonth, setPeriodMonth] = useState(String(new Date().getMonth() + 1))
   const [lessonPrice, setLessonPrice] = useState("")
   const [totalLessons, setTotalLessons] = useState("")
+  // Календарь: дата первого занятия (по умолчанию — 1-е число месяца). От неё
+  // считаем кол-во занятий и шлём как startDate — чтобы ребёнок с поздним стартом
+  // вставал в группу с этой даты, а не с 1-го числа (баг #8).
+  const [firstLessonDate, setFirstLessonDate] = useState(() => {
+    const n = new Date()
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-01`
+  })
 
   // Загрузка направлений, групп, типа абонемента и шаблонов при открытии
   useEffect(() => {
@@ -1442,18 +1449,26 @@ function AddSubscriptionDialog({
     if (dir) setLessonPrice(String(Number(dir.lessonPrice)))
   }
 
+  // Дата первого занятия по умолчанию — 1-е число выбранного месяца. При смене
+  // месяца/года сбрасываем на 1-е (прежняя дата относилась к другому месяцу).
+  useEffect(() => {
+    if (subscriptionType !== "calendar") return
+    if (!periodYear || !periodMonth) return
+    setFirstLessonDate(`${periodYear}-${String(Number(periodMonth)).padStart(2, "0")}-01`)
+  }, [subscriptionType, periodYear, periodMonth])
+
   // Авто-подсчёт количества занятий: только для calendar.
-  // Считаем по реальным Lesson-записям группы за выбранный месяц
-  // (status != cancelled) — это уважает ручные правки расписания: отмену
-  // конкретных дней, скорректированный effectiveFrom шаблонов, удаление
-  // отдельных занятий и т.п. Баг #71: наивный счёт по дням недели игнорировал
-  // эти правки и завышал totalLessons.
+  // Считаем по реальным Lesson-записям группы (status != cancelled) с даты
+  // первого занятия до конца месяца — это уважает ручные правки расписания
+  // (отмену дней, effectiveFrom шаблонов, удаление занятий; баг #71) и поздний
+  // старт ребёнка (баг #8): за прошлые занятия месяца он не платит.
   useEffect(() => {
     if (subscriptionType !== "calendar") return
     if (!groupId || !periodYear || !periodMonth) return
     const year = Number(periodYear)
     const month = Number(periodMonth)
     const monthStart = `${year}-${String(month).padStart(2, "0")}-01`
+    const fromIso = firstLessonDate || monthStart
     const cancelled = { cancelled: false }
     ;(async () => {
       try {
@@ -1463,17 +1478,18 @@ function AddSubscriptionDialog({
         if (!res.ok || cancelled.cancelled) return
         const lessons: { date: string }[] = await res.json()
         // Endpoint фильтрует cancelled и берёт всё с from; обрезаем строго до
-        // выбранного месяца, чтобы не учесть занятия следующих периодов.
+        // выбранного месяца и до даты первого занятия (ребёнок встаёт с неё).
         const count = lessons.filter((l) => {
           const d = new Date(l.date)
-          return d.getUTCFullYear() === year && d.getUTCMonth() + 1 === month
+          if (d.getUTCFullYear() !== year || d.getUTCMonth() + 1 !== month) return false
+          return l.date.slice(0, 10) >= fromIso
         }).length
         if (cancelled.cancelled) return
         setTotalLessons(String(count || 1))
       } catch { /* ignore */ }
     })()
     return () => { cancelled.cancelled = true }
-  }, [subscriptionType, groupId, periodYear, periodMonth])
+  }, [subscriptionType, groupId, periodYear, periodMonth, firstLessonDate])
 
   // Для package: при выборе шаблона — автозаполнение totalLessons и validDays.
   useEffect(() => {
@@ -1497,6 +1513,7 @@ function AddSubscriptionDialog({
     setTotalLessons("")
     setPackageTemplateId("")
     setStartDate(new Date().toISOString().slice(0, 10))
+    setFirstLessonDate(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`)
     setValidDays("")
     setError(null)
   }
@@ -1528,6 +1545,9 @@ function AddSubscriptionDialog({
       } else {
         payload.periodYear = Number(periodYear)
         payload.periodMonth = Number(periodMonth)
+        // Дата первого занятия → startDate абонемента (и enrolledAt зачисления).
+        // Для старта с начала месяца это 1-е число — поведение не меняется.
+        if (firstLessonDate) payload.startDate = firstLessonDate
       }
       const res = await fetch("/api/subscriptions", {
         method: "POST",
@@ -1708,6 +1728,22 @@ function AddSubscriptionDialog({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+          )}
+
+          {subscriptionType === "calendar" && (
+            <div className="space-y-1.5">
+              <Label>Дата первого занятия</Label>
+              <Input
+                type="date"
+                value={firstLessonDate}
+                min={`${periodYear}-${String(Number(periodMonth)).padStart(2, "0")}-01`}
+                onChange={(e) => setFirstLessonDate(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                С этой даты ребёнок встаёт в группу. По умолчанию — начало месяца;
+                для позднего старта выберите дату — «Занятий» пересчитается.
+              </p>
             </div>
           )}
 
