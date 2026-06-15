@@ -23,14 +23,12 @@ export interface ReportData<T = Record<string, unknown>> {
   month: number
 }
 
-/**
- * Тянет отчёт из API по выбранному в URL месяцу (MonthPicker кладёт year/month).
- * extraParams — дополнительные query-параметры (groupBy, branchId и т.п.).
- */
-export function useReportData<T = Record<string, unknown>>(
+/** Ядро: фетчит отчёт по выбранному месяцу, отдаёт сырое `data` (массив или объект). */
+function useReportRaw<R>(
   endpoint: string,
+  initial: R,
   extraParams?: Record<string, string | undefined>,
-): ReportData<T> {
+): { loading: boolean; error: string | null; raw: R; metadata: Record<string, unknown> | null; year: number; month: number } {
   const sp = useSearchParams()
   const now = new Date()
   const year = Number(sp.get("year")) || now.getFullYear()
@@ -39,9 +37,9 @@ export function useReportData<T = Record<string, unknown>>(
   const [state, setState] = useState<{
     loading: boolean
     error: string | null
-    data: T[]
+    raw: R
     metadata: Record<string, unknown> | null
-  }>({ loading: true, error: null, data: [], metadata: null })
+  }>({ loading: true, error: null, raw: initial, metadata: null })
 
   const extraKey = JSON.stringify(extraParams || {})
 
@@ -58,18 +56,41 @@ export function useReportData<T = Record<string, unknown>>(
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Не удалось загрузить отчёт"))))
       .then((json) => {
         if (cancelled) return
-        setState({ loading: false, error: null, data: json.data || [], metadata: json.metadata || null })
+        setState({ loading: false, error: null, raw: json.data ?? initial, metadata: json.metadata || null })
       })
       .catch((e: Error) => {
         if (cancelled) return
-        setState({ loading: false, error: e.message, data: [], metadata: null })
+        setState({ loading: false, error: e.message, raw: initial, metadata: null })
       })
     return () => {
       cancelled = true
     }
+    // initial — стабильный литерал на стороне вызова, в deps не нужен
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint, year, month, extraKey])
 
   return { ...state, year, month }
+}
+
+/**
+ * Тянет отчёт-таблицу из API по выбранному в URL месяцу (MonthPicker кладёт year/month).
+ * extraParams — дополнительные query-параметры (groupBy, branchId и т.п.).
+ */
+export function useReportData<T = Record<string, unknown>>(
+  endpoint: string,
+  extraParams?: Record<string, string | undefined>,
+): ReportData<T> {
+  const { raw, ...rest } = useReportRaw<T[]>(endpoint, [], extraParams)
+  return { ...rest, data: raw }
+}
+
+/** Как useReportData, но для отчётов, где API возвращает `data` одним объектом (сводка). */
+export function useReportObject<T>(
+  endpoint: string,
+  extraParams?: Record<string, string | undefined>,
+): { loading: boolean; error: string | null; data: T | null; metadata: Record<string, unknown> | null; year: number; month: number } {
+  const { raw, ...rest } = useReportRaw<T | null>(endpoint, null, extraParams)
+  return { ...rest, data: raw }
 }
 
 /** Шапка отчёта: «назад», заголовок + справка, MonthPicker, слот действий. */

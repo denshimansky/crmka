@@ -1,7 +1,7 @@
 import { PageHelp } from "@/components/page-help"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Filter, TrendingDown, Calendar, CreditCard } from "lucide-react"
+import { Filter, TrendingDown, Calendar, CreditCard, Wallet } from "lucide-react"
 import Link from "next/link"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
@@ -85,6 +85,23 @@ const reportGroups: ReportGroup[] = [
       { name: "Выручка", href: "/reports/finance/revenue", description: "Отработанные абонементы по направлениям", source: "attendance" },
       { name: "Сводный по педагогам", href: "/reports/salary/by-instructor", description: "Занятия, ученики, ЗП по инструкторам", source: "attendance" },
       { name: "Должники", href: "/finance/debtors", description: "Плановый / фактический долг", source: "payments" },
+      { name: "Ожидаемые поступления", href: "/reports/finance/expected-income", description: "Неоплаченные абонементы активных клиентов + прогноз на следующий месяц", source: "subscriptions" },
+      { name: "Прогноз прибыли", href: "/reports/finance/profit-forecast", description: "Абонементы − ЗП − переменные − постоянные расходы", source: "subscriptions" },
+      { name: "Поступления по дням", href: "/reports/finance/daily-income", description: "Ежедневные поступления нал/безнал", source: "payments" },
+      { name: "Расчёты с учениками", href: "/reports/finance/student-settlements", description: "Баланс, начисление план/факт, оплата по ученикам", source: "subscriptions" },
+      { name: "Доход от новых / упущенный по выбывшим", href: "/reports/finance/new-client-income", description: "Доход новых клиентов против упущенной выручки по выбывшим", source: "attendance" },
+      { name: "Финрез по группам (формат C)", href: "/reports/finance/pnl-group", description: "Прибыльность каждой группы с распределением расходов", source: "attendance" },
+    ],
+  },
+  {
+    title: "Зарплата и педагоги",
+    icon: Wallet,
+    color: "text-amber-600",
+    reports: [
+      { name: "Сколько денег приносит педагог", href: "/reports/salary/instructor-profitability", description: "Прибыльность педагога: выручка − ЗП − расходы", source: "attendance" },
+      { name: "Мотивация администратора", href: "/reports/salary/admin-motivation", description: "Пробные, продажи новым и допродажи по администраторам", source: "trials" },
+      { name: "Часы педагогов по дням", href: "/reports/salary/instructor-hours", description: "Отработанные часы за месяц по педагогам", source: "lessons" },
+      { name: "Средняя ЗП педагогов", href: "/reports/salary/avg-salary", description: "Средняя стоимость часа = ЗП / часы", source: "attendance" },
     ],
   },
 ]
