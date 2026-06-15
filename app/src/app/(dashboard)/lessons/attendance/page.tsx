@@ -353,12 +353,15 @@ export default async function LessonsAttendancePage({
     let planCount = 0
     for (let day = 1; day <= daysInMonth; day++) {
       const lessonDate = new Date(Date.UTC(year, month - 1, day))
-      // Выбывшие из группы — ячейки после withdrawnAt пустые. enrolledAt тут
-      // НЕ проверяем по дню: enrollment-query уже отсекает зачисления, которые
-      // ещё не начались на момент конца месяца (enrolledAt <= dateTo), а внутри
-      // месяца ученик мог попасть в группу позже первого занятия — но марки в
-      // его строке всё равно надо показывать (например, при бэкфилле истории
-      // импортом или ручным дозачислением задним числом).
+      // Ребёнок встаёт в группу с даты зачисления (= выписки абонемента /
+      // первого занятия): ячейки ДО enrolledAt пустые. Иначе зачисленный в
+      // середине месяца показывался бы с 1-го числа (баг #8). enrolledAt — это
+      // @db.Date (полночь UTC), как и lessonDate, поэтому день зачисления входит.
+      if (e.enrolledAt && lessonDate < e.enrolledAt) {
+        cells.push(null)
+        continue
+      }
+      // Выбывшие из группы — ячейки после withdrawnAt пустые.
       if (e.withdrawnAt && e.withdrawnAt <= lessonDate) {
         cells.push(null)
         continue
