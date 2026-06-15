@@ -218,14 +218,15 @@ export default async function ConversionByDaysPage({
   }
 
   // Денежные события первых абонементов В ПЕРИОДЕ:
-  //  - входящая оплата по абонементу (Payment.date)
+  //  - зачисление денег на абонемент: Payment incoming ИЛИ transfer_in (оплата с
+  //    баланса родителя проводится как transfer_in — основной способ пополнения)
   //  - первое платное занятие (Attendance: непробное, не pending, chargeAmount>0 → Lesson.date)
   const [payInWindow, paidAttInWindow] = await Promise.all([
     db.payment.findMany({
       where: {
         tenantId,
         deletedAt: null,
-        type: "incoming",
+        type: { in: ["incoming", "transfer_in"] },
         date: { gte: dateFrom, lte: dateTo },
         subscription: { is: firstSubFilter },
       },
@@ -265,7 +266,7 @@ export default async function ConversionByDaysPage({
         where: {
           tenantId,
           deletedAt: null,
-          type: "incoming",
+          type: { in: ["incoming", "transfer_in"] },
           date: { lt: dateFrom },
           subscriptionId: { in: candidateIds },
         },
@@ -299,27 +300,34 @@ export default async function ConversionByDaysPage({
 
   const wardIds = [...new Set(subMeta.map((s) => s.wardId).filter((x): x is string => !!x))]
   const clientIds = [...new Set(subMeta.map((s) => s.clientId))]
-  const dirIds = [...new Set(subMeta.map((s) => s.directionId))]
 
   const trialsForSplit = subMeta.length
     ? await db.trialLesson.findMany({
         where: {
           tenantId,
-          directionId: { in: dirIds },
           OR: [
             ...(wardIds.length ? [{ wardId: { in: wardIds } }] : []),
             { clientId: { in: clientIds } },
           ],
         },
-        select: { wardId: true, clientId: true, directionId: true },
+        select: {
+          wardId: true,
+          clientId: true,
+          directionId: true,
+          group: { select: { directionId: true } },
+        },
       })
     : []
   const trialWardDir = new Set<string>()
   const trialClientDir = new Set<string>()
   for (const t of trialsForSplit) {
-    if (!t.directionId) continue
-    if (t.wardId) trialWardDir.add(`${t.wardId}|${t.directionId}`)
-    trialClientDir.add(`${t.clientId}|${t.directionId}`)
+    // Направление пробного: своё поле, иначе — направление группы пробного.
+    // У большинства пробных directionId не заполнен, но есть группа — без этого
+    // fallback совпадений по направлению почти нет и вкладка «С пробным» пустеет.
+    const dir = t.directionId ?? t.group?.directionId
+    if (!dir) continue
+    if (t.wardId) trialWardDir.add(`${t.wardId}|${dir}`)
+    trialClientDir.add(`${t.clientId}|${dir}`)
   }
 
   const salesWithTrial: { d: Date }[] = []
