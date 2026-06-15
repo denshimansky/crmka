@@ -274,6 +274,13 @@ export default async function SalesPage({
         ward: { select: { id: true, firstName: true, lastName: true } },
         branch: { select: { id: true, name: true } },
         direction: { select: { id: true, name: true } },
+        // Пробное «где ребёнок был» (attended) — его дата показывается в строке.
+        // Несколько посещённых пробных по заявке → несколько строк (flatMap ниже).
+        trialLessons: {
+          where: { status: "attended" },
+          orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }],
+          include: { lesson: { select: { startTime: true } } },
+        },
       },
       orderBy: { updatedAt: "desc" },
     })
@@ -303,9 +310,9 @@ export default async function SalesPage({
       if (!subByKey.has(key)) subByKey.set(key, s)
     }
 
-    rows = apps.map((a) => {
+    rows = apps.flatMap((a) => {
       const sub = subByKey.get(`${a.wardId}:${a.directionId}`)
-      return {
+      const base: SalesRow = {
         rowId: a.id,
         applicationId: a.id,
         clientId: a.client.id,
@@ -336,6 +343,19 @@ export default async function SalesPage({
         comment: a.comment ?? null,
         assignedTo: a.client.assignedTo,
       }
+      // Нет посещённого пробного (например, продажа без пробного) — одна строка
+      // без даты пробного. Иначе — отдельная строка на каждое посещённое пробное
+      // (в т.ч. из разных заявок: строки тут идут по заявкам).
+      if (a.trialLessons.length === 0) return [base]
+      return a.trialLessons.map((t) => ({
+        ...base,
+        rowId: `${a.id}:${t.id}`,
+        scheduledDate: t.scheduledDate ? t.scheduledDate.toISOString() : null,
+        startTime: t.startTime ?? t.lesson?.startTime ?? null,
+        lessonId: t.lessonId ?? null,
+        trialLessonId: t.id,
+        trialStatus: t.status,
+      }))
     })
   }
 

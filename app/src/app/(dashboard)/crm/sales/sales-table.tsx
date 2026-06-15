@@ -459,7 +459,9 @@ export function SalesTable({
               {tab === "application" && <TableHead className="w-[40px]"></TableHead>}
               <SortableHead label="ФИО родителя" sortKey="parent" />
               <SortableHead label="Телефон" sortKey="phone" />
-              <TableHead>Соцсети</TableHead>
+              {(tab === "trial_done" || tab === "awaiting_payment") && (
+                <SortableHead label="Дата 1-го платного" sortKey="firstPaid" />
+              )}
               {tab === "application" && <SortableHead label="Канал" sortKey="channel" />}
               {tab === "application" && <SortableHead label="След. связь" sortKey="nextContact" />}
               <SortableHead label="Ребёнок" sortKey="ward" />
@@ -472,9 +474,7 @@ export function SalesTable({
                 <SortableHead label="Группа" sortKey="group" />
               )}
               {tab === "application" && <SortableHead label="Создана" sortKey="createdAt" />}
-              {(tab === "trial_done" || tab === "awaiting_payment") && (
-                <SortableHead label="Дата 1-го платного" sortKey="firstPaid" />
-              )}
+              <TableHead>Соцсети</TableHead>
               {tab === "awaiting_payment" && (
                 <SortableHead label="Стоимость абонемента" sortKey="expected" />
               )}
@@ -528,20 +528,14 @@ export function SalesTable({
                   </Link>
                 </TableCell>
                 <TableCell className="text-sm">{r.phone || "—"}</TableCell>
-                <TableCell className="text-sm">
-                  {r.socialLink ? (
-                    <a
-                      href={r.socialLink}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-primary hover:underline truncate max-w-[140px] inline-block"
-                    >
-                      {r.socialLink}
-                    </a>
-                  ) : (
-                    "—"
-                  )}
-                </TableCell>
+                {(tab === "trial_done" || tab === "awaiting_payment") && (
+                  <TableCell>
+                    <EditableDateCell
+                      initialValue={r.firstPaidLessonDate ? r.firstPaidLessonDate.slice(0, 10) : ""}
+                      endpoint={{ url: `/api/clients/${r.clientId}`, field: "firstPaidLessonDate" }}
+                    />
+                  </TableCell>
+                )}
                 {tab === "application" && <TableCell className="text-sm">{r.channelName || "—"}</TableCell>}
                 {tab === "application" && (
                   <TableCell>
@@ -575,14 +569,20 @@ export function SalesTable({
                   </TableCell>
                 )}
                 {tab === "application" && <TableCell className="text-sm">{fmtDate(r.createdAt)}</TableCell>}
-                {(tab === "trial_done" || tab === "awaiting_payment") && (
-                  <TableCell>
-                    <EditableDateCell
-                      initialValue={r.firstPaidLessonDate ? r.firstPaidLessonDate.slice(0, 10) : ""}
-                      endpoint={{ url: `/api/clients/${r.clientId}`, field: "firstPaidLessonDate" }}
-                    />
-                  </TableCell>
-                )}
+                <TableCell className="text-sm">
+                  {r.socialLink ? (
+                    <a
+                      href={r.socialLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary hover:underline truncate max-w-[140px] inline-block"
+                    >
+                      {r.socialLink}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </TableCell>
                 {tab === "awaiting_payment" && (
                   <TableCell className="text-sm">{r.expectedSubscriptionAmount || "—"}</TableCell>
                 )}
