@@ -4,17 +4,15 @@ import {
   branchScopeFromSession,
   scopeApplication,
   scopeSubscription,
-  scopePayment,
   scopeTrialLesson,
 } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
-import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import type { Prisma } from "@prisma/client"
 import {
   ConversionByDaysTable,
-  type ConversionData,
+  type TabData,
   type MetricRow,
 } from "./conversion-table"
 
@@ -50,6 +48,27 @@ function dayKey(d: Date): string {
 
 function pct(part: number, total: number): number {
   return total > 0 ? Math.round((part / total) * 100) : 0
+}
+
+// Группировка событий по дню (UTC). Возвращает Map "дд/мм" → количество.
+function byDay(events: { d: Date }[]): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const e of events) {
+    const utc = new Date(Date.UTC(e.d.getUTCFullYear(), e.d.getUTCMonth(), e.d.getUTCDate()))
+    const key = dayKey(utc)
+    m.set(key, (m.get(key) || 0) + 1)
+  }
+  return m
+}
+
+function sortDays(maps: Map<string, number>[]): string[] {
+  const daySet = new Set<string>()
+  for (const m of maps) for (const k of m.keys()) daySet.add(k)
+  return [...daySet].sort((a, b) => {
+    const [d1, mo1] = a.split("/").map(Number)
+    const [d2, mo2] = b.split("/").map(Number)
+    return mo1 === mo2 ? d1 - d2 : mo1 - mo2
+  })
 }
 
 export default async function ConversionByDaysPage({
@@ -126,7 +145,8 @@ export default async function ConversionByDaysPage({
   if (responsibleId) clientFilter.assignedTo = responsibleId
   const hasClientFilter = Object.keys(clientFilter).length > 0
 
-  // === 1. Создано заявок (Application.createdAt) ===
+  // === 1. Создано заявок (Application.createdAt) + признак наличия пробного ===
+  // Партиция: заявка с ≥1 пробным → вкладка «С пробным»; без пробного → «Без пробного».
   const applications = await db.application.findMany({
     where: {
       tenantId,
@@ -136,10 +156,12 @@ export default async function ConversionByDaysPage({
       ...(directionId ? { directionId } : {}),
       ...(hasClientFilter ? { client: clientFilter } : {}),
     },
-    select: { id: true, createdAt: true },
+    select: { id: true, createdAt: true, _count: { select: { trialLessons: true } } },
   })
+  const appsWithTrial = applications.filter((a) => a._count.trialLessons > 0)
+  const appsWithoutTrial = applications.filter((a) => a._count.trialLessons === 0)
 
-  // === 2. Записано на пробник (TrialLesson.scheduledDate) ===
+  // === 2. Записано на пробник (TrialLesson.scheduledDate) — только вкладка «С пробным» ===
   const trialScheduledWhere: Prisma.TrialLessonWhereInput = {
     tenantId,
     scheduledDate: { gte: dateFrom, lte: dateTo },
@@ -160,7 +182,7 @@ export default async function ConversionByDaysPage({
     select: { id: true, scheduledDate: true },
   })
 
-  // === 3. Посетил пробник (TrialLesson.attendedAt) ===
+  // === 3. Посетил пробник (TrialLesson.attendedAt) — только вкладка «С пробным» ===
   const trialAttendedWhere: Prisma.TrialLessonWhereInput = {
     tenantId,
     attendedAt: { gte: dateFrom, lte: dateTo },
@@ -181,115 +203,212 @@ export default async function ConversionByDaysPage({
     select: { id: true, attendedAt: true },
   })
 
-  // === 4. Совершено продаж (Subscription с previousSubscriptionId=null, startDate в периоде) ===
-  const salesWhere: Prisma.SubscriptionWhereInput = {
+  // === 4. Совершено продаж ===
+  // Продажа = первый абонемент клиента (previousSubscriptionId=null). Дата продажи =
+  // самая ранняя из {дата зачисления денег на абонемент; дата первого платного занятия}.
+  // Абонемент без оплаты и без платного занятия — не считаем. Разделение по вкладкам:
+  // было ли у подопечного пробное в направлении абонемента.
+  const firstSubFilter: Prisma.SubscriptionWhereInput = {
     tenantId,
     deletedAt: null,
     previousSubscriptionId: null,
-    startDate: { gte: dateFrom, lte: dateTo },
-  }
-  if (directionId) salesWhere.directionId = directionId
-  if (hasClientFilter) salesWhere.client = clientFilter
-  if (branchId) salesWhere.group = { branchId }
-  else Object.assign(salesWhere, scopeSubscription(scope))
-  const sales = await db.subscription.findMany({
-    where: salesWhere,
-    select: { id: true, startDate: true },
-  })
-
-  // === 5. Поступила первая оплата (Payment.isFirstPayment, date в периоде) ===
-  const paymentsWhere: Prisma.PaymentWhereInput = {
-    tenantId,
-    deletedAt: null,
-    isFirstPayment: true,
-    date: { gte: dateFrom, lte: dateTo },
-  }
-  if (directionId) {
-    paymentsWhere.subscription = {
-      directionId,
-      ...(branchId ? { group: { branchId } } : {}),
-    }
-  } else if (branchId) {
-    paymentsWhere.subscription = { group: { branchId } }
-  } else {
-    Object.assign(paymentsWhere, scopePayment(scope))
-  }
-  if (hasClientFilter) paymentsWhere.client = clientFilter
-  const payments = await db.payment.findMany({
-    where: paymentsWhere,
-    select: { id: true, date: true },
-  })
-
-  // === Группировка по дню ===
-  function byDay(events: { d: Date }[]): Map<string, number> {
-    const m = new Map<string, number>()
-    for (const e of events) {
-      const utc = new Date(Date.UTC(e.d.getUTCFullYear(), e.d.getUTCMonth(), e.d.getUTCDate()))
-      const key = dayKey(utc)
-      m.set(key, (m.get(key) || 0) + 1)
-    }
-    return m
+    ...(directionId ? { directionId } : {}),
+    ...(branchId ? { group: { branchId } } : scopeSubscription(scope)),
+    ...(hasClientFilter ? { client: clientFilter } : {}),
   }
 
-  const m1 = byDay(applications.map((a) => ({ d: a.createdAt })))
-  const m2 = byDay(trialScheduled.map((t) => ({ d: t.scheduledDate })))
-  const m3 = byDay(trialAttended.filter((t) => t.attendedAt).map((t) => ({ d: t.attendedAt! })))
-  const m4 = byDay(sales.map((s) => ({ d: s.startDate })))
-  const m5 = byDay(payments.map((p) => ({ d: p.date })))
+  // Денежные события первых абонементов В ПЕРИОДЕ:
+  //  - входящая оплата по абонементу (Payment.date)
+  //  - первое платное занятие (Attendance: непробное, не pending, chargeAmount>0 → Lesson.date)
+  const [payInWindow, paidAttInWindow] = await Promise.all([
+    db.payment.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        type: "incoming",
+        date: { gte: dateFrom, lte: dateTo },
+        subscription: { is: firstSubFilter },
+      },
+      select: { subscriptionId: true, date: true },
+    }),
+    db.attendance.findMany({
+      where: {
+        tenantId,
+        isTrial: false,
+        isPending: false,
+        chargeAmount: { gt: 0 },
+        subscription: { is: firstSubFilter },
+        lesson: { date: { gte: dateFrom, lte: dateTo } },
+      },
+      select: { subscriptionId: true, lesson: { select: { date: true } } },
+    }),
+  ])
 
-  // Дни с хотя бы одним событием
-  const daySet = new Set<string>([...m1.keys(), ...m2.keys(), ...m3.keys(), ...m4.keys(), ...m5.keys()])
-  const days = [...daySet].sort((a, b) => {
-    const [d1, mo1] = a.split("/").map(Number)
-    const [d2, mo2] = b.split("/").map(Number)
-    return mo1 === mo2 ? d1 - d2 : mo1 - mo2
-  })
+  // Самое раннее денежное событие в окне на каждый абонемент.
+  const earliestInWindow = new Map<string, Date>()
+  const consider = (id: string | null, d: Date) => {
+    if (!id) return
+    const cur = earliestInWindow.get(id)
+    if (!cur || d < cur) earliestInWindow.set(id, d)
+  }
+  for (const p of payInWindow) consider(p.subscriptionId, p.date)
+  for (const a of paidAttInWindow) consider(a.subscriptionId, a.lesson.date)
 
-  const totalCreated = applications.length
-  const totalScheduled = trialScheduled.length
-  const totalAttended = trialAttended.filter((t) => t.attendedAt).length
-  const totalSales = sales.length
-  const totalPayments = payments.length
+  const candidateIds = [...earliestInWindow.keys()]
 
-  const metrics: MetricRow[] = [
+  // Дата продажи ∈ [from,to] ⇔ самое раннее денежное событие в окне И нет более раннего
+  // события до начала периода. Иначе продажа состоялась раньше — её здесь не считаем.
+  let saleSubIds = candidateIds
+  if (candidateIds.length > 0) {
+    const [payBefore, attBefore] = await Promise.all([
+      db.payment.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          type: "incoming",
+          date: { lt: dateFrom },
+          subscriptionId: { in: candidateIds },
+        },
+        select: { subscriptionId: true },
+      }),
+      db.attendance.findMany({
+        where: {
+          tenantId,
+          isTrial: false,
+          isPending: false,
+          chargeAmount: { gt: 0 },
+          subscriptionId: { in: candidateIds },
+          lesson: { date: { lt: dateFrom } },
+        },
+        select: { subscriptionId: true },
+      }),
+    ])
+    const hasEarlier = new Set<string>()
+    for (const p of payBefore) if (p.subscriptionId) hasEarlier.add(p.subscriptionId)
+    for (const a of attBefore) if (a.subscriptionId) hasEarlier.add(a.subscriptionId)
+    saleSubIds = candidateIds.filter((id) => !hasEarlier.has(id))
+  }
+
+  // Метаданные абонементов-продаж + признак пробного у подопечного в направлении.
+  const subMeta = saleSubIds.length
+    ? await db.subscription.findMany({
+        where: { id: { in: saleSubIds } },
+        select: { id: true, directionId: true, wardId: true, clientId: true },
+      })
+    : []
+
+  const wardIds = [...new Set(subMeta.map((s) => s.wardId).filter((x): x is string => !!x))]
+  const clientIds = [...new Set(subMeta.map((s) => s.clientId))]
+  const dirIds = [...new Set(subMeta.map((s) => s.directionId))]
+
+  const trialsForSplit = subMeta.length
+    ? await db.trialLesson.findMany({
+        where: {
+          tenantId,
+          directionId: { in: dirIds },
+          OR: [
+            ...(wardIds.length ? [{ wardId: { in: wardIds } }] : []),
+            { clientId: { in: clientIds } },
+          ],
+        },
+        select: { wardId: true, clientId: true, directionId: true },
+      })
+    : []
+  const trialWardDir = new Set<string>()
+  const trialClientDir = new Set<string>()
+  for (const t of trialsForSplit) {
+    if (!t.directionId) continue
+    if (t.wardId) trialWardDir.add(`${t.wardId}|${t.directionId}`)
+    trialClientDir.add(`${t.clientId}|${t.directionId}`)
+  }
+
+  const salesWithTrial: { d: Date }[] = []
+  const salesWithoutTrial: { d: Date }[] = []
+  const metaById = new Map(subMeta.map((s) => [s.id, s]))
+  for (const id of saleSubIds) {
+    const meta = metaById.get(id)
+    const d = earliestInWindow.get(id)
+    if (!meta || !d) continue
+    // Признак «с пробным»: пробное у подопечного в направлении абонемента.
+    // У абонемента без подопечного (взрослый клиент) — сопоставляем по клиенту.
+    const hasTrial = meta.wardId
+      ? trialWardDir.has(`${meta.wardId}|${meta.directionId}`)
+      : trialClientDir.has(`${meta.clientId}|${meta.directionId}`)
+    if (hasTrial) salesWithTrial.push({ d })
+    else salesWithoutTrial.push({ d })
+  }
+
+  // === Сборка вкладок ===
+  // Вкладка «С пробным» (полная воронка): создано → записано → посетил → продажа.
+  const wtCreated = byDay(appsWithTrial.map((a) => ({ d: a.createdAt })))
+  const wtScheduled = byDay(trialScheduled.map((t) => ({ d: t.scheduledDate })))
+  const wtAttended = byDay(trialAttended.filter((t) => t.attendedAt).map((t) => ({ d: t.attendedAt! })))
+  const wtSales = byDay(salesWithTrial)
+
+  const totalWtCreated = appsWithTrial.length
+  const totalWtScheduled = trialScheduled.length
+  const totalWtAttended = trialAttended.filter((t) => t.attendedAt).length
+  const totalWtSales = salesWithTrial.length
+
+  const withTrialDays = sortDays([wtCreated, wtScheduled, wtAttended, wtSales])
+  const withTrialMetrics: MetricRow[] = [
     {
       id: "applications",
       label: "Создано заявок",
-      total: totalCreated,
+      total: totalWtCreated,
       conversion: null,
-      perDay: days.map((d) => m1.get(d) || 0),
+      perDay: withTrialDays.map((d) => wtCreated.get(d) || 0),
     },
     {
       id: "trial_scheduled",
       label: "Записано на пробник",
-      total: totalScheduled,
-      conversion: pct(totalScheduled, totalCreated),
-      perDay: days.map((d) => m2.get(d) || 0),
+      total: totalWtScheduled,
+      conversion: pct(totalWtScheduled, totalWtCreated),
+      perDay: withTrialDays.map((d) => wtScheduled.get(d) || 0),
     },
     {
       id: "trial_attended",
       label: "Посетил пробник",
-      total: totalAttended,
-      conversion: pct(totalAttended, totalCreated),
-      perDay: days.map((d) => m3.get(d) || 0),
+      total: totalWtAttended,
+      conversion: pct(totalWtAttended, totalWtScheduled),
+      perDay: withTrialDays.map((d) => wtAttended.get(d) || 0),
     },
     {
       id: "sales",
       label: "Совершено продаж",
-      total: totalSales,
-      conversion: pct(totalSales, totalCreated),
-      perDay: days.map((d) => m4.get(d) || 0),
-    },
-    {
-      id: "payments",
-      label: "Поступила оплата",
-      total: totalPayments,
-      conversion: pct(totalPayments, totalCreated),
-      perDay: days.map((d) => m5.get(d) || 0),
+      total: totalWtSales,
+      conversion: pct(totalWtSales, totalWtAttended),
+      perDay: withTrialDays.map((d) => wtSales.get(d) || 0),
     },
   ]
 
-  const data: ConversionData = { days, metrics }
+  // Вкладка «Без пробного» (короткий цикл): создано → продажа.
+  const woCreated = byDay(appsWithoutTrial.map((a) => ({ d: a.createdAt })))
+  const woSales = byDay(salesWithoutTrial)
+
+  const totalWoCreated = appsWithoutTrial.length
+  const totalWoSales = salesWithoutTrial.length
+
+  const withoutTrialDays = sortDays([woCreated, woSales])
+  const withoutTrialMetrics: MetricRow[] = [
+    {
+      id: "applications",
+      label: "Создано заявок",
+      total: totalWoCreated,
+      conversion: null,
+      perDay: withoutTrialDays.map((d) => woCreated.get(d) || 0),
+    },
+    {
+      id: "sales",
+      label: "Совершено продаж",
+      total: totalWoSales,
+      conversion: pct(totalWoSales, totalWoCreated),
+      perDay: withoutTrialDays.map((d) => woSales.get(d) || 0),
+    },
+  ]
+
+  const withTrial: TabData = { days: withTrialDays, metrics: withTrialMetrics }
+  const withoutTrial: TabData = { days: withoutTrialDays, metrics: withoutTrialMetrics }
 
   const periodLabel = formatPeriodLabel(mode, year, month, dateFrom, dateTo)
 
@@ -310,39 +429,32 @@ export default async function ConversionByDaysPage({
         </div>
       </div>
 
-      {days.length === 0 ? (
-        <Card>
-          <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
-            За выбранный период нет данных
-          </CardContent>
-        </Card>
-      ) : (
-        <ConversionByDaysTable
-          data={data}
-          mode={mode}
-          year={year}
-          month={month}
-          from={toIsoDate(dateFrom)}
-          to={toIsoDate(new Date(Date.UTC(dateTo.getUTCFullYear(), dateTo.getUTCMonth(), dateTo.getUTCDate())))}
-          channelId={channelId ?? ""}
-          responsibleId={responsibleId ?? ""}
-          directionId={directionId ?? ""}
-          branchId={branchId ?? ""}
-          periodLabel={periodLabel}
-          filterOptions={{
-            branches,
-            directions,
-            channels,
-            employees: employees.map((e) => ({
-              id: e.id,
-              name: [e.lastName, e.firstName?.[0] ? `${e.firstName[0]}.` : ""]
-                .filter(Boolean)
-                .join(" ")
-                .trim() || "—",
-            })),
-          }}
-        />
-      )}
+      <ConversionByDaysTable
+        withTrial={withTrial}
+        withoutTrial={withoutTrial}
+        mode={mode}
+        year={year}
+        month={month}
+        from={toIsoDate(dateFrom)}
+        to={toIsoDate(new Date(Date.UTC(dateTo.getUTCFullYear(), dateTo.getUTCMonth(), dateTo.getUTCDate())))}
+        channelId={channelId ?? ""}
+        responsibleId={responsibleId ?? ""}
+        directionId={directionId ?? ""}
+        branchId={branchId ?? ""}
+        periodLabel={periodLabel}
+        filterOptions={{
+          branches,
+          directions,
+          channels,
+          employees: employees.map((e) => ({
+            id: e.id,
+            name: [e.lastName, e.firstName?.[0] ? `${e.firstName[0]}.` : ""]
+              .filter(Boolean)
+              .join(" ")
+              .trim() || "—",
+          })),
+        }}
+      />
     </div>
   )
 }

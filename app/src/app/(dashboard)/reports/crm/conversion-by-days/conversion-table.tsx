@@ -22,7 +22,7 @@ export interface MetricRow {
   perDay: number[]
 }
 
-export interface ConversionData {
+export interface TabData {
   days: string[] // ["04/05", "05/05", ...]
   metrics: MetricRow[]
 }
@@ -35,7 +35,8 @@ interface FilterOptions {
 }
 
 interface ConversionByDaysTableProps {
-  data: ConversionData
+  withTrial: TabData
+  withoutTrial: TabData
   mode: "month" | "range"
   year: number
   month: number
@@ -62,7 +63,8 @@ function fmt(n: number): string {
 }
 
 export function ConversionByDaysTable({
-  data,
+  withTrial,
+  withoutTrial,
   mode,
   year,
   month,
@@ -82,6 +84,9 @@ export function ConversionByDaysTable({
 
   const [fromInput, setFromInput] = useState(from)
   const [toInput, setToInput] = useState(to)
+  const [activeTab, setActiveTab] = useState<"withTrial" | "withoutTrial">("withTrial")
+
+  const data = activeTab === "withTrial" ? withTrial : withoutTrial
 
   function updateParam(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString())
@@ -280,54 +285,68 @@ export function ConversionByDaysTable({
         )}
       </div>
 
+      {/* Вкладки: с пробным / без пробного */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "withTrial" | "withoutTrial")}>
+        <TabsList>
+          <TabsTrigger value="withTrial">С пробным</TabsTrigger>
+          <TabsTrigger value="withoutTrial">Без пробного</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       {/* Таблица */}
-      <div className="overflow-x-auto rounded-md border">
-        <table className="w-full border-collapse text-sm">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2 text-left font-medium whitespace-nowrap">
-                Показатель
-              </th>
-              <th className="px-2 py-2 text-center font-medium whitespace-nowrap">Итого</th>
-              <th className="px-2 py-2 text-center font-medium whitespace-nowrap">Конверсия</th>
-              {data.days.map((d) => (
-                <th
-                  key={d}
-                  className="px-1 py-2 text-center font-normal text-xs text-muted-foreground whitespace-nowrap"
-                >
-                  {d}
+      {data.days.length === 0 ? (
+        <div className="flex items-center justify-center rounded-md border p-12 text-muted-foreground">
+          За выбранный период нет данных
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full border-collapse text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2 text-left font-medium whitespace-nowrap">
+                  Показатель
                 </th>
-              ))}
-            </tr>
-            <tr className="bg-muted/30">
-              <th
-                className="sticky left-0 z-10 bg-muted/30 px-3 py-1 text-left text-xs font-normal text-muted-foreground"
-                colSpan={3 + data.days.length}
-              >
-                {periodLabel}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.metrics.map((m, idx) => (
-              <tr key={m.id} className={idx === 0 ? "border-t" : "border-t"}>
-                <td className="sticky left-0 z-10 bg-background px-3 py-1.5 font-medium whitespace-nowrap">
-                  {idx + 1}. {m.label}
-                </td>
-                <td className="px-2 py-1.5 text-center font-bold tabular-nums">{fmt(m.total)}</td>
-                <td className="px-2 py-1.5 text-center tabular-nums text-muted-foreground">
-                  {m.conversion === null ? "" : `${m.conversion}%`}
-                </td>
-                {m.perDay.map((v, i) => (
-                  <td key={i} className="px-1 py-1.5 text-center tabular-nums">
-                    {fmt(v)}
-                  </td>
+                <th className="px-2 py-2 text-center font-medium whitespace-nowrap">Итого</th>
+                <th className="px-2 py-2 text-center font-medium whitespace-nowrap">Конверсия</th>
+                {data.days.map((d) => (
+                  <th
+                    key={d}
+                    className="px-1 py-2 text-center font-normal text-xs text-muted-foreground whitespace-nowrap"
+                  >
+                    {d}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+              <tr className="bg-muted/30">
+                <th
+                  className="sticky left-0 z-10 bg-muted/30 px-3 py-1 text-left text-xs font-normal text-muted-foreground"
+                  colSpan={3 + data.days.length}
+                >
+                  {periodLabel}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.metrics.map((m, idx) => (
+                <tr key={m.id} className="border-t">
+                  <td className="sticky left-0 z-10 bg-background px-3 py-1.5 font-medium whitespace-nowrap">
+                    {idx + 1}. {m.label}
+                  </td>
+                  <td className="px-2 py-1.5 text-center font-bold tabular-nums">{fmt(m.total)}</td>
+                  <td className="px-2 py-1.5 text-center tabular-nums text-muted-foreground">
+                    {m.conversion === null ? "" : `${m.conversion}%`}
+                  </td>
+                  {m.perDay.map((v, i) => (
+                    <td key={i} className="px-1 py-1.5 text-center tabular-nums">
+                      {fmt(v)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
