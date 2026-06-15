@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
@@ -194,6 +194,46 @@ export function SalesTable({
   const [query, setQuery] = useState("")
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>("asc")
+
+  // Сортировка хранится в sessionStorage (per-вкладка): при заходе в карточку
+  // пробного/занятия компонент размонтируется и локальный state сбрасывался —
+  // из-за этого сортировка «соскакивала». Сортировка чисто клиентская, поэтому
+  // sessionStorage (а не URL) — без лишних серверных перезапросов строк.
+  const sortStorageKey = `sales-sort:${tab}`
+  // Пропускаем первый save после восстановления, иначе он затрёт хранилище
+  // (state из restore ещё не применился в этом проходе эффектов).
+  const skipNextSave = useRef(true)
+  useEffect(() => {
+    let key: SortKey | null = null
+    let dir: SortDir = "asc"
+    try {
+      const raw = sessionStorage.getItem(sortStorageKey)
+      if (raw) {
+        const s = JSON.parse(raw) as { key?: SortKey | null; dir?: SortDir }
+        if (s?.key) {
+          key = s.key
+          dir = s.dir === "desc" ? "desc" : "asc"
+        }
+      }
+    } catch {
+      /* приватный режим / недоступный storage — игнорируем */
+    }
+    setSortKey(key)
+    setSortDir(dir)
+    skipNextSave.current = true
+  }, [sortStorageKey])
+  useEffect(() => {
+    if (skipNextSave.current) {
+      skipNextSave.current = false
+      return
+    }
+    try {
+      if (sortKey) sessionStorage.setItem(sortStorageKey, JSON.stringify({ key: sortKey, dir: sortDir }))
+      else sessionStorage.removeItem(sortStorageKey)
+    } catch {
+      /* недоступный storage — игнорируем */
+    }
+  }, [sortStorageKey, sortKey, sortDir])
 
   // Из «Прошёл пробное»/«Ожидаем оплату» возврат в «Пробное записано» запрещён
   // (PRD). На вкладках trial_done и awaiting_payment пункт скрываем.
@@ -414,7 +454,7 @@ export function SalesTable({
             <TableRow>
               <SortableHead label="Состояние" sortKey="state" />
               {tab === "trial" && (
-                <SortableHead label="Подтвердили пробное" sortKey="confirmed" className="w-[110px]" />
+                <SortableHead label="Подтвердил" sortKey="confirmed" className="w-[90px]" />
               )}
               {tab === "application" && <TableHead className="w-[40px]"></TableHead>}
               <SortableHead label="ФИО родителя" sortKey="parent" />
