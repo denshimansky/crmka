@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { getReportContext, pct } from "@/lib/report-helpers"
+import {
+  getReportContext,
+  pct,
+  countWorkingDays,
+  parseHmHours,
+  DEFAULT_WORKING_WEEKDAYS,
+} from "@/lib/report-helpers"
+import { getNonWorkingDateSet } from "@/lib/production-calendar"
 
 /** 4.2. Загруженность центра */
 export async function GET(req: NextRequest) {
@@ -48,6 +55,10 @@ export async function GET(req: NextRequest) {
   // Only count lessons with at least 1 attendance
   const filledLessons = lessons.filter((l) => l.attendances.length > 0)
 
+  // Нерабочие дни производственного календаря — исключаем из максимума часов
+  // (согласовано с генерацией расписания).
+  const nonWorking = await getNonWorkingDateSet(tenantId, dateFrom, dateTo)
+
   // Calculate hours per branch
   const branchHours = new Map<string, number>()
   for (const l of filledLessons) {
@@ -55,19 +66,20 @@ export async function GET(req: NextRequest) {
     branchHours.set(bId, (branchHours.get(bId) || 0) + l.durationMinutes / 60)
   }
 
-  // Calculate max hours per branch based on working days/hours
-  const daysBetween = Math.ceil((dateTo.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24)) + 1
-
   const data = branches.map((b) => {
-    // Working hours per day
-    const start = b.workingHoursStart ? parseFloat(b.workingHoursStart.split(":")[0]) : 9
-    const end = b.workingHoursEnd ? parseFloat(b.workingHoursEnd.split(":")[0]) : 21
-    const hoursPerDay = end - start
-    const workingDays = Array.isArray(b.workingDays) ? (b.workingDays as number[]).length : 6
-    const workingDaysRatio = workingDays / 7
+    // Часы работы в день (минуты учитываются), рабочие дни месяца — точно по
+    // календарю (а не пропорцией дней/7, иначе число дней получалось дробным).
+    const start = parseHmHours(b.workingHoursStart, 9)
+    const end = parseHmHours(b.workingHoursEnd, 21)
+    const hoursPerDay = Math.max(0, end - start)
+    const workingWeekdays =
+      Array.isArray(b.workingDays) && (b.workingDays as number[]).length > 0
+        ? (b.workingDays as number[])
+        : DEFAULT_WORKING_WEEKDAYS
+    const workingDaysInMonth = countWorkingDays(dateFrom, dateTo, workingWeekdays, nonWorking)
 
     const roomCount = b.rooms.length || 1
-    const maxHours = hoursPerDay * daysBetween * workingDaysRatio * roomCount
+    const maxHours = hoursPerDay * workingDaysInMonth * roomCount
     const actualHours = branchHours.get(b.id) || 0
 
     return {

@@ -3,6 +3,8 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { branchScopeFromSession, scopeBranch } from "@/lib/branch-scope"
+import { countWorkingDays, parseHmHours, DEFAULT_WORKING_WEEKDAYS } from "@/lib/report-helpers"
+import { getNonWorkingDateSet } from "@/lib/production-calendar"
 import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeft } from "lucide-react"
@@ -30,10 +32,6 @@ export default async function CenterLoadReportPage({
 
   const dateFrom = new Date(Date.UTC(year, month - 1, 1))
   const dateTo = new Date(Date.UTC(year, month, 0, 23, 59, 59))
-
-  // Период в днях — для расчёта максимум часов
-  const daysBetween =
-    Math.floor((dateTo.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24)) + 1
 
   const branches = await db.branch.findMany({
     where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
@@ -74,6 +72,10 @@ export default async function CenterLoadReportPage({
   // Только занятия с ≥1 отмеченным учеником.
   const filled = lessons.filter((l) => l.attendances.length > 0)
 
+  // Нерабочие дни производственного календаря — исключаем из максимума часов,
+  // чтобы он был согласован с генерацией расписания (в эти дни занятий нет).
+  const nonWorking = await getNonWorkingDateSet(tenantId, dateFrom, dateTo)
+
   // Часы по (branchId, roomId)
   const roomHours = new Map<string, number>()
   for (const l of filled) {
@@ -83,14 +85,17 @@ export default async function CenterLoadReportPage({
 
   // Строим данные с иерархией Филиал → Кабинет
   const branchesData: LoadData["branches"] = branches.map((b) => {
-    const start = b.workingHoursStart ? parseFloat(b.workingHoursStart.split(":")[0]) : 9
-    const end = b.workingHoursEnd ? parseFloat(b.workingHoursEnd.split(":")[0]) : 21
+    const start = parseHmHours(b.workingHoursStart, 9)
+    const end = parseHmHours(b.workingHoursEnd, 21)
     const hoursPerDay = Math.max(0, end - start)
-    const workingDaysCount = Array.isArray(b.workingDays)
-      ? (b.workingDays as number[]).length
-      : 6
-    const workingDaysRatio = workingDaysCount / 7
-    const maxPerRoom = round1(hoursPerDay * daysBetween * workingDaysRatio)
+    // Рабочие дни месяца считаем точно по календарю (а не пропорцией дней/7).
+    // workingDays — ISO-номера дней недели (1=Пн..7=Вс); пусто → Пн-Сб (6 дней).
+    const workingWeekdays =
+      Array.isArray(b.workingDays) && (b.workingDays as number[]).length > 0
+        ? (b.workingDays as number[])
+        : DEFAULT_WORKING_WEEKDAYS
+    const workingDaysInMonth = countWorkingDays(dateFrom, dateTo, workingWeekdays, nonWorking)
+    const maxPerRoom = round1(hoursPerDay * workingDaysInMonth)
 
     const rooms: RoomLoad[] = b.rooms.map((r) => {
       const actual = round1(roomHours.get(`${b.id}|${r.id}`) || 0)

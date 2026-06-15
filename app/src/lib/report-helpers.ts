@@ -79,3 +79,40 @@ export function safeDivide(numerator: number, denominator: number): number {
 export function pct(value: number, total: number): number {
   return total === 0 ? 0 : Math.round((value / total) * 1000) / 10
 }
+
+/** Рабочие дни недели по умолчанию, если у филиала не заданы: Пн-Сб (ISO 1..6). */
+export const DEFAULT_WORKING_WEEKDAYS = [1, 2, 3, 4, 5, 6]
+
+/** Часы из "HH:MM" (минуты учитываются). Пусто/некорректно → fallback. */
+export function parseHmHours(value: string | null | undefined, fallbackHours: number): number {
+  if (!value) return fallbackHours
+  const [h, m] = value.split(":").map((x) => parseInt(x, 10))
+  return (Number.isFinite(h) ? h : fallbackHours) + (Number.isFinite(m) ? m : 0) / 60
+}
+
+/**
+ * Точное число рабочих дней в диапазоне [from, to] по набору дней недели
+ * (ISO: 1=Пн..7=Вс). Считает по календарю, а не пропорцией дней/7 —
+ * иначе «рабочих дней месяца» получается дробным.
+ *
+ * nonWorkingDates — даты "YYYY-MM-DD", помеченные нерабочими в производственном
+ * календаре (getNonWorkingDateSet). Исключаются из подсчёта — так максимум часов
+ * согласован с генерацией расписания, которая в эти дни занятия не создаёт.
+ */
+export function countWorkingDays(
+  from: Date,
+  to: Date,
+  workingWeekdays: number[],
+  nonWorkingDates?: Set<string>,
+): number {
+  const set = new Set(workingWeekdays)
+  let count = 0
+  const cursor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()))
+  const end = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate())
+  while (cursor.getTime() <= end) {
+    const dow = cursor.getUTCDay() === 0 ? 7 : cursor.getUTCDay()
+    if (set.has(dow) && !nonWorkingDates?.has(cursor.toISOString().slice(0, 10))) count++
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return count
+}
