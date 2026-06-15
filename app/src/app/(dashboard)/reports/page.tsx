@@ -42,6 +42,13 @@ const reportGroups: ReportGroup[] = [
       { name: "Активные абонементы (динамика)", href: "/reports/crm/active-subs-dynamics", description: "Создано / продлено / активно на конец периода по филиалам и направлениям", source: "subscriptions" },
       { name: "Доходимость по дням", href: "/reports/crm/conversion-by-days", description: "Воронка по дням: заявки → пробные → продажи → оплаты, с конверсией от заявок", source: "clients" },
       { name: "Разовые скидки", href: "/reports/crm/marketing-bonuses", description: "Начисленные бонусы на баланс клиентов с разбивкой по каналам и ответственным", source: "clients" },
+      { name: "Лиды по менеджерам", href: "/reports/crm/leads-by-manager", description: "Создано лидов/заявок, записи на пробные и продажи по сотрудникам", source: "clients" },
+      { name: "Сегментация клиентов", href: "/reports/crm/segmentation", description: "Активные клиенты по сегментам (число купленных абонементов)", source: "clients" },
+      { name: "Средняя стоимость абонемента", href: "/reports/crm/avg-subscription-cost", description: "Сумма отработанных / число активных абонементов, по направлениям", source: "attendance" },
+      { name: "Лиды по дням", href: "/reports/crm/leads-by-day", description: "Созданные заявки по дням месяца", source: "subscriptions" },
+      { name: "Пробники по дням", href: "/reports/crm/trials-by-day", description: "По дате записи: записались → посетили → купили", source: "trials" },
+      { name: "Не пришли на пробники", href: "/reports/crm/trial-no-show", description: "Список неявок на пробные занятия за месяц", source: "trials" },
+      { name: "Эффективность обзвонов", href: "/reports/crm/call-efficiency", description: "Отработка кампаний, конверсия в пробные и продажи", source: "clients" },
     ],
   },
   {
@@ -52,6 +59,9 @@ const reportGroups: ReportGroup[] = [
       { name: "Детализация оттока", href: "/reports/churn/details", description: "Выбывшие клиенты по направлениям и инструкторам", source: "clients" },
       { name: "Непродлённые абонементы", href: "/reports/churn/not-renewed", description: "Активные в прошлом месяце без списаний", source: "subscriptions" },
       { name: "Потенциальный отток", href: "/reports/churn/potential", description: "Ученики с 3+ прогулами за месяц", source: "attendance" },
+      { name: "Конверсия оттока по педагогам", href: "/reports/churn/by-instructor", description: "% оттока = выбывшие / активные абонементы (педагоги или филиалы)", source: "clients" },
+      { name: "Отток по месяцам", href: "/reports/churn/by-months", description: "В какой месяц «срока жизни» чаще уходят клиенты", source: "clients" },
+      { name: "Отток по направлениям и филиалам", href: "/reports/churn/by-directions", description: "Активные прошлого месяца, не продлённые в текущем", source: "subscriptions" },
     ],
   },
   {
