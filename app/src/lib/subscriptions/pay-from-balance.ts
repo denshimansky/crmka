@@ -156,6 +156,19 @@ export async function payFromBalance(
     if (becameActive) {
       // Активация абонемента «Выбывшего» — клиент вернулся (Баг #5).
       await reactivateChurnedClient(t, input.tenantId, sub.clientId)
+
+      // Зачисление в группу → «оплачено» (и для взрослого абонемента wardId=null,
+      // который не попадает в ward-ветку ниже).
+      await t.groupEnrollment.updateMany({
+        where: {
+          tenantId: input.tenantId,
+          groupId: sub.groupId,
+          clientId: sub.clientId,
+          wardId: sub.wardId,
+          isActive: true,
+        },
+        data: { paymentStatus: "active" },
+      })
     }
 
     if (becameActive && sub.wardId) {
@@ -196,16 +209,6 @@ export async function payFromBalance(
       }
       // Зеркало Ward.salesStage пересчитываем по оставшимся активным заявкам.
       await recomputeWardSalesStage(t, input.tenantId, sub.wardId)
-      await t.groupEnrollment.updateMany({
-        where: {
-          tenantId: input.tenantId,
-          groupId: sub.groupId,
-          clientId: sub.clientId,
-          wardId: sub.wardId,
-          isActive: true,
-        },
-        data: { paymentStatus: "active" },
-      })
     }
 
     const balanceRes = await applyBalanceDelta(t, {

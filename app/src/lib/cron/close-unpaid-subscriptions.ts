@@ -2,6 +2,7 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
+import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 
 /**
@@ -98,17 +99,17 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
 
           await refundNetPaid(tx, { ...s, tenantId: t.id }, "Автозакрытие неоплаченного")
 
-          // Ребёнок уходит из группы → исчезает из расписания.
-          await tx.groupEnrollment.updateMany({
-            where: {
-              tenantId: t.id,
-              groupId: s.groupId,
-              clientId: s.clientId,
-              wardId: s.wardId ?? undefined,
-              isActive: true,
-              deletedAt: null,
-            },
-            data: { isActive: false, withdrawnAt: today },
+          // Ребёнок уходит из группы → исчезает из расписания. Но только если у
+          // него не осталось другого живого (pending/active) абонемента в этой
+          // же группе (helper). Заодно чиним scope: было wardId ?? undefined —
+          // при wardId=null фильтр снимался и задевал чужие зачисления.
+          await deactivateGroupEnrollmentOnWithdrawal(tx, {
+            tenantId: t.id,
+            groupId: s.groupId,
+            clientId: s.clientId,
+            wardId: s.wardId,
+            excludeSubscriptionId: s.id,
+            withdrawnAt: today,
           })
           return true
         })

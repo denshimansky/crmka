@@ -259,18 +259,27 @@ export async function POST(
         groupId: data.groupId,
         clientId: ward.clientId,
         wardId: ward.id,
+        deletedAt: null,
       },
+      // Детерминированно берём живую/самую свежую запись (на тройку их может
+      // оказаться >1 после переводов между группами туда-обратно).
+      orderBy: [{ isActive: "desc" }, { enrolledAt: "desc" }],
     })
     if (existingEnrollment) {
-      const minEnrolledAt = existingEnrollment.enrolledAt
-        ? new Date(Math.min(existingEnrollment.enrolledAt.getTime(), firstPaid.getTime()))
-        : firstPaid
+      // Возврат после отчисления — зачисляем заново от firstPaid; продолжающийся
+      // ребёнок — берём min (дата задним числом, ранняя история месяца).
+      const wasWithdrawn = !existingEnrollment.isActive || existingEnrollment.withdrawnAt !== null
+      const enrolledAt =
+        wasWithdrawn || !existingEnrollment.enrolledAt
+          ? firstPaid
+          : new Date(Math.min(existingEnrollment.enrolledAt.getTime(), firstPaid.getTime()))
       await tx.groupEnrollment.update({
         where: { id: existingEnrollment.id },
         data: {
           paymentStatus: "awaiting_payment",
           isActive: true,
-          enrolledAt: minEnrolledAt,
+          enrolledAt,
+          withdrawnAt: null,
         },
       })
     } else {

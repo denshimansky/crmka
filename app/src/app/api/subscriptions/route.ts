@@ -268,6 +268,72 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // Зачисляем ребёнка (или клиента-взрослого без подопечного) в группу.
+    // GroupEnrollment с paymentStatus='awaiting_payment' — «занятия в группе
+    // есть, но абонемент ещё не оплачен». При оплате (pay-from-balance /
+    // activateSubscription) статус переводится в 'active' через updateMany —
+    // поэтому запись должна существовать ДО recalcClientDiscounts (который может
+    // активировать абонемент со 100% скидкой). Без этой записи абонемент был бы
+    // активным и привязанным к группе, но ребёнок не попадал в группу и в
+    // таблицы посещений. Зеркалит move-to-awaiting-payment.
+    //
+    // enrolledAt = startDate (а не now): при выборе даты задним числом ребёнок
+    // появится в таблицах посещений прошлых занятий месяца. Для существующего
+    // зачисления берём min(existing, startDate), чтобы не потерять более раннюю
+    // историю (например, пробное до startDate).
+    const existingEnrollment = await tx.groupEnrollment.findFirst({
+      where: {
+        tenantId: session.user.tenantId,
+        groupId: data.groupId,
+        clientId: data.clientId,
+        wardId: data.wardId ?? null,
+        deletedAt: null,
+      },
+      // На (group, client, ward) может оказаться >1 не-удалённой записи
+      // (например после переводов между группами туда-обратно) — детерминированно
+      // берём живую/самую свежую, чтобы не реактивировать вторую и не задвоить.
+      orderBy: [{ isActive: "desc" }, { enrolledAt: "desc" }],
+    })
+    if (existingEnrollment) {
+      // Ребёнок возвращается после отчисления (isActive=false / withdrawnAt) —
+      // зачисляем заново от startDate (в прошлых занятиях гэпа он не участвует).
+      // Продолжающийся ребёнок (зачисление живо) — берём min, чтобы поддержать
+      // дату задним числом и не потерять более раннюю историю месяца.
+      const wasWithdrawn = !existingEnrollment.isActive || existingEnrollment.withdrawnAt !== null
+      const enrolledAt =
+        wasWithdrawn || !existingEnrollment.enrolledAt
+          ? startDate
+          : new Date(Math.min(existingEnrollment.enrolledAt.getTime(), startDate.getTime()))
+      await tx.groupEnrollment.update({
+        where: { id: existingEnrollment.id },
+        data: {
+          isActive: true,
+          enrolledAt,
+          // снимаем прошлое отчисление, иначе фильтр состава занятия
+          // (withdrawnAt > lesson.date) продолжит прятать вернувшегося ребёнка.
+          withdrawnAt: null,
+          // Вернувшегося — в awaiting_payment (новый абонемент не оплачен).
+          // Продолжающего НЕ трогаем: иначе оплаченный прошлый месяц получит
+          // ложный бейдж «Ожидаем оплату» (paymentStatus — поле на всё
+          // зачисление, не на период). Оплата нового месяца сама не нужна для
+          // видимости в группе.
+          ...(wasWithdrawn ? { paymentStatus: "awaiting_payment" as const } : {}),
+        },
+      })
+    } else {
+      await tx.groupEnrollment.create({
+        data: {
+          tenantId: session.user.tenantId,
+          groupId: data.groupId,
+          clientId: data.clientId,
+          wardId: data.wardId,
+          paymentStatus: "awaiting_payment",
+          isActive: true,
+          enrolledAt: startDate,
+        },
+      })
+    }
+
     // Автоблокировка типа абонемента после создания первого
     if (!org!.subscriptionTypeLockedAt) {
       await tx.organization.update({

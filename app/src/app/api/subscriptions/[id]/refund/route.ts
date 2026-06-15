@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
+import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
@@ -155,18 +156,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     })
 
-    await tx.groupEnrollment.updateMany({
-      where: {
-        tenantId: session.user.tenantId,
-        clientId: subscription.clientId,
-        groupId: subscription.groupId,
-        isActive: true,
-        deletedAt: null,
-      },
-      data: {
-        isActive: false,
-        withdrawnAt: new Date(),
-      },
+    // Ребёнок уходит из группы — но только если не осталось другого живого
+    // (pending/active) абонемента в этой же группе. Helper заодно чинит scope:
+    // раньше деактивация шла по clientId без wardId — у клиента с несколькими
+    // подопечными отчислялись зачисления не того ребёнка.
+    await deactivateGroupEnrollmentOnWithdrawal(tx, {
+      tenantId: session.user.tenantId,
+      groupId: subscription.groupId,
+      clientId: subscription.clientId,
+      wardId: subscription.wardId,
+      excludeSubscriptionId: id,
     })
 
     // Скидки v2: отчисленный выпадает из состава месяца — пересчёт скидок

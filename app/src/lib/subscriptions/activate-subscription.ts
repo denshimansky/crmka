@@ -39,6 +39,20 @@ export async function activateSubscription(
   // Активация абонемента «Выбывшего» — клиент вернулся (Баг #5).
   await reactivateChurnedClient(t, tenantId, sub.clientId)
 
+  // Зачисление в группу → «оплачено». Делаем ДО раннего выхода по wardId:
+  // взрослый абонемент (wardId=null) тоже имеет зачисление и должен сняться
+  // с флажка «Ожидаем оплату» после оплаты.
+  await t.groupEnrollment.updateMany({
+    where: {
+      tenantId,
+      groupId: sub.groupId,
+      clientId: sub.clientId,
+      wardId: sub.wardId,
+      isActive: true,
+    },
+    data: { paymentStatus: "active" },
+  })
+
   if (!sub.wardId) return
 
   // Заявка, по которой выписан этот абонемент, выиграна (оплачена) — уходит из
@@ -77,14 +91,4 @@ export async function activateSubscription(
     }
   }
   await recomputeWardSalesStage(t, tenantId, sub.wardId)
-  await t.groupEnrollment.updateMany({
-    where: {
-      tenantId,
-      groupId: sub.groupId,
-      clientId: sub.clientId,
-      wardId: sub.wardId,
-      isActive: true,
-    },
-    data: { paymentStatus: "active" },
-  })
 }

@@ -11,6 +11,7 @@ import {
 } from "@/lib/discounts/recalc-client-discounts"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
+import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -167,18 +168,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
       updateData.balance = 0
 
-      // ребёнок уходит из группы → исчезает из расписания (Lessons продолжают
-      // существовать как объекты, но без зачисления = без посещения).
-      const wardScope = existing.wardId ? { wardId: existing.wardId } : { clientId: existing.clientId }
-      await tx.groupEnrollment.updateMany({
-        where: {
-          tenantId: session.user.tenantId,
-          groupId: existing.groupId,
-          isActive: true,
-          deletedAt: null,
-          ...wardScope,
-        },
-        data: { isActive: false, withdrawnAt: new Date() },
+      // Ребёнок уходит из группы → исчезает из расписания (Lessons остаются
+      // объектами, но без зачисления = без посещения). НО только если у него не
+      // осталось другого живого (pending/active) абонемента в этой же группе:
+      // календарный тип создаёт новый абонемент каждый месяц при одном общем
+      // GroupEnrollment, поэтому отчисление одного месяца не должно выкидывать
+      // ребёнка с оплаченным другим месяцем той же группы.
+      await deactivateGroupEnrollmentOnWithdrawal(tx, {
+        tenantId: session.user.tenantId,
+        groupId: existing.groupId,
+        clientId: existing.clientId,
+        wardId: existing.wardId,
+        excludeSubscriptionId: id,
       })
     }
 
