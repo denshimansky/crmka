@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { CheckCircle2, Loader2, Users, UserCheck, X } from "lucide-react"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 interface AbsenceReasonData {
   id: string
@@ -1100,23 +1101,25 @@ export function AttendanceTable({
               <p>В группе нет зачисленных учеников</p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[200px]">Ученик</TableHead>
-                  <TableHead className="w-[180px]">Тип дня</TableHead>
-                  <TableHead className="w-[150px]">Причина</TableHead>
-                  <TableHead className="w-[120px] text-right">Списание</TableHead>
-                  <TableHead className="w-[120px] text-right">ЗП инструктора</TableHead>
-                  <TableHead className="w-[80px] text-center">Оплата инструктору</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {students.map(renderStudentRow)}
-                {makeupStudents.length > 0 && makeupStudents.map(renderStudentRow)}
-                {trialStudents.length > 0 && trialStudents.map(renderTrialRow)}
-              </TableBody>
-            </Table>
+            <StickyHScroll>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[200px]">Ученик</TableHead>
+                    <TableHead className="w-[180px]">Тип дня</TableHead>
+                    <TableHead className="w-[150px]">Причина</TableHead>
+                    <TableHead className="w-[120px] text-right">Списание</TableHead>
+                    <TableHead className="w-[120px] text-right">ЗП инструктора</TableHead>
+                    <TableHead className="w-[80px] text-center">Оплата инструктору</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {students.map(renderStudentRow)}
+                  {makeupStudents.length > 0 && makeupStudents.map(renderStudentRow)}
+                  {trialStudents.length > 0 && trialStudents.map(renderTrialRow)}
+                </TableBody>
+              </Table>
+            </StickyHScroll>
           )}
         </CardContent>
       </Card>
