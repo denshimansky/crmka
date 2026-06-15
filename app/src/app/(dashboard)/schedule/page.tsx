@@ -220,6 +220,7 @@ export default async function SchedulePage({
         },
       },
       instructor: { select: { id: true, firstName: true, lastName: true } },
+      substituteInstructor: { select: { id: true, firstName: true, lastName: true } },
     },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
   })
@@ -329,11 +330,13 @@ export default async function SchedulePage({
     a.name.localeCompare(b.name, "ru")
   )
 
-  // Collect unique instructors
+  // Collect unique instructors — на занятии с заменой преподаёт замещающий,
+  // поэтому в фильтр попадает фактический педагог (замена ⟶ основной).
   const instructorMap = new Map<string, { id: string; firstName: string | null; lastName: string }>()
   for (const lesson of lessons) {
-    if (!instructorMap.has(lesson.instructor.id)) {
-      instructorMap.set(lesson.instructor.id, lesson.instructor)
+    const eff = lesson.substituteInstructor ?? lesson.instructor
+    if (!instructorMap.has(eff.id)) {
+      instructorMap.set(eff.id, eff)
     }
   }
   for (const t of individualTrials) {
@@ -386,31 +389,36 @@ export default async function SchedulePage({
     : ""
 
   // Serialize lessons for client component (Date -> string)
-  const serializedLessons = lessons.map((l) => ({
-    id: l.id,
-    date: l.date.toISOString().slice(0, 10),
-    startTime: l.startTime,
-    durationMinutes: l.durationMinutes,
-    instructorId: l.instructorId,
-    group: {
-      name: l.group.name,
-      directionId: l.group.directionId,
-      maxStudents: l.group.maxStudents,
-      room: { id: l.group.room.id, name: l.group.room.name },
-      direction: { id: l.group.direction.id, name: l.group.direction.name },
-      _count: {
-        // «На занятие записано» = постоянные ученики группы + пробные + отработки.
-        // Дедуплицировано по (clientId, wardId) выше — баг #50.
-        enrollments:
-          l.group._count.enrollments +
-          (extraAttendeesByLesson.get(l.id)?.size ?? 0),
+  // На занятии с заменой показываем замещающего педагога, а не основного.
+  const serializedLessons = lessons.map((l) => {
+    const eff = l.substituteInstructor ?? l.instructor
+    return {
+      id: l.id,
+      date: l.date.toISOString().slice(0, 10),
+      startTime: l.startTime,
+      durationMinutes: l.durationMinutes,
+      instructorId: eff.id,
+      group: {
+        name: l.group.name,
+        directionId: l.group.directionId,
+        maxStudents: l.group.maxStudents,
+        room: { id: l.group.room.id, name: l.group.room.name },
+        direction: { id: l.group.direction.id, name: l.group.direction.name },
+        _count: {
+          // «На занятие записано» = постоянные ученики группы + пробные + отработки.
+          // Дедуплицировано по (clientId, wardId) выше — баг #50.
+          enrollments:
+            l.group._count.enrollments +
+            (extraAttendeesByLesson.get(l.id)?.size ?? 0),
+        },
       },
-    },
-    instructor: {
-      firstName: l.instructor.firstName,
-      lastName: l.instructor.lastName,
-    },
-  }))
+      instructor: {
+        firstName: eff.firstName,
+        lastName: eff.lastName,
+      },
+      isSubstitute: !!l.substituteInstructor,
+    }
+  })
 
   // Индивидуальные пробные — отдаём в той же форме, что и обычные занятия.
   // Группа синтетическая: имя из подопечного, 1 место занято.
@@ -444,6 +452,7 @@ export default async function SchedulePage({
         _count: { enrollments: 1 },
       },
       instructor: { firstName: instructor.firstName, lastName: instructor.lastName },
+      isSubstitute: false,
     }
   })
 

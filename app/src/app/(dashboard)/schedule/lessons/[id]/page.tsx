@@ -90,13 +90,17 @@ export default async function LessonCardPage({
     if (!scope.branchIds.includes(lesson.group.branchId)) notFound()
   }
 
-  // Инструкторы для замены — только из филиала группы (либо без привязок = кросс-филиально)
+  // Кандидаты на замену — только действующие преподаватели (role=instructor,
+  // isActive) и только из филиала группы (либо без привязок = кросс-филиально).
+  // Владельцы/управляющие/админы и уволенные сотрудники не предлагаются —
+  // список «педагогов» совпадает с выбором инструктора при создании группы.
   const lessonBranchId = lesson.group.branchId
   const instructorsRaw = await db.employee.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      role: { in: ["instructor", "owner", "manager"] },
+      isActive: true,
+      role: "instructor",
       OR: [
         { employeeBranches: { none: {} } },
         { employeeBranches: { some: { branchId: lessonBranchId } } },

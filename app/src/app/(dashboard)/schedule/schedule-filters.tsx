@@ -41,6 +41,8 @@ interface LessonData {
   instructorId: string
   href?: string // если задан — переопределяет ссылку (например, для индивидуальных пробных)
   isTrial?: boolean
+  /** На занятии назначена замена — instructor содержит замещающего педагога. */
+  isSubstitute?: boolean
   group: {
     name: string
     directionId: string
@@ -696,6 +698,9 @@ function WeekRoomsView({
                   ]
                     .filter(Boolean)
                     .join(" ")
+                  const instructorLabel = lesson.isSubstitute
+                    ? `${instructorName} (зам.)`
+                    : instructorName
                   return (
                     <Link
                       key={lesson.id}
@@ -719,7 +724,16 @@ function WeekRoomsView({
                           )}
                         </div>
                         {height >= 36 && (
-                          <div className="opacity-70 truncate">{instructorName}</div>
+                          <div
+                            className={`truncate ${
+                              lesson.isSubstitute
+                                ? "font-medium text-orange-700 dark:text-orange-300"
+                                : "opacity-70"
+                            }`}
+                            title={lesson.isSubstitute ? "Замена" : undefined}
+                          >
+                            {instructorLabel}
+                          </div>
                         )}
                         {height >= 52 && (
                           <div className="flex items-center justify-between">
