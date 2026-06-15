@@ -129,6 +129,9 @@ export default async function TrialConversionReportPage({
     .map(([id, v]) => ({
       instructorId: id,
       ...v,
+      // «Пробных записано» — все записи на пробное (вершина воронки),
+      // независимо от текущего статуса
+      recorded: v.scheduled + v.attended + v.noShow + v.cancelled,
       conversionRate: pct(v.sales, v.attended),
       attendanceRate: pct(v.attended, v.attended + v.noShow),
     }))
@@ -198,13 +201,13 @@ export default async function TrialConversionReportPage({
       <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Всего пробных</p>
+            <p className="text-xs text-muted-foreground">Пробных записано</p>
             <p className="text-2xl font-bold">{total.all}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Запланировано</p>
+            <p className="text-xs text-muted-foreground">Предстоят</p>
             <p className="text-2xl font-bold text-muted-foreground">{total.scheduled}</p>
           </CardContent>
         </Card>
@@ -256,7 +259,7 @@ export default async function TrialConversionReportPage({
               <TableHeader>
                 <TableRow>
                   <TableHead>Педагог</TableHead>
-                  <TableHead className="text-right">Запланировано</TableHead>
+                  <TableHead className="text-right">Пробных записано</TableHead>
                   <TableHead className="text-right">Пришли</TableHead>
                   <TableHead className="text-right">Не пришли</TableHead>
                   <TableHead className="text-right">% явок</TableHead>
@@ -268,7 +271,7 @@ export default async function TrialConversionReportPage({
                 {rows.map((r) => (
                   <TableRow key={r.instructorId}>
                     <TableCell className="font-medium">{r.name}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">{r.scheduled}</TableCell>
+                    <TableCell className="text-right font-medium">{r.recorded}</TableCell>
                     <TableCell className="text-right text-green-600 font-medium">{r.attended}</TableCell>
                     <TableCell className="text-right text-orange-600">{r.noShow}</TableCell>
                     <TableCell className="text-right text-muted-foreground">
