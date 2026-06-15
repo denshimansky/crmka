@@ -49,6 +49,9 @@ const reportGroups: ReportGroup[] = [
       { name: "Пробники по дням", href: "/reports/crm/trials-by-day", description: "По дате записи: записались → посетили → купили", source: "trials" },
       { name: "Не пришли на пробники", href: "/reports/crm/trial-no-show", description: "Список неявок на пробные занятия за месяц", source: "trials" },
       { name: "Эффективность обзвонов", href: "/reports/crm/call-efficiency", description: "Отработка кампаний, конверсия в пробные и продажи", source: "clients" },
+      { name: "Продажи менеджеров по каналам", href: "/reports/crm/sales-by-channel", description: "Пробные и продажи в разрезе менеджеров (переключатель показателя)", source: "clients" },
+      { name: "Сводный по абонементам по педагогам", href: "/reports/crm/subscriptions-by-instructor", description: "Активные, новые, выбывшие абонементы по педагогам", source: "subscriptions" },
+      { name: "Детализация пробников", href: "/reports/crm/trial-details", description: "Все пробные за месяц с педагогом, статусом, датой посещения", source: "trials" },
     ],
   },
   {
@@ -73,6 +76,8 @@ const reportGroups: ReportGroup[] = [
       { name: "Загруженность центра", href: "/reports/schedule/load", description: "Часы занятий с явками / рабочие часы по филиалам и кабинетам", source: "lessons" },
       { name: "Посещения", href: "/reports/attendance/visits", description: "Явки, прогулы, перерасчёты по группам", source: "attendance" },
       { name: "Неотмеченные дети", href: "/reports/attendance/unmarked", description: "Занятия, где не проставлены посещения", source: "lessons" },
+      { name: "Отсутствие учеников / потери выручки", href: "/reports/attendance/absence-losses", description: "Перерасчёты (потери) и прогулы со списанием по ученикам", source: "attendance" },
+      { name: "Сверка актива", href: "/reports/attendance/reconciliation", description: "Активные клиенты без оплаты и активации — «мёртвые души»", source: "clients" },
     ],
   },
   {
@@ -91,6 +96,11 @@ const reportGroups: ReportGroup[] = [
       { name: "Расчёты с учениками", href: "/reports/finance/student-settlements", description: "Баланс, начисление план/факт, оплата по ученикам", source: "subscriptions" },
       { name: "Доход от новых / упущенный по выбывшим", href: "/reports/finance/new-client-income", description: "Доход новых клиентов против упущенной выручки по выбывшим", source: "attendance" },
       { name: "Финрез по группам (формат C)", href: "/reports/finance/pnl-group", description: "Прибыльность каждой группы с распределением расходов", source: "attendance" },
+      { name: "Остатки оплаченных занятий", href: "/reports/finance/remaining-lessons", description: "Сколько занятий осталось по абонементам и баланс на сегодня", source: "subscriptions" },
+      { name: "% распределения финреза", href: "/reports/finance/financial-distribution", description: "Доля каждой статьи расходов и ЗП в выручке", source: "attendance" },
+      { name: "Действующие скидки", href: "/reports/finance/linked-discounts", description: "Абонементы с активной скидкой (снимок)", source: "subscriptions" },
+      { name: "Контроль корректировок занятий", href: "/reports/finance/lesson-adjustments-audit", description: "Аудит: кто менял стоимость отметок", source: "attendance" },
+      { name: "Контроль скидок", href: "/reports/finance/discount-audit", description: "Аудит: кто и когда создавал скидки", source: "subscriptions" },
     ],
   },
   {
@@ -102,6 +112,8 @@ const reportGroups: ReportGroup[] = [
       { name: "Мотивация администратора", href: "/reports/salary/admin-motivation", description: "Пробные, продажи новым и допродажи по администраторам", source: "trials" },
       { name: "Часы педагогов по дням", href: "/reports/salary/instructor-hours", description: "Отработанные часы за месяц по педагогам", source: "lessons" },
       { name: "Средняя ЗП педагогов", href: "/reports/salary/avg-salary", description: "Средняя стоимость часа = ЗП / часы", source: "attendance" },
+      { name: "Прогноз сдельной оплаты", href: "/reports/salary/salary-forecast", description: "Прогноз ЗП сдельных педагогов по ставкам и расписанию", source: "attendance" },
+      { name: "Расчёты с педагогами", href: "/reports/salary/salary-instructors", description: "Начислено, премии, штрафы, выплачено и остаток", source: "attendance" },
     ],
   },
 ]
