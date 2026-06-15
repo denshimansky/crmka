@@ -109,30 +109,24 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   })
   const monthExpenses = Number(monthExpensesData._sum.amount || 0)
 
-  // Должники: минус на балансе ИЛИ любая не-отчисленная подписка с
-  // непогашенным остатком. Авто-закрытые cron'ом неоплаченные сюда больше не
-  // попадают (Баг #4: их balance обнуляется сверкой); closed с balance>0 —
-  // это истёкшие пакеты и legacy-данные.
-  // Та же формула, что в /finance/debtors — должно совпадать.
+  // Должники (плановый долг): клиенты с непогашенным остатком по не-отчисленным
+  // абонементам (balance>0). Совпадает с вкладкой «Плановый долг» страницы
+  // /finance/debtors, куда ведёт виджет. Перенесённый/импортный долг
+  // (отрицательный clientBalance, не привязанный к абонементу) сюда НЕ входит —
+  // он виден на странице должников.
   const debtors = await db.client.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      OR: [
-        { clientBalance: { lt: 0 } },
-        {
-          subscriptions: {
-            some: {
-              deletedAt: null,
-              status: { not: "withdrawn" },
-              balance: { gt: 0 },
-            },
-          },
+      subscriptions: {
+        some: {
+          deletedAt: null,
+          status: { not: "withdrawn" },
+          balance: { gt: 0 },
         },
-      ],
+      },
     },
     select: {
-      clientBalance: true,
       subscriptions: {
         where: {
           deletedAt: null,
@@ -144,11 +138,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     },
   })
   const debtorCount = debtors.length
-  const totalDebt = debtors.reduce((s, d) => {
-    const balDebt = Math.max(0, -Number(d.clientBalance))
-    const subDebt = d.subscriptions.reduce((acc, sub) => acc + Math.max(0, Number(sub.balance)), 0)
-    return s + balDebt + subDebt
-  }, 0)
+  const totalDebt = debtors.reduce(
+    (s, d) => s + d.subscriptions.reduce((acc, sub) => acc + Number(sub.balance), 0),
+    0,
+  )
 
   // Задачи на сегодня (и просроченные). Для админа/менеджера/владельца — все
   // задачи тенанта; для прочих ролей (инструктор, readonly) — только свои.

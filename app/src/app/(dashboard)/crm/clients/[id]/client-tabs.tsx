@@ -937,7 +937,14 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                       )}
                     </TableCell>
                     <TableCell className="font-medium">{s.direction.name}</TableCell>
-                    <TableCell>{s.group.name}</TableCell>
+                    <TableCell>
+                      <Link
+                        href={`/schedule/groups/${s.group.id}`}
+                        className="text-primary hover:underline"
+                      >
+                        {s.group.name}
+                      </Link>
+                    </TableCell>
                     <TableCell>{formatSubPeriod(s)}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[s.status] || ""}`}>
