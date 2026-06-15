@@ -78,7 +78,11 @@ export default async function VisitsReportPage({ searchParams }: { searchParams:
     .sort((a, b) => b.count - a.count)
 
   const presentCount = byType.get("present")?.count || 0
-  const absentCount = byType.get("absent")?.count || 0
+  // «Отсутствовали» — все типы «не пришёл»: Не был (no_show), Уваж. пропуск
+  // (excused), Прогул (absent). Раньше брался только код "absent" (Прогул),
+  // поэтому «Не был» не попадал в карточку, хотя был в разбивке (баг #10).
+  const ABSENT_CODES = ["no_show", "excused", "absent"]
+  const absentCount = ABSENT_CODES.reduce((sum, code) => sum + (byType.get(code)?.count || 0), 0)
   const attendanceRate = totalVisits > 0 ? Math.round((presentCount / totalVisits) * 100) : 0
 
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
