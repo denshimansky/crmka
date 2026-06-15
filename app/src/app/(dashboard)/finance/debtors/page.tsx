@@ -44,19 +44,28 @@ export default async function DebtorsPage({
     where: {
       tenantId,
       deletedAt: null,
-      subscriptions: {
-        some: {
-          deletedAt: null,
-          status: { not: "withdrawn" },
-          OR: [{ balance: { gt: 0 } }, { chargedAmount: { gt: 0 } }],
+      OR: [
+        {
+          subscriptions: {
+            some: {
+              deletedAt: null,
+              status: { not: "withdrawn" },
+              OR: [{ balance: { gt: 0 } }, { chargedAmount: { gt: 0 } }],
+            },
+          },
         },
-      },
+        // Перенесённый/импортный долг: отрицательный баланс клиента, не привязанный
+        // к абонементу (долг с закрытий или после импорта). Виден во вкладке
+        // «Фактический долг».
+        { clientBalance: { lt: 0 } },
+      ],
       ...(Object.keys(clientScope).length > 0 ? clientScope : {}),
     },
     select: {
       id: true,
       firstName: true,
       lastName: true,
+      clientBalance: true,
       promisedPaymentDate: true,
       phone: true,
       branch: { select: { name: true } },
@@ -144,6 +153,17 @@ export default async function DebtorsPage({
       }
     }
 
+    // Перенесённый/импортный долг (отрицательный баланс клиента, не привязан к
+    // абонементу) — только во «Фактическом»: это реально недоплаченные деньги.
+    // В «Плановый» (доплата по абонементам) он не входит.
+    if (tab === "actual") {
+      const carried = -Number(c.clientBalance)
+      if (carried > 0) {
+        sources.push({ key: "carried", label: "Перенесённый долг (импорт/закрытие)", amount: carried })
+        debt += carried
+      }
+    }
+
     if (debt <= 0) continue
     sources.sort((a, b) => b.amount - a.amount)
     rows.push({
@@ -171,7 +191,7 @@ export default async function DebtorsPage({
   const tabDescription =
     tab === "planned"
       ? "Сколько клиенты должны доплатить по выписанным абонементам (finalAmount − оплачено)."
-      : "Сколько фактически отработано сверх оплаченного (chargedAmount − оплачено)."
+      : "Сколько клиент реально должен сейчас: отработано сверх оплаченного по абонементам + перенесённый долг (импорт / закрытия с долгом)."
 
   return (
     <div className="space-y-6">
