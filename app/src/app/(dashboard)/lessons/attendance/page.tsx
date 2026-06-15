@@ -101,7 +101,9 @@ export default async function LessonsAttendancePage({
         tenantId,
         deletedAt: null,
         isActive: true,
-        role: { in: ["instructor", "admin", "manager", "owner"] },
+        // Фильтр «Педагог» — только инструкторы (роль instructor = «педагог»);
+        // админы/управляющие/владелец не ведут занятия и в фильтре не нужны (баг #7).
+        role: "instructor",
         ...scopeEmployee(scope),
       },
       select: { id: true, firstName: true, lastName: true },
