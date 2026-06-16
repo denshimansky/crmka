@@ -79,6 +79,7 @@ export default async function DebtorsPage({
           status: true,
           direction: { select: { name: true } },
           group: { select: { branch: { select: { name: true } } } },
+          ward: { select: { id: true, firstName: true, lastName: true } },
           periodYear: true,
           periodMonth: true,
           balance: true,
@@ -92,7 +93,7 @@ export default async function DebtorsPage({
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  type Source = { key: string; label: string; amount: number }
+  type Source = { key: string; label: string; amount: number; wardId: string | null; wardName: string | null }
   type Row = {
     id: string
     name: string
@@ -130,6 +131,10 @@ export default async function DebtorsPage({
       const finalAmount = Number(sub.finalAmount)
       const chargedAmount = Number(sub.chargedAmount)
       directionsSet.add(sub.direction.name)
+      const wardId = sub.ward?.id ?? null
+      const wardName = sub.ward
+        ? [sub.ward.lastName, sub.ward.firstName].filter(Boolean).join(" ") || null
+        : null
 
       if (tab === "planned") {
         // Плановый долг по абонементу = balance (сколько ещё надо оплатить).
@@ -138,6 +143,8 @@ export default async function DebtorsPage({
             key: `sub:${sub.id}`,
             label: subLabel(sub),
             amount: balance,
+            wardId,
+            wardName,
           })
           debt += balance
           if (sub.group.branch?.name) branchSet.add(sub.group.branch.name)
@@ -151,6 +158,8 @@ export default async function DebtorsPage({
             key: `sub:${sub.id}`,
             label: subLabel(sub),
             amount: fact,
+            wardId,
+            wardName,
           })
           debt += fact
           if (sub.group.branch?.name) branchSet.add(sub.group.branch.name)
@@ -167,7 +176,7 @@ export default async function DebtorsPage({
     if (tab === "actual") {
       const carried = -Number(c.clientBalance)
       if (carried > 0) {
-        sources.push({ key: "carried", label: "Перенесённый долг (импорт/закрытие)", amount: carried })
+        sources.push({ key: "carried", label: "Перенесённый долг (импорт/закрытие)", amount: carried, wardId: null, wardName: null })
         debt += carried
       }
     }
@@ -211,6 +220,7 @@ export default async function DebtorsPage({
           filename={tab === "planned" ? "debtors-planned" : "debtors-actual"}
           columns={[
             { header: "Клиент", key: "name", width: 25 },
+            { header: "Ребёнок", key: "children", width: 25 },
             { header: "Филиал", key: "branchName", width: 18 },
             { header: "Направление", key: "directions", width: 25 },
             { header: "Долг", key: "debt", width: 14 },
@@ -218,6 +228,8 @@ export default async function DebtorsPage({
           ]}
           rows={rows.map((r) => ({
             name: r.name,
+            children:
+              Array.from(new Set(r.sources.map((s) => s.wardName).filter(Boolean))).join(", ") || "—",
             branchName: r.branchName,
             directions: r.directions,
             debt: r.debt,
@@ -296,6 +308,7 @@ export default async function DebtorsPage({
             <TableHeader>
               <TableRow>
                 <TableHead>Клиент</TableHead>
+                <TableHead>Ребёнок</TableHead>
                 <TableHead>Филиал</TableHead>
                 <TableHead>Источник долга</TableHead>
                 <TableHead className="text-right">Долг</TableHead>
@@ -311,8 +324,27 @@ export default async function DebtorsPage({
                       {r.name}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{r.branchName}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="text-muted-foreground align-top">
+                    {r.sources.length === 0 ? (
+                      "—"
+                    ) : (
+                      <div className="space-y-0.5">
+                        {r.sources.map((s) => (
+                          <div key={s.key} className="text-xs">
+                            {s.wardId && s.wardName ? (
+                              <Link href={`/crm/wards/${s.wardId}`} className="text-primary hover:underline">
+                                {s.wardName}
+                              </Link>
+                            ) : (
+                              "—"
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground align-top">{r.branchName}</TableCell>
+                  <TableCell className="text-muted-foreground align-top">
                     {r.sources.length === 0 ? (
                       <span>{r.directions}</span>
                     ) : (
