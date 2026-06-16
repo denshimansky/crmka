@@ -116,25 +116,6 @@ export default async function LessonCardPage({
       ? [lesson.substituteInstructor, ...instructorsRaw]
       : instructorsRaw
 
-  // Get enrolled students.
-  // Фильтр по дате: зачисление должно быть активным НА дату занятия. Иначе
-  // ребёнок, зачисленный позже (например, после пробного), всплывает на
-  // прошлых занятиях группы.
-  const enrollments = await db.groupEnrollment.findMany({
-    where: {
-      groupId: lesson.groupId,
-      tenantId,
-      isActive: true,
-      deletedAt: null,
-      enrolledAt: { lte: lesson.date },
-      OR: [{ withdrawnAt: null }, { withdrawnAt: { gt: lesson.date } }],
-    },
-    include: {
-      client: { select: { id: true, firstName: true, lastName: true, phone: true } },
-      ward: { select: { id: true, firstName: true, lastName: true } },
-    },
-  })
-
   // Get subscriptions for this period
   const lessonDate = new Date(lesson.date)
   const periodYear = lessonDate.getFullYear()
@@ -156,8 +137,40 @@ export default async function LessonCardPage({
       lessonPrice: true,
       discountPerLesson: true,
       balance: true,
+      startDate: true,
     },
   })
+
+  // Get enrolled students.
+  const enrollmentsRaw = await db.groupEnrollment.findMany({
+    where: {
+      groupId: lesson.groupId,
+      tenantId,
+      isActive: true,
+      deletedAt: null,
+      OR: [{ withdrawnAt: null }, { withdrawnAt: { gt: lesson.date } }],
+    },
+    include: {
+      client: { select: { id: true, firstName: true, lastName: true, phone: true } },
+      ward: { select: { id: true, firstName: true, lastName: true } },
+    },
+  })
+  // Ребёнок попадает в состав занятия, если его абонемент покрывает дату
+  // занятия (startDate <= дата) — расписание идёт от абонемента, а не от
+  // оплат/посещений. Фоллбэк на enrolledAt оставляем для зачислений без
+  // абонемента (например, «ожидание оплаты» без выписанного абонемента).
+  // Иначе при переоформлении абонемента задним числом (enrolledAt создаётся
+  // позже даты занятия, чем startDate) ребёнок ошибочно считался бы «разовым».
+  const coveringSubKeys = new Set(
+    subscriptions
+      .filter((s) => s.startDate <= lesson.date)
+      .map((s) => `${s.clientId}:${s.wardId || ""}`),
+  )
+  const enrollments = enrollmentsRaw.filter(
+    (e) =>
+      e.enrolledAt <= lesson.date ||
+      coveringSubKeys.has(`${e.clientId}:${e.wardId || ""}`),
+  )
 
   // Get attendance types
   const attendanceTypes = await db.attendanceType.findMany({
@@ -496,17 +509,25 @@ export default async function LessonCardPage({
 
   // Build serialized data for client component
   const students = enrollments.map((enrollment) => {
-    const attendance = lesson.attendances.find(
-      (a) => a.clientId === enrollment.clientId && (
-        enrollment.wardId ? a.wardId === enrollment.wardId : !a.wardId
-      )
-    )
-
     const subscription = subscriptions.find(
       (s) => s.clientId === enrollment.clientId && (
         enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
       )
     )
+
+    // На одного ребёнка на занятии может быть несколько строк Attendance
+    // (ключ уникальности — subscription_id): например, осталась отметка от
+    // отозванного абонемента + новая на действующем. Предпочитаем строку по
+    // активному абонементу ученика, иначе — первую найденную.
+    const studentAttendances = lesson.attendances.filter(
+      (a) => a.clientId === enrollment.clientId && (
+        enrollment.wardId ? a.wardId === enrollment.wardId : !a.wardId
+      )
+    )
+    const attendance =
+      (subscription &&
+        studentAttendances.find((a) => a.subscriptionId === subscription.id)) ||
+      studentAttendances[0]
 
     const lessonPrice =
       effPrice(subscription) ?? Number(lesson.group.direction.lessonPrice)
