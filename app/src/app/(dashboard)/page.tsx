@@ -861,9 +861,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <TableHeader>
               <TableRow>
                 <TableHead>Филиал</TableHead>
-                <TableHead className="text-right">Количество абонементов за месяц</TableHead>
-                <TableHead className="text-right">Продленные абонементы</TableHead>
-                <TableHead className="text-right">Количество активных на конец месяца</TableHead>
+                <TableHead className="text-right whitespace-normal">Количество абонементов<br />за месяц</TableHead>
+                <TableHead className="text-right whitespace-normal">Продлённые<br />абонементы</TableHead>
+                <TableHead className="text-right whitespace-normal">Количество активных<br />на конец месяца</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -907,10 +907,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <TableHeader>
               <TableRow>
                 <TableHead>Месяц</TableHead>
-                <TableHead className="text-right">Сумма абонементов</TableHead>
-                <TableHead className="text-right">Прогноз зарплаты педагогов</TableHead>
-                <TableHead className="text-right">Прогноз постоянных платежей</TableHead>
-                <TableHead className="text-right">Прогноз прибыли</TableHead>
+                <TableHead className="text-right whitespace-normal">Сумма<br />абонементов</TableHead>
+                <TableHead className="text-right whitespace-normal">Прогноз зарплаты<br />педагогов</TableHead>
+                <TableHead className="text-right whitespace-normal">Прогноз постоянных<br />платежей</TableHead>
+                <TableHead className="text-right whitespace-normal">Прогноз<br />прибыли</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
