@@ -78,6 +78,7 @@ export default async function DebtorsPage({
           id: true,
           status: true,
           direction: { select: { name: true } },
+          group: { select: { branch: { select: { name: true } } } },
           periodYear: true,
           periodMonth: true,
           balance: true,
@@ -117,8 +118,10 @@ export default async function DebtorsPage({
     const name = [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени"
     const promised = c.promisedPaymentDate
     const isOverdue = !!(promised && promised < today)
-    const branchName = c.branch?.name || "—"
     const directionsSet = new Set<string>()
+    // Филиал долга берём из групп абонементов, формирующих долг (поле branchId
+    // у самого клиента обычно пустое). Фоллбэк — филиал клиента.
+    const branchSet = new Set<string>()
 
     const sources: Source[] = []
     let debt = 0
@@ -137,6 +140,7 @@ export default async function DebtorsPage({
             amount: balance,
           })
           debt += balance
+          if (sub.group.branch?.name) branchSet.add(sub.group.branch.name)
         }
       } else {
         // Фактический долг = списано (chargedAmount) − оплачено за этот абонемент.
@@ -149,9 +153,13 @@ export default async function DebtorsPage({
             amount: fact,
           })
           debt += fact
+          if (sub.group.branch?.name) branchSet.add(sub.group.branch.name)
         }
       }
     }
+
+    const branchName =
+      branchSet.size > 0 ? Array.from(branchSet).join(", ") : c.branch?.name || "—"
 
     // Перенесённый/импортный долг (отрицательный баланс клиента, не привязан к
     // абонементу) — только во «Фактическом»: это реально недоплаченные деньги.
