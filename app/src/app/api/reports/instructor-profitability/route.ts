@@ -38,42 +38,51 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  // Aggregate per instructor (substitute gets the salary attribution)
-  const instrData = new Map<
-    string,
-    { name: string; revenue: number; salary: number; lessons: Set<string>; branchId: string }
-  >()
+  // Агрегируем по паре (педагог × филиал). Педагог может вести в нескольких
+  // филиалах, а расходы каждого филиала распределяются пропорционально выручке
+  // (постоянные) и занятиям (переменные) ИМЕННО в этом филиале. Раньше педагог
+  // привязывался к одному филиалу (по первому занятию) — его выручка из второго
+  // филиала выпадала из знаменателя, и постоянные расходы концентрировались на
+  // оставшихся педагогах того филиала.
+  type Cell = {
+    instrId: string
+    name: string
+    branchId: string
+    revenue: number
+    salary: number
+    lessons: Set<string>
+  }
+  const cells = new Map<string, Cell>()
 
   for (const a of attendances) {
     const iId = a.lesson.substituteInstructorId || a.lesson.instructorId
     const instr = a.lesson.substituteInstructorId && a.lesson.substituteInstructor
       ? a.lesson.substituteInstructor
       : a.lesson.instructor
-    if (!instrData.has(iId)) {
-      instrData.set(iId, {
+    const branchId = a.lesson.group.branchId
+    const key = `${iId}:${branchId}`
+    if (!cells.has(key)) {
+      cells.set(key, {
+        instrId: iId,
         name: [instr.lastName, instr.firstName].filter(Boolean).join(" "),
+        branchId,
         revenue: 0,
         salary: 0,
         lessons: new Set(),
-        branchId: a.lesson.group.branchId,
       })
     }
-    const d = instrData.get(iId)!
+    const d = cells.get(key)!
     if (a.attendanceType.countsAsRevenue) d.revenue += Number(a.chargeAmount)
     if (a.instructorPayEnabled) d.salary += Number(a.instructorPayAmount)
     d.lessons.add(a.lesson.id)
   }
 
-  // Branch total lessons for variable expense allocation
+  // Итоги по филиалам — знаменатели для распределения расходов.
   const branchTotalLessons = new Map<string, number>()
-  for (const [, d] of instrData) {
-    branchTotalLessons.set(d.branchId, (branchTotalLessons.get(d.branchId) || 0) + d.lessons.size)
-  }
-
-  // Branch total revenue for fixed expense allocation
   const branchTotalRevenue = new Map<string, number>()
-  for (const [, d] of instrData) {
-    branchTotalRevenue.set(d.branchId, (branchTotalRevenue.get(d.branchId) || 0) + d.revenue)
+  for (const c of cells.values()) {
+    branchTotalLessons.set(c.branchId, (branchTotalLessons.get(c.branchId) || 0) + c.lessons.size)
+    branchTotalRevenue.set(c.branchId, (branchTotalRevenue.get(c.branchId) || 0) + c.revenue)
   }
 
   // Expenses per branch
@@ -97,29 +106,38 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const totalNetProfit = [...instrData.values()].reduce((s, d) => {
-    const bLes = branchTotalLessons.get(d.branchId) || 1
-    const bRev = branchTotalRevenue.get(d.branchId) || 1
-    const varShare = (branchVarExp.get(d.branchId) || 0) * (d.lessons.size / bLes)
-    const fixShare = (branchFixExp.get(d.branchId) || 0) * (d.revenue / bRev)
-    return s + (d.revenue - d.salary - varShare - fixShare)
-  }, 0)
+  // Сворачиваем ячейки (педагог × филиал) в строки по педагогу: доля расходов
+  // каждого филиала считается отдельно и суммируется.
+  type Agg = { name: string; revenue: number; salary: number; varShare: number; fixShare: number }
+  const instrAgg = new Map<string, Agg>()
+  for (const c of cells.values()) {
+    const bLes = branchTotalLessons.get(c.branchId) || 1
+    const bRev = branchTotalRevenue.get(c.branchId) || 1
+    const varShare = (branchVarExp.get(c.branchId) || 0) * safeDivide(c.lessons.size, bLes)
+    const fixShare = (branchFixExp.get(c.branchId) || 0) * safeDivide(c.revenue, bRev)
+    const cur = instrAgg.get(c.instrId) || { name: c.name, revenue: 0, salary: 0, varShare: 0, fixShare: 0 }
+    cur.revenue += c.revenue
+    cur.salary += c.salary
+    cur.varShare += varShare
+    cur.fixShare += fixShare
+    instrAgg.set(c.instrId, cur)
+  }
 
-  const data = [...instrData.entries()]
+  const totalNetProfit = [...instrAgg.values()].reduce(
+    (s, d) => s + (d.revenue - d.salary - d.varShare - d.fixShare),
+    0,
+  )
+
+  const data = [...instrAgg.entries()]
     .map(([id, d]) => {
-      const bLes = branchTotalLessons.get(d.branchId) || 1
-      const bRev = branchTotalRevenue.get(d.branchId) || 1
-      const varShare = (branchVarExp.get(d.branchId) || 0) * safeDivide(d.lessons.size, bLes)
-      const fixShare = (branchFixExp.get(d.branchId) || 0) * safeDivide(d.revenue, bRev)
-      const profitability = d.revenue - d.salary - varShare - fixShare
-
+      const profitability = d.revenue - d.salary - d.varShare - d.fixShare
       return {
         instructorId: id,
         instructorName: d.name,
         revenue: Math.round(d.revenue),
         salary: Math.round(d.salary),
-        variableExpenses: Math.round(varShare),
-        fixedExpenses: Math.round(fixShare),
+        variableExpenses: Math.round(d.varShare),
+        fixedExpenses: Math.round(d.fixShare),
         profitability: Math.round(profitability),
         percentOfTotal: pct(profitability, totalNetProfit),
       }
