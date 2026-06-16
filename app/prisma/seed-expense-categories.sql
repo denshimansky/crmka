@@ -1,4 +1,4 @@
--- Seed: 14 системных категорий расходов (идемпотентный)
+-- Seed: 13 системных категорий расходов (идемпотентный)
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM expense_categories WHERE is_system = true LIMIT 1) THEN
@@ -16,8 +16,7 @@ BEGIN
       (gen_random_uuid(), 'Бухгалтерия', false, false, true, true, 10, NOW()),
       (gen_random_uuid(), 'Налоги и взносы', false, false, true, true, 11, NOW()),
       (gen_random_uuid(), 'Хозяйственные расходы', false, false, true, true, 12, NOW()),
-      (gen_random_uuid(), 'Обучение персонала', false, false, true, true, 13, NOW()),
-      (gen_random_uuid(), 'Прочие расходы', false, false, true, true, 14, NOW());
+      (gen_random_uuid(), 'Обучение персонала', false, false, true, true, 13, NOW());
     RAISE NOTICE 'Expense categories seeded';
   ELSE
     RAISE NOTICE 'Expense categories already exist';

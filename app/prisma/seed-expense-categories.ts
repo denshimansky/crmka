@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client"
 const db = new PrismaClient()
 
 async function main() {
-  // 14 предустановленных категорий расходов (tenant_id = null, системные)
+  // 13 предустановленных категорий расходов (tenant_id = null, системные)
   const categories = [
     { name: "Аренда", isSalary: false, isVariable: false, sortOrder: 1 },
     { name: "Коммунальные услуги", isSalary: false, isVariable: false, sortOrder: 2 },
@@ -18,7 +18,6 @@ async function main() {
     { name: "Налоги и взносы", isSalary: false, isVariable: false, sortOrder: 11 },
     { name: "Хозяйственные расходы", isSalary: false, isVariable: false, sortOrder: 12 },
     { name: "Обучение персонала", isSalary: false, isVariable: false, sortOrder: 13 },
-    { name: "Прочие расходы", isSalary: false, isVariable: false, sortOrder: 14 },
   ]
 
   for (const c of categories) {
