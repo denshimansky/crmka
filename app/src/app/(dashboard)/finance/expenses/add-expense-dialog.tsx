@@ -106,7 +106,6 @@ export function AddExpenseDialog({
   const [amount, setAmount] = useState("")
   const [date, setDate] = useState(todayIso)
   const [comment, setComment] = useState("")
-  const [isVariable, setIsVariable] = useState(false)
   const [isRecurring, setIsRecurring] = useState(false)
   const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>("by_payment_date")
   const [singleMonth, setSingleMonth] = useState(todayMonth)
@@ -122,7 +121,6 @@ export function AddExpenseDialog({
     setAmount("")
     setDate(todayIso)
     setComment("")
-    setIsVariable(false)
     setIsRecurring(false)
     setRecognitionMode("by_payment_date")
     setSingleMonth(todayMonth)
@@ -152,11 +150,8 @@ export function AddExpenseDialog({
 
   function changeCategory(newCategoryId: string) {
     setCategoryId(newCategoryId)
-    const cat = categories.find((c) => c.id === newCategoryId)
-    // Тип расхода (постоянный/переменный) по умолчанию берём из статьи —
-    // пользователь может переопределить чекбоксом ниже.
-    setIsVariable(cat?.isVariable ?? false)
     // Канал привлечения имеет смысл только для «Маркетинг и реклама».
+    const cat = categories.find((c) => c.id === newCategoryId)
     if (cat?.name !== MARKETING_CATEGORY_NAME && leadChannelId) {
       setLeadChannelId("")
     }
@@ -200,7 +195,7 @@ export function AddExpenseDialog({
           amount: Number(amount),
           date,
           comment: comment || undefined,
-          isVariable,
+          isVariable: selectedCategory?.isVariable ?? false,
           isRecurring,
           recognitionMode,
           amortizationStartDate,
@@ -280,20 +275,6 @@ export function AddExpenseDialog({
               </SelectContent>
             </Select>
           </div>
-
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox
-              checked={isVariable}
-              onCheckedChange={(v) => setIsVariable(Boolean(v))}
-              className="mt-0.5"
-            />
-            <span>
-              <span className="font-medium">Переменный расход</span>
-              <span className="block text-xs text-muted-foreground">
-                Отмечен — переменный (распределяется по занятиям). Снят — постоянный (распределяется по выручке филиала). По умолчанию берётся из выбранной статьи.
-              </span>
-            </span>
-          </label>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

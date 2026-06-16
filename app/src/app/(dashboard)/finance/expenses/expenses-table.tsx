@@ -151,7 +151,6 @@ export function ExpensesTable({
             amount: editingExpense.amount,
             date: editingExpense.date,
             comment: editingExpense.comment,
-            isVariable: editingExpense.isVariable,
             isRecurring: editingExpense.isRecurring,
             recognitionMode: editingExpense.recognitionMode,
             amortizationMonths: editingExpense.amortizationMonths,

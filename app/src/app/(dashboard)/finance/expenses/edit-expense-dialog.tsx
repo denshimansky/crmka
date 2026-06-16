@@ -59,7 +59,6 @@ interface ExpenseData {
   amount: number
   date: string
   comment: string | null
-  isVariable: boolean
   isRecurring: boolean
   recognitionMode: RecognitionMode
   amortizationMonths: number | null
@@ -125,7 +124,6 @@ export function EditExpenseDialog({
   const [amount, setAmount] = useState(String(expense.amount))
   const [date, setDate] = useState(expense.date)
   const [comment, setComment] = useState(expense.comment || "")
-  const [isVariable, setIsVariable] = useState(expense.isVariable)
   const [isRecurring, setIsRecurring] = useState(expense.isRecurring)
   const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>(expense.recognitionMode)
   const [singleMonth, setSingleMonth] = useState(initialMonth)
@@ -157,9 +155,6 @@ export function EditExpenseDialog({
   function changeCategory(newCategoryId: string) {
     setCategoryId(newCategoryId)
     const cat = categories.find((c) => c.id === newCategoryId)
-    // При смене статьи подставляем её тип расхода как значение по умолчанию —
-    // чекбокс ниже позволяет переопределить.
-    setIsVariable(cat?.isVariable ?? false)
     if (cat?.name !== MARKETING_CATEGORY_NAME && leadChannelId) {
       setLeadChannelId("")
     }
@@ -203,7 +198,6 @@ export function EditExpenseDialog({
           amount: Number(amount),
           date,
           comment: comment || undefined,
-          isVariable,
           isRecurring,
           recognitionMode,
           amortizationStartDate,
@@ -293,20 +287,6 @@ export function EditExpenseDialog({
               </SelectContent>
             </Select>
           </div>
-
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox
-              checked={isVariable}
-              onCheckedChange={(v) => setIsVariable(Boolean(v))}
-              className="mt-0.5"
-            />
-            <span>
-              <span className="font-medium">Переменный расход</span>
-              <span className="block text-xs text-muted-foreground">
-                Отмечен — переменный (распределяется по занятиям). Снят — постоянный (распределяется по выручке филиала). По умолчанию берётся из выбранной статьи.
-              </span>
-            </span>
-          </label>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
