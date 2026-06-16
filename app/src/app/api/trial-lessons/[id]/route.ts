@@ -59,6 +59,7 @@ async function computeTrialPay(
 // PATCH /api/trial-lessons/[id] — изменить статус, флаг оплаты инструктору
 // или отметку «подтвердили пробное» (confirmed — без побочных эффектов)
 // attended → создаёт Attendance(isTrial=true), переводит Ward.salesStage в trial_attended (если ещё trial_scheduled)
+// scheduled (сброс отметки) → удаляет Attendance + откатывает заявку trial_attended → trial_scheduled
 // no_show / cancelled → удаляет Attendance + закрывает автозадачу-напоминание
 // Изменение instructorPayEnabled — обновляет TrialLesson и (если уже attended) пересчитывает Attendance
 export async function PATCH(
@@ -152,6 +153,32 @@ export async function PATCH(
           completedBy: session.user.employeeId ?? undefined,
         },
       })
+    }
+
+    // Сброс отметки («Не отмечен») откатывает заявку с «Прошёл пробное»
+    // обратно на «Пробное записано» — если на этой же заявке не осталось
+    // других отмеченных («attended») пробных. awaiting_payment и закрытые
+    // заявки не трогаем (stage-фильтр): их уже двинули дальше вручную.
+    if (status === "scheduled" && trial.applicationId) {
+      const otherAttendedTrials = await tx.trialLesson.count({
+        where: {
+          tenantId,
+          applicationId: trial.applicationId,
+          id: { not: id },
+          status: "attended",
+        },
+      })
+      if (otherAttendedTrials === 0) {
+        await tx.application.updateMany({
+          where: {
+            id: trial.applicationId,
+            tenantId,
+            status: "active",
+            stage: "trial_attended",
+          },
+          data: { stage: "trial_scheduled" },
+        })
+      }
     }
 
     // Отмена пробного возвращает заявку на этап «Заявка» (из «Пробное»/«Прошёл пробное»).
@@ -276,7 +303,7 @@ export async function PATCH(
       effectiveStatus === "scheduled"
     ) {
       // scheduled здесь означает «сброс отметки» — удаляем созданную ранее Attendance,
-      // если она есть. Лид-статус специально не откатываем (его уже могли двинуть дальше).
+      // если она есть. Откат этапа заявки trial_attended → trial_scheduled выполнен выше.
       await tx.attendance.deleteMany({
         where: {
           tenantId,
