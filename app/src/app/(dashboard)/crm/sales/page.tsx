@@ -296,6 +296,7 @@ export default async function SalesPage({
           },
           orderBy: { createdAt: "desc" },
           select: {
+            id: true,
             wardId: true,
             directionId: true,
             startDate: true,
@@ -329,6 +330,7 @@ export default async function SalesPage({
         directionName: a.direction?.name ?? null,
         groupId: sub?.group?.id ?? null,
         groupOrTimeLabel: sub?.group?.name ?? null,
+        subscriptionId: sub?.id ?? null,
         scheduledDate: null,
         startTime: null,
         lessonId: null,

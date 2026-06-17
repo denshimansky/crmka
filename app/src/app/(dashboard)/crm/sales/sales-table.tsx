@@ -27,6 +27,7 @@ import {
 import { ProcessApplicationDialog } from "../_components/process-application-dialog"
 import { TrialLessonDialog } from "../_components/trial-lesson-dialog"
 import { AwaitingPaymentDialog } from "../_components/awaiting-payment-dialog"
+import { AwaitingFirstPaidDateCell } from "./awaiting-first-paid-date-cell"
 import { formatWardName } from "@/lib/format-name"
 import { truncateGroupName } from "@/lib/format-group"
 import { EditSalesRowDialog } from "./edit-sales-row-dialog"
@@ -53,6 +54,8 @@ export interface SalesRow {
   directionName: string | null
   groupId: string | null
   groupOrTimeLabel: string | null
+  /** id pending-абонемента (вкладка «Ожидаем оплату») — для пересчёта по дате 1-го платного. */
+  subscriptionId?: string | null
   scheduledDate: string | null
   /** HH:MM начала пробного (если задано) — для отображения «ДД.ММ.ГГГГ HH:MM» в столбце «Дата пробного». */
   startTime?: string | null
@@ -530,10 +533,18 @@ export function SalesTable({
                 <TableCell className="text-sm">{r.phone || "—"}</TableCell>
                 {(tab === "trial_done" || tab === "awaiting_payment") && (
                   <TableCell>
-                    <EditableDateCell
-                      initialValue={r.firstPaidLessonDate ? r.firstPaidLessonDate.slice(0, 10) : ""}
-                      endpoint={{ url: `/api/clients/${r.clientId}`, field: "firstPaidLessonDate" }}
-                    />
+                    {tab === "awaiting_payment" && r.subscriptionId && r.groupId ? (
+                      <AwaitingFirstPaidDateCell
+                        subscriptionId={r.subscriptionId}
+                        groupId={r.groupId}
+                        initialDate={r.firstPaidLessonDate ? r.firstPaidLessonDate.slice(0, 10) : ""}
+                      />
+                    ) : (
+                      <EditableDateCell
+                        initialValue={r.firstPaidLessonDate ? r.firstPaidLessonDate.slice(0, 10) : ""}
+                        endpoint={{ url: `/api/clients/${r.clientId}`, field: "firstPaidLessonDate" }}
+                      />
+                    )}
                   </TableCell>
                 )}
                 {tab === "application" && <TableCell className="text-sm">{r.channelName || "—"}</TableCell>}
