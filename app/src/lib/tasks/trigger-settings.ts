@@ -18,6 +18,7 @@ export interface TriggerSetting {
 export const MANAGED_TRIGGERS: TaskAutoTrigger[] = [
   "contact_date",
   "promised_payment",
+  "first_paid_reminder",
   "birthday",
   "unmarked_lesson",
   "payment_due",
@@ -27,6 +28,7 @@ export const MANAGED_TRIGGERS: TaskAutoTrigger[] = [
 export const TRIGGER_LABEL: Record<TaskAutoTrigger, string> = {
   contact_date: "Дата следующего контакта",
   promised_payment: "Обещанная дата оплаты",
+  first_paid_reminder: "За день до 1-го платного (не оплачен абонемент)",
   birthday: "День рождения подопечного",
   unmarked_lesson: "Неотмеченные занятия (вчера)",
   payment_due: "Долгое ожидание оплаты (>3 дней)",

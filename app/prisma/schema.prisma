@@ -1404,6 +1404,7 @@ enum TaskAutoTrigger {
   unmarked_lesson
   missed_makeup
   no_show_review
+  first_paid_reminder
 }
 
 enum TaskStatus {

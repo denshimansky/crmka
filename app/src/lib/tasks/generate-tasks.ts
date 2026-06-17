@@ -235,5 +235,55 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
     }
   }
 
+  // 7. За день до первого платного занятия — напоминание про неоплаченный абонемент.
+  //    Берём pending-абонементы с долгом (balance > 0), у которых первое платное
+  //    занятие (startDate) — завтра. Дедуп по маркеру [sub=id] (у Task нет
+  //    subscriptionId): одна задача на абонемент.
+  if (isTriggerEnabled("first_paid_reminder", triggerSettings, todayLocal)) {
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const unpaidStartingTomorrow = await db.subscription.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        status: "pending",
+        balance: { gt: 0 },
+        startDate: tomorrow,
+      },
+      select: {
+        id: true,
+        clientId: true,
+        client: { select: { firstName: true, lastName: true } },
+        ward: { select: { firstName: true, lastName: true } },
+        direction: { select: { name: true } },
+      },
+    })
+    for (const s of unpaidStartingTomorrow) {
+      const marker = `[sub=${s.id}]`
+      const exists = await db.task.findFirst({
+        where: { tenantId, autoTrigger: "first_paid_reminder", deletedAt: null, description: { contains: marker } },
+      })
+      if (exists) continue
+
+      const parentName = [s.client.lastName, s.client.firstName].filter(Boolean).join(" ")
+      const childName = s.ward
+        ? [s.ward.lastName, s.ward.firstName].filter(Boolean).join(" ")
+        : parentName
+      await db.task.create({
+        data: {
+          tenantId,
+          title: `Завтра 1-е платное, не оплачено: ${childName || parentName || "Без имени"}`,
+          description:
+            `Абонемент по направлению «${s.direction.name}» не оплачен, ` +
+            `первое платное занятие завтра. Свяжитесь с родителем (${parentName || "—"}) ` +
+            `насчёт оплаты. ${marker}`,
+          type: "auto", autoTrigger: "first_paid_reminder", status: "pending",
+          dueDate: today, assignedTo: defaultAssignee.id, clientId: s.clientId,
+        },
+      })
+      created++
+    }
+  }
+
   return created
 }
