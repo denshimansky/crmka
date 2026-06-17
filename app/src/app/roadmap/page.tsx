@@ -38,14 +38,14 @@ const nextTasks: NextTask[] = [
 ]
 
 // ═══════════════════════════════════════════
-// МОДУЛИ — актуальный статус на 15.05.2026
+// МОДУЛИ — актуальный статус на 17.06.2026
 // ═══════════════════════════════════════════
 const modules: RoadmapModule[] = [
   {
     name: "CRM",
     icon: Users,
-    done: 38,
-    total: 38,
+    done: 41,
+    total: 41,
     items: [
       { id: "CRM-01", text: "Карточка лида/клиента", status: "done" },
       { id: "CRM-02", text: "История коммуникации (лента)", status: "done" },
@@ -59,9 +59,12 @@ const modules: RoadmapModule[] = [
       { id: "CRM-17", text: "Отчёт «Допродажи и возвраты»", status: "done" },
       { id: "CRM-18", text: "Автосортировка лидов", status: "done" },
       { id: "CRM-22", text: "Быстрое создание лида «+»", status: "done" },
-      { id: "CRM-19", text: "Сегментация клиентов", status: "done" },
+      { id: "CRM-19", text: "Сегментация клиентов (пороги по сумме/времени)", status: "done" },
       { id: "CRM-20", text: "Модуль обзвона", status: "done" },
-      { id: "CRM-13…38", text: "23 отчёта CRM", status: "done" },
+      { id: "CRM-23", text: "Контакты/Продажи: воронка по заявке (Application.stage)", status: "done" },
+      { id: "CRM-24", text: "Реестр «Дети» + карточка ребёнка с историей", status: "done" },
+      { id: "CRM-25", text: "Запрет дублей клиентов/заявок/абонементов", status: "done" },
+      { id: "CRM-13…38", text: "Фронты всех отчётов (52 страницы) — API-only закрыты", status: "done" },
     ],
   },
   {
@@ -80,43 +83,50 @@ const modules: RoadmapModule[] = [
       { id: "SCH-08", text: "Замена инструктора + ЗП заменяющему", status: "done" },
       { id: "SCH-09", text: "Массовая отмена занятий (праздники)", status: "done" },
       { id: "SCH-11", text: "Разовые занятия / отработки", status: "done" },
-      { id: "SCH-13", text: "Массовое копирование расписания", status: "future" },
-      { id: "SCH-14", text: "Индивидуальное расписание", status: "future" },
-      { id: "SCH-17", text: "Печать расписания", status: "future" },
+      { id: "SCH-12", text: "Перегенерация расписания при смене дат группы", status: "done" },
+      { id: "SCH-13", text: "Массовое копирование расписания (месяц)", status: "done" },
+      { id: "SCH-14", text: "Индивидуальное расписание ученика", status: "done" },
+      { id: "SCH-17", text: "Печать расписания", status: "done" },
     ],
   },
   {
-    name: "Посещения",
+    name: "Посещения и Занятия",
     icon: CheckCircle2,
-    done: 14,
-    total: 14,
+    done: 18,
+    total: 18,
     items: [
       { id: "ATT-01…08", text: "Отметка, автосписание, закрытие периода", status: "done" },
       { id: "ATT-09", text: "Отчёт «Неотмеченные дети»", status: "done" },
       { id: "ATT-10", text: "Отчёт «Потенциальный отток»", status: "done" },
       { id: "ATT-13…14", text: "Тема занятия, ДЗ, lesson card", status: "done" },
+      { id: "ATT-15", text: "Настраиваемая матрица видов посещений (Ф1)", status: "done" },
+      { id: "ATT-16", text: "chargePercent — частичное списание с возвратом (Ф2)", status: "done" },
+      { id: "LSN-01", text: "Раздел «Занятия» + сетка посещений по группам и дням", status: "done" },
+      { id: "LSN-02", text: "Отчёт «Пропуски» + добавление ученика на занятие", status: "done" },
     ],
   },
   {
-    name: "Абонементы",
+    name: "Абонементы и Скидки",
     icon: CreditCard,
-    done: 14,
-    total: 14,
+    done: 18,
+    total: 19,
     items: [
-      { id: "SUB-01…06", text: "Календарный тип, баланс, скидки, отчисление", status: "done" },
-      { id: "SUB-07", text: "Связанная скидка: пересчёт", status: "done" },
-      { id: "SUB-11", text: "Возврат абонемента (полный flow)", status: "done" },
+      { id: "SUB-01…06", text: "Календарный тип, баланс, отчисление", status: "done" },
+      { id: "SUB-11", text: "Закрытие абонемента (возврат на баланс клиента)", status: "done" },
       { id: "SUB-12", text: "Перенос баланса", status: "done" },
-      { id: "SUB-13", text: "Тип «Фиксированный»", status: "future" },
-      { id: "SUB-14", text: "Тип «Пакетный»", status: "future" },
-      { id: "SUB-15", text: "Разовая услуга", status: "future" },
+      { id: "SUB-14", text: "Тип «Пакетный» (UI + бизнес-логика + отчёты)", status: "done" },
+      { id: "SUB-15", text: "Разовое посещение (single_visit_price)", status: "done" },
+      { id: "SUB-16", text: "Плоский список /crm/subscriptions + массовая выписка", status: "done" },
+      { id: "DISC-01", text: "Скидки v2: автоскидка за второй абонемент, скидка в цене занятия", status: "done" },
+      { id: "DISC-02", text: "Шаблоны скидок с ручным включением + разовые маркетинговые бонусы", status: "done" },
+      { id: "SUB-13", text: "Тип «Фиксированный» (enum есть, UI «в разработке»)", status: "partial" },
     ],
   },
   {
     name: "Финансы",
     icon: BarChart3,
-    done: 31,
-    total: 31,
+    done: 37,
+    total: 37,
     items: [
       { id: "FIN-01…14", text: "Расходы, ДДС, кассы, P&L, оплаты, СБП", status: "done" },
       { id: "FIN-15", text: "P&L по направлениям (формат B)", status: "done" },
@@ -125,29 +135,40 @@ const modules: RoadmapModule[] = [
       { id: "FIN-21", text: "Онлайн-оплата: webhook (idempotency, IP whitelist)", status: "done" },
       { id: "FIN-26", text: "Drill-down в отчётах", status: "done" },
       { id: "FIN-27", text: "Экспорт Excel", status: "done" },
+      { id: "FIN-28", text: "Фундамент ОПИУ/ДДС: режимы признания расхода, раскладка на N мес", status: "done" },
+      { id: "FIN-29", text: "Единый ledger баланса клиента (ClientBalanceTransaction)", status: "done" },
+      { id: "FIN-30", text: "Ручная оплата абонементов (отказ от автозачисления, распределение)", status: "done" },
+      { id: "FIN-31", text: "Источник долга в «Должниках»; две вкладки (плановый/фактический)", status: "done" },
+      { id: "FIN-32", text: "Расходы по направлению/каналу — прямое отнесение в P&L", status: "done" },
+      { id: "FIN-33", text: "Документ выплаты ЗП с разбивкой по сотрудникам/направлениям/счетам", status: "done" },
     ],
   },
   {
     name: "Зарплата",
     icon: CreditCard,
-    done: 17,
-    total: 17,
+    done: 18,
+    total: 19,
     items: [
       { id: "SAL-01…09", text: "3 схемы ЗП, автоначисление, премии, бонус админа", status: "done" },
       { id: "SAL-10", text: "Оплата пробных (payForTrialLessons)", status: "done" },
       { id: "SAL-11", text: "ЗП при замене инструктора", status: "done" },
-      { id: "SAL-11a", text: "Документы сотрудника (PDF)", status: "future" },
       { id: "SAL-11b", text: "Корректировки прошлых периодов", status: "done" },
+      { id: "SAL-12", text: "Расширенные схемы ставок: процент, плавающая матрица, ставка на группу", status: "done" },
+      { id: "SAL-13", text: "Авто-корректировка при откате выплаченных отметок (SalaryAdjustment)", status: "done" },
+      { id: "SAL-11a", text: "Документы сотрудника (PDF, загрузка файлов)", status: "future" },
     ],
   },
   {
     name: "Дашборд + Задачи",
     icon: Rocket,
-    done: 7,
-    total: 7,
+    done: 4,
+    total: 5,
     items: [
-      { id: "DSH", text: "8 виджетов, задачи (CRUD + автотриггеры)", status: "done" },
-      { id: "DSH-01", text: "Настраиваемый дашборд (видимость + порядок виджетов)", status: "done" },
+      { id: "DSH", text: "Задачи (CRUD + 5 автотриггеров)", status: "done" },
+      { id: "DSH-02", text: "15+ виджетов: прогноз прибыли, активные абонементы, остатки денег, дни рождения, не пришли на пробник…", status: "done" },
+      { id: "DSH-03", text: "RBAC: инструктор — главная без виджетов, только свои занятия", status: "done" },
+      { id: "DSH-01", text: "Видимость + ручной порядок виджетов (localStorage)", status: "done" },
+      { id: "DSH-04", text: "Drag&drop виджетов мышью", status: "future" },
     ],
   },
   {
@@ -176,17 +197,19 @@ const modules: RoadmapModule[] = [
   {
     name: "Администрирование",
     icon: Settings,
-    done: 14,
-    total: 14,
+    done: 17,
+    total: 17,
     items: [
       { id: "ADM-01…02", text: "Мультитенант, RLS, 5 ролей", status: "done" },
       { id: "ADM-03", text: "Настройка прав ролей (матрица)", status: "done" },
+      { id: "ADM-04", text: "Разграничение доступа по филиалам (admin + instructor)", status: "done" },
       { id: "ADM-05", text: "Wizard онбординга (6 шагов)", status: "done" },
       { id: "ADM-08", text: "Справочник каналов", status: "done" },
       { id: "ADM-09", text: "Справочник причин отчисления", status: "done" },
       { id: "ADM-09a", text: "Справочник причин пропусков", status: "done" },
-      { id: "ADM-11", text: "Импорт клиентов (CSV/XLSX)", status: "done" },
-      { id: "ADM-14", text: "Кастомные названия ролей", status: "future" },
+      { id: "ADM-11", text: "Импорт клиентов + синхронизация остатков (XLSX)", status: "done" },
+      { id: "ADM-14", text: "Кастомные названия ролей (roleDisplayNames)", status: "done" },
+      { id: "ADM-15", text: "Маскирование телефонов у инструктора (жёсткая политика, без настройки)", status: "done" },
     ],
   },
   {
@@ -245,39 +268,52 @@ const phases: Phase[] = [
   {
     name: "Фаза 2: Стабилизация и пилот",
     period: "Май 2026",
-    status: "active",
+    status: "done",
     tasks: [
-      { text: "Хлебные крошки", status: "done" },
-      { text: "PWA (service worker + manifest)", status: "done" },
+      { text: "Хлебные крошки, PWA (service worker + manifest)", status: "done" },
       { text: "Security hardening (rate-limit, JWT, helmet)", status: "done" },
       { text: "Бэкапы БД + Telegram-алерты health-check", status: "done" },
       { text: "AI-чат для партнёров", status: "done" },
-      { text: "/testing — 220+ тест-кейсов (22 модуля)", status: "done" },
-      { text: "/bugs — форма репортинга багов", status: "done" },
-      { text: "/dev — служебная страница для разработки", status: "done" },
+      { text: "/testing (220+ кейсов), /bugs, /dev", status: "done" },
       { text: "Почтовый сервер + восстановление пароля по email", status: "done" },
-      { text: "Лендинг /lp (черновик)", status: "partial" },
-      { text: "Глобальный переключатель филиала", status: "not_done" },
-      { text: "Баги от пилотных партнёров", status: "not_done" },
-      { text: "Оптимизация производительности", status: "not_done" },
+      { text: "Лендинг /lp (готов)", status: "done" },
+      { text: "Матрица видов посещений + расширенные ставки ЗП (Ф1–Ф3)", status: "done" },
+      { text: "Реестр «Дети», история ребёнка, безопасность телефонов (Ф5–Ф6)", status: "done" },
     ],
   },
   {
-    name: "Фаза 3: Запуск MVP",
+    name: "Фаза 3: Финансы, отчёты, прод-кандидат",
     period: "Июнь 2026",
+    status: "active",
+    tasks: [
+      { text: "Фундамент ОПИУ/ДДС + режимы признания расхода", status: "done" },
+      { text: "Пакетные абонементы (SUB-14) + плоский список /crm/subscriptions", status: "done" },
+      { text: "Скидки v2 + ручная оплата абонементов (отказ от автозачисления)", status: "done" },
+      { text: "Откат модели «баланс-долг»: clientBalance = деньги + единый ledger", status: "done" },
+      { text: "Дашборд: 15+ виджетов, ручной порядок", status: "done" },
+      { text: "Фронты всех отчётов (52) — API-only закрыты", status: "done" },
+      { text: "Раздел «Занятия» + отчёт «Пропуски»", status: "done" },
+      { text: "Прод-кандидат msk1.umnayacrm.ru (Timeweb) + CI/Telegram", status: "done" },
+      { text: "Глобальный переключатель филиала в шапке", status: "not_done" },
+      { text: "Оптимизация производительности при 500 клиентах", status: "not_done" },
+    ],
+  },
+  {
+    name: "Фаза 4: Запуск MVP",
+    period: "Июнь–Июль 2026",
     status: "upcoming",
     tasks: [
       { text: "Миграция 20 текущих клиентов из 1С", status: "not_done" },
-      { text: "Домен app.umnayacrm.ru → prod", status: "not_done" },
-      { text: "Документация для партнёров", status: "not_done" },
-      { text: "Мониторинг и алерты (prod)", status: "not_done" },
+      { text: "Боевая настройка почтового сервера (DNS, порт 25, DKIM)", status: "not_done" },
+      { text: "Перенос домена app.umnayacrm.ru на прод + вывод Hetzner", status: "not_done" },
+      { text: "Документация для партнёров, мониторинг и алерты (prod)", status: "not_done" },
     ],
   },
 ]
 
 const postMvp = [
-  { version: "v1.1", items: ["Массовое копирование расписания", "Абонемент тип «Фикс»", "Печать расписания", "Документы сотрудника (PDF)", "Индивидуальное расписание ученика", "Кастомные названия ролей"] },
-  { version: "v2.0", items: ["Абонемент тип «Пакетный»", "Разовая услуга", "Настраиваемый дашборд (drag & drop)", "Телеграм-бот уведомлений", "Интеграция с Мой Класс / AmoCRM"] },
+  { version: "Ближайшее", items: ["Абонемент тип «Фикс» (включить выключенный UI)", "Документы сотрудника (PDF, загрузка файлов)", "Cron автоматической массовой выписки 1-го числа", "Глобальный переключатель филиала в шапке", "Настоящая пагинация /crm/subscriptions"] },
+  { version: "После MVP", items: ["Drag&drop виджетов дашборда", "Телеграм-бот уведомлений", "Интеграция с Мой Класс / AmoCRM", "Печать расписания — расширенные форматы"] },
 ]
 
 const statusConfig: Record<ItemStatus, { label: string; color: string; bg: string }> = {
@@ -349,7 +385,7 @@ export default function RoadmapPage() {
       <div>
         <h1 className="text-2xl font-bold">Roadmap</h1>
         <p className="text-sm text-muted-foreground">
-          Умная CRM v1.5.6-alpha — план разработки до MVP (1 июня 2026)
+          Умная CRM v1.6.0-alpha — статус на 17 июня 2026, подготовка к пилоту
         </p>
       </div>
 
@@ -364,7 +400,7 @@ export default function RoadmapPage() {
               </div>
               <div className="text-right text-sm text-muted-foreground">
                 <p>Старт: 25 марта 2026</p>
-                <p className="font-medium text-foreground">Дедлайн: 1 июня 2026</p>
+                <p className="font-medium text-foreground">Жёсткий дедлайн: 1 августа 2026</p>
               </div>
             </div>
             <div className="h-4 rounded-full bg-muted">
@@ -383,10 +419,10 @@ export default function RoadmapPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { label: "Страниц", value: "70" },
-          { label: "API endpoints", value: "169" },
-          { label: "Моделей БД", value: "57" },
-          { label: "Тестовых файлов", value: "27" },
+          { label: "Страниц", value: "132" },
+          { label: "API endpoints", value: "222" },
+          { label: "Моделей БД", value: "65" },
+          { label: "Отчётов", value: "52" },
         ].map((s) => (
           <Card key={s.label}>
             <CardContent className="pt-4 pb-4">
@@ -533,7 +569,7 @@ export default function RoadmapPage() {
       </CollapsibleSection>
 
       {/* Tests */}
-      <CollapsibleSection title="Тесты" icon={FileText} badge="27 файлов / 9 500+ строк" defaultOpen={false}>
+      <CollapsibleSection title="Тесты" icon={FileText} badge="28 файлов / 9 500+ строк" defaultOpen={false}>
         <Card>
           <CardContent className="pt-4">
             <div className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
