@@ -21,6 +21,7 @@ import {
 } from "@/lib/segmentation"
 import { PortalLinkButton } from "./portal-link-button"
 import { ClientDiscountSelect } from "./client-discount-select"
+import { EditableDateCell } from "./editable-cell"
 import { BonusDiscountDialog } from "./bonus-discount-dialog"
 import { QuickRenewSubscriptionDialog } from "./quick-renew-subscription-dialog"
 import { CreateApplicationDialog } from "./create-application-dialog"
@@ -195,6 +196,14 @@ export async function ClientCardContent({
   const assigneeName = client.assignee
     ? [client.assignee.lastName, client.assignee.firstName].filter(Boolean).join(" ")
     : "—"
+
+  // Дата следующей связи просрочена, если она строго раньше сегодняшнего дня
+  // (сравниваем по UTC-полуночи: nextContactDate — @db.Date, хранится как 00:00 UTC).
+  const todayDateOnly = new Date(
+    Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()),
+  )
+  const nextContactOverdue =
+    !!client.nextContactDate && client.nextContactDate < todayDateOnly
 
   // Подопечные с активной подпиской выходят из воронки продаж — селектор
   // для них скрываем (см. WardSalesStageActions).
@@ -577,6 +586,32 @@ export async function ClientCardContent({
               </div>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
+              {/* Дата следующей связи — редактируется инлайн. По наступлении даты
+                  автотриггер «contact_date» создаёт задачу «Позвонить» (см.
+                  lib/tasks/generate-tasks). Просроченную дату подсвечиваем красным. */}
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={
+                    nextContactOverdue
+                      ? "font-medium text-destructive"
+                      : "text-muted-foreground"
+                  }
+                >
+                  Дата следующей связи
+                </span>
+                <EditableDateCell
+                  initialValue={
+                    client.nextContactDate
+                      ? client.nextContactDate.toISOString().slice(0, 10)
+                      : ""
+                  }
+                  endpoint={{
+                    url: `/api/clients/${client.id}`,
+                    field: "nextContactDate",
+                  }}
+                  className="h-8 w-[150px] text-xs"
+                />
+              </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Ответственный</span>
                 <span>{assigneeName}</span>
