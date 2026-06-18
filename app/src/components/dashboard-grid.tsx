@@ -23,6 +23,7 @@ const WIDGET_LAYOUT: Record<string, "full" | "compact"> = {
   cashBalances: "compact",
   birthdays: "compact",
   workedSubs: "compact",
+  plannedExpenses: "full",
 }
 
 interface DashboardGridProps {

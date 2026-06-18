@@ -25,6 +25,7 @@ import { DashboardTasksTable, type DashboardTaskRow } from "@/components/dashboa
 import { computeMonthlySalaryForecast } from "@/lib/salary/forecast-month"
 import { computeActiveSubscriptionsByBranch } from "@/lib/dashboard/active-subscriptions"
 import { computeUpcomingBirthdays } from "@/lib/dashboard/upcoming-birthdays"
+import { computePlannedExpensesWithFact } from "@/lib/finance/planned-expenses"
 import { computeSalesFunnel, summarizeSalesFunnel } from "@/lib/reports/sales-funnel"
 import { branchScopeFromSession } from "@/lib/branch-scope"
 
@@ -498,6 +499,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     { subAmount: 0, worked: 0 }
   )
   const fmtRub = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n))
+
+  // === ПЛАНОВЫЕ РАСХОДЫ (план vs факт по статьям за месяц) ===
+  // Тот же расчёт, что и на странице /finance/planned-expenses (общий helper):
+  // план — PlannedExpense за месяц, факт — сумма Expense той же категории/филиала.
+  const plannedExpenses = await computePlannedExpensesWithFact(db, { tenantId, year, month })
+  const plannedTotalPlanned = plannedExpenses.reduce((s, i) => s + i.plannedAmount, 0)
+  const plannedTotalActual = plannedExpenses.reduce((s, i) => s + i.actualAmount, 0)
+  const plannedDeviation = plannedTotalActual - plannedTotalPlanned
+  const plannedDeviationPct =
+    plannedTotalPlanned > 0
+      ? ((plannedDeviation / plannedTotalPlanned) * 100).toFixed(1)
+      : "0"
+  // Деньги в виджете — как на странице: без округления, с символом ₽.
+  const fmtPlanMoney = (n: number) => new Intl.NumberFormat("ru-RU").format(n) + " ₽"
 
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
@@ -980,6 +995,119 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     </Card>
   )
 
+  const plannedExpensesWidget = (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">
+          <Link href="/finance/planned-expenses" className="hover:underline">
+            Плановые расходы
+          </Link>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          План vs факт по статьям расходов за месяц
+        </p>
+      </CardHeader>
+      <CardContent>
+        {plannedExpenses.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Нет плановых расходов за выбранный месяц
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Категория</TableHead>
+                <TableHead>Филиал</TableHead>
+                <TableHead className="text-right">План</TableHead>
+                <TableHead className="text-right">Факт</TableHead>
+                <TableHead className="text-right">Отклонение</TableHead>
+                <TableHead className="text-right">%</TableHead>
+                <TableHead>Комментарий</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {plannedExpenses.map((item) => {
+                const diff = item.actualAmount - item.plannedAmount
+                const pct =
+                  item.plannedAmount > 0
+                    ? ((diff / item.plannedAmount) * 100).toFixed(1)
+                    : "—"
+                const isOver = diff > 0
+                const isUnder = diff < 0
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell className="font-medium">{item.categoryName}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {item.branchName ?? "Общее"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {fmtPlanMoney(item.plannedAmount)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {fmtPlanMoney(item.actualAmount)}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right font-medium tabular-nums ${
+                        isOver ? "text-red-600" : isUnder ? "text-green-600" : ""
+                      }`}
+                    >
+                      {diff === 0 ? "—" : `${diff > 0 ? "+" : ""}${fmtPlanMoney(diff)}`}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right tabular-nums ${
+                        isOver ? "text-red-600" : isUnder ? "text-green-600" : ""
+                      }`}
+                    >
+                      {pct === "—" ? "—" : `${Number(pct) > 0 ? "+" : ""}${pct}%`}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground max-w-[150px] truncate">
+                      {item.comment || "—"}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+              <TableRow className="border-t-2 bg-muted/30 font-semibold">
+                <TableCell>Итого</TableCell>
+                <TableCell />
+                <TableCell className="text-right tabular-nums">
+                  {fmtPlanMoney(plannedTotalPlanned)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {fmtPlanMoney(plannedTotalActual)}
+                </TableCell>
+                <TableCell
+                  className={`text-right tabular-nums ${
+                    plannedDeviation > 0
+                      ? "text-red-600"
+                      : plannedDeviation < 0
+                        ? "text-green-600"
+                        : ""
+                  }`}
+                >
+                  {plannedDeviation === 0
+                    ? "—"
+                    : `${plannedDeviation > 0 ? "+" : ""}${fmtPlanMoney(plannedDeviation)}`}
+                </TableCell>
+                <TableCell
+                  className={`text-right tabular-nums ${
+                    plannedDeviation > 0
+                      ? "text-red-600"
+                      : plannedDeviation < 0
+                        ? "text-green-600"
+                        : ""
+                  }`}
+                >
+                  {plannedDeviationPct}%
+                </TableCell>
+                <TableCell />
+              </TableRow>
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+
   return (
     // pb-24 — нижний отступ, чтобы плавающая иконка AI-агента не перекрывала
     // данные последних виджетов при прокрутке до конца.
@@ -1010,6 +1138,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           cashBalances: cashBalancesWidget,
           birthdays: birthdaysWidget,
           workedSubs: workedSubsWidget,
+          plannedExpenses: plannedExpensesWidget,
         }}
       />
     </div>

@@ -36,6 +36,7 @@ export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "cashBalances", label: "Остатки денег", visible: true },
   { id: "birthdays", label: "Дни рождения", visible: true },
   { id: "workedSubs", label: "Отработанные абонементы", visible: true },
+  { id: "plannedExpenses", label: "Плановые расходы", visible: true },
 ]
 
 // Лимит = число существующих виджетов: включить можно все, счётчик «N из N».
