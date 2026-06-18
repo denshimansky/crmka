@@ -7,8 +7,10 @@ const DAILY_LIMIT = 50
 
 /**
  * POST /api/ai/chat
- * AI-ассистент CRM. Собирает контекст из БД и отвечает через OpenAI gpt-5.4-mini
- * (Chat Completions API). Модель можно переопределить через env OPENAI_MODEL.
+ * AI-ассистент CRM. Собирает контекст из БД и отвечает через выбранного провайдера.
+ * Провайдер выбирается env AI_PROVIDER: "anthropic" (по умолчанию, Claude Haiku 4.5
+ * через Messages API) или "openai" (gpt-5.4-mini через Chat Completions). Модель и
+ * base URL каждого провайдера переопределяются через env (см. ниже).
  */
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -36,7 +38,12 @@ export async function POST(req: NextRequest) {
     }, { status: 429 })
   }
 
-  const apiKey = process.env.OPENAI_API_KEY
+  // Провайдер: anthropic (Claude, по умолчанию) или openai. Релей на Hetzner
+  // умеет оба (/anthropic/ и /oai/), переключение — только через env, без правок кода.
+  const provider = (process.env.AI_PROVIDER || "anthropic").toLowerCase()
+  const apiKey = provider === "openai"
+    ? process.env.OPENAI_API_KEY
+    : process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     return NextResponse.json({
       reply: "AI-ассистент временно недоступен. Обратитесь к администратору.",
@@ -84,51 +91,87 @@ ${navMap}
 ДАННЫЕ ОРГАНИЗАЦИИ:
 ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
 
-    // gpt-5.4-mini — оптимум цена/качество для этой задачи (RAG-ответ по
-    // готовому контексту). Можно переопределить через env: gpt-5.4-nano —
-    // дешевле, gpt-5.5 — премиум.
-    const model = process.env.OPENAI_MODEL || "gpt-5.4-mini"
+    const history = (body.history || []).slice(-6)
+    let reply: string
 
-    // База OpenAI API (с /v1, как у официального SDK). По умолчанию api.openai.com.
-    // OpenAI блокирует часть РФ-IP (в т.ч. наш MSK-сервер) — на таком хосте задаём
-    // OPENAI_BASE_URL на совместимый шлюз/релей с незаблокированным egress
-    // (напр. через сервер в Финляндии). Значение должно оканчиваться на /v1.
-    const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "")
+    if (provider === "openai") {
+      // gpt-5.4-mini — оптимум цена/качество. Переопределяется через OPENAI_MODEL
+      // (gpt-5.4-nano дешевле, gpt-5.5 премиум).
+      const model = process.env.OPENAI_MODEL || "gpt-5.4-mini"
+      // База OpenAI API (с /v1, как у официального SDK). По умолчанию api.openai.com.
+      // Для заблокированного хоста — OPENAI_BASE_URL на релей (напр. .../oai/v1).
+      const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "")
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        // GPT-5.x — reasoning-модель: max_completion_tokens покрывает и скрытые
-        // reasoning-токены, поэтому лимит выше прежних 1024 (иначе видимый ответ
-        // может обрезаться). reasoning_effort=low — глубокое рассуждение тут не
-        // нужно, это быстрее и дешевле. temperature/top_p и прочие
-        // sampling-параметры reasoning-модели не поддерживают — не шлём.
-        max_completion_tokens: 2000,
-        reasoning_effort: "low",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...(body.history || []).slice(-6),
-          { role: "user", content: message },
-        ],
-      }),
-    })
-
-    if (!response.ok) {
-      const errBody = await response.text()
-      console.error("[ai/chat] OpenAI API error:", response.status, errBody)
-      return NextResponse.json({
-        reply: "Не удалось получить ответ от AI. Попробуйте позже.",
-        remaining: DAILY_LIMIT - currentUsage,
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          // GPT-5.x — reasoning-модель: max_completion_tokens покрывает и скрытые
+          // reasoning-токены; reasoning_effort=low — глубокое рассуждение не нужно;
+          // sampling-параметры (temperature и т.п.) reasoning-модели не поддерживают.
+          model,
+          max_completion_tokens: 2000,
+          reasoning_effort: "low",
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...history,
+            { role: "user", content: message },
+          ],
+        }),
       })
-    }
 
-    const data = await response.json()
-    const reply = data.choices?.[0]?.message?.content?.trim() || "Нет ответа"
+      if (!response.ok) {
+        const errBody = await response.text()
+        console.error("[ai/chat] OpenAI API error:", response.status, errBody)
+        return NextResponse.json({
+          reply: "Не удалось получить ответ от AI. Попробуйте позже.",
+          remaining: DAILY_LIMIT - currentUsage,
+        })
+      }
+
+      const data = await response.json()
+      reply = data.choices?.[0]?.message?.content?.trim() || "Нет ответа"
+    } else {
+      // Anthropic Claude Haiku 4.5 (Messages API) — самый дешёвый/быстрый тир,
+      // достаточный для RAG-Q&A. Переопределяется через ANTHROPIC_MODEL.
+      const model = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5"
+      // База Anthropic API (без /v1, как у официального SDK — путь добавляем сами).
+      // Для заблокированного хоста — ANTHROPIC_BASE_URL на релей (напр. .../anthropic).
+      const baseUrl = (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "")
+
+      const response = await fetch(`${baseUrl}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [
+            ...history,
+            { role: "user", content: message },
+          ],
+        }),
+      })
+
+      if (!response.ok) {
+        const errBody = await response.text()
+        console.error("[ai/chat] Anthropic API error:", response.status, errBody)
+        return NextResponse.json({
+          reply: "Не удалось получить ответ от AI. Попробуйте позже.",
+          remaining: DAILY_LIMIT - currentUsage,
+        })
+      }
+
+      const data = await response.json()
+      reply = data.content?.[0]?.text?.trim() || "Нет ответа"
+    }
 
     return NextResponse.json({
       reply,
