@@ -7,7 +7,8 @@ const DAILY_LIMIT = 50
 
 /**
  * POST /api/ai/chat
- * AI-ассистент CRM. Собирает контекст из БД и отвечает через Claude Haiku.
+ * AI-ассистент CRM. Собирает контекст из БД и отвечает через OpenAI gpt-5.4-mini
+ * (Chat Completions API). Модель можно переопределить через env OPENAI_MODEL.
  */
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
     }, { status: 429 })
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     return NextResponse.json({
       reply: "AI-ассистент временно недоступен. Обратитесь к администратору.",
@@ -83,18 +84,28 @@ ${navMap}
 ДАННЫЕ ОРГАНИЗАЦИИ:
 ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    // gpt-5.4-mini — оптимум цена/качество для этой задачи (RAG-ответ по
+    // готовому контексту). Можно переопределить через env: gpt-5.4-nano —
+    // дешевле, gpt-5.5 — премиум.
+    const model = process.env.OPENAI_MODEL || "gpt-5.4-mini"
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
+        "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 1024,
-        system: systemPrompt,
+        model,
+        // GPT-5.x — reasoning-модель: max_completion_tokens покрывает и скрытые
+        // reasoning-токены, поэтому лимит выше прежних 1024 (иначе видимый ответ
+        // может обрезаться). reasoning_effort=low — глубокое рассуждение тут не
+        // нужно, это быстрее и дешевле. temperature/top_p и прочие
+        // sampling-параметры reasoning-модели не поддерживают — не шлём.
+        max_completion_tokens: 2000,
+        reasoning_effort: "low",
         messages: [
+          { role: "system", content: systemPrompt },
           ...(body.history || []).slice(-6),
           { role: "user", content: message },
         ],
@@ -103,7 +114,7 @@ ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
 
     if (!response.ok) {
       const errBody = await response.text()
-      console.error("[ai/chat] Anthropic API error:", response.status, errBody)
+      console.error("[ai/chat] OpenAI API error:", response.status, errBody)
       return NextResponse.json({
         reply: "Не удалось получить ответ от AI. Попробуйте позже.",
         remaining: DAILY_LIMIT - currentUsage,
@@ -111,7 +122,7 @@ ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
     }
 
     const data = await response.json()
-    const reply = data.content?.[0]?.text || "Нет ответа"
+    const reply = data.choices?.[0]?.message?.content?.trim() || "Нет ответа"
 
     return NextResponse.json({
       reply,
