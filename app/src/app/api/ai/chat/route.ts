@@ -89,7 +89,13 @@ ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
     // дешевле, gpt-5.5 — премиум.
     const model = process.env.OPENAI_MODEL || "gpt-5.4-mini"
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    // База OpenAI API (с /v1, как у официального SDK). По умолчанию api.openai.com.
+    // OpenAI блокирует часть РФ-IP (в т.ч. наш MSK-сервер) — на таком хосте задаём
+    // OPENAI_BASE_URL на совместимый шлюз/релей с незаблокированным egress
+    // (напр. через сервер в Финляндии). Значение должно оканчиваться на /v1.
+    const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "")
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
