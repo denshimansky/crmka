@@ -11,14 +11,15 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { ReportExport } from "@/components/report-export"
+import { EditableTextCell } from "../../../crm/_components/editable-cell"
 import Link from "next/link"
 
 interface SingleDirectionRow {
   clientId: string
   clientName: string
   phone: string
+  comment: string | null
   direction: string
   group: string
   amount: number
@@ -28,6 +29,7 @@ interface ExpiringRow {
   clientId: string
   clientName: string
   phone: string
+  comment: string | null
   direction: string
   group: string
   amount: number
@@ -38,6 +40,7 @@ interface ReducedActivityRow {
   clientId: string
   clientName: string
   phone: string
+  comment: string | null
   prevCount: number
   currentCount: number
   lostDirections: string
@@ -102,6 +105,7 @@ export function UpsellTabs({
               { header: "Направление", key: "direction", width: 20 },
               { header: "Группа", key: "group", width: 20 },
               { header: "Сумма", key: "amount", width: 12 },
+              { header: "Комментарий", key: "comment", width: 30 },
             ]}
             rows={singleDirection}
             sheetName="Одно направление"
@@ -125,7 +129,7 @@ export function UpsellTabs({
                   <TableHead>Направление</TableHead>
                   <TableHead>Группа</TableHead>
                   <TableHead className="text-right">Сумма</TableHead>
-                  <TableHead></TableHead>
+                  <TableHead>Комментарий</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -144,11 +148,10 @@ export function UpsellTabs({
                     <TableCell className="text-muted-foreground">{r.group}</TableCell>
                     <TableCell className="text-right">{formatMoney(r.amount)}</TableCell>
                     <TableCell>
-                      <Link href={`/crm/clients/${r.clientId}`}>
-                        <Button variant="outline" size="sm">
-                          Карточка
-                        </Button>
-                      </Link>
+                      <EditableTextCell
+                        initialValue={r.comment}
+                        endpoint={{ url: `/api/clients/${r.clientId}`, field: "comment" }}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -174,6 +177,7 @@ export function UpsellTabs({
               { header: "Группа", key: "group", width: 20 },
               { header: "Сумма", key: "amount", width: 12 },
               { header: "Дата окончания", key: "endDate", width: 15 },
+              { header: "Комментарий", key: "comment", width: 30 },
             ]}
             rows={expiring}
             sheetName="Скоро истекает"
@@ -198,7 +202,7 @@ export function UpsellTabs({
                   <TableHead>Группа</TableHead>
                   <TableHead className="text-right">Сумма</TableHead>
                   <TableHead>Истекает</TableHead>
-                  <TableHead></TableHead>
+                  <TableHead>Комментарий</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -222,11 +226,10 @@ export function UpsellTabs({
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Link href={`/crm/clients/${r.clientId}`}>
-                        <Button variant="outline" size="sm">
-                          Карточка
-                        </Button>
-                      </Link>
+                      <EditableTextCell
+                        initialValue={r.comment}
+                        endpoint={{ url: `/api/clients/${r.clientId}`, field: "comment" }}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -251,6 +254,7 @@ export function UpsellTabs({
               { header: "Было направлений", key: "prevCount", width: 18 },
               { header: "Стало направлений", key: "currentCount", width: 18 },
               { header: "Потерянные направления", key: "lostDirections", width: 30 },
+              { header: "Комментарий", key: "comment", width: 30 },
             ]}
             rows={reducedActivity}
             sheetName="Снизили активность"
@@ -274,7 +278,7 @@ export function UpsellTabs({
                   <TableHead className="text-center">Было</TableHead>
                   <TableHead className="text-center">Стало</TableHead>
                   <TableHead>Потерянные направления</TableHead>
-                  <TableHead></TableHead>
+                  <TableHead>Комментарий</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -299,11 +303,10 @@ export function UpsellTabs({
                     </TableCell>
                     <TableCell className="text-muted-foreground">{r.lostDirections}</TableCell>
                     <TableCell>
-                      <Link href={`/crm/clients/${r.clientId}`}>
-                        <Button variant="outline" size="sm">
-                          Карточка
-                        </Button>
-                      </Link>
+                      <EditableTextCell
+                        initialValue={r.comment}
+                        endpoint={{ url: `/api/clients/${r.clientId}`, field: "comment" }}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

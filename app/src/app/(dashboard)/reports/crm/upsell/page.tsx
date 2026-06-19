@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, TrendingUp } from "lucide-react"
 import Link from "next/link"
 import { UpsellTabs } from "./upsell-tabs"
+import { UpsellFilters } from "./upsell-filters"
 
 export default async function UpsellReportPage({
   searchParams,
@@ -19,6 +20,8 @@ export default async function UpsellReportPage({
   const sp = await searchParams
   const { year, month } = getMonthFromParams(sp)
   const branchId = typeof sp.branchId === "string" ? sp.branchId : undefined
+  const directionId = typeof sp.directionId === "string" ? sp.directionId : undefined
+  const groupId = typeof sp.groupId === "string" ? sp.groupId : undefined
 
   const now = new Date()
   const twoWeeksFromNow = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
@@ -32,6 +35,25 @@ export default async function UpsellReportPage({
   const branches = await db.branch.findMany({
     where: { tenantId, deletedAt: null },
     select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  })
+
+  // Направления и группы для верхних фильтров. Группы сужаем по выбранному
+  // филиалу/направлению — чтобы в выпадающем списке оставались валидные комбинации.
+  const directions = await db.direction.findMany({
+    where: { tenantId, deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  })
+  const groups = await db.group.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      isOneTime: false,
+      ...(branchId ? { branchId } : {}),
+      ...(directionId ? { directionId } : {}),
+    },
+    select: { id: true, name: true, directionId: true, direction: { select: { name: true } } },
     orderBy: { name: "asc" },
   })
 
@@ -57,10 +79,11 @@ export default async function UpsellReportPage({
           lastName: true,
           phone: true,
           branchId: true,
+          comment: true,
         },
       },
       direction: { select: { name: true } },
-      group: { select: { name: true } },
+      group: { select: { id: true, name: true } },
     },
   })
 
@@ -81,8 +104,13 @@ export default async function UpsellReportPage({
     clientId: string
     clientName: string
     phone: string
+    comment: string | null
     direction: string
+    directionId: string
     group: string
+    // Все группы клиента в этом направлении (у родителя может быть несколько детей
+    // в разных группах одного направления) — чтобы фильтр по группе не скрывал клиента.
+    groupIds: string[]
     amount: number
   }> = []
 
@@ -95,8 +123,11 @@ export default async function UpsellReportPage({
         clientName:
           [sub.client.lastName, sub.client.firstName].filter(Boolean).join(" ") || "Без имени",
         phone: sub.client.phone || "—",
+        comment: sub.client.comment,
         direction: sub.direction.name,
+        directionId: sub.directionId,
         group: sub.group.name,
+        groupIds: Array.from(new Set(subs.map((s) => s.group.id))),
         amount: Number(sub.finalAmount),
       })
     }
@@ -109,8 +140,11 @@ export default async function UpsellReportPage({
       clientId: string
       clientName: string
       phone: string
+      comment: string | null
       direction: string
+      directionId: string
       group: string
+      groupIds: string[]
       amount: number
       endDate: string
     }
@@ -128,14 +162,22 @@ export default async function UpsellReportPage({
 
     if (endDate && endDate <= twoWeeksFromNow && endDate >= now) {
       const key = `${sub.clientId}:${sub.directionId}`
-      if (!expiringMap.has(key)) {
+      const existing = expiringMap.get(key)
+      if (existing) {
+        // Накапливаем все группы клиента в этом направлении (см. groupIds выше),
+        // чтобы фильтр по группе не терял клиента с несколькими истекающими группами.
+        if (!existing.groupIds.includes(sub.group.id)) existing.groupIds.push(sub.group.id)
+      } else {
         expiringMap.set(key, {
           clientId: sub.clientId,
           clientName:
             [sub.client.lastName, sub.client.firstName].filter(Boolean).join(" ") || "Без имени",
           phone: sub.client.phone || "—",
+          comment: sub.client.comment,
           direction: sub.direction.name,
+          directionId: sub.directionId,
           group: sub.group.name,
+          groupIds: [sub.group.id],
           amount: Number(sub.finalAmount),
           endDate: endDate.toLocaleDateString("ru-RU", {
             day: "2-digit",
@@ -167,6 +209,7 @@ export default async function UpsellReportPage({
           lastName: true,
           phone: true,
           branchId: true,
+          comment: true,
         },
       },
       direction: { select: { name: true } },
@@ -179,7 +222,7 @@ export default async function UpsellReportPage({
 
   // Prev month: directions per client
   const prevDirsByClient = new Map<string, Map<string, string>>()
-  const prevClientInfo = new Map<string, { name: string; phone: string }>()
+  const prevClientInfo = new Map<string, { name: string; phone: string; comment: string | null }>()
   for (const sub of prevMonthSubs) {
     if (!prevDirsByClient.has(sub.clientId)) {
       prevDirsByClient.set(sub.clientId, new Map())
@@ -190,6 +233,7 @@ export default async function UpsellReportPage({
         name:
           [sub.client.lastName, sub.client.firstName].filter(Boolean).join(" ") || "Без имени",
         phone: sub.client.phone || "—",
+        comment: sub.client.comment,
       })
     }
   }
@@ -206,9 +250,11 @@ export default async function UpsellReportPage({
     clientId: string
     clientName: string
     phone: string
+    comment: string | null
     prevCount: number
     currentCount: number
     lostDirections: string
+    lostDirectionIds: string[]
   }> = []
 
   for (const [clientId, prevDirs] of prevDirsByClient) {
@@ -218,9 +264,11 @@ export default async function UpsellReportPage({
     if (currCount < prevDirs.size) {
       const info = prevClientInfo.get(clientId)!
       const lost: string[] = []
+      const lostIds: string[] = []
       for (const [dirId, dirName] of prevDirs) {
         if (!currDirs || !currDirs.has(dirId)) {
           lost.push(dirName)
+          lostIds.push(dirId)
         }
       }
 
@@ -228,9 +276,11 @@ export default async function UpsellReportPage({
         clientId,
         clientName: info.name,
         phone: info.phone,
+        comment: info.comment,
         prevCount: prevDirs.size,
         currentCount: currCount,
         lostDirections: lost.join(", "),
+        lostDirectionIds: lostIds,
       })
     }
   }
@@ -239,17 +289,43 @@ export default async function UpsellReportPage({
     (a, b) => b.prevCount - b.currentCount - (a.prevCount - a.currentCount)
   )
 
-  const totalOpportunities =
-    singleDirection.length + expiring.length + reducedActivity.length
+  // ── Верхние фильтры по направлению/группе (применяются к выводу) ──
+  // Вкладки «Одно направление» и «Скоро истекает» фильтруются по направлению и
+  // группе строки. «Снизили активность» — по направлению (среди потерянных): если
+  // выбрана группа, берём направление этой группы (у группы одно направление).
+  const selectedGroupDir = groupId ? groups.find((g) => g.id === groupId)?.directionId : undefined
+  const effectiveDir = directionId || selectedGroupDir
 
-  const selectedBranchName = branchId
-    ? branches.find((b) => b.id === branchId)?.name || "—"
-    : "Все"
+  const matchDirGroup = (r: { directionId: string; groupIds: string[] }) =>
+    (!directionId || r.directionId === directionId) && (!groupId || r.groupIds.includes(groupId))
+
+  const singleDirectionF = singleDirection.filter(matchDirGroup)
+  const expiringF = expiring.filter(matchDirGroup)
+  const reducedActivityF = reducedActivity.filter(
+    (r) => !effectiveDir || r.lostDirectionIds.includes(effectiveDir),
+  )
+
+  const totalOpportunities =
+    singleDirectionF.length + expiringF.length + reducedActivityF.length
 
   const monthName = new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("ru-RU", {
     month: "long",
     year: "numeric",
   })
+
+  // Ссылка фильтра по филиалу с сохранением месяца и направления. Группу НЕ сохраняем:
+  // группа привязана к одному филиалу, и при смене филиала прошлый groupId стал бы
+  // «фантомным» (вкладки пусты, выпадашка рассинхронена). Направление к филиалу не
+  // привязано, поэтому переносится.
+  const filterHref = (over: { branchId?: string | null }) => {
+    const params = new URLSearchParams()
+    params.set("year", String(year))
+    params.set("month", String(month))
+    const bid = over.branchId === undefined ? branchId : over.branchId ?? undefined
+    if (bid) params.set("branchId", bid)
+    if (directionId) params.set("directionId", directionId)
+    return `/reports/crm/upsell?${params.toString()}`
+  }
 
   return (
     <div className="space-y-6">
@@ -280,45 +356,50 @@ export default async function UpsellReportPage({
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Одно направление</p>
-            <p className="text-2xl font-bold text-blue-600">{singleDirection.length}</p>
+            <p className="text-2xl font-bold text-blue-600">{singleDirectionF.length}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Скоро истекает</p>
-            <p className="text-2xl font-bold text-orange-600">{expiring.length}</p>
+            <p className="text-2xl font-bold text-orange-600">{expiringF.length}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Снизили активность</p>
-            <p className="text-2xl font-bold text-red-600">{reducedActivity.length}</p>
+            <p className="text-2xl font-bold text-red-600">{reducedActivityF.length}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Branch filter */}
-      {branches.length > 1 && (
-        <div className="flex flex-wrap gap-2">
-          <Link href={`/reports/crm/upsell?year=${year}&month=${month}`}>
-            <Badge variant={!branchId ? "default" : "outline"}>Все филиалы</Badge>
-          </Link>
-          {branches.map((b) => (
-            <Link
-              key={b.id}
-              href={`/reports/crm/upsell?branchId=${b.id}&year=${year}&month=${month}`}
-            >
-              <Badge variant={branchId === b.id ? "default" : "outline"}>{b.name}</Badge>
+      {/* Filters: филиал (бейджи) + направление и группа (выпадающие списки) */}
+      <div className="flex flex-wrap items-center gap-3">
+        {branches.length > 1 && (
+          <div className="flex flex-wrap gap-2">
+            <Link href={filterHref({ branchId: null })}>
+              <Badge variant={!branchId ? "default" : "outline"}>Все филиалы</Badge>
             </Link>
-          ))}
-        </div>
-      )}
+            {branches.map((b) => (
+              <Link key={b.id} href={filterHref({ branchId: b.id })}>
+                <Badge variant={branchId === b.id ? "default" : "outline"}>{b.name}</Badge>
+              </Link>
+            ))}
+          </div>
+        )}
+        <UpsellFilters
+          directions={directions}
+          groups={groups.map((g) => ({ id: g.id, name: g.name, directionName: g.direction.name }))}
+          directionId={directionId}
+          groupId={groupId}
+        />
+      </div>
 
       {/* Tabs with data */}
       <UpsellTabs
-        singleDirection={singleDirection}
-        expiring={expiring}
-        reducedActivity={reducedActivity}
+        singleDirection={singleDirectionF}
+        expiring={expiringF}
+        reducedActivity={reducedActivityF}
         monthName={monthName}
       />
     </div>
