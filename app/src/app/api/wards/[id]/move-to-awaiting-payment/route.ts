@@ -6,6 +6,7 @@ import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 
 const moveSchema = z.object({
   applicationId: z.string().uuid().optional(),
@@ -298,10 +299,15 @@ export async function POST(
 
     // Переводим ИМЕННО эту заявку на этап «Ожидаем оплату» (остаётся активной).
     // Остальные заявки ребёнка не трогаем — они продолжают свой путь в воронке.
+    // Дату 1-го платного пишем на саму заявку (per-ребёнок) — её показывает строка.
     await tx.application.update({
       where: { id: targetApp.id },
-      data: { stage: "awaiting_payment" },
+      data: { stage: "awaiting_payment", firstPaidLessonDate: firstPaid },
     })
+
+    // Client.firstPaidLessonDate — агрегат для отчётов: пересчитываем по min из
+    // заявок и первого платного посещения.
+    await recomputeClientFirstPaidLessonDate(tx, tenantId, ward.clientId)
 
     // Зеркало Ward.salesStage пересчитываем по активным заявкам. Автоактивация по
     // балансу отключена: оплата абонемента всегда ручная («Оплатить с баланса»).

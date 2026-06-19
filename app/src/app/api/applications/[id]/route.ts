@@ -3,11 +3,16 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 
 const updateSchema = z.object({
   branchId: z.string().uuid().optional(),
   directionId: z.string().uuid().optional(),
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).optional(),
+  // Дата первого платного занятия ПО ЭТОЙ заявке (per-ребёнок). null = очистить.
+  firstPaidLessonDate: z
+    .union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата формата YYYY-MM-DD"), z.null()])
+    .optional(),
 })
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -44,13 +49,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!dir) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
   }
 
-  const application = await db.application.update({
-    where: { id },
-    data: {
-      ...(data.branchId !== undefined && { branchId: data.branchId }),
-      ...(data.directionId !== undefined && { directionId: data.directionId }),
-      ...(data.comment !== undefined && { comment: data.comment }),
-    },
+  const firstPaid =
+    data.firstPaidLessonDate !== undefined
+      ? data.firstPaidLessonDate
+        ? new Date(data.firstPaidLessonDate)
+        : null
+      : undefined
+
+  const application = await db.$transaction(async (tx) => {
+    const updated = await tx.application.update({
+      where: { id },
+      data: {
+        ...(data.branchId !== undefined && { branchId: data.branchId }),
+        ...(data.directionId !== undefined && { directionId: data.directionId }),
+        ...(data.comment !== undefined && { comment: data.comment }),
+        ...(firstPaid !== undefined && { firstPaidLessonDate: firstPaid }),
+      },
+    })
+    // Дата живёт на заявке (per-ребёнок), но Client.firstPaidLessonDate —
+    // агрегат для отчётов: пересчитываем по min из заявок и первого платного.
+    if (firstPaid !== undefined) {
+      await recomputeClientFirstPaidLessonDate(tx, tenantId, existing.clientId)
+    }
+    return updated
   })
 
   if (session.user.employeeId) {
@@ -65,6 +86,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           ...(data.branchId && existing.branchId !== data.branchId && { branchId: { old: existing.branchId, new: data.branchId } }),
           ...(data.directionId && existing.directionId !== data.directionId && { directionId: { old: existing.directionId, new: data.directionId } }),
           ...(data.comment !== undefined && existing.comment !== data.comment && { comment: { old: existing.comment, new: data.comment } }),
+          ...(firstPaid !== undefined && { firstPaidLessonDate: { new: data.firstPaidLessonDate } }),
         },
       },
     })

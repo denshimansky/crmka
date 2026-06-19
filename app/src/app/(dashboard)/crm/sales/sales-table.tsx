@@ -539,11 +539,15 @@ export function SalesTable({
                         groupId={r.groupId}
                         initialDate={r.firstPaidLessonDate ? r.firstPaidLessonDate.slice(0, 10) : ""}
                       />
-                    ) : (
+                    ) : r.applicationId ? (
+                      // Дата 1-го платного — per-ребёнок (на заявке), а не на родителе:
+                      // правка не «перетекает» в строки других детей этого же клиента.
                       <EditableDateCell
                         initialValue={r.firstPaidLessonDate ? r.firstPaidLessonDate.slice(0, 10) : ""}
-                        endpoint={{ url: `/api/clients/${r.clientId}`, field: "firstPaidLessonDate" }}
+                        endpoint={{ url: `/api/applications/${r.applicationId}`, field: "firstPaidLessonDate" }}
                       />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </TableCell>
                 )}

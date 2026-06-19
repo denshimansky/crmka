@@ -1665,6 +1665,11 @@ model Application {
   processedToStatus ApplicationOutcome? @map("processed_to_status")
   processedAt       DateTime?           @map("processed_at")
   processedBy       String?             @map("processed_by") @db.Uuid
+  // Дата первого платного занятия ПО ЭТОЙ заявке (per-ребёнок/направление).
+  // Редактируется в строке «Продаж» (вкладки «Прошёл пробное»/«Ожидаем оплату»).
+  // Client.firstPaidLessonDate остаётся агрегатом (min по заявкам + первое платное
+  // посещение) для отчётов — пересчитывается recomputeClientFirstPaidLessonDate.
+  firstPaidLessonDate DateTime?         @map("first_paid_lesson_date") @db.Date
   comment           String?
   createdBy         String?             @map("created_by") @db.Uuid
   createdAt         DateTime            @default(now()) @map("created_at")

@@ -8,6 +8,7 @@ import {
   recalcClientDiscounts,
   repriceSubscription,
 } from "@/lib/discounts/recalc-client-discounts"
+import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 
 const schema = z.object({
   firstPaidLessonDate: z
@@ -26,7 +27,8 @@ const schema = z.object({
  *   — totalAmount = lessonPrice × totalLessons,
  *   — finalAmount/balance/discountAmount пересчитываются с учётом скидок,
  *   — startDate/periodYear/periodMonth и GroupEnrollment.enrolledAt сдвигаются,
- *   — Client.firstPaidLessonDate синхронизируется (его показывает ячейка).
+ *   — Application.firstPaidLessonDate (per-ребёнок, его показывает ячейка) и
+ *     агрегат Client.firstPaidLessonDate (для отчётов) обновляются.
  *
  * Только для pending: на вкладке «Ожидаем оплату» оплаченных абонементов нет —
  * после оплаты клиент уходит из воронки в «Активные».
@@ -62,6 +64,7 @@ export async function POST(
       clientId: true,
       wardId: true,
       groupId: true,
+      directionId: true,
       status: true,
       type: true,
       lessonPrice: true,
@@ -173,11 +176,46 @@ export async function POST(
       })
     }
 
-    // Синхронизируем витринную дату на клиенте (её показывает ячейка).
-    await tx.client.update({
-      where: { id: sub.clientId },
-      data: { firstPaidLessonDate: firstPaid },
-    })
+    // Витринная «дата 1-го платного» живёт на заявке (per-ребёнок), а не на
+    // родителе: проставляем её активной заявке этого ребёнка в «Ожидаем оплату»
+    // (приоритетно по направлению абонемента), затем пересчитываем агрегат
+    // Client.firstPaidLessonDate для отчётов.
+    const wardId = sub.wardId
+    const directionId = sub.directionId
+    const targetApp = wardId
+      ? ((directionId
+          ? await tx.application.findFirst({
+              where: {
+                tenantId,
+                wardId,
+                directionId,
+                status: "active",
+                deletedAt: null,
+                stage: "awaiting_payment",
+              },
+              orderBy: { updatedAt: "desc" },
+              select: { id: true },
+            })
+          : null) ??
+        (await tx.application.findFirst({
+          where: {
+            tenantId,
+            wardId,
+            status: "active",
+            deletedAt: null,
+            stage: "awaiting_payment",
+          },
+          orderBy: { updatedAt: "desc" },
+          select: { id: true },
+        })))
+      : null
+    if (targetApp) {
+      await tx.application.update({
+        where: { id: targetApp.id },
+        data: { firstPaidLessonDate: firstPaid },
+      })
+    }
+    await recomputeClientFirstPaidLessonDate(tx, tenantId, sub.clientId)
 
     // Скидки v2: смена totalAmount могла изменить «самый дорогой в месяце»
     // (инвариант скидки за второй абонемент). Пересчёт корректирует источники

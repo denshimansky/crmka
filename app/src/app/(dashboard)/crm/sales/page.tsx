@@ -69,7 +69,6 @@ const CLIENT_SELECT = {
   nextContactDate: true,
   assignedTo: true,
   createdAt: true,
-  firstPaidLessonDate: true,
   branch: { select: { id: true, name: true } },
   channel: { select: { id: true, name: true } },
   _count: { select: { payments: true } },
@@ -182,7 +181,7 @@ export default async function SalesPage({
       scheduledDate: null,
       startTime: null,
       lessonId: null,
-      firstPaidLessonDate: a.client.firstPaidLessonDate ? a.client.firstPaidLessonDate.toISOString() : null,
+      firstPaidLessonDate: a.firstPaidLessonDate ? a.firstPaidLessonDate.toISOString() : null,
       expectedSubscriptionAmount: null,
       createdAt: a.createdAt.toISOString(),
       nextContactDate: a.client.nextContactDate ? a.client.nextContactDate.toISOString() : null,
@@ -256,7 +255,7 @@ export default async function SalesPage({
         trialInstructorId: t?.instructorId ?? null,
         trialRoomId: t?.roomId ?? null,
         trialDurationMinutes: t?.durationMinutes ?? null,
-        firstPaidLessonDate: a.client.firstPaidLessonDate ? a.client.firstPaidLessonDate.toISOString() : null,
+        firstPaidLessonDate: a.firstPaidLessonDate ? a.firstPaidLessonDate.toISOString() : null,
         expectedSubscriptionAmount: null,
         createdAt: a.createdAt.toISOString(),
         nextContactDate: a.client.nextContactDate ? a.client.nextContactDate.toISOString() : null,
@@ -334,8 +333,8 @@ export default async function SalesPage({
         scheduledDate: null,
         startTime: null,
         lessonId: null,
-        firstPaidLessonDate: a.client.firstPaidLessonDate
-          ? a.client.firstPaidLessonDate.toISOString()
+        firstPaidLessonDate: a.firstPaidLessonDate
+          ? a.firstPaidLessonDate.toISOString()
           : sub?.startDate
             ? sub.startDate.toISOString()
             : null,
