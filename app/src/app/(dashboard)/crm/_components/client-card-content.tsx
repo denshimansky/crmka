@@ -1,7 +1,7 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
-import { scopeFinancialAccount } from "@/lib/branch-scope"
+import { scopeFinancialAccount, scopeSubscription } from "@/lib/branch-scope"
 import { notFound } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -187,6 +187,24 @@ export async function ClientCardContent({
     ])
   )
 
+  // «Долг по абонементам» в шапке = сумма столбца «К оплате» вкладки абонементов:
+  // непогашенный остаток (balance > 0) по всем неотчисленным абонементам клиента.
+  // Отчисление обнуляет balance, и в «К оплате» такой абонемент показывается «—»,
+  // поэтому withdrawn исключаем явно (страховка от legacy-данных с balance > 0).
+  // Branch-scope — тот же, что у вкладки (GET /api/subscriptions).
+  const subscriptionDebtAgg = await db.subscription.aggregate({
+    where: {
+      tenantId,
+      clientId: client.id,
+      deletedAt: null,
+      status: { not: "withdrawn" },
+      balance: { gt: 0 },
+      ...scopeSubscription(scope),
+    },
+    _sum: { balance: true },
+  })
+  const subscriptionDebt = Number(subscriptionDebtAgg._sum.balance ?? 0)
+
   const fullName =
     [client.lastName, client.firstName, client.patronymic]
       .filter(Boolean)
@@ -329,6 +347,18 @@ export async function ClientCardContent({
                 (s) => s.discountSource === "type1",
               )}
             />
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="flex h-7 items-center justify-end">
+            <div className="text-sm text-muted-foreground">Долг по абонементам</div>
+          </div>
+          <div
+            className={`text-2xl font-bold ${
+              subscriptionDebt > 0 ? "text-red-600" : "text-muted-foreground"
+            }`}
+          >
+            {subscriptionDebt > 0 ? formatMoney(subscriptionDebt) : "0 ₽"}
           </div>
         </div>
         <div className="text-right">

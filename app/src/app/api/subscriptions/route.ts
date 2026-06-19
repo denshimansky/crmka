@@ -67,7 +67,11 @@ export async function GET(req: NextRequest) {
       payments: { select: { id: true, amount: true, date: true, method: true }, where: { deletedAt: null } },
     },
     orderBy: [{ periodYear: "desc" }, { periodMonth: "desc" }, { createdAt: "desc" }],
-    take: 200,
+    // Карточка одного клиента (clientId задан) показывает ВСЕ его абонементы —
+    // иначе «Долг по абонементам» в шапке (сумма по всем) разойдётся с видимым
+    // столбцом «К оплате». У одного клиента их немного, лимит не нужен. Для
+    // глобального списка (без clientId) лимит 200 сохраняем.
+    take: clientId ? undefined : 200,
   })
 
   // Возвраты на баланс при закрытии (subscription_closed_refund, amount > 0):
