@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
 import { z } from "zod"
 
 // PATCH — частичное обновление: отсутствующее в теле поле должно остаться
@@ -196,6 +197,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     return updated
   })
+
+  // Баг #18: если выставили дату связи и она уже наступила — создаём автозадачу
+  // «Позвонить» сразу, чтобы она появилась в виджете «Задачи на сегодня», не
+  // дожидаясь крона. Идемпотентно (дубль с генерацией не создаётся), безопасно к
+  // ошибкам — не роняет ответ PATCH.
+  if (data.nextContactDate) {
+    await ensureContactDateTaskForClient(session.user.tenantId, id)
+  }
 
   return NextResponse.json(client)
 }

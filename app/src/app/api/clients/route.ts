@@ -8,6 +8,7 @@ import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { branchScopeFromSession, isUnscoped } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
+import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
 
 const createSchema = z.object({
   firstName: z.string().min(1, "Имя обязательно").optional(),
@@ -247,6 +248,12 @@ export async function POST(req: NextRequest) {
     },
     include: { wards: true, branch: { select: { id: true, name: true } } },
   })
+
+  // Баг #18: если лида заводят сразу с датой связи и она уже наступила — создаём
+  // автозадачу «Позвонить» немедленно (как при инлайн-редактировании даты).
+  if (data.nextContactDate) {
+    await ensureContactDateTaskForClient(session.user.tenantId, client.id)
+  }
 
   return NextResponse.json(client, { status: 201 })
 }

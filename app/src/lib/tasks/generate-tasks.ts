@@ -1,5 +1,6 @@
 import { db } from "@/lib/db"
 import { isTriggerEnabled, parseTriggerSettings } from "@/lib/tasks/trigger-settings"
+import { createContactDateTaskIfDue } from "@/lib/tasks/contact-date-task"
 
 /**
  * Генерация автозадач по 6 триггерам для ОДНОГО тенанта.
@@ -44,26 +45,16 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
       select: { id: true, firstName: true, lastName: true, nextContactDate: true },
     })
     for (const c of contactDueClients) {
-      if (!c.nextContactDate) continue
-      const exists = await db.task.findFirst({
-        where: {
-          tenantId,
-          clientId: c.id,
-          autoTrigger: "contact_date",
-          deletedAt: null,
-          dueDate: { gte: c.nextContactDate },
-        },
+      const didCreate = await createContactDateTaskIfDue({
+        tenantId,
+        clientId: c.id,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        nextContactDate: c.nextContactDate,
+        today,
+        assigneeId: defaultAssignee.id,
       })
-      if (!exists) {
-        await db.task.create({
-          data: {
-            tenantId, title: `Позвонить: ${[c.lastName, c.firstName].filter(Boolean).join(" ")}`,
-            type: "auto", autoTrigger: "contact_date", status: "pending",
-            dueDate: c.nextContactDate, assignedTo: defaultAssignee.id, clientId: c.id,
-          },
-        })
-        created++
-      }
+      if (didCreate) created++
     }
   }
 

@@ -113,35 +113,189 @@ function detectMonth(message: string, now: Date): MonthRange | null {
 
 // ─── 1. КАРТА НАВИГАЦИИ ────────────────────────────────────────────────
 
+// Левое меню приложения. ДЕРЖАТЬ В СИНХРОНЕ с app-sidebar.tsx (navItems/crmItems/
+// financeItems/otherItems). Группы соответствуют SidebarGroupLabel.
+const LEFT_MENU: { group: string | null; items: { label: string; path: string }[] }[] = [
+  { group: null, items: [{ label: "Дашборд", path: "/" }] },
+  {
+    group: "CRM",
+    items: [
+      { label: "Клиенты", path: "/crm/contacts" },
+      { label: "Продажи", path: "/crm/sales" },
+      { label: "Дети", path: "/crm/children" },
+      { label: "Абонементы", path: "/crm/subscriptions" },
+      { label: "Обзвон", path: "/crm/calls" },
+    ],
+  },
+  {
+    group: "Финансы",
+    items: [
+      { label: "Касса", path: "/finance/cash" },
+      { label: "Оплаты", path: "/finance/payments" },
+      { label: "Расходы", path: "/finance/expenses" },
+      { label: "ДДС", path: "/finance/dds" },
+      { label: "Должники", path: "/finance/debtors" },
+    ],
+  },
+  {
+    group: "Основное меню",
+    items: [
+      { label: "Расписание", path: "/schedule" },
+      { label: "Занятия", path: "/lessons" },
+      { label: "Зарплата", path: "/salary" },
+      { label: "Склад", path: "/stock" },
+      { label: "Задачи", path: "/tasks" },
+      { label: "Отчёты", path: "/reports" },
+      { label: "Настройки", path: "/settings" },
+    ],
+  },
+]
+
+// Хаб «Настройки» — две вкладки с плитками-ссылками. ДЕРЖАТЬ В СИНХРОНЕ с
+// settings/page.tsx (orgTiles / personalTiles). Несколько плиток ведут на страницы
+// вне раздела настроек (Сотрудники, Касса, Плановые расходы, Подписка).
+const SETTINGS_HUB: { tab: string; items: { label: string; path: string }[] }[] = [
+  {
+    tab: "Организация",
+    items: [
+      { label: "Информация об организации", path: "/settings/organization" },
+      { label: "Филиалы", path: "/settings/branches" },
+      { label: "Направления", path: "/settings/directions" },
+      { label: "Права ролей", path: "/settings/role-permissions" },
+      { label: "Производственный календарь", path: "/settings/production-calendar" },
+      { label: "Автотриггеры задач", path: "/settings/tasks" },
+      { label: "Параметры системы", path: "/settings/system" },
+      { label: "Абонементы (модель + автозакрытие)", path: "/settings/subscription-model" },
+    ],
+  },
+  {
+    tab: "Персональные",
+    items: [
+      { label: "Бонусы админов", path: "/settings/admin-bonus" },
+      { label: "Причины отчисления", path: "/settings/withdrawal-reasons" },
+      { label: "Статьи доходов и расходов", path: "/settings/finance-categories" },
+      { label: "Сотрудники", path: "/staff" },
+      { label: "Касса", path: "/finance/cash" },
+      { label: "Причины пропусков", path: "/settings/absence-reasons" },
+      { label: "Виды посещений", path: "/settings/attendance-matrix" },
+      { label: "Каналы привлечения", path: "/settings/channels" },
+      { label: "Шаблоны скидок", path: "/settings/discount-templates" },
+      { label: "Сегментация клиентов", path: "/settings/segmentation" },
+      { label: "Импорт базы", path: "/settings/leads-import" },
+      { label: "Плановые расходы", path: "/finance/planned-expenses" },
+      { label: "Интеграции", path: "/settings/integrations" },
+      { label: "Подписка", path: "/billing" },
+    ],
+  },
+]
+
+// Запасной ориентир по первому сегменту пути — для вложенных страниц, которых нет
+// напрямую в меню (открываются изнутри своего раздела).
+const SEGMENT_HINT: Record<string, string> = {
+  crm: "левое меню, блок «CRM»",
+  finance: "левое меню, блок «Финансы»",
+  reports: "левое меню → «Отчёты» (там список всех отчётов)",
+  schedule: "левое меню → «Расписание»",
+  lessons: "левое меню → «Занятия»",
+  salary: "левое меню → «Зарплата»",
+  staff: "левое меню → «Настройки» → вкладка «Персональные» → «Сотрудники»",
+  tasks: "левое меню → «Задачи»",
+  settings: "левое меню → «Настройки»",
+}
+
+/** Совпадение по границе сегмента: "/finance" — префикс "/finance/cash", но не "/financex". */
+function isPathPrefix(prefix: string, path: string): boolean {
+  if (prefix === "/") return path === "/"
+  return path === prefix || path.startsWith(prefix + "/")
+}
+
+/**
+ * Человеческое описание, КАК добраться до страницы — словами, через названия
+ * пунктов меню, без технических URL. Порядок: точный пункт левого меню → плитка
+ * «Настроек» → ближайший родитель в левом меню → подсказка по первому сегменту.
+ */
+function locatePage(path: string): string {
+  // 1. Точный пункт левого меню.
+  for (const grp of LEFT_MENU) {
+    for (const it of grp.items) {
+      if (it.path === path) {
+        if (grp.group === null) return `левое меню → «${it.label}»`
+        if (grp.group === "Основное меню") return `левое меню → «${it.label}»`
+        return `левое меню → блок «${grp.group}» → «${it.label}»`
+      }
+    }
+  }
+  // 2. Точная плитка в хабе «Настройки».
+  for (const tab of SETTINGS_HUB) {
+    for (const it of tab.items) {
+      if (it.path === path) {
+        return `левое меню → «Настройки» → вкладка «${tab.tab}» → плитка «${it.label}»`
+      }
+    }
+  }
+  // 3. Ближайший родитель в левом меню (страница открывается изнутри раздела).
+  let best: { label: string; group: string | null; path: string } | null = null
+  for (const grp of LEFT_MENU) {
+    for (const it of grp.items) {
+      if (it.path !== "/" && isPathPrefix(it.path, path)) {
+        if (!best || it.path.length > best.path.length) best = { label: it.label, group: grp.group, path: it.path }
+      }
+    }
+  }
+  if (best) {
+    const where =
+      best.group && best.group !== "Основное меню"
+        ? `левое меню → блок «${best.group}» → «${best.label}»`
+        : `левое меню → «${best.label}»`
+    return `${where} (внутренний раздел)`
+  }
+  // 4. Подсказка по первому сегменту.
+  const seg = path.replace(/^\//, "").split("/")[0]
+  return SEGMENT_HINT[seg] || "откройте через соответствующий раздел левого меню"
+}
+
 export function buildNavMap(): string {
-  const pageLines: string[] = []
+  const menuLines: string[] = ["СТРУКТУРА ЛЕВОГО МЕНЮ (одинаково на каждом экране, слева):"]
+  for (const grp of LEFT_MENU) {
+    const items = grp.items.map(i => i.label).join(" · ")
+    if (grp.group === null) menuLines.push(`• ${items}`)
+    else if (grp.group === "Основное меню") menuLines.push(`Ниже разделителя: ${items}`)
+    else menuLines.push(`Блок «${grp.group}»: ${items}`)
+  }
+
+  const settingsLines: string[] = ["РАЗДЕЛ «НАСТРОЙКИ» (открыть из левого меню; две вкладки с плитками):"]
+  for (const tab of SETTINGS_HUB) {
+    settingsLines.push(`Вкладка «${tab.tab}»: ${tab.items.map(i => i.label).join(" · ")}`)
+  }
+
+  const pageLines: string[] = ["СТРАНИЦЫ (для каждой — где открыть и что внутри):"]
   for (const [key, content] of Object.entries(pageHelpContent)) {
     const path = key === "dashboard" ? "/" : `/${key}`
-    pageLines.push(`- ${path} — ${content.title}: ${content.subtitle}`)
+    pageLines.push(`- «${content.title}» — где: ${locatePage(path)} — ${content.subtitle}`)
   }
 
   const faq = [
     "СПРЯТАННЫЕ ДЕЙСТВИЯ (часто спрашивают «где»):",
-    "- Ставка ЗП педагога: /staff → иконка кошелька рядом с инструктором → диалог «Ставки». 5 схем: за ученика, за занятие, фикс за выход + за ученика, % от списаний, плавающая по числу учеников. Можно задать дефолт и исключения по направлениям",
-    "- Переопределить ставку для конкретной группы: /schedule/groups/[id] → кнопка «Ставка группы» (перебивает базовую ставку инструктора)",
-    "- Создать перевод/инкассацию/выемку собственника: /finance/cash → кнопка «Операция» в шапке",
-    "- Создать новый счёт (касса, расчётный, эквайринг, онлайн): /finance/cash → кнопка «Счёт»",
-    "- Архивировать счёт: /finance/cash → карандаш у счёта (доступно только при нулевом балансе)",
-    "- Зачислить ученика в группу: /schedule → клик по группе → «Добавить ученика»",
-    "- Отметить посещение: /schedule → клик по занятию → lesson card → отметка ученикам",
-    "- Возврат денег клиенту: /crm/contacts/[id] → раздел абонементов → «Возврат»",
-    "- Создать абонемент: /crm/contacts/[id] → «Новый абонемент» (или через подопечного в статусе «Ожидаем оплату»)",
-    "- Скидки и шаблоны скидок: /settings → справочники → «Шаблоны скидок»",
-    "- Каналы привлечения, направления, кабинеты, причины отчисления/пропусков: /settings → справочники",
-    "- Настройка прав ролей: /settings → «Права и роли» (матрица разрешений)",
-    "- Кампания обзвона: /crm/calls → «Новая кампания»",
-    "- Импорт клиентов: /crm/contacts → «Импорт» (CSV/XLSX)",
-    "- Закрытие месяца / снимок периода: /finance/dds → меню «Закрыть период»",
-    "- Зарплатная ведомость и выплаты: /salary",
-    "- Биллинг подписки на CRM (счета от umnayacrm.ru): /billing",
+    "- Ставка ЗП педагога: левое меню → «Настройки» → вкладка «Персональные» → «Сотрудники» → иконка кошелька рядом с инструктором → диалог «Ставки». 5 схем: за ученика, за занятие, фикс за выход + за ученика, % от списаний, плавающая по числу учеников. Можно задать дефолт и исключения по направлениям",
+    "- Переопределить ставку для конкретной группы: «Расписание» в левом меню → откройте группу → кнопка «Ставка группы» (перебивает базовую ставку инструктора)",
+    "- Создать перевод/инкассацию/выемку собственника: «Касса» в левом меню (блок «Финансы») → кнопка «Операция» в шапке",
+    "- Создать новый счёт (касса, расчётный, эквайринг, онлайн): «Касса» в левом меню → кнопка «Счёт»",
+    "- Архивировать счёт: «Касса» в левом меню → карандаш у счёта (доступно только при нулевом балансе)",
+    "- Зачислить ученика в группу: «Расписание» в левом меню → клик по группе → «Добавить ученика»",
+    "- Отметить посещение: «Расписание» в левом меню → клик по занятию → карточка занятия → отметка ученикам",
+    "- Возврат денег клиенту: «Клиенты» в левом меню (блок «CRM») → откройте карточку клиента → раздел абонементов → «Возврат»",
+    "- Создать абонемент: «Клиенты» в левом меню → карточка клиента → «Новый абонемент» (или через подопечного в статусе «Ожидаем оплату»)",
+    "- Шаблоны скидок: левое меню → «Настройки» → вкладка «Персональные» → «Шаблоны скидок»",
+    "- Каналы привлечения, направления, причины отчисления/пропусков: левое меню → «Настройки» (вкладки «Организация» и «Персональные»)",
+    "- Настройка прав ролей: левое меню → «Настройки» → вкладка «Организация» → «Права ролей» (матрица разрешений)",
+    "- Кампания обзвона: «Обзвон» в левом меню (блок «CRM») → «Новая кампания»",
+    "- Импорт клиентов: «Клиенты» в левом меню → «Импорт» (CSV/XLSX)",
+    "- Закрытие месяца / снимок периода: «ДДС» в левом меню (блок «Финансы») → меню «Закрыть период»",
+    "- Зарплатная ведомость и выплаты: «Зарплата» в левом меню",
+    "- Биллинг подписки на CRM (счета от umnayacrm.ru): левое меню → «Настройки» → вкладка «Персональные» → «Подписка»",
   ].join("\n")
 
-  return `КАРТА СТРАНИЦ CRM:\n${pageLines.join("\n")}\n\n${faq}`
+  return `КАРТА НАВИГАЦИИ CRM:\n${menuLines.join("\n")}\n\n${settingsLines.join("\n")}\n\n${pageLines.join("\n")}\n\n${faq}`
 }
 
 // ─── 2. БАЗОВЫЙ СРЕЗ (Level 1) ─────────────────────────────────────────
