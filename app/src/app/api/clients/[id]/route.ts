@@ -28,6 +28,8 @@ const updateSchema = z.object({
   socialLink: nullableString,
   funnelStatus: z.enum(["new", "trial_scheduled", "trial_attended", "awaiting_payment", "active_client", "potential", "non_target", "blacklisted", "archived"]).optional(),
   clientStatus: z.enum(["active", "churned", "archived"]).nullable().optional(),
+  // Ручной сегмент (баг #26): null — «Авто» (сброс к авто-расчёту по настройкам).
+  segmentOverride: z.enum(["new_client", "standard", "regular", "vip"]).nullable().optional(),
   branchId: z.string().uuid().nullable().optional(),
   assignedTo: z.string().uuid().nullable().optional(),
   comment: nullableString,
@@ -184,6 +186,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(data.promisedPaymentDate !== undefined && { promisedPaymentDate: data.promisedPaymentDate ? new Date(data.promisedPaymentDate) : null }),
         ...(data.firstPaidLessonDate !== undefined && { firstPaidLessonDate: data.firstPaidLessonDate ? new Date(data.firstPaidLessonDate) : null }),
         ...(data.discountTemplateId !== undefined && { discountTemplateId: data.discountTemplateId }),
+        // segmentOverride: null допустим (сброс к «Авто»), поэтому проверяем
+        // именно на undefined, а не на truthiness.
+        ...(data.segmentOverride !== undefined && { segmentOverride: data.segmentOverride }),
       },
       include: { wards: true, branch: { select: { id: true, name: true } } },
     })

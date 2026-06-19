@@ -213,16 +213,6 @@ const modules: Module[] = [
         status: "ok",
       },
       {
-        id: "CRM-31",
-        name: "Пробники по дням",
-        data: [
-          { what: "Пробное занятие: дата назначения, дата фактического посещения", from: "Диалог «Записать на пробное» (scheduledDate); attendedAt — отметка занятия" },
-          { what: "Клиент: дата продажи", from: "Авто (saleDate при первой оплате или первом платном занятии)" },
-        ],
-        formula: "Три метрики GROUP BY день × channel: COUNT(TrialLesson) по scheduledDate (записались), по attendedAt (посетили), COUNT(Client) по saleDate (купили абонемент)",
-        status: "ok",
-      },
-      {
         id: "CRM-32",
         name: "Не пришли на пробники",
         data: [

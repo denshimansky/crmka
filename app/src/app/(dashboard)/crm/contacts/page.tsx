@@ -13,8 +13,10 @@ import { scopeBranch, type BranchScope } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import {
   computeSegment,
+  effectiveSegment,
   monthsSince,
   parseSegmentationConfig,
+  type ClientSegmentKey,
 } from "@/lib/segmentation"
 
 const TAB_LABELS: Record<ContactsTabKey, string> = {
@@ -244,9 +246,15 @@ export default async function ContactsPage({
         ? chargedByClient.get(c.id) ?? 0
         : monthsSince(c.firstPaymentDate)
       : 0
-    const segment =
+    // Эффективный сегмент = ручное переопределение (баг #26) ?? авто-расчёт.
+    // Override работает даже без конфига; для не-активных сегмент не показывается.
+    const computedSeg =
       segConfig && c.clientStatus === "active"
         ? computeSegment(metric, segConfig)
+        : "new_client"
+    const segment =
+      c.clientStatus === "active"
+        ? effectiveSegment(c.segmentOverride as ClientSegmentKey | null, computedSeg)
         : "new_client"
     return {
       id: c.id,

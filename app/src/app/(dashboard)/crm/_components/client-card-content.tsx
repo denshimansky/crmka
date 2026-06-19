@@ -13,6 +13,7 @@ import { EditClientDialog } from "../clients/[id]/edit-client-dialog"
 import { UnprolongedCommentsSection } from "../clients/[id]/unprolonged-comments"
 import { LeadStatusActions } from "./lead-status-actions"
 import { ApplicationsSection } from "./applications-section"
+import { SegmentBadgeSelect } from "./segment-badge-select"
 import {
   computeSegment,
   monthsSince,
@@ -28,19 +29,8 @@ import { CreateApplicationDialog } from "./create-application-dialog"
 import { TrialLessonDialog } from "./trial-lesson-dialog"
 import { AddPaymentDialog } from "../../finance/payments/add-payment-dialog"
 
-const SEGMENT_LABELS: Record<string, string> = {
-  new_client: "Новый",
-  standard: "Стандартный",
-  regular: "Постоянный",
-  vip: "VIP",
-}
-
-const SEGMENT_COLORS: Record<string, string> = {
-  new_client: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  standard: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
-  regular: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  vip: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-}
+// Сегментные подписи/цвета живут в SegmentBadgeSelect — кликабельном бейдже
+// (баг #26). В шапке сегмент активного клиента редактируется вручную.
 
 const CLIENT_STATUS_LABELS: Record<string, string> = {
   active: "Активный",
@@ -294,11 +284,11 @@ export async function ClientCardContent({
                 воронки («Лид»/«Потенциал»/«Нецелевой»); для выбывших/архива/ЧС
                 — скрыт, рядом стоит баджик clientStatus. */}
             {client.clientStatus === "active" ? (
-              <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${SEGMENT_COLORS[computedSegment] || ""}`}
-              >
-                {SEGMENT_LABELS[computedSegment] || computedSegment}
-              </span>
+              <SegmentBadgeSelect
+                clientId={client.id}
+                override={client.segmentOverride as ClientSegmentKey | null}
+                computed={computedSegment}
+              />
             ) : (
               !client.clientStatus &&
               FUNNEL_PRESALE_LABELS[client.funnelStatus] && (
@@ -683,13 +673,11 @@ export async function ClientCardContent({
                   {client.monthsLtv > 0 ? ` · ${client.monthsLtv} мес.` : ""}
                 </span>
               </div>
+              {/* Сегмент показан кликабельным бейджем в шапке (баг #26); здесь —
+                  справочно число купленных абонементов, чтобы не путать с ним. */}
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Сегмент</span>
-                <span>
-                  {client.totalSubscriptionsCount > 0
-                    ? `${client.totalSubscriptionsCount} абонементов куплено`
-                    : "Нет абонементов"}
-                </span>
+                <span className="text-muted-foreground">Куплено абонементов</span>
+                <span>{client.totalSubscriptionsCount}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Дата продажи</span>

@@ -50,7 +50,6 @@ const LEADS_REPORTS = [
   "trial-conversion",
   "trial-details",
   "trial-no-show",
-  "trials-by-day",
   "call-efficiency",
   "reachability",
   "reachability-summary",

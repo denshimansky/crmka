@@ -285,6 +285,12 @@ model Client {
   funnelStatus            FunnelStatus      @default(new) @map("funnel_status")
   clientStatus            ClientWorkStatus? @map("client_status")
   segment                 ClientSegment     @default(new_client) @map("segment")
+  // Ручное переопределение сегмента (баг #26). Сегмент обычно считается
+  // автоматически по настройкам (Organization.segmentationConfig). После импорта
+  // исторической базы метрика ≈ 0, и все активные клиенты выглядят «Новый» —
+  // владелец может задать сегмент вручную. Если NULL — берётся авто-сегмент.
+  // Эффективный сегмент = segmentOverride ?? авто (см. lib/segmentation.ts).
+  segmentOverride         ClientSegment?    @map("segment_override")
   // Источник появления контакта: ручное создание/быстрый «+»/quick-create
   // (manual) или массовый импорт исторической базы из старой системы (import).
   // Используется отчётом «Лиды по менеджерам» (импорт не зачисляется менеджеру).

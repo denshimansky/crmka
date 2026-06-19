@@ -11,6 +11,14 @@
 
 import { db } from "./db"
 import { pageHelpContent } from "./page-help-content"
+import {
+  SEGMENT_LABELS,
+  computeSegment,
+  effectiveSegment,
+  monthsSince,
+  parseSegmentationConfig,
+  type ClientSegmentKey,
+} from "./segmentation"
 
 // ─── Утилиты ───────────────────────────────────────────────────────────
 
@@ -694,7 +702,8 @@ export async function buildDynamicSlice(message: string, tenantId: string): Prom
           },
           select: {
             id: true, firstName: true, lastName: true, phone: true,
-            clientStatus: true, funnelStatus: true, segment: true, clientBalance: true,
+            clientStatus: true, funnelStatus: true, segmentOverride: true,
+            firstPaymentDate: true, clientBalance: true,
             branch: { select: { name: true } },
             assignee: { select: { firstName: true, lastName: true } },
           },
@@ -744,9 +753,41 @@ export async function buildDynamicSlice(message: string, tenantId: string): Prom
   // ─── Клиенты ───
   if (clients.length > 0) {
     out += `\nНайденные клиенты (${clients.length}):\n`
+    // Сегмент клиента — тот же эффективный сегмент, что в карточке/отчёте/табе
+    // «Активные» (баг #26): ручное переопределение ?? авто-расчёт по настройкам.
+    // Считаем для ≤3 клиентов: конфиг организации + Σ chargedAmount (режим «сумма»).
+    const orgSeg = await db.organization.findUnique({
+      where: { id: tenantId },
+      select: { segmentationConfig: true },
+    })
+    const segConfig = parseSegmentationConfig(orgSeg?.segmentationConfig)
+    const chargedByClient = new Map<string, number>()
+    if (segConfig?.mode === "amount") {
+      const activeIds = clients.filter(c => c.clientStatus === "active").map(c => c.id)
+      if (activeIds.length > 0) {
+        const sums = await db.subscription.groupBy({
+          by: ["clientId"],
+          where: { tenantId, clientId: { in: activeIds }, deletedAt: null },
+          _sum: { chargedAmount: true },
+        })
+        for (const s of sums) chargedByClient.set(s.clientId, Number(s._sum.chargedAmount ?? 0))
+      }
+    }
     for (const c of clients) {
       const data = await loadClientDetails(c.id, tenantId)
-      out += formatClientDetails(c, data)
+      // Сегмент показываем только для активных клиентов (как в UI); иначе «—».
+      let segmentLabel = "—"
+      if (c.clientStatus === "active") {
+        const metric = segConfig
+          ? segConfig.mode === "amount"
+            ? chargedByClient.get(c.id) ?? 0
+            : monthsSince(c.firstPaymentDate)
+          : 0
+        const computed: ClientSegmentKey = segConfig ? computeSegment(metric, segConfig) : "new_client"
+        const key = effectiveSegment(c.segmentOverride as ClientSegmentKey | null, computed)
+        segmentLabel = SEGMENT_LABELS[key]
+      }
+      out += formatClientDetails(c, data, segmentLabel)
     }
   }
 
@@ -811,12 +852,15 @@ async function loadClientDetails(clientId: string, tenantId: string) {
 
 function formatClientDetails(
   c: any,
-  data: Awaited<ReturnType<typeof loadClientDetails>>
+  data: Awaited<ReturnType<typeof loadClientDetails>>,
+  segmentLabel: string,
 ): string {
   const name = `${c.lastName || ""} ${c.firstName || ""}`.trim() || "—"
   const status = c.clientStatus || c.funnelStatus
   const assignee = c.assignee ? `${c.assignee.lastName} ${c.assignee.firstName}` : "не назначен"
-  let s = `  • ${name} | тел: ${c.phone || "—"} | статус: ${status} | сегмент: ${c.segment} | филиал: ${c.branch?.name || "—"} | админ: ${assignee} | баланс родителя: ${fmt(Number(c.clientBalance))} ₽\n`
+  // Сегмент: эффективный (ручное переопределение ?? авто-расчёт по настройкам),
+  // рассчитан в buildDynamicSlice так же, как в карточке/отчёте (баг #26).
+  let s = `  • ${name} | тел: ${c.phone || "—"} | статус: ${status} | сегмент: ${segmentLabel} | филиал: ${c.branch?.name || "—"} | админ: ${assignee} | баланс родителя: ${fmt(Number(c.clientBalance))} ₽\n`
 
   if (data.wards.length > 0) {
     s += `    Подопечные: ${data.wards.map((w: any) => `${w.firstName} ${w.lastName || ""}`.trim()).join(", ")}\n`

@@ -34,6 +34,53 @@ export const SEGMENT_LABELS: Record<ClientSegmentKey, string> = {
   vip: "VIP",
 }
 
+/** Порядок сегментов от младшего к старшему (для перебора в UI/отчётах). */
+export const SEGMENT_ORDER: ClientSegmentKey[] = [
+  "new_client",
+  "standard",
+  "regular",
+  "vip",
+]
+
+/**
+ * Эффективный сегмент клиента: ручное переопределение (Client.segmentOverride)
+ * побеждает авто-расчёт. Используется везде, где сегмент показывается или
+ * считается (карточка, вкладка «Активные», отчёт «Сегментация»).
+ */
+export function effectiveSegment(
+  override: ClientSegmentKey | null | undefined,
+  computed: ClientSegmentKey,
+): ClientSegmentKey {
+  return override ?? computed
+}
+
+/**
+ * Подпись сегмента с диапазоном порога для отчёта/UI:
+ *   amount → «Стандартный (≥ 50 000 ₽)», months → «Постоянный (≥ 6 мес.)».
+ * Без конфига (config = null) — только название сегмента.
+ */
+export function segmentRangeLabel(
+  key: ClientSegmentKey,
+  config: SegmentationConfig | null,
+): string {
+  const name = SEGMENT_LABELS[key]
+  if (!config) return name
+  const unit = config.mode === "amount" ? "₽" : "мес."
+  const fmt = (n: number) =>
+    config.mode === "amount" ? new Intl.NumberFormat("ru-RU").format(n) : String(n)
+  const t = config.thresholds
+  switch (key) {
+    case "new_client":
+      return `${name} (< ${fmt(t.standard)} ${unit})`
+    case "standard":
+      return `${name} (≥ ${fmt(t.standard)} ${unit})`
+    case "regular":
+      return `${name} (≥ ${fmt(t.regular)} ${unit})`
+    case "vip":
+      return `${name} (≥ ${fmt(t.vip)} ${unit})`
+  }
+}
+
 /** Подпись режима в UI. */
 export const MODE_LABELS: Record<SegmentationMode, string> = {
   amount: "По сумме (₽ отработанной выручки клиента)",
