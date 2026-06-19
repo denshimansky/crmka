@@ -100,18 +100,53 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Sales = clients with firstPaymentDate in period, created by this manager
+  // Продажи = клиенты с первой оплатой (firstPaymentDate) в периоде. Атрибутируем
+  // НЕ создателю лида (client.createdBy — у импортной/старой базы это часто
+  // владелец-импортёр), а тому, кто реально провёл продажу: создателю ПЕРВОГО
+  // платежа клиента (Payment.createdBy). Баг #23 — проверено данными msk1 (июнь
+  // 2026): по client.createdBy 32 продажи падали на владельца, по создателю
+  // первого платежа — 34 на менеджера, который оформлял оплаты.
   const salesClients = await db.client.findMany({
     where: {
       tenantId,
       deletedAt: null,
       firstPaymentDate: { gte: dateFrom, lte: dateTo },
-      createdBy: { not: null },
     },
-    select: { createdBy: true },
+    select: { id: true },
   })
-  for (const c of salesClients) {
-    if (c.createdBy) getOrCreate(c.createdBy).sales += 1
+  const salesClientIds = salesClients.map((c) => c.id)
+  if (salesClientIds.length > 0) {
+    const payments = await db.payment.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        type: "incoming",
+        clientId: { in: salesClientIds },
+        createdBy: { not: null },
+      },
+      select: { clientId: true, createdBy: true, isFirstPayment: true, date: true, createdAt: true },
+    })
+    // Первый платёж клиента: помеченный isFirstPayment, иначе самый ранний по дате.
+    const firstPay = new Map<string, { isFirst: boolean; date: number; createdAt: number; by: string }>()
+    for (const p of payments) {
+      if (!p.clientId || !p.createdBy) continue
+      const cand = {
+        isFirst: p.isFirstPayment,
+        date: new Date(p.date).getTime(),
+        createdAt: new Date(p.createdAt).getTime(),
+        by: p.createdBy,
+      }
+      const cur = firstPay.get(p.clientId)
+      const wins =
+        !cur ||
+        (cand.isFirst !== cur.isFirst
+          ? cand.isFirst
+          : cand.date !== cur.date
+            ? cand.date < cur.date
+            : cand.createdAt < cur.createdAt)
+      if (wins) firstPay.set(p.clientId, cand)
+    }
+    for (const { by } of firstPay.values()) getOrCreate(by).sales += 1
   }
 
   const data = [...managerStats.entries()]

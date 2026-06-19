@@ -38,7 +38,9 @@ export async function GET(req: NextRequest) {
           instructor: { select: { firstName: true, lastName: true } },
         },
       },
-      client: { select: { saleDate: true, firstPaidLessonDate: true } },
+      client: { select: { id: true, firstName: true, lastName: true, saleDate: true, firstPaidLessonDate: true } },
+      direction: { select: { name: true } },
+      withdrawalReason: { select: { name: true } },
     },
   })
 
@@ -46,6 +48,14 @@ export async function GET(req: NextRequest) {
   // New = saleDate AND first paid lesson in current month
   // Churned = has withdrawalDate in current month
   // Active at end = active and not churned
+
+  interface ChurnedClient {
+    clientId: string
+    clientName: string
+    withdrawalDate: string
+    direction: string | null
+    reason: string | null
+  }
 
   const instrData = new Map<
     string,
@@ -55,6 +65,7 @@ export async function GET(req: NextRequest) {
       new_subs: number
       churned: number
       activeAtEnd: number
+      churnedClients: ChurnedClient[]
     }
   >()
 
@@ -67,6 +78,7 @@ export async function GET(req: NextRequest) {
         new_subs: 0,
         churned: 0,
         activeAtEnd: 0,
+        churnedClients: [],
       })
     }
     const d = instrData.get(iId)!
@@ -86,7 +98,17 @@ export async function GET(req: NextRequest) {
       s.withdrawalDate &&
       s.withdrawalDate >= dateFrom &&
       s.withdrawalDate <= dateTo
-    if (isChurned) d.churned += 1
+    if (isChurned) {
+      d.churned += 1
+      d.churnedClients.push({
+        clientId: s.client.id,
+        clientName:
+          [s.client.lastName, s.client.firstName].filter(Boolean).join(" ") || "Без имени",
+        withdrawalDate: s.withdrawalDate!.toISOString(),
+        direction: s.direction?.name ?? null,
+        reason: s.withdrawalReason?.name ?? null,
+      })
+    }
 
     // Active at end = has charge and not churned
     if (hasCharge && !isChurned) d.activeAtEnd += 1
@@ -100,6 +122,7 @@ export async function GET(req: NextRequest) {
       newSubscriptions: v.new_subs,
       churned: v.churned,
       activeAtEnd: v.activeAtEnd,
+      churnedClients: v.churnedClients,
     }))
     .sort((a, b) => b.activeSubscriptions - a.activeSubscriptions)
 
