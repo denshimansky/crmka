@@ -9,6 +9,7 @@ interface Row {
   id: string
   clientId: string
   clientName: string
+  childName: string
   clientPhone: string | null
   group: string
   direction: string
@@ -41,6 +42,7 @@ export default function TrialNoShowReportPage() {
                 <TableRow>
                   <TableHead>Дата пробного</TableHead>
                   <TableHead>Клиент</TableHead>
+                  <TableHead>Ребёнок</TableHead>
                   <TableHead>Телефон</TableHead>
                   <TableHead>Направление</TableHead>
                   <TableHead>Группа</TableHead>
@@ -57,6 +59,7 @@ export default function TrialNoShowReportPage() {
                         {r.clientName}
                       </Link>
                     </TableCell>
+                    <TableCell className="text-sm">{r.childName}</TableCell>
                     <TableCell className="text-sm">{r.clientPhone || "—"}</TableCell>
                     <TableCell className="text-sm">{r.direction}</TableCell>
                     <TableCell className="text-sm">{r.group}</TableCell>

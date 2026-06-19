@@ -32,6 +32,9 @@ export async function GET(req: NextRequest) {
       client: {
         select: { id: true, firstName: true, lastName: true, phone: true },
       },
+      ward: {
+        select: { firstName: true, lastName: true },
+      },
       group: {
         select: {
           name: true,
@@ -48,6 +51,7 @@ export async function GET(req: NextRequest) {
     id: t.id,
     clientId: t.client.id,
     clientName: [t.client.lastName, t.client.firstName].filter(Boolean).join(" ") || "Без имени",
+    childName: t.ward ? [t.ward.lastName, t.ward.firstName].filter(Boolean).join(" ") || "—" : "—",
     clientPhone: t.client.phone,
     group: t.group?.name || "Индивидуально",
     direction: t.group?.direction.name || t.direction?.name || "—",

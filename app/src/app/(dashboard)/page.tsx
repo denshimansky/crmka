@@ -1109,9 +1109,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   )
 
   return (
-    // pb-24 — нижний отступ, чтобы плавающая иконка AI-агента не перекрывала
-    // данные последних виджетов при прокрутке до конца.
-    <div className="space-y-6 pb-24">
+    // Нижний отступ под плавающую кнопку AI-ассистента задаётся глобально в
+    // layout.tsx (<main> pb-24) — здесь дублировать не нужно.
+    <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">Дашборд</h1>

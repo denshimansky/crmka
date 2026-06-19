@@ -63,7 +63,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </header>
         <ImpersonationBanner />
         <BillingBanner />
-        <main className="min-w-0 flex-1 overflow-x-hidden p-3 md:p-6">
+        {/* pb-24 — резерв снизу, чтобы плавающая кнопка AI-ассистента (fixed
+            bottom-6 right-6, h-14) не перекрывала нижний ряд таблиц/контента на
+            любой странице, особенно на небольших экранах (баг #20). */}
+        <main className="min-w-0 flex-1 overflow-x-hidden p-3 pb-24 md:p-6 md:pb-24">
           {denied ? <AccessDenied /> : children}
         </main>
       </SidebarInset>
