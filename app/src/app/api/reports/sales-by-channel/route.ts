@@ -50,9 +50,22 @@ export async function GET(req: NextRequest) {
     })
     for (const t of trials) add(t.createdBy, t.client.channelId)
   } else {
-    // Sales mode — клиенты с датой продажи в периоде.
+    // Sales mode — клиент конвертировался (первая продажа) в периоде. «Дата продажи»
+    // = COALESCE(saleDate, firstPaymentDate, firstPaidLessonDate), как в отчётах
+    // оттока/дозвона: у импортированной базы saleDate часто пуст, и фильтр только
+    // по нему занижал продажи (баг #27 follow-up, проверено на msk1: июнь 35→40).
+    // OR-ветки взаимоисключающи и точно выражают «COALESCE(...) ∈ [from, to]».
+    const inPeriod = { gte: dateFrom, lte: dateTo }
     const clients = await db.client.findMany({
-      where: { tenantId, deletedAt: null, saleDate: { gte: dateFrom, lte: dateTo } },
+      where: {
+        tenantId,
+        deletedAt: null,
+        OR: [
+          { saleDate: inPeriod },
+          { saleDate: null, firstPaymentDate: inPeriod },
+          { saleDate: null, firstPaymentDate: null, firstPaidLessonDate: inPeriod },
+        ],
+      },
       select: { createdBy: true, channelId: true },
     })
     for (const c of clients) add(c.createdBy, c.channelId)
