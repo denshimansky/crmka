@@ -73,9 +73,21 @@ export async function computeSalesFunnel(
               },
             },
           },
-          // Ветка тянет ВСЕ заявки клиента с первым платным занятием в месяце —
-          // атрибуция paidLessonWonApp («самая ранняя заявка») остаётся точной.
           { client: { firstPaidLessonDate: { gte: monthStart, lte: monthEnd } } },
+          // Покупка по заявке: у ребёнка активирован (оплачен) абонемент в месяце.
+          // Без этой ветки покупки мимо стадии awaiting_payment (метка won не
+          // ставится) не попадали в выборку и терялись в «Купил».
+          {
+            ward: {
+              subscriptions: {
+                some: {
+                  activatedAt: { gte: monthStart, lte: monthEnd },
+                  deletedAt: null,
+                  status: { in: ["active", "closed", "withdrawn"] },
+                },
+              },
+            },
+          },
         ],
       },
       select: {
@@ -107,6 +119,9 @@ export async function computeSalesFunnel(
           },
         },
       },
+      // Детерминированный порядок: дедуп «Купил» по ребёнку+направлению и выбор
+      // вкладки (new/existing) привязываются к самой ранней заявке.
+      orderBy: { createdAt: "asc" },
     }),
     // Этап «Лид» — контакты, СТАВШИЕ лидом (вошедшие в статус «Новый») в выбранном
     // месяце. Фильтр по becameLeadAt (его ведёт триггер БД), а не по createdAt:
@@ -222,19 +237,32 @@ export async function computeSalesFunnel(
     return client.clientStatus === "active" || client.clientStatus === "churned"
   }
 
-  // «Купил» через первое платное занятие (без выигранной заявки): дата клиентская,
-  // а не заявочная — относим её к самой ранней заявке клиента, созданной не позже
-  // этого дня, и только если у клиента нет ни одной won-заявки (иначе задвоение).
-  // clientsWithWon — из глобального агрегата, а не оконной выборки, чтобы покупка
-  // не считалась дважды в разных месяцах.
-  const clientsWithWon = new Set(wonHistory.map((w) => w.clientId))
-  const paidLessonWonApp = new Map<string, string>() // clientId -> applicationId
-  for (const a of [...apps].sort((x, y) => x.createdAt.getTime() - y.createdAt.getTime())) {
-    const d = a.client.firstPaidLessonDate
-    if (!d || clientsWithWon.has(a.client.id)) continue
-    if (paidLessonWonApp.has(a.client.id)) continue
-    if (utcDayStart(a.createdAt) <= d) paidLessonWonApp.set(a.client.id, a.id)
+  // «Купил» = оплата абонемента ПО ЗАЯВКЕ. Считаем ПЕРВУЮ активацию абонемента по
+  // ребёнку+направлению: продление того же направления (повторная активация) и
+  // прямые продажи без заявки не учитываются. Наличие заявки проверяется в цикле
+  // ниже (событие добавляется только при обходе заявки этого ребёнка+направления).
+  const purchaseByWardDir = new Map<string, { firstActivatedAt: Date; groupName: string | null }>()
+  for (const s of subs) {
+    // Покупка = ОПЛАТА: учитываем только активированные (activatedAt != null).
+    // Неоплаченные closed/withdrawn (activatedAt пустой) — не покупка, пропускаем.
+    if (!s.wardId || !s.activatedAt) continue
+    const key = `${s.wardId}|${s.directionId}`
+    const at = s.activatedAt
+    const prev = purchaseByWardDir.get(key)
+    if (!prev || at < prev.firstActivatedAt) {
+      purchaseByWardDir.set(key, { firstActivatedAt: at, groupName: s.group?.name ?? null })
+    }
   }
+
+  // Лиды раскладываем по блокам: «с пробным» = у лида есть НЕотменённое пробное.
+  const leadClientIds = leadClients.map((c) => c.id)
+  const leadTrials = leadClientIds.length
+    ? await db.trialLesson.findMany({
+        where: { tenantId, clientId: { in: leadClientIds }, status: { not: "cancelled" } },
+        select: { clientId: true },
+      })
+    : []
+  const leadHasTrial = new Set(leadTrials.map((t) => t.clientId))
 
   // Группа купленного абонемента: по подопечному + направлению заявки, фолбэк —
   // по клиенту (абонемент может быть без подопечного). Берём последний абонемент,
@@ -295,9 +323,39 @@ export async function computeSalesFunnel(
     if (withRows) b.rows.push(row)
   }
 
+  // Агрегаты пробного по ребёнку+направлению (OR по ВСЕМ заявкам этой пары) —
+  // чтобы схема покупки определялась фактом посещения пробного у ребёнка, а не
+  // случайной заявкой (детерминизм при нескольких заявках на ward+direction).
+  const attendedByWardDir = new Set<string>()
+  const hasTrialByWardDir = new Set<string>()
+  for (const a of apps) {
+    const key = `${a.ward.id}|${a.direction?.id ?? ""}`
+    if (a.trialLessons.length > 0) hasTrialByWardDir.add(key)
+    if (a.trialLessons.some((t) => t.status === "attended")) attendedByWardDir.add(key)
+  }
+
+  // «Купил» считаем один раз на ребёнка+направление (между несколькими заявками).
+  const wonCountedWardDir = new Set<string>()
+
   for (const a of apps) {
     const tab: FunnelTab = wasExistingAt(a.client, a.createdAt) ? "existing" : "new"
-    const scheme: FunnelSchemeKey = a.trialLessons.length > 0 ? "with_trial" : "no_trial"
+    const wardDirKey = `${a.ward.id}|${a.direction?.id ?? ""}`
+    const purchase = purchaseByWardDir.get(wardDirKey)
+    const attendedTrial = attendedByWardDir.has(wardDirKey)
+    const hasTrial = hasTrialByWardDir.has(wardDirKey)
+    // Схема «с пробным / без»:
+    //  - купившие — по ФАКТУ посещения пробного: пришёл на пробное → «с пробным»;
+    //    пробного не было / не пришёл / отменил → «без пробного» (вся покупка без
+    //    пробного, заявка целиком в этом блоке);
+    //  - не купившие — по наличию назначенного (НЕотменённого) пробного, чтобы
+    //    сохранить убыль «Пробное → Пришёл» (неявки видны в блоке «с пробным»).
+    const scheme: FunnelSchemeKey = purchase
+      ? attendedTrial
+        ? "with_trial"
+        : "no_trial"
+      : hasTrial
+        ? "with_trial"
+        : "no_trial"
     const appInMonth = inMonth(a.createdAt)
     const carryover = a.createdAt < monthStart
 
@@ -321,34 +379,37 @@ export async function computeSalesFunnel(
       })
     }
 
-    // Этапы пробного — по дате занятия (scheduledDate); заявка считается один раз.
-    const monthTrials = a.trialLessons.filter((t) => inMonth(t.scheduledDate))
-    if (monthTrials.length > 0) {
-      const first = monthTrials[0]
-      addEvent(tab, scheme, "trial", carryover, {
-        ...baseRow,
-        groupName: first.group?.name ?? null,
-        date: first.scheduledDate.toISOString(),
-      })
-    }
-    const attended = monthTrials.filter((t) => t.status === "attended")
-    if (attended.length > 0) {
-      const first = attended[0]
-      addEvent(tab, scheme, "trial_attended", carryover, {
-        ...baseRow,
-        groupName: first.group?.name ?? null,
-        date: first.scheduledDate.toISOString(),
-      })
+    // Этапы пробного — только в блоке «с пробным» (Пробное → Пришёл по привязанным
+    // к заявке пробным). У покупки «без пробного» (в т.ч. с неявкой) их не показываем.
+    if (scheme === "with_trial") {
+      const monthTrials = a.trialLessons.filter((t) => inMonth(t.scheduledDate))
+      if (monthTrials.length > 0) {
+        const first = monthTrials[0]
+        addEvent(tab, scheme, "trial", carryover, {
+          ...baseRow,
+          groupName: first.group?.name ?? null,
+          date: first.scheduledDate.toISOString(),
+        })
+      }
+      const attended = monthTrials.filter((t) => t.status === "attended")
+      if (attended.length > 0) {
+        const first = attended[0]
+        addEvent(tab, scheme, "trial_attended", carryover, {
+          ...baseRow,
+          groupName: first.group?.name ?? null,
+          date: first.scheduledDate.toISOString(),
+        })
+      }
     }
 
-    // Этап «Купил»: оплачен абонемент по заявке (won) либо первое платное занятие.
-    const wonDate =
-      a.processedToStatus === "won" && a.processedAt
-        ? a.processedAt
-        : paidLessonWonApp.get(a.client.id) === a.id
-          ? a.client.firstPaidLessonDate
-          : null
-    if (inMonth(wonDate)) {
+    // Этап «Купил»: первая активация (оплата) абонемента по ребёнку+направлению,
+    // приходящаяся на месяц. Один раз на ребёнка+направление (дедуп между заявками).
+    if (
+      purchase &&
+      inMonth(purchase.firstActivatedAt) &&
+      !wonCountedWardDir.has(wardDirKey)
+    ) {
+      wonCountedWardDir.add(wardDirKey)
       const lastTrialGroup =
         a.trialLessons.length > 0
           ? (a.trialLessons[a.trialLessons.length - 1].group?.name ?? null)
@@ -356,8 +417,10 @@ export async function computeSalesFunnel(
       addEvent(tab, scheme, "won", carryover, {
         ...baseRow,
         groupName:
-          subGroupFor(a.ward.id, a.client.id, a.direction?.id ?? null) ?? lastTrialGroup,
-        date: wonDate!.toISOString(),
+          purchase.groupName ??
+          subGroupFor(a.ward.id, a.client.id, a.direction?.id ?? null) ??
+          lastTrialGroup,
+        date: purchase.firstActivatedAt.toISOString(),
       })
     }
   }
@@ -380,10 +443,10 @@ export async function computeSalesFunnel(
       carryover: false,
       date: (c.becameLeadAt ?? c.createdAt).toISOString(),
     }
-    // Лид ещё не имеет заявки, поэтому схема неизвестна — показываем одинаково
-    // в обеих схемах вкладки «новые» (в сводке считается один раз).
-    addEvent("new", "with_trial", "lead", false, row)
-    addEvent("new", "no_trial", "lead", false, row)
+    // Лид относим к блоку по наличию НЕотменённого пробного: «с пробным» —
+    // у лида есть назначенное/посещённое пробное, иначе «без пробного».
+    const scheme: FunnelSchemeKey = leadHasTrial.has(c.id) ? "with_trial" : "no_trial"
+    addEvent("new", scheme, "lead", false, row)
   }
 
   const stageList = (tab: FunnelTab, scheme: FunnelSchemeKey): FunnelStageKey[] => {
@@ -416,8 +479,9 @@ export function summarizeSalesFunnel(
   const find = (schemes: FunnelScheme[], scheme: FunnelSchemeKey, stage: FunnelStageKey) =>
     schemes.find((s) => s.key === scheme)?.stages.find((s) => s.key === stage)
 
-  // «Лид» одинаков в обеих схемах вкладки «новые» — берём один раз.
-  const lead = total(find(data.new, "with_trial", "lead"))
+  // «Лид» теперь разложен по блокам (с пробным / без) — суммируем оба.
+  const lead =
+    total(find(data.new, "with_trial", "lead")) + total(find(data.new, "no_trial", "lead"))
   const sumBoth = (stage: FunnelStageKey) =>
     (["with_trial", "no_trial"] as FunnelSchemeKey[]).reduce(
       (acc, scheme) =>
