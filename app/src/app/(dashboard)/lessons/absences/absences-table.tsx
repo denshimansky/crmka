@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useMemo } from "react"
 import { useRouter, usePathname, useSearchParams } from "next/navigation"
+import Link from "next/link"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
@@ -280,7 +281,12 @@ export function AbsencesView({
                           {group.branchName}
                         </TableCell>
                         <TableCell rowSpan={group.details.length} className="align-top">
-                          {group.clientLabel}
+                          <Link
+                            href={`/crm/clients/${group.clientId}`}
+                            className="text-primary hover:underline"
+                          >
+                            {group.clientLabel}
+                          </Link>
                         </TableCell>
                         <TableCell rowSpan={group.details.length} className="align-top text-muted-foreground">
                           {group.directionName}
