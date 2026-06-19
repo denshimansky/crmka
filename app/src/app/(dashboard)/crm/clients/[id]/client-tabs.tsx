@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -519,6 +520,7 @@ function WithdrawSubscriptionDialog({
   const [preview, setPreview] = useState<WithdrawPreview | null>(null)
   const [reasons, setReasons] = useState<WithdrawalReasonOption[]>([])
   const [reasonId, setReasonId] = useState<string>("")
+  const [comment, setComment] = useState<string>("")
 
   async function loadPreview() {
     setLoadingPreview(true)
@@ -553,6 +555,7 @@ function WithdrawSubscriptionDialog({
       setPreview(null)
       setError(null)
       setReasonId("")
+      setComment("")
     }
   }
 
@@ -567,7 +570,11 @@ function WithdrawSubscriptionDialog({
       const res = await fetch(`/api/subscriptions/${subscription.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "withdrawn", withdrawalReasonId: reasonId }),
+        body: JSON.stringify({
+          status: "withdrawn",
+          withdrawalReasonId: reasonId,
+          withdrawalComment: comment.trim() || undefined,
+        }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -714,6 +721,20 @@ function WithdrawSubscriptionDialog({
                   </SelectContent>
                 </Select>
               )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Комментарий</Label>
+              <Textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Например: переезд, потеря интереса, детали договорённости…"
+                rows={2}
+                className="resize-none"
+              />
+              <p className="text-xs text-muted-foreground">
+                Сохранится в истории коммуникаций клиента.
+              </p>
             </div>
 
             <DialogFooter>

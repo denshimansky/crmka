@@ -23,6 +23,8 @@ const updateSchema = z.object({
   wardId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   withdrawalDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   withdrawalReasonId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  // Комментарий при отчислении — сохраняется в историю коммуникаций клиента (заметка).
+  withdrawalComment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   // Продление срока пакетного абонемента (ISO-дата) — только для type='package'.
   expiresAt: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
 })
@@ -278,6 +280,34 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         group: { select: { id: true, name: true } },
       },
     })
+
+    // Комментарий к отчислению → заметка в историю коммуникаций клиента (виден
+    // в ленте/фиде карточки родителя). Только при переходе в withdrawn и если
+    // комментарий заполнен. Контекст (направление + период) — чтобы заметка
+    // была самодостаточной в общем фиде коммуникаций.
+    if (
+      data.status === "withdrawn" &&
+      existing.status !== "withdrawn" &&
+      data.withdrawalComment
+    ) {
+      const period =
+        existing.periodMonth && existing.periodYear
+          ? `${String(existing.periodMonth).padStart(2, "0")}.${existing.periodYear}`
+          : null
+      await tx.communication.create({
+        data: {
+          tenantId: session.user.tenantId,
+          clientId: existing.clientId,
+          type: "note",
+          channel: "internal",
+          direction: "internal",
+          content:
+            `Отчисление абонемента «${subscription.direction.name}»` +
+            `${period ? ` (${period})` : ""}. ${data.withdrawalComment}`,
+          employeeId: session.user.employeeId || undefined,
+        },
+      })
+    }
 
     // Скидки v2: пересчёт денег абонемента после правки цены/занятий
     // (не для legacy и не для только что закрытых/отчисленных — у них
