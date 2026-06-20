@@ -9,6 +9,7 @@ import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
+import { EditableDateCell, EditableTextCell } from "../../crm/_components/editable-cell"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -30,6 +31,8 @@ export default async function DebtorsPage({
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
   const clientScope = scopeClientByBranch(scope)
+  // Редактировать обещанную дату/комментарий может любая роль, кроме «только чтение».
+  const canEdit = session.user.role !== "readonly"
 
   const sp = await searchParams
   const tab: TabKey = sp.tab === "actual" ? "actual" : "planned"
@@ -67,6 +70,7 @@ export default async function DebtorsPage({
       lastName: true,
       clientBalance: true,
       promisedPaymentDate: true,
+      comment: true,
       phone: true,
       branch: { select: { name: true } },
       subscriptions: {
@@ -101,6 +105,8 @@ export default async function DebtorsPage({
     directions: string
     debt: number
     promised: Date | null
+    promisedIso: string | null
+    comment: string | null
     isOverdue: boolean
     phone: string | null
     sources: Source[]
@@ -190,6 +196,8 @@ export default async function DebtorsPage({
       directions: directionsSet.size > 0 ? Array.from(directionsSet).join(", ") : "—",
       debt,
       promised,
+      promisedIso: promised ? promised.toISOString().slice(0, 10) : null,
+      comment: c.comment,
       isOverdue,
       phone: c.phone,
       sources: sources.slice(0, 4),
@@ -314,6 +322,7 @@ export default async function DebtorsPage({
                 <TableHead className="text-right">Долг</TableHead>
                 <TableHead>Обещанная дата</TableHead>
                 <TableHead>Телефон</TableHead>
+                <TableHead>Комментарий</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -360,7 +369,15 @@ export default async function DebtorsPage({
                   </TableCell>
                   <TableCell className="text-right font-medium text-red-600">{formatMoney(r.debt)}</TableCell>
                   <TableCell>
-                    {r.promised ? (
+                    {canEdit ? (
+                      <div className="flex items-center gap-2">
+                        <EditableDateCell
+                          initialValue={r.promisedIso}
+                          endpoint={{ url: `/api/clients/${r.id}`, field: "promisedPaymentDate" }}
+                        />
+                        {r.isOverdue && <Badge variant="destructive" className="text-xs">просрочено</Badge>}
+                      </div>
+                    ) : r.promised ? (
                       <span className={r.isOverdue ? "font-medium text-red-600" : ""}>
                         {formatDate(r.promised)}
                         {r.isOverdue && <Badge variant="destructive" className="ml-2 text-xs">просрочено</Badge>}
@@ -368,6 +385,18 @@ export default async function DebtorsPage({
                     ) : "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{r.phone || "—"}</TableCell>
+                  <TableCell>
+                    {canEdit ? (
+                      <EditableTextCell
+                        initialValue={r.comment}
+                        endpoint={{ url: `/api/clients/${r.id}`, field: "comment" }}
+                        rows={1}
+                        className="min-h-[32px] w-[200px] resize-none text-xs"
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{r.comment || "—"}</span>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

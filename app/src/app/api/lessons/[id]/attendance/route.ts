@@ -400,6 +400,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         include: { attendanceType: { select: { chargePercent: true } } },
       })
 
+      // Баг #38: убираем «осиротевшую» отметку того же ученика на этом занятии,
+      // хранящуюся без subscriptionId. Типичный случай — «Не был» (no_show
+      // абонемент не списывает, хранится с subscriptionId=null). При смене на
+      // списывающий тип резолвится свежий subscriptionId, и upsert по ключу
+      // (lesson, subscriptionId) эту строку не находит → без чистки появляется
+      // ВТОРАЯ отметка, а старый «Не был» остаётся, и реестр «Пропусков»
+      // показывает прежнее значение. Удаляем только финансово пустые записи
+      // (chargeAmount=0 и ЗП=0) — у no_show/заглушек так и есть, денег не теряем.
+      const orphanNullSub = await tx.attendance.findMany({
+        where: {
+          tenantId,
+          lessonId,
+          clientId: data.clientId,
+          wardId: data.wardId,
+          subscriptionId: null,
+          chargeAmount: 0,
+          instructorPayAmount: 0,
+        },
+        select: { id: true },
+      })
+      for (const o of orphanNullSub) {
+        await tx.attendance.delete({ where: { id: o.id } })
+      }
+
       // Откат предыдущего возврата (lesson_refund) при смене типа посещения
       if (existing && Number(existing.chargeAmount) > 0) {
         const prevRefund = calcRefund(existing.chargeAmount, existing.attendanceType.chargePercent)
