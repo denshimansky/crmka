@@ -6,16 +6,22 @@ import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { CreateClientDialog } from "../clients/create-client-dialog"
 import { SalesTabs, type SalesTab } from "./sales-tabs"
 import { SalesTable, type SalesRow, type SalesTabKey } from "./sales-table"
+import { ContactTable, type ContactRow } from "./contact-table"
 import { scopeBranch, type BranchScope, isUnscoped } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 
-const TAB_LABELS: Record<SalesTabKey, string> = {
+// Раздел «Продажи» = 4 этапа воронки заявок + вкладка «Связь» (клиенты с
+// назначенной датой связи). «Связь» ведётся по клиенту, а не по заявке.
+type PageTabKey = SalesTabKey | "contact"
+
+const TAB_LABELS: Record<PageTabKey, string> = {
   application: "Заявка",
   trial: "Пробное",
   trial_done: "Прошёл пробное",
   awaiting_payment: "Ожидаем оплату",
+  contact: "Связь",
 }
-const TAB_ORDER: SalesTabKey[] = ["application", "trial", "trial_done", "awaiting_payment"]
+const TAB_ORDER: PageTabKey[] = ["application", "trial", "trial_done", "awaiting_payment", "contact"]
 
 // Воронка ведётся по заявке (Application.stage). Вкладка = этап. Сумма строк по
 // всем вкладкам = число активных заявок.
@@ -89,8 +95,8 @@ export default async function SalesPage({
   const scope = await getBranchScope()
   const { tab: rawTab, branchId: rawBranchId, directionId: rawDirectionId } =
     await searchParams
-  const tab: SalesTabKey = TAB_ORDER.includes(rawTab as SalesTabKey)
-    ? (rawTab as SalesTabKey)
+  const tab: PageTabKey = TAB_ORDER.includes(rawTab as PageTabKey)
+    ? (rawTab as PageTabKey)
     : "application"
   // ADM-04: пересечение явного фильтра по филиалу из URL и серверного scope.
   const rawBranch = rawBranchId && rawBranchId !== "all" ? rawBranchId : null
@@ -107,6 +113,17 @@ export default async function SalesPage({
     ...scopeBranch(scope),
   }
 
+  // Вкладка «Связь»: клиенты/лиды с назначенной датой связи (любой этап воронки,
+  // кроме архива/ЧС). Тот же клиентский фильтр и scope, что и в остальных вкладках.
+  const contactWhere: Prisma.ClientWhereInput = {
+    tenantId,
+    AND: [
+      notArchivedClient(scope),
+      { nextContactDate: { not: null } },
+      ...(branchFilter ? [{ branchId: branchFilter }] : []),
+    ],
+  }
+
   const [
     branches,
     directions,
@@ -115,6 +132,7 @@ export default async function SalesPage({
     countTrial,
     countTrialDone,
     countAwaitingPayment,
+    countContact,
   ] = await Promise.all([
     db.branch.findMany({
       where: branchWhere,
@@ -137,19 +155,55 @@ export default async function SalesPage({
     db.application.count({ where: appFunnelWhere(tenantId, "trial_scheduled", branchFilter, directionFilter, scope) }),
     db.application.count({ where: appFunnelWhere(tenantId, "trial_attended", branchFilter, directionFilter, scope) }),
     db.application.count({ where: appFunnelWhere(tenantId, "awaiting_payment", branchFilter, directionFilter, scope) }),
+    db.client.count({ where: contactWhere }),
   ])
 
-  const counts: Record<SalesTabKey, number> = {
+  const counts: Record<PageTabKey, number> = {
     application: countApplication,
     trial: countTrial,
     trial_done: countTrialDone,
     awaiting_payment: countAwaitingPayment,
+    contact: countContact,
   }
 
-  const where = appFunnelWhere(tenantId, TAB_TO_STAGE[tab], branchFilter, directionFilter, scope)
   let rows: SalesRow[] = []
+  let contactRows: ContactRow[] = []
 
-  if (tab === "application") {
+  if (tab === "contact") {
+    const contactClients = await db.client.findMany({
+      where: contactWhere,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        funnelStatus: true,
+        clientStatus: true,
+        nextContactDate: true,
+        comment: true,
+        assignee: { select: { firstName: true, lastName: true } },
+        wards: { select: { id: true, firstName: true, lastName: true }, orderBy: { createdAt: "asc" } },
+      },
+      orderBy: { nextContactDate: "asc" }, // ближайшие связи — сверху
+    })
+    contactRows = contactClients.map((c) => ({
+      clientId: c.id,
+      name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
+      phone: maskPhone(c.phone, role),
+      funnelStatus: c.funnelStatus,
+      clientStatus: c.clientStatus,
+      nextContactDate: c.nextContactDate!.toISOString(),
+      comment: c.comment ?? null,
+      wards: c.wards.map((w) => ({
+        id: w.id,
+        name: [w.lastName, w.firstName].filter(Boolean).join(" ") || "—",
+      })),
+      assigneeName: c.assignee
+        ? [c.assignee.lastName, c.assignee.firstName].filter(Boolean).join(" ") || null
+        : null,
+    }))
+  } else if (tab === "application") {
+    const where = appFunnelWhere(tenantId, TAB_TO_STAGE[tab], branchFilter, directionFilter, scope)
     // Этап «Заявка» — данные пробного/абонемента не нужны.
     const apps = await db.application.findMany({
       where,
@@ -189,6 +243,7 @@ export default async function SalesPage({
       assignedTo: a.client.assignedTo,
     }))
   } else if (tab === "trial" || tab === "trial_done") {
+    const where = appFunnelWhere(tenantId, TAB_TO_STAGE[tab], branchFilter, directionFilter, scope)
     // «Пробное» показывает заявки на этапе trial_scheduled, с представительным
     // пробным (scheduled или no_show — «не пришёл» остаётся здесь). «Прошёл пробное»
     // — этап trial_attended с attended-пробным.
@@ -264,6 +319,7 @@ export default async function SalesPage({
       }
     })
   } else {
+    const where = appFunnelWhere(tenantId, TAB_TO_STAGE[tab], branchFilter, directionFilter, scope)
     // «Ожидаем оплату» — этап awaiting_payment. Абонемент (pending/active) того же
     // ребёнка и направления даёт стоимость, группу и дату первого платного.
     const apps = await db.application.findMany({
@@ -378,15 +434,19 @@ export default async function SalesPage({
 
       <SalesTabs tabs={tabs} current={tab} />
 
-      <SalesTable
-        tab={tab}
-        rows={rows}
-        employees={employees}
-        branches={branches}
-        branchId={branchFilter}
-        directions={directions}
-        directionId={directionFilter}
-      />
+      {tab === "contact" ? (
+        <ContactTable rows={contactRows} />
+      ) : (
+        <SalesTable
+          tab={tab}
+          rows={rows}
+          employees={employees}
+          branches={branches}
+          branchId={branchFilter}
+          directions={directions}
+          directionId={directionFilter}
+        />
+      )}
     </div>
   )
 }
