@@ -36,7 +36,6 @@ interface FilterOptions {
 
 interface ConversionByDaysTableProps {
   withTrial: TabData
-  withoutTrial: TabData
   mode: "month" | "range"
   year: number
   month: number
@@ -64,7 +63,6 @@ function fmt(n: number): string {
 
 export function ConversionByDaysTable({
   withTrial,
-  withoutTrial,
   mode,
   year,
   month,
@@ -84,9 +82,8 @@ export function ConversionByDaysTable({
 
   const [fromInput, setFromInput] = useState(from)
   const [toInput, setToInput] = useState(to)
-  const [activeTab, setActiveTab] = useState<"withTrial" | "withoutTrial">("withTrial")
 
-  const data = activeTab === "withTrial" ? withTrial : withoutTrial
+  const data = withTrial
 
   function updateParam(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString())
@@ -284,14 +281,6 @@ export function ConversionByDaysTable({
           </Button>
         )}
       </div>
-
-      {/* Вкладки: с пробным / без пробного */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "withTrial" | "withoutTrial")}>
-        <TabsList>
-          <TabsTrigger value="withTrial">С пробным</TabsTrigger>
-          <TabsTrigger value="withoutTrial">Без пробного</TabsTrigger>
-        </TabsList>
-      </Tabs>
 
       {/* Таблица */}
       {data.days.length === 0 ? (

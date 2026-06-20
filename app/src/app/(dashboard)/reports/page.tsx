@@ -48,7 +48,6 @@ const reportGroups: ReportGroup[] = [
       { name: "Не пришли на пробники", href: "/reports/crm/trial-no-show", description: "Список неявок на пробные занятия за месяц", source: "trials" },
       { name: "Эффективность обзвонов", href: "/reports/crm/call-efficiency", description: "Отработка кампаний, конверсия в пробные и продажи", source: "clients" },
       { name: "Продажи менеджеров по каналам", href: "/reports/crm/sales-by-channel", description: "Пробные и продажи в разрезе менеджеров (переключатель показателя)", source: "clients" },
-      { name: "Сводный по абонементам по педагогам", href: "/reports/crm/subscriptions-by-instructor", description: "Активные, новые, выбывшие абонементы по педагогам", source: "subscriptions" },
       { name: "Детализация пробников", href: "/reports/crm/trial-details", description: "Все пробные за месяц с педагогом, статусом, датой посещения", source: "trials" },
     ],
   },
@@ -63,6 +62,7 @@ const reportGroups: ReportGroup[] = [
       { name: "Конверсия оттока по педагогам", href: "/reports/churn/by-instructor", description: "% оттока = выбывшие / активные абонементы (педагоги или филиалы)", source: "clients" },
       { name: "Отток по месяцам", href: "/reports/churn/by-months", description: "В какой месяц «срока жизни» чаще уходят клиенты", source: "clients" },
       { name: "Отток по направлениям и филиалам", href: "/reports/churn/by-directions", description: "Активные прошлого месяца, не продлённые в текущем", source: "subscriptions" },
+      { name: "Сводный по абонементам по педагогам", href: "/reports/crm/subscriptions-by-instructor", description: "Активные, новые, выбывшие абонементы по педагогам", source: "subscriptions" },
     ],
   },
   {

@@ -145,8 +145,7 @@ export default async function ConversionByDaysPage({
   if (responsibleId) clientFilter.assignedTo = responsibleId
   const hasClientFilter = Object.keys(clientFilter).length > 0
 
-  // === 1. Создано заявок (Application.createdAt) + признак наличия пробного ===
-  // Партиция: заявка с ≥1 пробным → вкладка «С пробным»; без пробного → «Без пробного».
+  // === 1. Создано заявок (Application.createdAt) с ≥1 пробным занятием ===
   const applications = await db.application.findMany({
     where: {
       tenantId,
@@ -159,7 +158,6 @@ export default async function ConversionByDaysPage({
     select: { id: true, createdAt: true, _count: { select: { trialLessons: true } } },
   })
   const appsWithTrial = applications.filter((a) => a._count.trialLessons > 0)
-  const appsWithoutTrial = applications.filter((a) => a._count.trialLessons === 0)
 
   // === 2. Записано на пробник (TrialLesson.scheduledDate) — только вкладка «С пробным» ===
   const trialScheduledWhere: Prisma.TrialLessonWhereInput = {
@@ -331,7 +329,6 @@ export default async function ConversionByDaysPage({
   }
 
   const salesWithTrial: { d: Date }[] = []
-  const salesWithoutTrial: { d: Date }[] = []
   const metaById = new Map(subMeta.map((s) => [s.id, s]))
   for (const id of saleSubIds) {
     const meta = metaById.get(id)
@@ -343,7 +340,6 @@ export default async function ConversionByDaysPage({
       ? trialWardDir.has(`${meta.wardId}|${meta.directionId}`)
       : trialClientDir.has(`${meta.clientId}|${meta.directionId}`)
     if (hasTrial) salesWithTrial.push({ d })
-    else salesWithoutTrial.push({ d })
   }
 
   // === Сборка вкладок ===
@@ -390,33 +386,7 @@ export default async function ConversionByDaysPage({
     },
   ]
 
-  // Вкладка «Без пробного» (короткий цикл): создано → продажа.
-  const woCreated = byDay(appsWithoutTrial.map((a) => ({ d: a.createdAt })))
-  const woSales = byDay(salesWithoutTrial)
-
-  const totalWoCreated = appsWithoutTrial.length
-  const totalWoSales = salesWithoutTrial.length
-
-  const withoutTrialDays = sortDays([woCreated, woSales])
-  const withoutTrialMetrics: MetricRow[] = [
-    {
-      id: "applications",
-      label: "Создано заявок",
-      total: totalWoCreated,
-      conversion: null,
-      perDay: withoutTrialDays.map((d) => woCreated.get(d) || 0),
-    },
-    {
-      id: "sales",
-      label: "Совершено продаж",
-      total: totalWoSales,
-      conversion: pct(totalWoSales, totalWoCreated),
-      perDay: withoutTrialDays.map((d) => woSales.get(d) || 0),
-    },
-  ]
-
   const withTrial: TabData = { days: withTrialDays, metrics: withTrialMetrics }
-  const withoutTrial: TabData = { days: withoutTrialDays, metrics: withoutTrialMetrics }
 
   const periodLabel = formatPeriodLabel(mode, year, month, dateFrom, dateTo)
 
@@ -439,7 +409,6 @@ export default async function ConversionByDaysPage({
 
       <ConversionByDaysTable
         withTrial={withTrial}
-        withoutTrial={withoutTrial}
         mode={mode}
         year={year}
         month={month}
