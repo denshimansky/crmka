@@ -45,8 +45,9 @@ const SEGMENT_LABELS: Record<string, string> = {
   // Отчёты
   reports: "Отчёты",
   funnel: "Воронка продаж",
-  "trial-conversion": "Конверсия пробных",
+  "trial-conversion": "Конверсия пробных по педагогам",
   "avg-check": "Средний чек/абонемент",
+  "leads-by-channel": "Лиды по каналам",
   upsell: "Допродажи",
   churn: "Отток",
   "not-renewed": "Непродлённые",

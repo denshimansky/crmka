@@ -167,7 +167,7 @@ export default async function TrialConversionReportPage({
         </Link>
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">Конверсия пробных</h1>
+            <h1 className="text-2xl font-bold">Конверсия пробных по педагогам</h1>
             <PageHelp pageKey="reports/crm/trial-conversion" />
           </div>
           <p className="text-sm text-muted-foreground">

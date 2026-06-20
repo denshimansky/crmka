@@ -31,12 +31,11 @@ interface ReportGroup {
 
 const reportGroups: ReportGroup[] = [
   {
-    title: "CRM и маркетинг",
+    title: "Маркетинг и продажи",
     icon: Filter,
     color: "text-blue-600",
     reports: [
       { name: "Воронка продаж", href: "/reports/crm/funnel", description: "Заявки по этапам за месяц: новые/действующие, с пробным/без, детализация", source: "clients" },
-      { name: "Конверсия пробных", href: "/reports/crm/trial-conversion", description: "Пробные → клиенты по педагогам", source: "trials" },
       { name: "Средний чек/абонемент", href: "/reports/crm/avg-check", description: "Средний чек (оплачено / кол-во платежей) + средняя стоимость абонемента по направлениям", source: "payments" },
       { name: "Допродажи", href: "/reports/crm/upsell", description: "Одно направление, истекающие, снизили активность", source: "subscriptions" },
       { name: "Активные абонементы (динамика)", href: "/reports/crm/active-subs-dynamics", description: "Создано / продлено / активно на конец периода по филиалам и направлениям", source: "subscriptions" },
@@ -45,6 +44,7 @@ const reportGroups: ReportGroup[] = [
       { name: "Лиды по менеджерам", href: "/reports/crm/leads-by-manager", description: "Создано лидов/заявок, записи на пробные и продажи по сотрудникам", source: "clients" },
       { name: "Сегментация клиентов", href: "/reports/crm/segmentation", description: "Активные клиенты по сегментам (по настройкам: сумма или время)", source: "clients" },
       { name: "Лиды по дням", href: "/reports/crm/leads-by-day", description: "Созданные заявки по дням месяца", source: "subscriptions" },
+      { name: "Лиды по каналам", href: "/reports/crm/leads-by-channel", description: "Созданные заявки (лиды) по каналам привлечения и дням месяца", source: "subscriptions" },
       { name: "Не пришли на пробники", href: "/reports/crm/trial-no-show", description: "Список неявок на пробные занятия за месяц", source: "trials" },
       { name: "Эффективность обзвонов", href: "/reports/crm/call-efficiency", description: "Отработка кампаний, конверсия в пробные и продажи", source: "clients" },
       { name: "Продажи менеджеров по каналам", href: "/reports/crm/sales-by-channel", description: "Пробные и продажи в разрезе менеджеров (переключатель показателя)", source: "clients" },
@@ -63,6 +63,7 @@ const reportGroups: ReportGroup[] = [
       { name: "Отток по месяцам", href: "/reports/churn/by-months", description: "В какой месяц «срока жизни» чаще уходят клиенты", source: "clients" },
       { name: "Отток по направлениям и филиалам", href: "/reports/churn/by-directions", description: "Активные прошлого месяца, не продлённые в текущем", source: "subscriptions" },
       { name: "Сводный по абонементам по педагогам", href: "/reports/crm/subscriptions-by-instructor", description: "Активные, новые, выбывшие абонементы по педагогам", source: "subscriptions" },
+      { name: "Конверсия пробных по педагогам", href: "/reports/crm/trial-conversion", description: "Пробные → клиенты по педагогам", source: "trials" },
     ],
   },
   {
