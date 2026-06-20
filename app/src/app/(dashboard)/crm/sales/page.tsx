@@ -435,7 +435,7 @@ export default async function SalesPage({
       <SalesTabs tabs={tabs} current={tab} />
 
       {tab === "contact" ? (
-        <ContactTable rows={contactRows} />
+        <ContactTable rows={contactRows} canEdit={role !== "readonly"} />
       ) : (
         <SalesTable
           tab={tab}

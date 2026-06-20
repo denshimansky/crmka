@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { EditableDateCell, EditableTextCell } from "../_components/editable-cell"
 
 // Ярлыки статусов совпадают с табами «Клиенты» (/crm/contacts) и подсказкой дублей.
 const STATUS_LABELS: Record<string, string> = {
@@ -41,8 +42,10 @@ function statusLabel(funnelStatus: string, clientStatus: string | null): string 
   return STATUS_LABELS[funnelStatus] ?? funnelStatus
 }
 
-/** Вкладка «Связь» раздела «Продажи»: клиенты/лиды с назначенной датой связи. */
-export function ContactTable({ rows }: { rows: ContactRow[] }) {
+/** Вкладка «Связь» раздела «Продажи»: клиенты/лиды с назначенной датой связи.
+ *  «След. связь» и «Комментарий» редактируются инлайн (PATCH /api/clients/[id]),
+ *  кроме роли «только чтение». Очистка даты связи убирает клиента из вкладки. */
+export function ContactTable({ rows, canEdit }: { rows: ContactRow[]; canEdit: boolean }) {
   if (rows.length === 0) {
     return (
       <div className="rounded-md border p-12 text-center text-sm text-muted-foreground">
@@ -95,9 +98,30 @@ export function ContactTable({ rows }: { rows: ContactRow[] }) {
                       ))}
                 </TableCell>
                 <TableCell className="whitespace-nowrap">
-                  <span className={overdue ? "font-medium text-red-600" : ""}>{fmtDate(r.nextContactDate)}</span>
+                  {canEdit ? (
+                    <div className="flex items-center gap-2">
+                      <EditableDateCell
+                        initialValue={r.nextContactDate.slice(0, 10)}
+                        endpoint={{ url: `/api/clients/${r.clientId}`, field: "nextContactDate" }}
+                      />
+                      {overdue && <Badge variant="destructive" className="text-xs">просрочено</Badge>}
+                    </div>
+                  ) : (
+                    <span className={overdue ? "font-medium text-red-600" : ""}>{fmtDate(r.nextContactDate)}</span>
+                  )}
                 </TableCell>
-                <TableCell className="max-w-[260px] text-sm text-muted-foreground">{r.comment || "—"}</TableCell>
+                <TableCell>
+                  {canEdit ? (
+                    <EditableTextCell
+                      initialValue={r.comment}
+                      endpoint={{ url: `/api/clients/${r.clientId}`, field: "comment" }}
+                      rows={1}
+                      className="min-h-[32px] w-[200px] resize-none text-xs"
+                    />
+                  ) : (
+                    <span className="text-sm text-muted-foreground">{r.comment || "—"}</span>
+                  )}
+                </TableCell>
                 <TableCell className="text-sm text-muted-foreground">{r.assigneeName || "—"}</TableCell>
               </TableRow>
             )
