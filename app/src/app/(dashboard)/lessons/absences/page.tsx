@@ -50,20 +50,32 @@ function instructorName(e: { firstName: string | null; lastName: string }): stri
 
 export interface AbsenceDetail {
   date: string // ISO YYYY-MM-DD
+  lessonId: string
+  // null на вкладке «Неотмеченные» — отметки ещё нет (создаётся при выборе типа).
+  attendanceId: string | null
+  attendanceTypeId: string | null
   attendanceTypeName: string | null
+  subscriptionId: string | null
   balance: number | null
-  comment: string | null
+  comment: string | null // свободный текст из lesson_student_notes (развязан от отметки)
 }
 
 export interface AbsenceGroupRow {
   key: string
   branchName: string
   clientId: string
+  wardId: string | null
   clientLabel: string // "ФИО клиента" или "ФИО подопечного · Род. ФИО"
   directionName: string
   segmentLabel: string
   instructorName: string
   details: AbsenceDetail[]
+}
+
+export interface EditableAttendanceType {
+  id: string
+  name: string
+  code: string
 }
 
 interface FilterOption {
@@ -135,6 +147,38 @@ export default async function LessonsAbsencesPage({
     }),
   ])
 
+  // Типы посещений для инлайн-редактирования «Вида дня». Роль «только чтение»
+  // (readonly) ничего не меняет. Список фильтруем как в карточке занятия:
+  // — «Назначена отработка» / «Отработка» требуют выбора целевого занятия —
+  //   их меняют только в карточке занятия, в реестре исключаем;
+  // — внутренние типы (недоступны и педагогу, и админу) ставятся программно;
+  // — педагог видит availableToInstructor, админ — availableToAdmin, владелец/
+  //   управляющий — всё.
+  const role = session.user.role
+  const canEdit = role !== "readonly"
+  const attendanceTypesRaw = canEdit
+    ? await db.attendanceType.findMany({
+        where: { OR: [{ tenantId: null }, { tenantId }], isActive: true },
+        orderBy: { sortOrder: "asc" },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          availableToInstructor: true,
+          availableToAdmin: true,
+        },
+      })
+    : []
+  const editableTypes: EditableAttendanceType[] = attendanceTypesRaw
+    .filter((t) => {
+      if (t.code === "makeup_scheduled" || t.code === "makeup") return false
+      if (!t.availableToInstructor && !t.availableToAdmin) return false
+      if (role === "instructor") return t.availableToInstructor
+      if (role === "admin") return t.availableToAdmin
+      return true
+    })
+    .map((t) => ({ id: t.id, name: t.name, code: t.code }))
+
   // Общие условия по группе для всех запросов
   const groupWhere: Prisma.GroupWhereInput = {}
   if (branchId) groupWhere.branchId = branchId
@@ -170,6 +214,7 @@ export default async function LessonsAbsencesPage({
       clientId: true,
       wardId: true,
       subscriptionId: true,
+      attendanceTypeId: true,
       lesson: {
         select: {
           id: true,
@@ -189,7 +234,6 @@ export default async function LessonsAbsencesPage({
         select: { id: true, firstName: true, lastName: true, segment: true },
       },
       attendanceType: { select: { name: true } },
-      absenceReason: { select: { name: true } },
       subscription: {
         select: { balance: true, finalAmount: true },
       },
@@ -282,6 +326,7 @@ export default async function LessonsAbsencesPage({
 
   interface UnmarkedEntry {
     lessonDate: Date
+    lessonId: string
     groupId: string
     directionId: string
     directionName: string
@@ -312,6 +357,7 @@ export default async function LessonsAbsencesPage({
       if (att && !att.isPending) continue // отметка есть и не заглушка
       unmarkedEntries.push({
         lessonDate: lesson.date,
+        lessonId: lesson.id,
         groupId: lesson.groupId,
         directionId: lesson.group.directionId,
         directionName: lesson.group.direction.name,
@@ -379,6 +425,42 @@ export default async function LessonsAbsencesPage({
     return Number(sub.finalAmount)
   }
 
+  // === Свободные комментарии к (занятие, ученик) для колонки «Комментарий» ===
+  // Развязаны от Attendance (таблица lesson_student_notes) — работают и на вкладке
+  // «Неотмеченные», где отметки ещё нет. Ключ — занятие + клиент + подопечный
+  // (wardId || "" — как и остальные ключи в этом файле).
+  const noteKey = (lessonId: string, clientId: string, wardId: string | null) =>
+    `${lessonId}|${clientId}|${wardId || ""}`
+
+  const noteLessonIds = new Set<string>()
+  const noteClientIds = new Set<string>()
+  if (tab === "noshow") {
+    for (const a of noShowAttendances) {
+      noteLessonIds.add(a.lesson.id)
+      noteClientIds.add(a.clientId)
+    }
+  } else {
+    for (const e of unmarkedEntries) {
+      noteLessonIds.add(e.lessonId)
+      noteClientIds.add(e.clientId)
+    }
+  }
+
+  // Перебираем по двум IN-спискам (точный набор кортежей в SQL не выразить) и
+  // фильтруем по карте. Списки маленькие (обычно один месяц), оверфетч дешёвый.
+  const notes = noteClientIds.size > 0
+    ? await db.lessonStudentNote.findMany({
+        where: {
+          tenantId,
+          lessonId: { in: Array.from(noteLessonIds) },
+          clientId: { in: Array.from(noteClientIds) },
+        },
+        select: { lessonId: true, clientId: true, wardId: true, comment: true },
+      })
+    : []
+  const noteMap = new Map<string, string>()
+  for (const n of notes) noteMap.set(noteKey(n.lessonId, n.clientId, n.wardId), n.comment)
+
   // === Формируем строки для выбранной вкладки ===
   const groupsMap = new Map<string, AbsenceGroupRow>()
 
@@ -408,9 +490,13 @@ export default async function LessonsAbsencesPage({
       const ward = a.wardId ? noShowWardMap.get(a.wardId) : null
       const detail: AbsenceDetail = {
         date: toIsoDate(lessonDate),
+        lessonId: a.lesson.id,
+        attendanceId: a.id,
+        attendanceTypeId: a.attendanceTypeId,
         attendanceTypeName: a.attendanceType.name,
+        subscriptionId: a.subscriptionId,
         balance,
-        comment: a.absenceReason?.name ?? null,
+        comment: noteMap.get(noteKey(a.lesson.id, a.clientId, a.wardId)) ?? null,
       }
       const existing = groupsMap.get(key)
       if (existing) {
@@ -420,6 +506,7 @@ export default async function LessonsAbsencesPage({
           key,
           branchName: a.lesson.group.branch.name,
           clientId: a.clientId,
+          wardId: a.wardId,
           clientLabel: buildClientLabel(
             a.client.firstName,
             a.client.lastName,
@@ -439,9 +526,13 @@ export default async function LessonsAbsencesPage({
       const balance = findUnpaidAmount(e.clientId, e.wardId, e.directionId, e.lessonDate)
       const detail: AbsenceDetail = {
         date: toIsoDate(e.lessonDate),
+        lessonId: e.lessonId,
+        attendanceId: null,
+        attendanceTypeId: null,
         attendanceTypeName: e.isPending ? "Ожидание отметки" : null,
+        subscriptionId: null,
         balance,
-        comment: null,
+        comment: noteMap.get(noteKey(e.lessonId, e.clientId, e.wardId)) ?? null,
       }
       const existing = groupsMap.get(key)
       if (existing) {
@@ -451,6 +542,7 @@ export default async function LessonsAbsencesPage({
           key,
           branchName: e.branchName,
           clientId: e.clientId,
+          wardId: e.wardId,
           clientLabel: buildClientLabel(
             e.clientFirstName,
             e.clientLastName,
@@ -519,6 +611,8 @@ export default async function LessonsAbsencesPage({
         directionId={directionId ?? ""}
         instructorId={instructorId ?? ""}
         filterOptions={filterOptions}
+        attendanceTypes={editableTypes}
+        canEdit={canEdit}
       />
 
       {rows.length === 0 && (

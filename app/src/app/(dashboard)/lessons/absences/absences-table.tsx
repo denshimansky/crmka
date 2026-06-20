@@ -14,10 +14,12 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { RefreshCw } from "lucide-react"
-import type { AbsenceGroupRow } from "./page"
+import { RefreshCw, Loader2 } from "lucide-react"
+import type { AbsenceGroupRow, AbsenceDetail, EditableAttendanceType } from "./page"
 
 const ALL_VALUE = "__all__"
+// Сентинел «Не отмечен» в выпадашке «Вид дня» (Radix Select не принимает "").
+const UNMARKED_VALUE = "__unmarked__"
 
 interface FilterOption {
   id: string
@@ -41,6 +43,9 @@ interface AbsencesViewProps {
     directions: FilterOption[]
     instructors: { id: string; name: string }[]
   }
+  // Типы для инлайн-смены «Вида дня». Пусто для роли «только чтение».
+  attendanceTypes: EditableAttendanceType[]
+  canEdit: boolean
 }
 
 function formatDate(iso: string): string {
@@ -69,6 +74,8 @@ export function AbsencesView({
   directionId,
   instructorId,
   filterOptions,
+  attendanceTypes,
+  canEdit,
 }: AbsencesViewProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -77,6 +84,94 @@ export function AbsencesView({
 
   const [fromInput, setFromInput] = useState(from)
   const [toInput, setToInput] = useState(to)
+
+  // Инлайн-редактирование строк реестра.
+  const [savingKey, setSavingKey] = useState<string | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+  const editable = canEdit && attendanceTypes.length > 0
+
+  // Сменить «Вид дня». typeId=null — сброс отметки (только если она уже есть).
+  // POST/DELETE используют тот же эндпоинт и бизнес-логику, что и карточка занятия
+  // (списания, ЗП, проверка закрытия периода).
+  async function changeType(
+    rowKey: string,
+    group: AbsenceGroupRow,
+    d: AbsenceDetail,
+    typeId: string | null,
+  ) {
+    setEditError(null)
+    setSavingKey(rowKey)
+    try {
+      let res: Response
+      if (typeId === null) {
+        if (!d.attendanceId) return
+        res = await fetch(`/api/lessons/${d.lessonId}/attendance`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ attendanceId: d.attendanceId }),
+        })
+      } else {
+        res = await fetch(`/api/lessons/${d.lessonId}/attendance`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clientId: group.clientId,
+            wardId: group.wardId,
+            subscriptionId: d.subscriptionId,
+            attendanceTypeId: typeId,
+            instructorPayEnabled: true,
+            scheduledMakeupLessonId: null,
+          }),
+        })
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setEditError(data?.error || "Не удалось обновить отметку")
+        return
+      }
+      router.refresh()
+    } catch {
+      setEditError("Сеть недоступна. Повторите попытку.")
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  // Сохранить свободный комментарий. Развязан от отметки (lesson_student_notes),
+  // поэтому работает в любом состоянии — в т.ч. на «Неотмеченных», где отметки нет.
+  // Пустой текст удаляет заметку (это делает эндпоинт).
+  async function saveComment(
+    rowKey: string,
+    group: AbsenceGroupRow,
+    d: AbsenceDetail,
+    value: string,
+  ) {
+    const next = value.trim()
+    if (next === (d.comment ?? "").trim()) return // без изменений — не дёргаем сервер
+    setEditError(null)
+    setSavingKey(rowKey)
+    try {
+      const res = await fetch(`/api/lessons/${d.lessonId}/absence-note`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: group.clientId,
+          wardId: group.wardId,
+          comment: next || null,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setEditError(data?.error || "Не удалось сохранить комментарий")
+        return
+      }
+      router.refresh()
+    } catch {
+      setEditError("Сеть недоступна. Повторите попытку.")
+    } finally {
+      setSavingKey(null)
+    }
+  }
 
   const updateParam = (updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -250,6 +345,13 @@ export function AbsencesView({
         )}
       </div>
 
+      {/* Ошибка инлайн-редактирования */}
+      {editError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {editError}
+        </div>
+      )}
+
       {/* Таблица */}
       {rows.length > 0 && (
         <div className="rounded-md border">
@@ -270,9 +372,12 @@ export function AbsencesView({
             </TableHeader>
             <TableBody>
               {rows.map((group) =>
-                group.details.map((d, idx) => (
+                group.details.map((d, idx) => {
+                  const rowKey = `${group.key}-${idx}`
+                  const saving = savingKey === rowKey
+                  return (
                   <TableRow
-                    key={`${group.key}-${idx}`}
+                    key={rowKey}
                     className={idx === 0 ? "border-t-2" : ""}
                   >
                     {idx === 0 ? (
@@ -303,15 +408,67 @@ export function AbsencesView({
                       </>
                     ) : null}
                     <TableCell className="whitespace-nowrap">{formatDate(d.date)}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {d.attendanceTypeName || "—"}
+                    <TableCell>
+                      {editable ? (
+                        <div className="flex items-center gap-1.5">
+                          <Select
+                            value={d.attendanceTypeId ?? UNMARKED_VALUE}
+                            onValueChange={(v) => {
+                              if (saving) return
+                              if (v === UNMARKED_VALUE) {
+                                if (d.attendanceId) changeType(rowKey, group, d, null)
+                                return
+                              }
+                              if (v === d.attendanceTypeId) return
+                              changeType(rowKey, group, d, v)
+                            }}
+                          >
+                            <SelectTrigger className="h-8 w-[170px]" disabled={saving}>
+                              {d.attendanceTypeName || (
+                                <span className="text-muted-foreground">Не отмечен</span>
+                              )}
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={UNMARKED_VALUE}>
+                                <span className="text-muted-foreground">Не отмечен</span>
+                              </SelectItem>
+                              {attendanceTypes.map((t) => (
+                                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {saving && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">{d.attendanceTypeName || "—"}</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {d.balance !== null ? formatMoney(d.balance) : ""}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{d.comment || ""}</TableCell>
+                    <TableCell>
+                      {/* Комментарий развязан от отметки и типов — зависит только
+                          от права на редактирование (canEdit), не от editable. */}
+                      {canEdit ? (
+                        <Input
+                          key={`${rowKey}-comment-${d.comment ?? ""}`}
+                          type="text"
+                          defaultValue={d.comment ?? ""}
+                          placeholder="Комментарий…"
+                          disabled={saving}
+                          className="h-8 w-[220px]"
+                          onBlur={(e) => saveComment(rowKey, group, d, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur()
+                          }}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">{d.comment || ""}</span>
+                      )}
+                    </TableCell>
                   </TableRow>
-                )),
+                  )
+                }),
               )}
             </TableBody>
           </Table>

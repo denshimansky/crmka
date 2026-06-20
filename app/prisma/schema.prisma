@@ -154,6 +154,7 @@ model Organization {
   applications              Application[]
   packageTemplates          PackageTemplate[]
   withdrawalReasons         WithdrawalReason[]
+  lessonStudentNotes        LessonStudentNote[]
 
   @@map("organizations")
 }
@@ -264,6 +265,7 @@ model Employee {
   loginAttempts              LoginAttempt[]
   applicationsProcessed      Application[]        @relation("ApplicationProcessor")
   bonusDiscountsResponsible  BonusDiscount[]      @relation("BonusDiscountResponsible")
+  lessonStudentNotesCreated  LessonStudentNote[]  @relation("LessonStudentNoteCreator")
 
   @@unique([tenantId, login])
   @@index([tenantId])
@@ -353,6 +355,7 @@ model Client {
   communications      Communication[]
   applications        Application[]
   bonusDiscounts      BonusDiscount[]
+  lessonStudentNotes  LessonStudentNote[]
 
   @@index([tenantId, funnelStatus])
   @@index([tenantId, clientStatus])
@@ -504,6 +507,7 @@ model Lesson {
   scheduledMakeupAttendances Attendance[]               @relation("ScheduledMakeupLesson")
   trialLessons               TrialLesson[]
   clientBalanceTransactions  ClientBalanceTransaction[]
+  studentNotes               LessonStudentNote[]
 
   @@index([tenantId, date])
   @@index([groupId, date])
@@ -1172,6 +1176,35 @@ model AbsenceReason {
 
   @@index([tenantId])
   @@map("absence_reasons")
+}
+
+// === КОММЕНТАРИЙ К УЧЕНИКУ НА ЗАНЯТИИ ===
+// Свободная заметка оператора о ребёнке на конкретном занятии (например, к неявке:
+// «звонила маме, придёт в субботу»). Развязана от Attendance, поэтому редактируется
+// в реестре «Пропуски» в ЛЮБОМ состоянии — в т.ч. на вкладке «Неотмеченные», где
+// отметки ещё нет. Переживает отметку/снятие/удаление Attendance, не участвует в
+// деньгах/ЗП/отчётах посещений. Ключ — (занятие, клиент, подопечный).
+model LessonStudentNote {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  lessonId  String   @map("lesson_id") @db.Uuid
+  clientId  String   @map("client_id") @db.Uuid
+  wardId    String?  @map("ward_id") @db.Uuid
+  comment   String
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  lesson       Lesson       @relation(fields: [lessonId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  creator      Employee?    @relation("LessonStudentNoteCreator", fields: [createdBy], references: [id])
+
+  // Уникальность по wardId=NULL Postgres не обеспечивает (NULL != NULL) —
+  // защита от дублей делается find-then-write в транзакции в эндпоинте.
+  @@unique([tenantId, lessonId, clientId, wardId])
+  @@index([tenantId, lessonId])
+  @@map("lesson_student_notes")
 }
 
 // === СПРАВОЧНИК ПРИЧИН ОТЧИСЛЕНИЯ ===
