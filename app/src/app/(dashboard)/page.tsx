@@ -165,6 +165,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             id: true,
             title: true,
             dueDate: true,
+            clientId: true,
+            client: { select: { firstName: true, lastName: true } },
           },
           orderBy: { dueDate: "asc" },
           take: 15,
@@ -195,6 +197,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         .trim(),
       eventDate: eventDateIso,
       isOverdue: dueIso < todayIso,
+      clientId: t.clientId,
+      clientName: t.client
+        ? [t.client.lastName, t.client.firstName].filter(Boolean).join(" ")
+        : null,
     }
   })
 

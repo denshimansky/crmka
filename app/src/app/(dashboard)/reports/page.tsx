@@ -40,7 +40,7 @@ const reportGroups: ReportGroup[] = [
       { name: "Допродажи", href: "/reports/crm/upsell", description: "Одно направление, истекающие, снизили активность", source: "subscriptions" },
       { name: "Активные абонементы (динамика)", href: "/reports/crm/active-subs-dynamics", description: "Создано / продлено / активно на конец периода по филиалам и направлениям", source: "subscriptions" },
       { name: "Доходимость по дням", href: "/reports/crm/conversion-by-days", description: "Воронка по дням: заявки → пробные → продажи → оплаты, с конверсией от заявок", source: "clients" },
-      { name: "Разовые скидки", href: "/reports/crm/marketing-bonuses", description: "Начисленные бонусы на баланс клиентов с разбивкой по каналам и ответственным", source: "clients" },
+      { name: "Скидки", href: "/reports/crm/marketing-bonuses", description: "Разовые бонусы на баланс (по каналам) + постоянные скидки на абонементы", source: "clients" },
       { name: "Лиды по менеджерам", href: "/reports/crm/leads-by-manager", description: "Создано лидов/заявок, записи на пробные и продажи по сотрудникам", source: "clients" },
       { name: "Сегментация клиентов", href: "/reports/crm/segmentation", description: "Активные клиенты по сегментам (по настройкам: сумма или время)", source: "clients" },
       { name: "Лиды по дням", href: "/reports/crm/leads-by-day", description: "Созданные заявки по дням месяца", source: "subscriptions" },

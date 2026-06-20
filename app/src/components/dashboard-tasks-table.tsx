@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { Circle, CheckCircle2, Loader2, AlertCircle } from "lucide-react"
 
 export interface DashboardTaskRow {
@@ -11,6 +12,49 @@ export interface DashboardTaskRow {
   eventDate: string
   /** Просрочена ли задача (dueDate раньше «сегодня»). */
   isOverdue: boolean
+  /** Клиент задачи — для перехода в карточку (если задача привязана к клиенту). */
+  clientId?: string | null
+  /** ФИО клиента (для подсветки кликабельного имени в заголовке). */
+  clientName?: string | null
+}
+
+/** Заголовок задачи: если задача привязана к клиенту — делаем ФИО кликабельным
+ *  (ссылка на карточку). Если имя клиента нашлось в тексте заголовка — линкуем
+ *  именно его, иначе кликабельным становится весь заголовок. */
+function TaskTitle({ task, completed }: { task: DashboardTaskRow; completed: boolean }) {
+  const cls = completed ? "truncate text-muted-foreground line-through" : "truncate"
+
+  if (!task.clientId) {
+    return (
+      <span className={cls} title={task.title}>
+        {task.title}
+      </span>
+    )
+  }
+
+  const href = `/crm/clients/${task.clientId}`
+  const name = task.clientName?.trim() || ""
+  const idx = name ? task.title.indexOf(name) : -1
+
+  if (name && idx >= 0) {
+    return (
+      <span className={cls} title={task.title}>
+        {task.title.slice(0, idx)}
+        <Link href={href} className="text-primary hover:underline">
+          {name}
+        </Link>
+        {task.title.slice(idx + name.length)}
+      </span>
+    )
+  }
+
+  return (
+    <span className={cls} title={task.title}>
+      <Link href={href} className="text-primary hover:underline">
+        {task.title}
+      </Link>
+    </span>
+  )
 }
 
 function fmtDate(iso: string): string {
@@ -87,16 +131,7 @@ function DashboardTaskRow({ task }: { task: DashboardTaskRow }) {
         </span>
       </div>
 
-      <span
-        className={
-          completed
-            ? "truncate text-muted-foreground line-through"
-            : "truncate"
-        }
-        title={task.title}
-      >
-        {task.title}
-      </span>
+      <TaskTitle task={task} completed={completed} />
     </div>
   )
 }

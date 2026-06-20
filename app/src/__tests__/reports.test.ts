@@ -22,6 +22,7 @@ const CRM_REPORTS = [
   "avg-check",
   "avg-subscription-cost",
   "leads-by-channel",
+  "marketing-bonuses",
   "client-ltv",
   "client-segmentation",
   "payments-report",

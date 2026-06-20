@@ -48,6 +48,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   "trial-conversion": "Конверсия пробных по педагогам",
   "avg-check": "Средний чек/абонемент",
   "leads-by-channel": "Лиды по каналам",
+  "marketing-bonuses": "Скидки",
   upsell: "Допродажи",
   churn: "Отток",
   "not-renewed": "Непродлённые",
