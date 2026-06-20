@@ -22,22 +22,36 @@ export default async function CapacityReportPage() {
       room: { select: { id: true, name: true } },
       enrollments: {
         where: { isActive: true, deletedAt: null },
-        select: { id: true, wardId: true },
+        select: { id: true, wardId: true, clientId: true },
       },
     },
     orderBy: [{ branch: { name: "asc" } }, { room: { name: "asc" } }, { name: "asc" }],
   })
 
-  const enrolledWardIds = [...new Set(
-    groups.flatMap(g => g.enrollments.map(e => e.wardId).filter((id): id is string => Boolean(id)))
-  )]
-  const wardStages = enrolledWardIds.length > 0
-    ? await db.ward.findMany({
-        where: { id: { in: enrolledWardIds }, tenantId },
-        select: { id: true, salesStage: true },
-      })
-    : []
-  const wardStageMap = new Map(wardStages.map(w => [w.id, w.salesStage]))
+  // «Записано на пробники» считаем по запланированным пробным (TrialLesson,
+  // status=scheduled, привязанным к группе): они «висят» отдельными записями и
+  // НЕ создают GroupEnrollment, поэтому через этап воронки записанных учеников
+  // не подтягивались — отчёт показывал 0 (баг #36). Ключ занятости — ребёнок
+  // (ward) или взрослый клиент; уже зачисленных в эту же группу не дублируем.
+  const occupantKey = (wardId: string | null, clientId: string | null): string | null =>
+    wardId ?? (clientId ? `c:${clientId}` : null)
+
+  const scheduledTrials = await db.trialLesson.findMany({
+    where: { tenantId, status: "scheduled", groupId: { not: null } },
+    select: { groupId: true, wardId: true, clientId: true },
+  })
+  const trialKeysByGroup = new Map<string, Set<string>>()
+  for (const t of scheduledTrials) {
+    if (!t.groupId) continue
+    const key = occupantKey(t.wardId, t.clientId)
+    if (!key) continue
+    let set = trialKeysByGroup.get(t.groupId)
+    if (!set) {
+      set = new Set()
+      trialKeysByGroup.set(t.groupId, set)
+    }
+    set.add(key)
+  }
 
   interface RoomBucket {
     id: string
@@ -56,12 +70,17 @@ export default async function CapacityReportPage() {
 
   for (const g of groups) {
     const enrolled = g.enrollments.length
-    const onTrial = g.enrollments.filter(
-      (e) => e.wardId && wardStageMap.get(e.wardId) === "trial_scheduled"
-    ).length
+    const enrolledKeys = new Set(
+      g.enrollments
+        .map((e) => occupantKey(e.wardId, e.clientId))
+        .filter((k): k is string => Boolean(k))
+    )
+    const trialKeys = trialKeysByGroup.get(g.id)
+    const onTrial = trialKeys ? [...trialKeys].filter((k) => !enrolledKeys.has(k)).length : 0
     const capacity = g.maxStudents
-    const free = Math.max(0, capacity - enrolled)
-    const percent = pct(enrolled, capacity)
+    const occupied = enrolled + onTrial
+    const free = Math.max(0, capacity - occupied)
+    const percent = pct(occupied, capacity)
 
     const row: GroupRow = {
       id: g.id,
@@ -109,9 +128,9 @@ export default async function CapacityReportPage() {
   }
 
   for (const b of branches.values()) {
-    b.agg.percent = pct(b.agg.enrolled, b.agg.capacity)
+    b.agg.percent = pct(b.agg.enrolled + b.agg.onTrial, b.agg.capacity)
     for (const r of b.rooms.values()) {
-      r.agg.percent = pct(r.agg.enrolled, r.agg.capacity)
+      r.agg.percent = pct(r.agg.enrolled + r.agg.onTrial, r.agg.capacity)
     }
   }
 
@@ -128,7 +147,7 @@ export default async function CapacityReportPage() {
     total.onTrial += b.agg.onTrial
     total.free += b.agg.free
   }
-  total.percent = pct(total.enrolled, total.capacity)
+  total.percent = pct(total.enrolled + total.onTrial, total.capacity)
 
   const data: CapacityData = {
     total,

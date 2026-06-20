@@ -34,27 +34,25 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  // Churned clients in period
-  const churned = await db.client.findMany({
+  // Выбывшие абонементы в периоде (Subscription.withdrawalDate). Раньше отток
+  // считался по Client.clientStatus='churned' (полное отчисление клиента) — этот
+  // флаг в базе почти не проставляется (выбывает отдельный абонемент, а не весь
+  // клиент), поэтому отчёт показывал нули, хотя абонементы выбывали. Считаем по
+  // абонементам — согласованно со знаменателем (активные абонементы) и с отчётом
+  // «Сводный по абонементам в разрезе педагогов» (баг #35).
+  const churnedSubs = await db.subscription.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      clientStatus: "churned",
       withdrawalDate: { gte: dateFrom, lte: dateTo },
     },
     select: {
-      id: true,
-      subscriptions: {
-        where: { deletedAt: null },
-        orderBy: { createdAt: "desc" },
-        take: 1,
+      group: {
         select: {
-          group: {
-            select: {
-              instructorId: true,
-              branchId: true,
-            },
-          },
+          instructorId: true,
+          instructor: { select: { firstName: true, lastName: true } },
+          branchId: true,
+          branch: { select: { name: true } },
         },
       },
     },
@@ -74,15 +72,23 @@ export async function GET(req: NextRequest) {
       instrActive.set(iId, prev)
     }
 
-    // Count churned by instructor
+    // Count churned subscriptions by instructor (по группе абонемента). Педагога
+    // с оттоком, но без активных абонементов в периоде, тоже включаем.
     const instrChurned = new Map<string, number>()
-    for (const c of churned) {
-      const iId = c.subscriptions[0]?.group?.instructorId
-      if (iId) instrChurned.set(iId, (instrChurned.get(iId) || 0) + 1)
+    for (const s of churnedSubs) {
+      const iId = s.group?.instructorId
+      if (!iId) continue
+      instrChurned.set(iId, (instrChurned.get(iId) || 0) + 1)
+      if (!instrActive.has(iId)) {
+        instrActive.set(iId, {
+          name: [s.group.instructor?.lastName, s.group.instructor?.firstName].filter(Boolean).join(" "),
+          subs: new Set(),
+        })
+      }
     }
 
     const data = [...instrActive.entries()]
-      .filter(([, v]) => v.subs.size > 0)
+      .filter(([id, v]) => v.subs.size > 0 || (instrChurned.get(id) ?? 0) > 0)
       .map(([id, v]) => ({
         instructorId: id,
         instructorName: v.name,
@@ -109,13 +115,17 @@ export async function GET(req: NextRequest) {
   }
 
   const branchChurned = new Map<string, number>()
-  for (const c of churned) {
-    const bId = c.subscriptions[0]?.group?.branchId
-    if (bId) branchChurned.set(bId, (branchChurned.get(bId) || 0) + 1)
+  for (const s of churnedSubs) {
+    const bId = s.group?.branchId
+    if (!bId) continue
+    branchChurned.set(bId, (branchChurned.get(bId) || 0) + 1)
+    if (!branchActive.has(bId)) {
+      branchActive.set(bId, { name: s.group.branch?.name ?? "—", subs: new Set() })
+    }
   }
 
   const data = [...branchActive.entries()]
-    .filter(([, v]) => v.subs.size > 0)
+    .filter(([id, v]) => v.subs.size > 0 || (branchChurned.get(id) ?? 0) > 0)
     .map(([id, v]) => ({
       branchId: id,
       branchName: v.name,
