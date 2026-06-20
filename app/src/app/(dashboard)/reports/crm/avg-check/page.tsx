@@ -1,17 +1,9 @@
-import { PageHelp } from "@/components/page-help"
-import { MonthPicker } from "@/components/month-picker"
-import { getMonthFromParams } from "@/lib/month-params"
-import { getSession } from "@/lib/session"
-import { db } from "@/lib/db"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
+"use client"
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
-}
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
 
 const METHOD_LABELS: Record<string, string> = {
   cash: "Наличные",
@@ -22,75 +14,36 @@ const METHOD_LABELS: Record<string, string> = {
   sbp_qr: "СБП (QR)",
 }
 
-export default async function AvgCheckReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const session = await getSession()
-  const tenantId = session.user.tenantId
+interface MethodRow {
+  method: string
+  amount: number
+  count: number
+  avg: number
+}
 
-  const { year, month } = getMonthFromParams(await searchParams)
-  const monthStart = new Date(Date.UTC(year, month - 1, 1))
-  const monthEnd = new Date(Date.UTC(year, month, 0))
+interface DirectionRow {
+  direction: string
+  count: number
+  total: number
+  avg: number
+}
 
-  const payments = await db.payment.findMany({
-    where: {
-      tenantId,
-      deletedAt: null,
-      type: "incoming",
-      date: { gte: monthStart, lte: monthEnd },
-    },
-    select: { amount: true, method: true },
-  })
-
-  const totalAmount = payments.reduce((s, p) => s + Number(p.amount), 0)
-  const totalCount = payments.length
-  const avgCheck = totalCount > 0 ? totalAmount / totalCount : 0
-
-  // Группировка по способу оплаты
-  const byMethod = new Map<string, { amount: number; count: number }>()
-  for (const p of payments) {
-    const prev = byMethod.get(p.method) || { amount: 0, count: 0 }
-    prev.amount += Number(p.amount)
-    prev.count += 1
-    byMethod.set(p.method, prev)
-  }
-
-  const methodRows = Array.from(byMethod.entries())
-    .sort((a, b) => b[1].amount - a[1].amount)
-    .map(([method, data]) => ({
-      method,
-      label: METHOD_LABELS[method] || method,
-      amount: data.amount,
-      count: data.count,
-      avg: data.count > 0 ? data.amount / data.count : 0,
-    }))
-
-  const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+/** Вкладка «Средний чек»: средняя сумма оплаты по способам. */
+function AvgCheckTab() {
+  const { loading, error, data, metadata } = useReportData<MethodRow>("/api/reports/avg-check")
+  const avgCheck = Number(metadata?.avgCheck ?? 0)
+  const totalCount = Number(metadata?.totalCount ?? 0)
+  const totalAmount = Number(metadata?.totalAmount ?? 0)
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Link href="/reports" className="text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="size-5" />
-        </Link>
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">Средний чек</h1>
-            <PageHelp pageKey="reports/crm/avg-check" />
-          </div>
-          <p className="text-sm text-muted-foreground">Средняя сумма оплаты по способам</p>
-        </div>
-        <MonthPicker />
-      </div>
-
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span>Период:</span>
-        <Badge variant="outline">{monthName}</Badge>
-      </div>
+    <>
+      <p className="text-sm text-muted-foreground">Средняя сумма оплаты по способам</p>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Средний чек</p>
-            <p className="text-2xl font-bold">{formatMoney(avgCheck)}</p>
+            <p className="text-2xl font-bold">{fmtMoney(avgCheck)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -102,23 +55,18 @@ export default async function AvgCheckReportPage({ searchParams }: { searchParam
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Сумма оплат</p>
-            <p className="text-2xl font-bold text-green-600">{formatMoney(totalAmount)}</p>
+            <p className="text-2xl font-bold text-green-600">{fmtMoney(totalAmount)}</p>
           </CardContent>
         </Card>
       </div>
 
-      {methodRows.length === 0 ? (
-        <Card>
-          <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
-            Нет данных
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">По способам оплаты</CardTitle>
-          </CardHeader>
-          <CardContent>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">По способам оплаты</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ReportStatus loading={loading} error={error} empty={data.length === 0} emptyText="Нет данных" />
+          {!loading && !error && data.length > 0 && (
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
@@ -130,20 +78,104 @@ export default async function AvgCheckReportPage({ searchParams }: { searchParam
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {methodRows.map((r) => (
+                  {data.map((r) => (
                     <TableRow key={r.method}>
-                      <TableCell className="font-medium">{r.label}</TableCell>
+                      <TableCell className="font-medium">{METHOD_LABELS[r.method] || r.method}</TableCell>
                       <TableCell className="text-right">{r.count}</TableCell>
-                      <TableCell className="text-right">{formatMoney(r.amount)}</TableCell>
-                      <TableCell className="text-right">{formatMoney(r.avg)}</TableCell>
+                      <TableCell className="text-right">{fmtMoney(r.amount)}</TableCell>
+                      <TableCell className="text-right">{fmtMoney(r.avg)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  )
+}
+
+/** Вкладка «Средний абонемент»: сумма отработанных / число активных абонементов. */
+function AvgSubscriptionTab() {
+  const { loading, error, data, metadata } = useReportData<DirectionRow>("/api/reports/avg-subscription-cost")
+  const activeSubs = Number(metadata?.activeSubscriptions ?? 0)
+  const totalCharged = Number(metadata?.totalCharged ?? 0)
+  const avgCost = Number(metadata?.avgSubscriptionCost ?? 0)
+
+  return (
+    <>
+      <p className="text-sm text-muted-foreground">Сумма отработанных / число активных абонементов за месяц</p>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Средняя стоимость</p>
+            <p className="text-2xl font-bold">{fmtMoney(avgCost)}</p>
           </CardContent>
         </Card>
-      )}
-    </div>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Активных абонементов</p>
+            <p className="text-2xl font-bold">{activeSubs}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Сумма отработанных</p>
+            <p className="text-2xl font-bold">{fmtMoney(totalCharged)}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <ReportStatus loading={loading} error={error} empty={data.length === 0} />
+          {!loading && !error && data.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Направление</TableHead>
+                  <TableHead className="text-right">Абонементов</TableHead>
+                  <TableHead className="text-right">Отработано</TableHead>
+                  <TableHead className="text-right">Средняя стоимость</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.map((r) => (
+                  <TableRow key={r.direction}>
+                    <TableCell className="font-medium">{r.direction}</TableCell>
+                    <TableCell className="text-right">{r.count}</TableCell>
+                    <TableCell className="text-right">{fmtMoney(r.total)}</TableCell>
+                    <TableCell className="text-right font-medium">{fmtMoney(r.avg)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  )
+}
+
+export default function AvgCheckReportPage() {
+  return (
+    <ReportShell title="Средний чек/абонемент" pageKey="reports/crm/avg-check">
+      <Tabs defaultValue="check">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="check">Средний чек</TabsTrigger>
+          <TabsTrigger value="subscription">Средний абонемент</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="check" className="space-y-6 pt-4">
+          <AvgCheckTab />
+        </TabsContent>
+
+        <TabsContent value="subscription" className="space-y-6 pt-4">
+          <AvgSubscriptionTab />
+        </TabsContent>
+      </Tabs>
+    </ReportShell>
   )
 }
