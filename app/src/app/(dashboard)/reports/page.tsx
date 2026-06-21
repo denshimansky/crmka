@@ -26,7 +26,10 @@ interface ReportGroup {
   title: string
   icon: typeof Filter
   color: string
-  reports: ReportItem[]
+  // Либо плоский список (заполняет сетку построчно), либо явные колонки
+  // (каждая колонка — вертикальный список с фиксированным составом).
+  reports?: ReportItem[]
+  columns?: ReportItem[][]
 }
 
 const reportGroups: ReportGroup[] = [
@@ -34,21 +37,30 @@ const reportGroups: ReportGroup[] = [
     title: "Маркетинг и продажи",
     icon: Filter,
     color: "text-blue-600",
-    reports: [
-      { name: "Воронка продаж", href: "/reports/crm/funnel", description: "Заявки по этапам за месяц: новые/действующие, с пробным/без, детализация", source: "clients" },
-      { name: "Средний чек/абонемент", href: "/reports/crm/avg-check", description: "Средний чек (оплачено / кол-во платежей) + средняя стоимость абонемента по направлениям", source: "payments" },
-      { name: "Допродажи", href: "/reports/crm/upsell", description: "Одно направление, истекающие, снизили активность", source: "subscriptions" },
-      { name: "Активные абонементы (динамика)", href: "/reports/crm/active-subs-dynamics", description: "Создано / продлено / активно на конец периода по филиалам и направлениям", source: "subscriptions" },
-      { name: "Доходимость по дням", href: "/reports/crm/conversion-by-days", description: "Воронка по дням: заявки → пробные → продажи → оплаты, с конверсией от заявок", source: "clients" },
-      { name: "Скидки", href: "/reports/crm/marketing-bonuses", description: "Разовые бонусы на баланс (по каналам) + постоянные скидки на абонементы", source: "clients" },
-      { name: "Лиды по менеджерам", href: "/reports/crm/leads-by-manager", description: "Создано лидов/заявок, записи на пробные и продажи по сотрудникам", source: "clients" },
-      { name: "Сегментация клиентов", href: "/reports/crm/segmentation", description: "Активные клиенты по сегментам (по настройкам: сумма или время)", source: "clients" },
-      { name: "Лиды по дням", href: "/reports/crm/leads-by-day", description: "Созданные заявки по дням месяца", source: "subscriptions" },
-      { name: "Лиды по каналам", href: "/reports/crm/leads-by-channel", description: "Созданные заявки (лиды) по каналам привлечения и дням месяца", source: "subscriptions" },
-      { name: "Не пришли на пробники", href: "/reports/crm/trial-no-show", description: "Список неявок на пробные занятия за месяц", source: "trials" },
-      { name: "Эффективность обзвонов", href: "/reports/crm/call-efficiency", description: "Отработка кампаний, конверсия в пробные и продажи", source: "clients" },
-      { name: "Продажи менеджеров по каналам", href: "/reports/crm/sales-by-channel", description: "Пробные и продажи в разрезе менеджеров (переключатель показателя)", source: "clients" },
-      { name: "Детализация пробников", href: "/reports/crm/trial-details", description: "Все пробные за месяц с педагогом, статусом, датой посещения", source: "trials" },
+    columns: [
+      // Колонка 1 — лиды и воронка
+      [
+        { name: "Воронка продаж", href: "/reports/crm/funnel", description: "Заявки по этапам за месяц: новые/действующие, с пробным/без, детализация", source: "clients" },
+        { name: "Лиды по менеджерам", href: "/reports/crm/leads-by-manager", description: "Создано лидов/заявок, записи на пробные и продажи по сотрудникам", source: "clients" },
+        { name: "Лиды по дням", href: "/reports/crm/leads-by-day", description: "Созданные заявки по дням месяца", source: "subscriptions" },
+        { name: "Лиды по каналам", href: "/reports/crm/leads-by-channel", description: "Созданные заявки (лиды) по каналам привлечения и дням месяца", source: "subscriptions" },
+      ],
+      // Колонка 2 — клиенты и пробные
+      [
+        { name: "Сегментация клиентов", href: "/reports/crm/segmentation", description: "Активные клиенты по сегментам (по настройкам: сумма или время)", source: "clients" },
+        { name: "Доходимость по дням", href: "/reports/crm/conversion-by-days", description: "Воронка по дням: заявки → пробные → продажи → оплаты, с конверсией от заявок", source: "clients" },
+        { name: "Детализация пробников", href: "/reports/crm/trial-details", description: "Все пробные за месяц с педагогом, статусом, датой посещения", source: "trials" },
+        { name: "Не пришли на пробники", href: "/reports/crm/trial-no-show", description: "Список неявок на пробные занятия за месяц", source: "trials" },
+      ],
+      // Колонка 3 — продажи и прочее
+      [
+        { name: "Средний чек/абонемент", href: "/reports/crm/avg-check", description: "Средний чек (оплачено / кол-во платежей) + средняя стоимость абонемента по направлениям", source: "payments" },
+        { name: "Допродажи", href: "/reports/crm/upsell", description: "Одно направление, истекающие, снизили активность", source: "subscriptions" },
+        { name: "Активные абонементы (динамика)", href: "/reports/crm/active-subs-dynamics", description: "Создано / продлено / активно на конец периода по филиалам и направлениям", source: "subscriptions" },
+        { name: "Скидки", href: "/reports/crm/marketing-bonuses", description: "Разовые бонусы на баланс (по каналам) + постоянные скидки на абонементы", source: "clients" },
+        { name: "Эффективность обзвонов", href: "/reports/crm/call-efficiency", description: "Отработка кампаний, конверсия в пробные и продажи", source: "clients" },
+        { name: "Продажи менеджеров по каналам", href: "/reports/crm/sales-by-channel", description: "Пробные и продажи в разрезе менеджеров (переключатель показателя)", source: "clients" },
+      ],
     ],
   },
   {
@@ -117,6 +129,11 @@ const reportGroups: ReportGroup[] = [
   },
 ]
 
+// Все отчёты группы — из плоского списка или из колонок.
+function groupReports(g: ReportGroup): ReportItem[] {
+  return g.columns ? g.columns.flat() : g.reports ?? []
+}
+
 // Короткая подпись для бейджа в карточке отчёта. На текущий день — «сегодня»,
 // на предыдущий — «вчера», иначе — DD.MM.
 function formatFreshness(d: Date | null): string {
@@ -135,6 +152,27 @@ function formatFreshness(d: Date | null): string {
     d.getDate() === yesterday.getDate()
   if (isYesterday) return "вчера"
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })
+}
+
+function ReportCard({ report, updatedAt }: { report: ReportItem; updatedAt: Date | null }) {
+  return (
+    <Link
+      href={report.href}
+      className="rounded-lg border p-3 transition-colors hover:bg-muted/50"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium">{report.name}</p>
+        <Badge
+          variant="outline"
+          className="shrink-0 text-xs font-normal text-muted-foreground"
+          title={updatedAt ? `Последнее изменение исходных данных: ${updatedAt.toLocaleString("ru-RU")}` : "Нет данных по этому отчёту"}
+        >
+          {formatFreshness(updatedAt)}
+        </Badge>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">{report.description}</p>
+    </Link>
+  )
 }
 
 export default async function ReportsPage() {
@@ -169,7 +207,7 @@ export default async function ReportsPage() {
     enrollments: enrollAgg._max.updatedAt,
   }
 
-  const totalCount = reportGroups.flatMap(g => g.reports).length
+  const totalCount = reportGroups.flatMap(groupReports).length
 
   return (
     <div className="space-y-6">
@@ -193,29 +231,18 @@ export default async function ReportsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {group.reports.map((report) => {
-                  const updatedAt = updatedBy[report.source]
-                  return (
-                    <Link
-                      key={report.name}
-                      href={report.href}
-                      className="rounded-lg border p-3 transition-colors hover:bg-muted/50"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-medium">{report.name}</p>
-                        <Badge
-                          variant="outline"
-                          className="shrink-0 text-xs font-normal text-muted-foreground"
-                          title={updatedAt ? `Последнее изменение исходных данных: ${updatedAt.toLocaleString("ru-RU")}` : "Нет данных по этому отчёту"}
-                        >
-                          {formatFreshness(updatedAt)}
-                        </Badge>
+              <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {group.columns
+                  ? group.columns.map((col, i) => (
+                      <div key={i} className="flex flex-col gap-3">
+                        {col.map((report) => (
+                          <ReportCard key={report.name} report={report} updatedAt={updatedBy[report.source]} />
+                        ))}
                       </div>
-                      <p className="mt-1 text-xs text-muted-foreground">{report.description}</p>
-                    </Link>
-                  )
-                })}
+                    ))
+                  : (group.reports ?? []).map((report) => (
+                      <ReportCard key={report.name} report={report} updatedAt={updatedBy[report.source]} />
+                    ))}
               </div>
             </CardContent>
           </Card>
