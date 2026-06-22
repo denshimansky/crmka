@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { rosterWhereOnDate } from "@/lib/subscriptions/roster-filter"
+import { rosterWhereOnDate, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { calcRefund } from "@/lib/balance/calc-refund"
@@ -320,7 +320,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         chargeAmount = effectiveLessonPrice(subscription)
       }
     } else if (attendanceType.chargesSubscription && !subscriptionId) {
-      const lessonDate = new Date(lesson.date)
+      // Резолв абонемента по дате состава (исходная дата при переносе): иначе
+      // перенесённое на более поздний день занятие списало бы с абонемента
+      // ученика, начавшего заниматься позже исходной даты (пакет по startDate,
+      // календарный — по месяцу исходной даты).
+      const lessonDate = new Date(effectiveRosterDate(lesson))
       let subscription
       if (org?.subscriptionType === "package") {
         // Пакетный: FIFO — берём самый старый активный пакет, у которого:
@@ -757,18 +761,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   // активные + отчисленные/переведённые позже даты занятия (withdrawnAt > date),
   // чтобы ученик, выбывший ПОСЛЕ этого занятия, в нём ещё участвовал. enrolledAt
   // отсекает зачисленных позже. isActive=false без withdrawnAt не бывает.
+  // Дата состава: для перенесённого занятия — исходная дата, иначе текущая.
+  const rosterDate = effectiveRosterDate(lesson)
   const enrollments = await db.groupEnrollment.findMany({
     where: {
       groupId: lesson.groupId,
       tenantId,
       deletedAt: null,
-      enrolledAt: { lte: lesson.date },
-      ...rosterWhereOnDate(lesson.date),
+      enrolledAt: { lte: rosterDate },
+      ...rosterWhereOnDate(rosterDate),
     },
   })
 
-  // Get subscriptions for this period
-  const lessonDate = new Date(lesson.date)
+  // Get subscriptions for this period (период — по дате состава, см. rosterDate)
+  const lessonDate = new Date(rosterDate)
   const subscriptions = await db.subscription.findMany({
     where: {
       tenantId,

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { rosterWhereOnDate } from "@/lib/subscriptions/roster-filter"
+import { rosterWhereOnDate, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
 import { z } from "zod"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
@@ -109,6 +109,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
   }
 
+  // Дата состава: для перенесённого занятия — исходная дата (rescheduledFromDate),
+  // иначе текущая. Так перенос на более поздний день не затягивает учеников,
+  // начавших заниматься позже исходной даты.
+  const rosterDate = effectiveRosterDate(lesson)
+
   // Состав занятия. Дата = граница состава: ученик виден в занятиях ПО дату
   // отчисления включительно и пропадает в более поздних. Поэтому берём активных
   // (withdrawnAt IS NULL) И отчисленных/переведённых ПОЗЖЕ даты занятия
@@ -120,8 +125,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       groupId: lesson.groupId,
       tenantId,
       deletedAt: null,
-      enrolledAt: { lte: lesson.date },
-      ...rosterWhereOnDate(lesson.date),
+      enrolledAt: { lte: rosterDate },
+      ...rosterWhereOnDate(rosterDate),
     },
     include: {
       client: { select: { id: true, firstName: true, lastName: true, phone: true } },
@@ -129,8 +134,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     },
   })
 
-  // For each enrollment, find active subscription for this group & current period
-  const lessonDate = new Date(lesson.date)
+  // For each enrollment, find active subscription for this group & current period.
+  // Период берём по дате состава (rosterDate) — для перенесённого через границу
+  // месяца занятия абонемент ищется в исходном месяце, а не в новом.
+  const lessonDate = new Date(rosterDate)
   const periodYear = lessonDate.getFullYear()
   const periodMonth = lessonDate.getMonth() + 1
 
@@ -427,7 +434,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (data.status !== undefined) updateData.status = data.status
   if (data.cancelReason !== undefined) updateData.cancelReason = data.cancelReason
   if (data.substituteInstructorId !== undefined) updateData.substituteInstructorId = data.substituteInstructorId
-  if (data.date !== undefined) updateData.date = newDate
+  if (data.date !== undefined) {
+    updateData.date = newDate
+    // Замораживаем исходную дату для расчёта состава занятия. Ставим ОДИН раз —
+    // при первом переносе на другой день — и больше не трогаем (храним самую
+    // первую дату; повторные переносы и возврат на исходную её не меняют).
+    // Сравниваем по времени (обе даты — полночь UTC, @db.Date): смена только
+    // времени/длительности день не меняет, поле не ставим.
+    if (
+      existing.rescheduledFromDate === null &&
+      newDate.getTime() !== existing.date.getTime()
+    ) {
+      updateData.rescheduledFromDate = existing.date
+    }
+  }
   if (data.startTime !== undefined) updateData.startTime = newStartTime
   if (data.durationMinutes !== undefined) updateData.durationMinutes = newDurationMinutes
 

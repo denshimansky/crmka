@@ -2,7 +2,7 @@ import { PageHelp } from "@/components/page-help"
 import { getSession } from "@/lib/session"
 import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
-import { rosterWhereAnyDate, isEnrolledOnLesson } from "@/lib/subscriptions/roster-filter"
+import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
 import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeft, AlertTriangle } from "lucide-react"
 import Link from "next/link"
@@ -276,6 +276,7 @@ export default async function LessonsAbsencesPage({
         select: {
           id: true,
           date: true,
+          rescheduledFromDate: true,
           groupId: true,
           group: {
             select: {
@@ -354,7 +355,8 @@ export default async function LessonsAbsencesPage({
       attendedMap.set(`${a.clientId}|${a.wardId || ""}`, { isPending: a.isPending })
     }
     for (const e of groupEnrollments) {
-      if (!isEnrolledOnLesson(e, lesson.date)) continue
+      // Граница состава — по исходной дате при переносе (см. effectiveRosterDate).
+      if (!isEnrolledOnLesson(e, effectiveRosterDate(lesson))) continue
       const key = `${e.clientId}|${e.wardId || ""}`
       const att = attendedMap.get(key)
       if (att && !att.isPending) continue // отметка есть и не заглушка

@@ -486,6 +486,14 @@ model Lesson {
   tenantId               String       @map("tenant_id") @db.Uuid
   groupId                String       @map("group_id") @db.Uuid
   date                   DateTime     @db.Date
+  // Исходная (первая) дата занятия до переноса. NULL = занятие не переносили.
+  // Состав занятия («кто на нём учится») и резолв абонемента считаются по ЭТОЙ
+  // дате (effectiveRosterDate = rescheduledFromDate ?? date), чтобы перенос на
+  // более поздний день не затягивал в занятие учеников, начавших позже исходной
+  // даты. Ставится один раз при первом переносе и больше не меняется (хранит
+  // самую первую дату). ЗП считается по фактической дате `date` (педагог провёл
+  // занятие в новый день) — её НЕ замораживаем.
+  rescheduledFromDate    DateTime?    @map("rescheduled_from_date") @db.Date
   startTime              String       @map("start_time")
   durationMinutes        Int          @map("duration_minutes")
   instructorId           String       @map("instructor_id") @db.Uuid

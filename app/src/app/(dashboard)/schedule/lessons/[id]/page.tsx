@@ -1,6 +1,6 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
-import { rosterWhereOnDate } from "@/lib/subscriptions/roster-filter"
+import { rosterWhereOnDate, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
 import { notFound } from "next/navigation"
 import { isUnscoped } from "@/lib/branch-scope"
 import Link from "next/link"
@@ -117,10 +117,16 @@ export default async function LessonCardPage({
       ? [lesson.substituteInstructor, ...instructorsRaw]
       : instructorsRaw
 
-  // Get subscriptions for this period
+  // lessonDate — фактическая дата занятия (для отображения).
   const lessonDate = new Date(lesson.date)
-  const periodYear = lessonDate.getFullYear()
-  const periodMonth = lessonDate.getMonth() + 1
+  // rosterDate — дата состава: для перенесённого занятия исходная дата
+  // (rescheduledFromDate), иначе фактическая. По ней считаем состав, период
+  // абонемента и покрытие, чтобы перенос на более поздний день не затягивал
+  // учеников, начавших заниматься позже исходной даты.
+  const rosterDate = effectiveRosterDate(lesson)
+  // Get subscriptions for this period
+  const periodYear = rosterDate.getFullYear()
+  const periodMonth = rosterDate.getMonth() + 1
 
   const subscriptions = await db.subscription.findMany({
     where: {
@@ -151,7 +157,7 @@ export default async function LessonCardPage({
       groupId: lesson.groupId,
       tenantId,
       deletedAt: null,
-      ...rosterWhereOnDate(lesson.date),
+      ...rosterWhereOnDate(rosterDate),
     },
     include: {
       client: { select: { id: true, firstName: true, lastName: true, phone: true } },
@@ -166,12 +172,12 @@ export default async function LessonCardPage({
   // позже даты занятия, чем startDate) ребёнок ошибочно считался бы «разовым».
   const coveringSubKeys = new Set(
     subscriptions
-      .filter((s) => s.startDate <= lesson.date)
+      .filter((s) => s.startDate <= rosterDate)
       .map((s) => `${s.clientId}:${s.wardId || ""}`),
   )
   const enrollments = enrollmentsRaw.filter(
     (e) =>
-      e.enrolledAt <= lesson.date ||
+      e.enrolledAt <= rosterDate ||
       coveringSubKeys.has(`${e.clientId}:${e.wardId || ""}`),
   )
 
@@ -685,6 +691,15 @@ export default async function LessonCardPage({
             </Badge>
             {lesson.isTrial && <Badge variant="outline">Пробное</Badge>}
             {lesson.isMakeup && <Badge variant="outline">Отработка</Badge>}
+            {lesson.rescheduledFromDate &&
+              lesson.rescheduledFromDate.getTime() !== lesson.date.getTime() && (
+                <Badge
+                  variant="outline"
+                  title="Занятие перенесено. Состав и абонементы считаются по исходной дате — ученики, начавшие заниматься позже неё, в занятие не попадают."
+                >
+                  Перенесено с {lesson.rescheduledFromDate.toLocaleDateString("ru-RU")}
+                </Badge>
+              )}
           </div>
           <p className="text-sm text-muted-foreground">
             {lesson.group.direction.name}

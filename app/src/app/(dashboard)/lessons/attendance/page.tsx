@@ -225,6 +225,7 @@ export default async function LessonsAttendancePage({
         select: {
           id: true,
           date: true,
+          rescheduledFromDate: true,
           groupId: true,
           attendances: {
             select: {
@@ -239,14 +240,23 @@ export default async function LessonsAttendancePage({
       })
     : []
 
-  // Группируем lessons по groupId+day
-  const lessonsByGroupDay = new Map<string, { lessonId: string; attendances: typeof lessons[number]["attendances"] }>()
+  // Группируем lessons по groupId+day (день — по фактической дате занятия).
+  // rescheduledFromDate тянем, чтобы граница состава для перенесённого занятия
+  // считалась по исходной дате (см. ниже isEnrolledOnLesson).
+  const lessonsByGroupDay = new Map<
+    string,
+    { lessonId: string; rescheduledFromDate: Date | null; attendances: typeof lessons[number]["attendances"] }
+  >()
   for (const l of lessons) {
     const day = l.date.getUTCDate()
     const key = `${l.groupId}|${day}`
     // Если в один день у группы вдруг два занятия — берём первое.
     if (!lessonsByGroupDay.has(key)) {
-      lessonsByGroupDay.set(key, { lessonId: l.id, attendances: l.attendances })
+      lessonsByGroupDay.set(key, {
+        lessonId: l.id,
+        rescheduledFromDate: l.rescheduledFromDate,
+        attendances: l.attendances,
+      })
     }
   }
 
@@ -355,16 +365,18 @@ export default async function LessonsAttendancePage({
     const cells: (AttendanceCellData | null)[] = []
     let planCount = 0
     for (let day = 1; day <= daysInMonth; day++) {
-      const lessonDate = new Date(Date.UTC(year, month - 1, day))
-      // Вне периода членства: ячейки ДО enrolledAt (баг #8 — зачисленный в
-      // середине месяца не должен показываться с 1-го) и С даты отчисления
-      // (withdrawnAt) — пустые. enrolledAt/withdrawnAt — @db.Date (полночь UTC),
-      // как и lessonDate, поэтому день зачисления входит, а день withdrawnAt — нет.
-      if (!isEnrolledOnLesson(e, lessonDate)) {
+      const lessonInfo = lessonsByGroupDay.get(`${e.groupId}|${day}`)
+      // Граница состава: для перенесённого занятия — по исходной дате
+      // (rescheduledFromDate), иначе по календарному дню ячейки. Так перенос на
+      // более поздний день не показывает «плановым» ученика, начавшего позже.
+      // enrolledAt/withdrawnAt — @db.Date (полночь UTC), как и эта дата, поэтому
+      // день зачисления входит, а день withdrawnAt — нет (баг #8: зачисленный
+      // в середине месяца не показывается с 1-го).
+      const rosterDate = lessonInfo?.rescheduledFromDate ?? new Date(Date.UTC(year, month - 1, day))
+      if (!isEnrolledOnLesson(e, rosterDate)) {
         cells.push(null)
         continue
       }
-      const lessonInfo = lessonsByGroupDay.get(`${e.groupId}|${day}`)
       if (!lessonInfo) {
         cells.push(null)
         continue

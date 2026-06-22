@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { rosterWhereAnyDate, isEnrolledOnLesson } from "@/lib/subscriptions/roster-filter"
+import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
 import { getReportContext } from "@/lib/report-helpers"
 
 /** ATT-09. Неотмеченные дети — занятия с пропущенной отметкой посещений */
@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
     select: {
       id: true,
       date: true,
+      rescheduledFromDate: true,
       startTime: true,
       group: {
         select: {
@@ -109,14 +110,18 @@ export async function GET(req: NextRequest) {
   for (const lesson of lessons) {
     const lessonDate = new Date(lesson.date)
     const dayOfWeek = lessonDate.getUTCDay() === 0 ? 7 : lessonDate.getUTCDay()
+    // Граница состава — по исходной дате при переносе (см. effectiveRosterDate):
+    // перенесённое занятие не должно показывать «неотмеченными» учеников,
+    // начавших заниматься позже исходной даты.
+    const rosterDate = effectiveRosterDate(lesson)
 
     const groupEnrollments = enrollmentsByGroup.get(lesson.group.id) || []
 
     // Filter enrollments relevant to this lesson:
-    // - enrolled before or on the lesson date
+    // - enrolled before or on the (original) lesson date
     // - if selectedDays is set, lesson day must match
     const relevantEnrollments = groupEnrollments.filter((e) => {
-      if (!isEnrolledOnLesson(e, lessonDate)) return false
+      if (!isEnrolledOnLesson(e, rosterDate)) return false
       if (e.selectedDays && Array.isArray(e.selectedDays)) {
         return (e.selectedDays as number[]).includes(dayOfWeek)
       }

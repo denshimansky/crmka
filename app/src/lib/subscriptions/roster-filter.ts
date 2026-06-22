@@ -12,6 +12,26 @@
 // это withdrawnAt IS NULL, и второй ветке OR нужен isActive=true.
 
 /**
+ * «Дата состава» занятия. При переносе (Перенести → PATCH /api/lessons/[id]) поле
+ * `date` перезаписывается новой датой, а исходная сохраняется в `rescheduledFromDate`.
+ * Состав занятия и резолв абонемента нужно считать по ИСХОДНОЙ дате: перенос на
+ * более поздний день не должен затягивать в занятие учеников, начавших заниматься
+ * позже исходной даты (их абонемент это занятие не покрывает). Если занятие не
+ * переносили — `rescheduledFromDate` пустой, и берётся текущая `date`.
+ *
+ * Использовать ВЕЗДЕ, где определяется «кто на этом конкретном занятии» по дате:
+ * rosterWhereOnDate, enrolledAt <= …, Subscription.startDate <= …, период абонемента,
+ * isEnrolledOnLesson. НЕ использовать для отображения даты/времени, проверки
+ * конфликтов расписания и расчёта ЗП (ЗП — по фактической дате проведения `date`).
+ */
+export function effectiveRosterDate(lesson: {
+  date: Date
+  rescheduledFromDate?: Date | null
+}): Date {
+  return lesson.rescheduledFromDate ?? lesson.date
+}
+
+/**
  * Prisma where-фрагмент: зачисление активно на конкретную дату `date` (или начиная
  * с неё — для запросов по диапазону, где точная граница по дню затем проверяется
  * isEnrolledOnLesson). Спредить в where рядом с tenantId/groupId/deletedAt; поле

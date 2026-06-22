@@ -3,7 +3,7 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
-import { rosterWhereAnyDate, isEnrolledOnLesson } from "@/lib/subscriptions/roster-filter"
+import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -73,6 +73,7 @@ export default async function UnmarkedReportPage({
     select: {
       id: true,
       date: true,
+      rescheduledFromDate: true,
       startTime: true,
       group: {
         select: {
@@ -125,11 +126,13 @@ export default async function UnmarkedReportPage({
   for (const lesson of lessons) {
     const lessonDate = new Date(lesson.date)
     const dayOfWeek = lessonDate.getUTCDay() === 0 ? 7 : lessonDate.getUTCDay()
+    // Граница состава — по исходной дате при переносе (см. effectiveRosterDate).
+    const rosterDate = effectiveRosterDate(lesson)
 
     const groupEnrollments = enrollmentsByGroup.get(lesson.group.id) || []
 
     const relevantEnrollments = groupEnrollments.filter((e) => {
-      if (!isEnrolledOnLesson(e, lessonDate)) return false
+      if (!isEnrolledOnLesson(e, rosterDate)) return false
       if (e.selectedDays && Array.isArray(e.selectedDays)) {
         return (e.selectedDays as number[]).includes(dayOfWeek)
       }
