@@ -27,6 +27,12 @@ jobs:
           port: 22
           username: deploy
           key: ${{ secrets.TIMEWEB_SSH_KEY }}
+          # Timeweb (4 vCPU) собирает образ ~9 мин + up + migrate ≈ 11 мин.
+          # Дефолтный command_timeout ssh-action = 10 мин — он рвал SSH прямо на
+          # `docker compose up -d` (recreate), оставляя app-контейнер лежащим.
+          # Ставим запас. connection timeout (`timeout`) поднимаем до 60s.
+          command_timeout: 30m
+          timeout: 60s
           script: |
             cd /opt/crmka
             git checkout -f main
