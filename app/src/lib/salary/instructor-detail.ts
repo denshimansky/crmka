@@ -119,6 +119,8 @@ export function buildInstructorSalaryDetail(params: {
 
   const byDirection: DirectionDetail[] = Array.from(byDir.values())
     .map((a) => {
+      // null-направление (оклад без defaultDirection) в byDirection всегда paid=0:
+      // выплаты без направления учитываются в блоке adjustments.paidNoDirection.
       const paid = a.directionId == null ? 0 : (paidByDir.get(a.directionId) || 0)
       return {
         directionId: a.directionId,
@@ -163,8 +165,10 @@ export function buildInstructorSalaryDetail(params: {
     }))
 
   // --- Итоги ---
-  const accruedTotal = byDirection.reduce((s, d) => s + d.accrued, 0)
-  const accruedFirstHalfTotal = byDirection.reduce((s, d) => s + d.accruedFirstHalf, 0)
+  // Итоги считаем из СЫРЫХ сумм (до округления по направлениям), чтобы не копить
+  // погрешность округления; r2 применяется один раз в конце.
+  const accruedTotal = Array.from(byDir.values()).reduce((s, a) => s + a.accrued, 0)
+  const accruedFirstHalfTotal = Array.from(byDir.values()).reduce((s, a) => s + a.accruedFirstHalf, 0)
   const paidTotal = paymentItems.reduce((s, it) => s + it.amount, 0)
 
   return {
