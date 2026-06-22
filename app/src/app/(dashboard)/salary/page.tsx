@@ -252,7 +252,12 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
                 {displayRows.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="font-medium">
-                      {r.name}
+                      <Link
+                        href={`/salary/instructor/${r.id}?year=${year}&month=${month}`}
+                        className="text-primary hover:underline"
+                      >
+                        {r.name}
+                      </Link>
                       {r.substitutions > 0 && (
                         <Badge variant="secondary" className="ml-2 text-xs">замена ({r.substitutions})</Badge>
                       )}
