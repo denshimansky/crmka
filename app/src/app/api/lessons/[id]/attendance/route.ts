@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { rosterWhereOnDate } from "@/lib/subscriptions/roster-filter"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { calcRefund } from "@/lib/balance/calc-refund"
@@ -752,17 +753,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
 
-  // Get all active enrollments at the lesson date.
-  // Без фильтра enrolledAt/withdrawnAt «Отметить всех» проставлял бы Attendance
-  // ребёнку, зачисленному позже даты этого занятия.
+  // Состав занятия (для «Отметить всех») по дате занятия. Дата = граница состава:
+  // активные + отчисленные/переведённые позже даты занятия (withdrawnAt > date),
+  // чтобы ученик, выбывший ПОСЛЕ этого занятия, в нём ещё участвовал. enrolledAt
+  // отсекает зачисленных позже. isActive=false без withdrawnAt не бывает.
   const enrollments = await db.groupEnrollment.findMany({
     where: {
       groupId: lesson.groupId,
       tenantId,
-      isActive: true,
       deletedAt: null,
       enrolledAt: { lte: lesson.date },
-      OR: [{ withdrawnAt: null }, { withdrawnAt: { gt: lesson.date } }],
+      ...rosterWhereOnDate(lesson.date),
     },
   })
 

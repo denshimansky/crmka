@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { rosterWhereOnDate } from "@/lib/subscriptions/roster-filter"
 import { z } from "zod"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
@@ -108,17 +109,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
   }
 
-  // Get enrolled students for this group (active enrollments).
-  // Фильтр enrolledAt/withdrawnAt — чтобы ребёнок, зачисленный после
-  // даты занятия, не появлялся в его составе (см. /schedule/lessons/[id]).
+  // Состав занятия. Дата = граница состава: ученик виден в занятиях ПО дату
+  // отчисления включительно и пропадает в более поздних. Поэтому берём активных
+  // (withdrawnAt IS NULL) И отчисленных/переведённых ПОЗЖЕ даты занятия
+  // (withdrawnAt > date; при отчислении withdrawnAt = последнее платное + 1).
+  // isActive=false без withdrawnAt не бывает (все деактивации ставят withdrawnAt),
+  // поэтому второй ветке нужен isActive=true. enrolledAt отсекает зачисленных позже.
   const enrollments = await db.groupEnrollment.findMany({
     where: {
       groupId: lesson.groupId,
       tenantId,
-      isActive: true,
       deletedAt: null,
       enrolledAt: { lte: lesson.date },
-      OR: [{ withdrawnAt: null }, { withdrawnAt: { gt: lesson.date } }],
+      ...rosterWhereOnDate(lesson.date),
     },
     include: {
       client: { select: { id: true, firstName: true, lastName: true, phone: true } },

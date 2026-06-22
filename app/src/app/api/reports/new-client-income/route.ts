@@ -42,38 +42,30 @@ export async function GET(req: NextRequest) {
   })
   const newClientIncome = newAttendances.reduce((s, a) => s + Number(a.chargeAmount), 0)
 
-  // Churned clients in period — by last paid lesson date
-  const churnedClients = await db.client.findMany({
-    where: {
-      tenantId,
-      deletedAt: null,
-      clientStatus: "churned",
-      withdrawalDate: { gte: dateFrom, lte: dateTo },
-      ...(branchId ? { branchId } : {}),
-    },
-    select: { id: true, firstName: true, lastName: true },
-  })
-
-  const churnedIds = churnedClients.map((c) => c.id)
-
-  // Lost revenue = subscriptions of churned clients for current month, remaining amount
+  // Выбывшие в периоде — по дате последнего платного занятия
+  // (Subscription.withdrawalDate), а не по Client.withdrawalDate (его кроны ставят
+  // датой запуска). Так согласуется со спекой и «Оттоком по педагогам».
   const year = dateFrom.getUTCFullYear()
   const month = dateFrom.getUTCMonth() + 1
 
   const churnedSubWhere: any = {
     tenantId,
     deletedAt: null,
-    clientId: { in: churnedIds },
-    periodYear: year,
-    periodMonth: month,
+    status: "withdrawn",
+    withdrawalDate: { gte: dateFrom, lte: dateTo },
   }
+  if (branchId) churnedSubWhere.client = { branchId }
   if (directionId) churnedSubWhere.directionId = directionId
 
   const churnedSubs = await db.subscription.findMany({
     where: churnedSubWhere,
-    select: { finalAmount: true, chargedAmount: true },
+    select: { clientId: true, finalAmount: true, chargedAmount: true },
   })
 
+  // Уникальные клиенты с выбывшим абонементом в периоде.
+  const churnedCount = new Set(churnedSubs.map((s) => s.clientId)).size
+
+  // Упущенный доход = недоработанный остаток выбывших абонементов.
   const lostRevenueCurrent = churnedSubs.reduce(
     (s, sub) => s + (Number(sub.finalAmount) - Number(sub.chargedAmount)),
     0
@@ -91,7 +83,7 @@ export async function GET(req: NextRequest) {
     _avg: { finalAmount: true },
   })
   const avgSubCost = Number(avgSubAgg._avg.finalAmount || 0)
-  const lostRevenueNextMonth = churnedClients.length * avgSubCost
+  const lostRevenueNextMonth = churnedCount * avgSubCost
 
   return NextResponse.json({
     data: {
@@ -100,7 +92,7 @@ export async function GET(req: NextRequest) {
         income: Math.round(newClientIncome),
       },
       churnedClients: {
-        count: churnedClients.length,
+        count: churnedCount,
         lostRevenueCurrent: Math.round(lostRevenueCurrent),
         lostRevenueNextMonth: Math.round(lostRevenueNextMonth),
       },

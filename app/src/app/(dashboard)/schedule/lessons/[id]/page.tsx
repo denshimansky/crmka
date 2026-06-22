@@ -1,5 +1,6 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { rosterWhereOnDate } from "@/lib/subscriptions/roster-filter"
 import { notFound } from "next/navigation"
 import { isUnscoped } from "@/lib/branch-scope"
 import Link from "next/link"
@@ -141,14 +142,16 @@ export default async function LessonCardPage({
     },
   })
 
-  // Get enrolled students.
+  // Состав занятия. Дата = граница состава: активные (withdrawnAt IS NULL) +
+  // отчисленные/переведённые ПОЗЖЕ даты занятия (withdrawnAt > date), чтобы ученик
+  // был виден в занятиях по дату отчисления включительно. isActive=false без
+  // withdrawnAt не бывает. enrolledAt отсекается ниже в JS (+ фоллбэк по абонементу).
   const enrollmentsRaw = await db.groupEnrollment.findMany({
     where: {
       groupId: lesson.groupId,
       tenantId,
-      isActive: true,
       deletedAt: null,
-      OR: [{ withdrawnAt: null }, { withdrawnAt: { gt: lesson.date } }],
+      ...rosterWhereOnDate(lesson.date),
     },
     include: {
       client: { select: { id: true, firstName: true, lastName: true, phone: true } },

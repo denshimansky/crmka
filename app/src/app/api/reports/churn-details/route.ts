@@ -12,15 +12,24 @@ export async function GET(req: NextRequest) {
   const branchId = searchParams.get("branchId")
   const directionId = searchParams.get("directionId")
 
+  // Отток считаем по ВЫБЫВШИМ АБОНЕМЕНТАМ (Subscription.withdrawalDate = дата
+  // последнего платного занятия), а не по Client.withdrawalDate (его кроны ставят
+  // датой запуска). Так отчёт согласован со спекой (reports-logic §2.1) и с
+  // «Отток по педагогам». Клиент попадает в список, если у него есть выбывший
+  // абонемент с датой отчисления в периоде.
+  const subWhere: any = {
+    deletedAt: null,
+    status: "withdrawn",
+    withdrawalDate: { gte: dateFrom, lte: dateTo },
+  }
+  if (directionId) subWhere.directionId = directionId
+
   const where: any = {
     tenantId,
     deletedAt: null,
-    OR: [{ clientStatus: "churned" }, { funnelStatus: "archived" }],
+    subscriptions: { some: subWhere },
   }
   if (branchId) where.branchId = branchId
-
-  // Filter by withdrawal date in period
-  where.withdrawalDate = { gte: dateFrom, lte: dateTo }
 
   const churnedClients = await db.client.findMany({
     where,
@@ -28,14 +37,13 @@ export async function GET(req: NextRequest) {
       id: true,
       firstName: true,
       lastName: true,
-      withdrawalDate: true,
-      clientStatus: true,
       branch: { select: { name: true } },
       subscriptions: {
-        where: { deletedAt: null },
-        orderBy: { createdAt: "desc" },
+        where: subWhere,
+        orderBy: { withdrawalDate: "desc" },
         take: 1,
         select: {
+          withdrawalDate: true,
           direction: { select: { id: true, name: true } },
           group: {
             select: {
@@ -45,13 +53,9 @@ export async function GET(req: NextRequest) {
         },
       },
     },
-    orderBy: { withdrawalDate: "desc" },
   })
 
-  // Filter by direction if specified
-  const filtered = directionId
-    ? churnedClients.filter((c) => c.subscriptions[0]?.direction?.id === directionId)
-    : churnedClients
+  const filtered = churnedClients
 
   const totalActive = await db.client.count({
     where: { tenantId, deletedAt: null, clientStatus: "active" },
@@ -73,18 +77,20 @@ export async function GET(req: NextRequest) {
     byBranch[br] = (byBranch[br] || 0) + 1
   }
 
-  const data = filtered.map((c) => ({
-    clientId: c.id,
-    clientName: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
-    branch: c.branch?.name || null,
-    direction: c.subscriptions[0]?.direction?.name || null,
-    instructor: c.subscriptions[0]?.group?.instructor
-      ? [c.subscriptions[0].group.instructor.lastName, c.subscriptions[0].group.instructor.firstName]
-          .filter(Boolean)
-          .join(" ")
-      : null,
-    withdrawalDate: c.withdrawalDate?.toISOString() || null,
-  }))
+  const data = filtered
+    .map((c) => ({
+      clientId: c.id,
+      clientName: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
+      branch: c.branch?.name || null,
+      direction: c.subscriptions[0]?.direction?.name || null,
+      instructor: c.subscriptions[0]?.group?.instructor
+        ? [c.subscriptions[0].group.instructor.lastName, c.subscriptions[0].group.instructor.firstName]
+            .filter(Boolean)
+            .join(" ")
+        : null,
+      withdrawalDate: c.subscriptions[0]?.withdrawalDate?.toISOString() || null,
+    }))
+    .sort((a, b) => (b.withdrawalDate || "").localeCompare(a.withdrawalDate || ""))
 
   return NextResponse.json({
     data,

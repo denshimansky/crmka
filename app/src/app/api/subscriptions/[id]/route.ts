@@ -12,6 +12,7 @@ import {
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
+import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate } from "@/lib/subscriptions/last-paid-lesson-date"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -64,7 +65,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   const data = parsed.data
 
-  // Переход в withdrawn требует указания причины из справочника.
+  // Дата отчисления = последнее платное занятие (правило заказчика). Считаем ДО
+  // транзакции, чтобы отдать чистый 400 — throw внутри $transaction не ловится.
+  let effectiveWithdrawalDate: Date | null = null
+
+  // Переход в withdrawn требует причины из справочника и даты отчисления.
   // Проверка до транзакции — отдаём 400, если поле пустое или причина не найдена/неактивна.
   if (data.status === "withdrawn") {
     if (!data.withdrawalReasonId) {
@@ -86,6 +91,37 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         { error: "Причина отчисления не найдена" },
         { status: 400 },
       )
+    }
+
+    // Дата: явно переданная (оператор поправил в диалоге) ИЛИ последнее платное
+    // занятие абонемента. Если нет ни того, ни другого — у абонемента нет платных
+    // посещений: запрещаем авто-отчисление и просим указать дату вручную.
+    if (data.withdrawalDate) {
+      const override = new Date(data.withdrawalDate)
+      const sub = await db.subscription.findFirst({
+        where: { id, tenantId: session.user.tenantId, deletedAt: null },
+        select: { startDate: true },
+      })
+      if (!sub) {
+        return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
+      }
+      const dateError = validateWithdrawalDate(override, sub.startDate, new Date())
+      if (dateError) {
+        return NextResponse.json({ error: dateError }, { status: 400 })
+      }
+      effectiveWithdrawalDate = override
+    } else {
+      effectiveWithdrawalDate = await getLastPaidLessonDate(db, session.user.tenantId, id)
+      if (!effectiveWithdrawalDate) {
+        return NextResponse.json(
+          {
+            error:
+              "У абонемента нет платных посещений — отчислить автоматически нельзя. Укажите дату отчисления вручную.",
+            code: "NO_PAID_ATTENDANCE",
+          },
+          { status: 400 },
+        )
+      }
     }
   }
 
@@ -176,12 +212,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       // календарный тип создаёт новый абонемент каждый месяц при одном общем
       // GroupEnrollment, поэтому отчисление одного месяца не должно выкидывать
       // ребёнка с оплаченным другим месяцем той же группы.
+      // withdrawnAt = дата отчисления + 1 день: ученик остаётся в составе на
+      // последнем платном занятии (D), но выпадает из всех более поздних
+      // (фильтр состава — withdrawnAt > дата занятия).
       await deactivateGroupEnrollmentOnWithdrawal(tx, {
         tenantId: session.user.tenantId,
         groupId: existing.groupId,
         clientId: existing.clientId,
         wardId: existing.wardId,
         excludeSubscriptionId: id,
+        withdrawnAt: effectiveWithdrawalDate
+          ? nextDayUtc(effectiveWithdrawalDate)
+          : undefined,
       })
     }
 
@@ -243,9 +285,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         updateData.activatedAt = new Date()
       }
       if (data.status === "withdrawn") {
-        updateData.withdrawalDate = data.withdrawalDate
-          ? new Date(data.withdrawalDate)
-          : new Date()
+        // effectiveWithdrawalDate вычислен до транзакции: переданная дата ИЛИ
+        // дата последнего платного занятия.
+        updateData.withdrawalDate = effectiveWithdrawalDate
         updateData.withdrawalReasonId = data.withdrawalReasonId
       }
     }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { rosterWhereAnyDate, isEnrolledOnLesson } from "@/lib/subscriptions/roster-filter"
 import { getReportContext } from "@/lib/report-helpers"
 
 /** ATT-09. Неотмеченные дети — занятия с пропущенной отметкой посещений */
@@ -63,14 +64,15 @@ export async function GET(req: NextRequest) {
     where: {
       tenantId,
       groupId: { in: groupIds },
-      isActive: true,
       deletedAt: null,
+      ...rosterWhereAnyDate(),
     },
     select: {
       groupId: true,
       clientId: true,
       wardId: true,
       enrolledAt: true,
+      withdrawnAt: true,
       selectedDays: true,
       client: { select: { id: true, firstName: true, lastName: true, phone: true } },
       ward: { select: { id: true, firstName: true, lastName: true } },
@@ -114,7 +116,7 @@ export async function GET(req: NextRequest) {
     // - enrolled before or on the lesson date
     // - if selectedDays is set, lesson day must match
     const relevantEnrollments = groupEnrollments.filter((e) => {
-      if (new Date(e.enrolledAt) > lessonDate) return false
+      if (!isEnrolledOnLesson(e, lessonDate)) return false
       if (e.selectedDays && Array.isArray(e.selectedDays)) {
         return (e.selectedDays as number[]).includes(dayOfWeek)
       }

@@ -4,6 +4,7 @@ import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
+import { rosterWhereOnDate, isEnrolledOnLesson } from "@/lib/subscriptions/roster-filter"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import type { Prisma } from "@prisma/client"
@@ -249,16 +250,18 @@ export default async function LessonsAttendancePage({
     }
   }
 
-  // === Активные зачисления ===
+  // === Зачисления (дата = граница состава) ===
+  // Активные + отчисленные/переведённые позже начала периода (withdrawnAt > dateFrom),
+  // чтобы выбывший в середине месяца показывался в ячейках ДО даты отчисления, а
+  // после — пусто (граница применяется по дням ниже). isActive=false всегда с withdrawnAt.
   const enrollments = effectiveGroupIds.length > 0
     ? await db.groupEnrollment.findMany({
         where: {
           tenantId,
-          isActive: true,
           deletedAt: null,
           groupId: { in: effectiveGroupIds },
           enrolledAt: { lte: dateTo },
-          OR: [{ withdrawnAt: null }, { withdrawnAt: { gt: dateFrom } }],
+          ...rosterWhereOnDate(dateFrom),
         },
         select: {
           id: true,
@@ -353,16 +356,11 @@ export default async function LessonsAttendancePage({
     let planCount = 0
     for (let day = 1; day <= daysInMonth; day++) {
       const lessonDate = new Date(Date.UTC(year, month - 1, day))
-      // Ребёнок встаёт в группу с даты зачисления (= выписки абонемента /
-      // первого занятия): ячейки ДО enrolledAt пустые. Иначе зачисленный в
-      // середине месяца показывался бы с 1-го числа (баг #8). enrolledAt — это
-      // @db.Date (полночь UTC), как и lessonDate, поэтому день зачисления входит.
-      if (e.enrolledAt && lessonDate < e.enrolledAt) {
-        cells.push(null)
-        continue
-      }
-      // Выбывшие из группы — ячейки после withdrawnAt пустые.
-      if (e.withdrawnAt && e.withdrawnAt <= lessonDate) {
+      // Вне периода членства: ячейки ДО enrolledAt (баг #8 — зачисленный в
+      // середине месяца не должен показываться с 1-го) и С даты отчисления
+      // (withdrawnAt) — пустые. enrolledAt/withdrawnAt — @db.Date (полночь UTC),
+      // как и lessonDate, поэтому день зачисления входит, а день withdrawnAt — нет.
+      if (!isEnrolledOnLesson(e, lessonDate)) {
         cells.push(null)
         continue
       }

@@ -3,6 +3,7 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { rosterWhereAnyDate, isEnrolledOnLesson } from "@/lib/subscriptions/roster-filter"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -96,14 +97,15 @@ export default async function UnmarkedReportPage({
         where: {
           tenantId,
           groupId: { in: groupIds },
-          isActive: true,
           deletedAt: null,
+          ...rosterWhereAnyDate(),
         },
         select: {
           groupId: true,
           clientId: true,
           wardId: true,
           enrolledAt: true,
+          withdrawnAt: true,
           selectedDays: true,
           client: { select: { id: true, firstName: true, lastName: true, phone: true } },
           ward: { select: { id: true, firstName: true, lastName: true } },
@@ -127,7 +129,7 @@ export default async function UnmarkedReportPage({
     const groupEnrollments = enrollmentsByGroup.get(lesson.group.id) || []
 
     const relevantEnrollments = groupEnrollments.filter((e) => {
-      if (new Date(e.enrolledAt) > lessonDate) return false
+      if (!isEnrolledOnLesson(e, lessonDate)) return false
       if (e.selectedDays && Array.isArray(e.selectedDays)) {
         return (e.selectedDays as number[]).includes(dayOfWeek)
       }

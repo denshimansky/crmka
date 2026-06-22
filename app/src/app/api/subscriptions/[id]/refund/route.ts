@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
+import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate } from "@/lib/subscriptions/last-paid-lesson-date"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
@@ -19,6 +20,8 @@ const refundSchema = z.object({
   method: z.string().optional(),
   comment: z.string().max(500).optional(),
   withdrawalReasonId: z.string().uuid().optional(),
+  // Дата отчисления (ISO). Если не передана — берём дату последнего платного занятия.
+  withdrawalDate: z.string().optional(),
 })
 
 /**
@@ -56,7 +59,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
-  const { comment, withdrawalReasonId } = parsed.data
+  const { comment, withdrawalReasonId, withdrawalDate } = parsed.data
 
   // Закрытие через refund переводит абонемент в withdrawn — причина обязательна.
   if (!withdrawalReasonId) {
@@ -90,6 +93,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (subscription.status !== "active" && subscription.status !== "pending") {
       return { error: "Закрытие возможно только для активного или ожидающего абонемента", status: 400 }
+    }
+
+    // Дата отчисления = переданная вручную ИЛИ дата последнего платного занятия.
+    // Нет ни того, ни другого → нет платных посещений: запрещаем (как в PATCH).
+    let withdrawAt: Date
+    if (withdrawalDate) {
+      const override = new Date(withdrawalDate)
+      const dateError = validateWithdrawalDate(override, subscription.startDate, new Date())
+      if (dateError) {
+        return { error: dateError, status: 400 }
+      }
+      withdrawAt = override
+    } else {
+      const lastPaid = await getLastPaidLessonDate(tx, session.user.tenantId, id)
+      if (!lastPaid) {
+        return {
+          error:
+            "У абонемента нет платных посещений — отчислить автоматически нельзя. Укажите дату отчисления вручную.",
+          status: 400,
+        }
+      }
+      withdrawAt = lastPaid
     }
 
     const paidToSub = await netPaidToSubscription(tx, session.user.tenantId, id)
@@ -150,7 +175,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       where: { id },
       data: {
         status: "withdrawn",
-        withdrawalDate: new Date(),
+        withdrawalDate: withdrawAt,
         withdrawalReasonId,
         balance: 0,
       },
@@ -160,12 +185,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // (pending/active) абонемента в этой же группе. Helper заодно чинит scope:
     // раньше деактивация шла по clientId без wardId — у клиента с несколькими
     // подопечными отчислялись зачисления не того ребёнка.
+    // withdrawnAt = дата отчисления + 1 день: ученик виден на последнем платном
+    // занятии, но выпадает из более поздних (фильтр состава withdrawnAt > дата).
     await deactivateGroupEnrollmentOnWithdrawal(tx, {
       tenantId: session.user.tenantId,
       groupId: subscription.groupId,
       clientId: subscription.clientId,
       wardId: subscription.wardId,
       excludeSubscriptionId: id,
+      withdrawnAt: nextDayUtc(withdrawAt),
     })
 
     // Скидки v2: отчисленный выпадает из состава месяца — пересчёт скидок
@@ -256,6 +284,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const balanceDelta = paidToSub - usedAmount - Number(priorAgg._sum.amount ?? 0)
   const remainingLessons = Math.max(0, subscription.totalLessons - attendedCount)
 
+  // Дата последнего платного занятия — предлагается диалогу «Отчислить» как дата
+  // отчисления по умолчанию. null → платных посещений нет (отчисление требует
+  // ручной даты).
+  const lastPaidDate = await getLastPaidLessonDate(db, session.user.tenantId, id)
+
   return NextResponse.json({
     totalLessons: subscription.totalLessons,
     attendedLessons: attendedCount,
@@ -264,6 +297,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     paidToSubscription: paidToSub,
     usedAmount,
     balanceDelta,
+    lastPaidDate: lastPaidDate ? lastPaidDate.toISOString().slice(0, 10) : null,
+    hasPaidAttendance: lastPaidDate !== null,
+    // Границы для поля даты отчисления в диалоге: не раньше начала абонемента.
+    startDate: subscription.startDate.toISOString().slice(0, 10),
     direction: subscription.direction.name,
     group: subscription.group.name,
     status: subscription.status,

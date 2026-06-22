@@ -27,40 +27,45 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
   const session = await getSession()
   const tenantId = session.user.tenantId
 
-  // Выбывшие клиенты (clientStatus = churned или funnelStatus = archived)
+  const { year, month } = getMonthFromParams(await searchParams)
+  const dateFrom = new Date(Date.UTC(year, month - 1, 1))
+  const dateToExclusive = new Date(Date.UTC(year, month, 1))
+
+  // Отток считаем по ВЫБЫВШИМ АБОНЕМЕНТАМ за выбранный месяц
+  // (Subscription.withdrawalDate = дата последнего платного занятия), а не по
+  // Client.withdrawalDate (его кроны ставят датой запуска). Так фильтр периода
+  // (MonthPicker) работает, а отчёт согласован с «Оттоком по педагогам» и спекой.
+  const subWhere: any = {
+    deletedAt: null,
+    status: "withdrawn",
+    withdrawalDate: { gte: dateFrom, lt: dateToExclusive },
+  }
+
   const churnedClients = await db.client.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      OR: [
-        { clientStatus: "churned" },
-        { funnelStatus: "archived" },
-      ],
+      subscriptions: { some: subWhere },
     },
     select: {
       id: true,
       firstName: true,
       lastName: true,
-      withdrawalDate: true,
-      clientStatus: true,
-      funnelStatus: true,
       branch: { select: { name: true } },
       subscriptions: {
-        where: { deletedAt: null },
-        orderBy: { createdAt: "desc" },
+        where: subWhere,
+        orderBy: { withdrawalDate: "desc" },
         take: 1,
         select: {
+          withdrawalDate: true,
           direction: { select: { name: true } },
           group: { select: { instructor: { select: { firstName: true, lastName: true } } } },
         },
       },
     },
-    orderBy: { withdrawalDate: "desc" },
   })
 
-  const { year, month } = getMonthFromParams(await searchParams)
-
-  // Всего активных
+  // Всего активных (текущий снимок — приблизительная база для % оттока)
   const totalActive = await db.client.count({
     where: { tenantId, deletedAt: null, clientStatus: "active" },
   })
@@ -81,21 +86,24 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
     churnByBranch.set(br, (churnByBranch.get(br) || 0) + 1)
   }
 
-  const rows = churnedClients.map((c) => {
-    const name = [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени"
-    const direction = c.subscriptions[0]?.direction?.name || "—"
-    const instructor = c.subscriptions[0]?.group?.instructor
-      ? [c.subscriptions[0].group.instructor.lastName, c.subscriptions[0].group.instructor.firstName].filter(Boolean).join(" ")
-      : "—"
-    return {
-      id: c.id,
-      name,
-      branch: c.branch?.name || "—",
-      direction,
-      instructor,
-      withdrawalDate: c.withdrawalDate,
-    }
-  })
+  const rows = churnedClients
+    .map((c) => {
+      const name = [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени"
+      const sub = c.subscriptions[0]
+      const direction = sub?.direction?.name || "—"
+      const instructor = sub?.group?.instructor
+        ? [sub.group.instructor.lastName, sub.group.instructor.firstName].filter(Boolean).join(" ")
+        : "—"
+      return {
+        id: c.id,
+        name,
+        branch: c.branch?.name || "—",
+        direction,
+        instructor,
+        withdrawalDate: sub?.withdrawalDate ?? null,
+      }
+    })
+    .sort((a, b) => (b.withdrawalDate?.getTime() ?? 0) - (a.withdrawalDate?.getTime() ?? 0))
 
   return (
     <div className="space-y-6">

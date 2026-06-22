@@ -2,6 +2,7 @@ import { PageHelp } from "@/components/page-help"
 import { getSession } from "@/lib/session"
 import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
+import { rosterWhereAnyDate, isEnrolledOnLesson } from "@/lib/subscriptions/roster-filter"
 import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeft, AlertTriangle } from "lucide-react"
 import Link from "next/link"
@@ -295,13 +296,16 @@ export default async function LessonsAbsencesPage({
 
   const groupIds = Array.from(new Set(pastLessons.map((l) => l.groupId)))
 
+  // Дата = граница состава: активные + любые отчисленные/переведённые (граница
+  // применяется по каждому занятию ниже — withdrawnAt <= lesson.date → пропуск).
+  // Так выбывший ученик остаётся в «непросмотренных» по занятиям до даты отчисления.
   const enrollments = groupIds.length > 0
     ? await db.groupEnrollment.findMany({
         where: {
           tenantId,
-          isActive: true,
           deletedAt: null,
           groupId: { in: groupIds },
+          ...rosterWhereAnyDate(),
         },
         select: {
           groupId: true,
@@ -350,8 +354,7 @@ export default async function LessonsAbsencesPage({
       attendedMap.set(`${a.clientId}|${a.wardId || ""}`, { isPending: a.isPending })
     }
     for (const e of groupEnrollments) {
-      if (e.enrolledAt > lesson.date) continue
-      if (e.withdrawnAt && e.withdrawnAt <= lesson.date) continue
+      if (!isEnrolledOnLesson(e, lesson.date)) continue
       const key = `${e.clientId}|${e.wardId || ""}`
       const att = attendedMap.get(key)
       if (att && !att.isPending) continue // отметка есть и не заглушка
