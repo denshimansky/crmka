@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { PayByDirectionDialog } from "./pay-by-direction-dialog"
+import { PageHelp } from "@/components/page-help"
 
 interface DirectionDetail {
   directionId: string | null
@@ -92,6 +93,7 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold">{data.employee.name}</h1>
+              <PageHelp pageKey="salary/instructor" />
             </div>
             <p className="text-sm text-muted-foreground">Детализация ЗП — {monthName}</p>
           </div>
