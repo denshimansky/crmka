@@ -150,7 +150,7 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
                     {isOpen && dirLessons.map((l) => (
                       <TableRow key={l.lessonId} className="bg-muted/30 text-sm">
                         <TableCell className="pl-9 text-muted-foreground" colSpan={4}>
-                          {new Date(l.date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })} · {l.groupName} · {l.typeName} · {l.studentsCharged} уч.
+                          {new Date(l.date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", timeZone: "UTC" })} · {l.groupName} · {l.typeName} · {l.studentsCharged} уч.
                         </TableCell>
                         <TableCell className="text-right">{fmt(l.amount)}</TableCell>
                       </TableRow>

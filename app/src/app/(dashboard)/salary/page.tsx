@@ -4,7 +4,7 @@ import { scopeEmployee } from "@/lib/branch-scope"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Banknote, TrendingUp, TrendingDown, Users } from "lucide-react"
+import { Banknote, TrendingUp, TrendingDown, Users, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import { PaySalaryDialog } from "./pay-salary-dialog"
 import { SalaryCorrections } from "./salary-corrections"
@@ -261,6 +261,13 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
                       {r.substitutions > 0 && (
                         <Badge variant="secondary" className="ml-2 text-xs">замена ({r.substitutions})</Badge>
                       )}
+                      <Link
+                        href={`/salary/instructor/${r.id}?year=${year}&month=${month}`}
+                        title="Детали / выплата"
+                        className="ml-2 inline-flex align-middle text-muted-foreground hover:text-foreground"
+                      >
+                        <ChevronRight className="size-4" />
+                      </Link>
                     </TableCell>
                     <TableCell><Badge variant="outline">{ROLE_LABELS[r.role] || r.role}</Badge></TableCell>
                     <TableCell className="text-right">{formatMoney(r.accrued)}</TableCell>
