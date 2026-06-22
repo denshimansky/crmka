@@ -41,7 +41,20 @@ const docSchema = z.object({
     directionId: z.string().uuid().nullable().optional(),
     amount: z.number().min(0.01),
     comment: z.string().optional().nullable(),
-  })).min(1, "Добавьте хотя бы одну строку выплаты"),
+  })).default([]),
+  // Премия/депремирование, создаются как SalaryAdjustment в той же транзакции,
+  // что и выплата (атомарно). Премию клиент дополнительно кладёт в items
+  // (выплачивается сейчас); штраф — только начисление (уменьшает «Осталось»),
+  // в items НЕ попадает.
+  adjustments: z.array(z.object({
+    employeeId: z.string().uuid(),
+    type: z.enum(["bonus", "penalty"]),
+    amount: z.number().min(0.01),
+    comment: z.string().min(1, "Комментарий к премии/штрафу обязателен"),
+  })).default([]),
+}).refine((d) => d.items.length > 0 || d.adjustments.length > 0, {
+  message: "Добавьте строку выплаты или премию/штраф",
+  path: ["items"],
 })
 
 export async function GET(req: NextRequest) {
@@ -93,8 +106,8 @@ export async function POST(req: NextRequest) {
   const tenantId = session.user.tenantId
   const employeeId = session.user.employeeId
 
-  // === Документ с items ===
-  if (Array.isArray(body?.items)) {
+  // === Документ с items / премиями-штрафами ===
+  if (Array.isArray(body?.items) || Array.isArray(body?.adjustments)) {
     const parsed = docSchema.safeParse(body)
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
@@ -105,14 +118,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
     }
 
-    // Проверяем сотрудников/счета/направления одним прогоном.
-    const employeeIds = Array.from(new Set(data.items.map(i => i.employeeId)))
+    // Проверяем сотрудников/счета/направления одним прогоном. employeeId берём и
+    // из выплат (items), и из премий/штрафов (adjustments) — премия/штраф могут
+    // идти без выплаты.
+    const employeeIds = Array.from(new Set([
+      ...data.items.map(i => i.employeeId),
+      ...data.adjustments.map(a => a.employeeId),
+    ]))
     const accountIds = Array.from(new Set(data.items.map(i => i.accountId)))
     const directionIds = Array.from(new Set(data.items.map(i => i.directionId).filter((v): v is string => !!v)))
 
     const [employees, accounts, directions] = await Promise.all([
       db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true } }),
-      db.financialAccount.findMany({ where: { id: { in: accountIds }, tenantId }, select: { id: true } }),
+      accountIds.length > 0
+        ? db.financialAccount.findMany({ where: { id: { in: accountIds }, tenantId }, select: { id: true } })
+        : Promise.resolve([] as Array<{ id: string }>),
       directionIds.length > 0
         ? db.direction.findMany({ where: { id: { in: directionIds }, tenantId }, select: { id: true } })
         : Promise.resolve([] as Array<{ id: string }>),
@@ -128,47 +148,66 @@ export async function POST(req: NextRequest) {
     }
 
     const totalAmount = data.items.reduce((s, it) => s + it.amount, 0)
-    const headEmployeeId = data.items[0].employeeId
-    const headAccountId = data.items[0].accountId
 
     const payment = await db.$transaction(async (tx) => {
-      // Шапка документа. employeeId/accountId/amount — репрезентативные (для обратной
-      // совместимости со старыми выборками). Источник истины — items.
-      const p = await tx.salaryPayment.create({
-        data: {
-          tenantId,
-          employeeId: headEmployeeId,
-          accountId: headAccountId,
-          amount: totalAmount,
-          date: new Date(data.date),
-          periodYear: data.periodYear,
-          periodMonth: data.periodMonth,
-          periodHalf: data.periodHalf,
-          comment: data.comment,
-          createdBy: employeeId,
-        },
-      })
+      let p: { id: string } | null = null
 
-      // Items.
-      await tx.salaryPaymentItem.createMany({
-        data: data.items.map((it) => ({
-          tenantId,
-          salaryPaymentId: p.id,
-          employeeId: it.employeeId,
-          accountId: it.accountId,
-          directionId: it.directionId ?? null,
-          amount: it.amount,
-          comment: it.comment ?? null,
-        })),
-      })
+      // Выплата (может отсутствовать, если проводят только премию/штраф).
+      if (data.items.length > 0) {
+        // Шапка документа. employeeId/accountId/amount — репрезентативные (для обратной
+        // совместимости со старыми выборками). Источник истины — items.
+        const created = await tx.salaryPayment.create({
+          data: {
+            tenantId,
+            employeeId: data.items[0].employeeId,
+            accountId: data.items[0].accountId,
+            amount: totalAmount,
+            date: new Date(data.date),
+            periodYear: data.periodYear,
+            periodMonth: data.periodMonth,
+            periodHalf: data.periodHalf,
+            comment: data.comment,
+            createdBy: employeeId,
+          },
+        })
+        p = created
 
-      // Списываем суммы со счетов (агрегируем по счёту, чтобы не дёргать update N раз).
-      const byAccount = new Map<string, number>()
-      for (const it of data.items) {
-        byAccount.set(it.accountId, (byAccount.get(it.accountId) || 0) + it.amount)
+        await tx.salaryPaymentItem.createMany({
+          data: data.items.map((it) => ({
+            tenantId,
+            salaryPaymentId: created.id,
+            employeeId: it.employeeId,
+            accountId: it.accountId,
+            directionId: it.directionId ?? null,
+            amount: it.amount,
+            comment: it.comment ?? null,
+          })),
+        })
+
+        // Списываем суммы со счетов (агрегируем по счёту, чтобы не дёргать update N раз).
+        const byAccount = new Map<string, number>()
+        for (const it of data.items) {
+          byAccount.set(it.accountId, (byAccount.get(it.accountId) || 0) + it.amount)
+        }
+        for (const [accId, sum] of byAccount.entries()) {
+          await tx.financialAccount.update({ where: { id: accId }, data: { balance: { decrement: sum } } })
+        }
       }
-      for (const [accId, sum] of byAccount.entries()) {
-        await tx.financialAccount.update({ where: { id: accId }, data: { balance: { decrement: sum } } })
+
+      // Премии/штрафы за период (атомарно с выплатой).
+      if (data.adjustments.length > 0) {
+        await tx.salaryAdjustment.createMany({
+          data: data.adjustments.map((a) => ({
+            tenantId,
+            employeeId: a.employeeId,
+            type: a.type,
+            amount: a.amount,
+            periodYear: data.periodYear,
+            periodMonth: data.periodMonth,
+            comment: a.comment,
+            createdBy: employeeId,
+          })),
+        })
       }
 
       return p
@@ -179,17 +218,18 @@ export async function POST(req: NextRequest) {
       employeeId,
       action: "create",
       entityType: "SalaryPayment",
-      entityId: payment.id,
+      entityId: payment?.id ?? "adjustments-only",
       changes: {
         amount: { new: totalAmount },
         items: { new: data.items.length },
+        adjustments: { new: data.adjustments.length },
         periodYear: { new: data.periodYear },
         periodMonth: { new: data.periodMonth },
       },
       req,
     })
 
-    return NextResponse.json(payment, { status: 201 })
+    return NextResponse.json(payment ?? { ok: true, adjustments: data.adjustments.length }, { status: 201 })
   }
 
   // === Legacy: одна выплата ===

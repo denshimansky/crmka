@@ -37,6 +37,11 @@ export function PayByDirectionDialog({
   const [accountId, setAccountId] = useState("")
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [rows, setRows] = useState<Row[]>([])
+  // Премия (+) выплачивается в этой же выплате и записывается за период.
+  // Депремирование (−) только записывается и уменьшает «Осталось» — не выплачивается.
+  const [bonus, setBonus] = useState("")
+  const [penalty, setPenalty] = useState("")
+  const [adjComment, setAdjComment] = useState("")
 
   // Пересобираем строки при открытии — пресет по режиму.
   function buildRows(): Row[] {
@@ -76,6 +81,9 @@ export function PayByDirectionDialog({
       setRows(buildRows())
       setAccountId(data.accounts[0]?.id ?? "")
       setDate(new Date().toISOString().slice(0, 10))
+      setBonus("")
+      setPenalty("")
+      setAdjComment("")
       setError(null)
     }
   }
@@ -87,19 +95,38 @@ export function PayByDirectionDialog({
     setRows((prev) => prev.map((r) => r.key === key ? { ...r, checked: !r.checked } : r))
   }
 
-  const total = useMemo(
+  const rowsTotal = useMemo(
     () => rows.filter((r) => r.checked).reduce((s, r) => s + (Number(r.amount) || 0), 0),
     [rows],
   )
+  const bonusNum = Number(bonus) || 0
+  const penaltyNum = Number(penalty) || 0
+  // Итого к выплате = выбранные направления + премия (выплачивается сейчас).
+  // Депремирование в выплату НЕ входит — это удержание (уменьшает «Осталось»).
+  const total = rowsTotal + bonusNum
   const overpay = rows.some((r) => r.checked && (Number(r.amount) || 0) > r.remaining + 0.001)
 
   async function handleSubmit() {
     setError(null)
-    if (!accountId) { setError("Выберите счёт"); return }
-    const items = rows
+    const items: { employeeId: string; accountId: string; directionId: string | null; amount: number }[] = rows
       .filter((r) => r.checked && Number(r.amount) > 0)
       .map((r) => ({ employeeId: data.employee.id, accountId, directionId: r.directionId, amount: Number(r.amount) }))
-    if (items.length === 0) { setError("Отметьте хотя бы одно направление с суммой"); return }
+    // Премия выплачивается сейчас → отдельная строка выплаты без направления.
+    if (bonusNum > 0) {
+      items.push({ employeeId: data.employee.id, accountId, directionId: null, amount: bonusNum })
+    }
+    // Премия/штраф записываются как SalaryAdjustment за период (атомарно с выплатой).
+    const adjustments: { employeeId: string; type: "bonus" | "penalty"; amount: number; comment: string }[] = []
+    if (bonusNum > 0) adjustments.push({ employeeId: data.employee.id, type: "bonus", amount: bonusNum, comment: adjComment.trim() })
+    if (penaltyNum > 0) adjustments.push({ employeeId: data.employee.id, type: "penalty", amount: penaltyNum, comment: adjComment.trim() })
+
+    if (items.length === 0 && adjustments.length === 0) {
+      setError("Отметьте направление с суммой или укажите премию/депремирование"); return
+    }
+    if (items.length > 0 && !accountId) { setError("Выберите счёт"); return }
+    if ((bonusNum > 0 || penaltyNum > 0) && !adjComment.trim()) {
+      setError("Укажите комментарий к премии/депремированию"); return
+    }
 
     setLoading(true)
     try {
@@ -113,6 +140,7 @@ export function PayByDirectionDialog({
           periodHalf: mode === "advance" ? 1 : 2,
           comment: mode === "advance" ? "Аванс" : "Остатки ЗП",
           items,
+          adjustments,
         }),
       })
       if (!res.ok) {
@@ -169,6 +197,41 @@ export function PayByDirectionDialog({
             <p className="text-xs text-orange-600">Внимание: по некоторым строкам сумма больше остатка (аванс/переплата).</p>
           )}
 
+          <div className="rounded-md border p-3 space-y-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-green-700">Премия (+)</Label>
+                <Input
+                  type="number" step="0.01" min="0"
+                  value={bonus} onChange={(e) => setBonus(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-red-700">Депремирование (−)</Label>
+                <Input
+                  type="number" step="0.01" min="0"
+                  value={penalty} onChange={(e) => setPenalty(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+            </div>
+            {(bonusNum > 0 || penaltyNum > 0) && (
+              <div className="space-y-1.5">
+                <Label>Комментарий к премии/депремированию *</Label>
+                <Input
+                  value={adjComment} onChange={(e) => setAdjComment(e.target.value)}
+                  placeholder="За что премия / удержание"
+                />
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Премия выплачивается в этой выплате и записывается за период. Депремирование
+              не выплачивается — только уменьшает «Осталось» сотрудника
+              {penaltyNum > 0 ? ` на ${fmt(penaltyNum)}` : ""}.
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Счёт *</Label>
@@ -192,8 +255,8 @@ export function PayByDirectionDialog({
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>Отмена</Button>
-            <Button onClick={handleSubmit} disabled={loading || total <= 0}>
-              {loading ? "Выплата…" : `Выплатить ${fmt(total)}`}
+            <Button onClick={handleSubmit} disabled={loading || (total <= 0 && penaltyNum <= 0)}>
+              {loading ? "Сохранение…" : total > 0 ? `Выплатить ${fmt(total)}` : "Сохранить"}
             </Button>
           </DialogFooter>
         </div>

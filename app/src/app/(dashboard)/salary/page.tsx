@@ -54,6 +54,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
     },
     select: {
       id: true, firstName: true, lastName: true, role: true,
+      monthlySalary: true,
       salaryRates: { select: { scheme: true, ratePerStudent: true, ratePerLesson: true, fixedPerShift: true } },
     },
     orderBy: { lastName: "asc" },
@@ -116,7 +117,10 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   // Таблица
   const rows = employees.map((emp) => {
     const name = [emp.lastName, emp.firstName].filter(Boolean).join(" ") || "Без имени"
-    const accrued = accrualsByEmployee.get(emp.id) || 0
+    // Начислено = ЗП за занятия + оклад окладника (Employee.monthlySalary).
+    // Без оклада сводная ведомость показывала окладникам 0, хотя на детализации
+    // (instructor-detail) оклад начисляется — расхождение. Теперь согласовано.
+    const accrued = (accrualsByEmployee.get(emp.id) || 0) + (Number(emp.monthlySalary) || 0)
     const bonuses = bonusesByEmployee.get(emp.id) || 0
     const penalties = penaltiesByEmployee.get(emp.id) || 0
     const paid = paidByEmployee.get(emp.id) || 0
