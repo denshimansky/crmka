@@ -1,5 +1,9 @@
 services:
   app:
+    # Явный тег образа: Hetzner собирает его локально (`docker compose build`),
+    # а msk1 получает уже собранный из CI через `docker load` и поднимает с
+    # `--no-build`. Имя совпадает с дефолтным compose-именем (project=crmka).
+    image: crmka-app:latest
     build:
       context: ./app
       dockerfile: Dockerfile
