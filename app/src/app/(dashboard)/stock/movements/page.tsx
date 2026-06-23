@@ -63,7 +63,13 @@ export default function MovementsPage() {
   const [error, setError] = useState<string | null>(null)
   const [items, setItems] = useState<StockItem[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
+  // Контролируемые поля формы перемещения (base-ui Select не отдаёт значения в
+  // FormData — раньше fromBranchId уходил пустым и API отвечал 400, баг #43).
+  const [tItemId, setTItemId] = useState("")
   const [selectedBranch, setSelectedBranch] = useState("")
+  const [tToRoom, setTToRoom] = useState("")
+  const [tQty, setTQty] = useState("")
+  const [tComment, setTComment] = useState("")
 
   const load = useCallback(async () => {
     const res = await fetch("/api/stock-movements")
@@ -73,7 +79,13 @@ export default function MovementsPage() {
 
   useEffect(() => { load() }, [load])
 
+  function resetTransfer() {
+    setTItemId(""); setSelectedBranch(""); setTToRoom(""); setTQty(""); setTComment("")
+    setError(null)
+  }
+
   function openTransfer() {
+    resetTransfer()
     Promise.all([
       fetch("/api/stock-items").then(r => r.ok ? r.json() : []),
       fetch("/api/branches?includeRooms=true").then(r => r.ok ? r.json() : []),
@@ -83,19 +95,23 @@ export default function MovementsPage() {
 
   async function handleTransfer(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    setSaving(true)
     setError(null)
-    const fd = new FormData(e.currentTarget)
+    if (!tItemId) { setError("Выберите товар"); return }
+    if (!selectedBranch) { setError("Выберите филиал (склад)"); return }
+    if (!tToRoom) { setError("Выберите кабинет"); return }
+    if (!tQty || Number(tQty) <= 0) { setError("Укажите количество"); return }
+
+    setSaving(true)
     const res = await fetch("/api/stock-movements", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "transfer_to_room",
-        stockItemId: fd.get("stockItemId"),
-        fromBranchId: fd.get("fromBranchId"),
-        toRoomId: fd.get("toRoomId"),
-        quantity: Number(fd.get("quantity")),
-        comment: fd.get("comment") || undefined,
+        stockItemId: tItemId,
+        fromBranchId: selectedBranch,
+        toRoomId: tToRoom,
+        quantity: Number(tQty),
+        comment: tComment || undefined,
       }),
     })
     if (!res.ok) {
@@ -106,6 +122,7 @@ export default function MovementsPage() {
     }
     setTransferOpen(false)
     setSaving(false)
+    resetTransfer()
     load()
   }
 
@@ -179,8 +196,10 @@ export default function MovementsPage() {
             {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
             <div className="space-y-1.5">
               <Label>Товар *</Label>
-              <Select name="stockItemId" required>
-                <SelectTrigger className="w-full">Выберите товар</SelectTrigger>
+              <Select value={tItemId} onValueChange={(v) => { if (v) setTItemId(v) }}>
+                <SelectTrigger className="w-full">
+                  {items.find(i => i.id === tItemId)?.name ?? "Выберите товар"}
+                </SelectTrigger>
                 <SelectContent>
                   {items.map(i => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}
                 </SelectContent>
@@ -188,8 +207,10 @@ export default function MovementsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Со склада (филиал) *</Label>
-              <Select value={selectedBranch} onValueChange={(v) => { if (v) setSelectedBranch(v) }}>
-                <SelectTrigger className="w-full">Выберите филиал</SelectTrigger>
+              <Select value={selectedBranch} onValueChange={(v) => { if (v) { setSelectedBranch(v); setTToRoom("") } }}>
+                <SelectTrigger className="w-full">
+                  {branches.find(b => b.id === selectedBranch)?.name ?? "Выберите филиал"}
+                </SelectTrigger>
                 <SelectContent>
                   {branches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                 </SelectContent>
@@ -197,8 +218,10 @@ export default function MovementsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>В кабинет *</Label>
-              <Select name="toRoomId" required disabled={!selectedBranch}>
-                <SelectTrigger className="w-full">{selectedBranch ? "Выберите кабинет" : "Сначала выберите филиал"}</SelectTrigger>
+              <Select value={tToRoom} onValueChange={(v) => { if (v) setTToRoom(v) }} disabled={!selectedBranch}>
+                <SelectTrigger className="w-full">
+                  {selectedRooms.find(r => r.id === tToRoom)?.name ?? (selectedBranch ? "Выберите кабинет" : "Сначала выберите филиал")}
+                </SelectTrigger>
                 <SelectContent>
                   {selectedRooms.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
                 </SelectContent>
@@ -206,11 +229,11 @@ export default function MovementsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Количество *</Label>
-              <Input name="quantity" type="number" step="0.001" min="0.001" required />
+              <Input type="number" step="0.001" min="0.001" value={tQty} onChange={(e) => setTQty(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Комментарий</Label>
-              <Input name="comment" />
+              <Input value={tComment} onChange={(e) => setTComment(e.target.value)} />
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setTransferOpen(false)}>Отмена</Button>

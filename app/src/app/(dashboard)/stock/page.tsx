@@ -43,6 +43,12 @@ interface Account {
   name: string
 }
 
+interface Category {
+  id: string
+  name: string
+  isSalary: boolean
+}
+
 function formatMoney(v: number) {
   return new Intl.NumberFormat("ru-RU").format(v) + " ₽"
 }
@@ -55,6 +61,7 @@ export default function StockPage() {
   const [items, setItems] = useState<StockItem[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
 
   const [addOpen, setAddOpen] = useState(false)
@@ -68,28 +75,38 @@ export default function StockPage() {
   const [quantity, setQuantity] = useState("")
   const [branchId, setBranchId] = useState("")
   const [accountId, setAccountId] = useState("")
+  const [categoryId, setCategoryId] = useState("")
   const [amortMonths, setAmortMonths] = useState("")
   const [comment, setComment] = useState("")
 
   const load = useCallback(async () => {
-    const [balRes, itemRes, brRes, accRes] = await Promise.all([
+    const [balRes, itemRes, brRes, accRes, catRes] = await Promise.all([
       fetch("/api/stock-balances"),
       fetch("/api/stock-items"),
       fetch("/api/branches"),
       fetch("/api/accounts"),
+      fetch("/api/expense-categories"),
     ])
     if (balRes.ok) setBalances(await balRes.json())
     if (itemRes.ok) setItems(await itemRes.json())
     if (brRes.ok) setBranches(await brRes.json())
     if (accRes.ok) setAccounts(await accRes.json())
+    if (catRes.ok) {
+      const cats: Category[] = await catRes.json()
+      // Закупка товаров — не зарплата; статьи ЗП в выборе не нужны.
+      setCategories(cats.filter((c) => !c.isSalary))
+    }
     setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
 
+  const defaultCategoryId = categories.find((c) => c.name === STOCK_CATEGORY_LABEL)?.id ?? ""
+
   function resetForm() {
     setItemName(""); setUnit("шт"); setUnitCost(""); setQuantity("")
-    setBranchId(""); setAccountId(""); setAmortMonths(""); setComment("")
+    setBranchId(""); setAccountId(""); setCategoryId(defaultCategoryId)
+    setAmortMonths(""); setComment("")
     setError(null)
   }
 
@@ -126,6 +143,7 @@ export default function StockPage() {
         ...(matchedItem ? { stockItemId: matchedItem.id } : { itemName: itemName.trim(), unit: unit.trim() || "шт" }),
         branchId,
         accountId,
+        categoryId: categoryId || undefined,
         quantity: Number(quantity),
         unitCost: Number(unitCost),
         amortizationMonths: Number(amortMonths) || undefined,
@@ -306,9 +324,22 @@ export default function StockPage() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Амортизация (мес.)</Label>
-              <Input type="number" min="2" max="60" value={amortMonths} onChange={(e) => setAmortMonths(e.target.value)} placeholder="Пусто — расход в ОПИУ сразу" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Статья расхода</Label>
+                <Select value={categoryId} onValueChange={(v) => { if (v) setCategoryId(v) }}>
+                  <SelectTrigger className="w-full">
+                    {categories.find(c => c.id === categoryId)?.name ?? "Выберите статью"}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Амортизация (мес.)</Label>
+                <Input type="number" min="2" max="60" value={amortMonths} onChange={(e) => setAmortMonths(e.target.value)} placeholder="Пусто — сразу" />
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -317,7 +348,7 @@ export default function StockPage() {
             </div>
 
             <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-              На сумму {formatMoney(previewSum)} будет создан расход «{STOCK_CATEGORY_LABEL}» со счёта (ДДС{amortMonths && Number(amortMonths) >= 2 ? `, в ОПИУ — по ${amortMonths} мес.` : " и ОПИУ сразу"}). Затем товар можно переместить в кабинеты.
+              На сумму {formatMoney(previewSum)} будет создан расход «{categories.find(c => c.id === categoryId)?.name ?? STOCK_CATEGORY_LABEL}» со счёта (ДДС{amortMonths && Number(amortMonths) >= 2 ? `, в ОПИУ — по ${amortMonths} мес.` : " и ОПИУ сразу"}). Затем товар можно переместить в кабинеты.
             </p>
 
             <div className="flex justify-end gap-2">

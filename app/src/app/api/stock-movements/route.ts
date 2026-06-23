@@ -18,6 +18,8 @@ const purchaseSchema = z
     branchId: z.string().uuid(),
     // Счёт оплаты — закупка проводится расходом в ДДС/ОПИУ, деньги уходят со счёта.
     accountId: z.string().uuid("Выберите счёт оплаты"),
+    // Статья расхода (категория). Если не указана — «Канцтовары и расходники».
+    categoryId: z.string().uuid().optional(),
     quantity: z.number().positive(),
     unitCost: z.number().min(0),
     amortizationMonths: z.number().int().min(1).optional(),
@@ -103,12 +105,22 @@ export async function POST(req: NextRequest) {
       resolvedItemId = existing?.id ?? null
     }
 
-    // Категория расхода для закупки (системная или тенантная; иначе создаём).
-    let category = await db.expenseCategory.findFirst({
-      where: { name: STOCK_EXPENSE_CATEGORY, isActive: true, OR: [{ tenantId }, { tenantId: null }] },
-      orderBy: { tenantId: "desc" },
-      select: { id: true },
-    })
+    // Категория расхода: выбранная в форме или дефолтная «Канцтовары и расходники»
+    // (если её нет — создаём в транзакции ниже).
+    let category: { id: string } | null
+    if (d.categoryId) {
+      category = await db.expenseCategory.findFirst({
+        where: { id: d.categoryId, isActive: true, OR: [{ tenantId }, { tenantId: null }] },
+        select: { id: true },
+      })
+      if (!category) return NextResponse.json({ error: "Статья расхода не найдена" }, { status: 404 })
+    } else {
+      category = await db.expenseCategory.findFirst({
+        where: { name: STOCK_EXPENSE_CATEGORY, isActive: true, OR: [{ tenantId }, { tenantId: null }] },
+        orderBy: { tenantId: "desc" },
+        select: { id: true },
+      })
+    }
 
     const today = new Date()
     const amortized = !!d.amortizationMonths && d.amortizationMonths >= 2
