@@ -1,16 +1,18 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ClipboardList, Trash2 } from "lucide-react"
+import { ClipboardList } from "lucide-react"
 import { formatWardName } from "@/lib/format-name"
+
+type WardSalesStage = "none" | "application" | "trial_scheduled" | "trial_attended" | "awaiting_payment"
 
 interface ApplicationRow {
   id: string
   status: "active" | "processed"
-  processedToStatus: "lead" | "potential" | "trial" | null
+  // Этап воронки «Продажи» самой заявки — показываем его в бейдже (раньше было «Активная»).
+  stage: WardSalesStage
+  processedToStatus: "lead" | "potential" | "trial" | "won" | null
   processedAt: string | null
   createdAt: string
   comment: string | null
@@ -18,6 +20,15 @@ interface ApplicationRow {
   branch: { id: string; name: string }
   direction: { id: string; name: string; color: string | null }
   processor: { id: string; firstName: string | null; lastName: string | null } | null
+}
+
+// Бейдж активной заявки = её этап воронки «Продажи» (1:1 со вкладками Продаж).
+const STAGE_BADGE: Record<WardSalesStage, { label: string; className: string }> = {
+  application: { label: "Заявка", className: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30" },
+  trial_scheduled: { label: "Пробное", className: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30" },
+  trial_attended: { label: "Прошёл пробное", className: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30" },
+  awaiting_payment: { label: "Ожидаем оплату", className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30" },
+  none: { label: "Активная", className: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30" },
 }
 
 function wardName(w: ApplicationRow["ward"]): string {
@@ -32,17 +43,11 @@ function outcomeLabel(o: ApplicationRow["processedToStatus"]): string {
   if (o === "lead") return "Лид"
   if (o === "potential") return "Потенциал"
   if (o === "trial") return "Записан на пробное"
+  if (o === "won") return "Купил"
   return "—"
 }
 
-export function ApplicationsSection({
-  clientId,
-  canDelete = false,
-}: {
-  clientId: string
-  canDelete?: boolean
-}) {
-  const router = useRouter()
+export function ApplicationsSection({ clientId }: { clientId: string }) {
   const [applications, setApplications] = useState<ApplicationRow[] | null>(null)
 
   useEffect(() => {
@@ -71,19 +76,6 @@ export function ApplicationsSection({
     }
   }, [clientId])
 
-  async function handleDelete(id: string) {
-    if (!confirm("Удалить заявку?")) return
-    try {
-      const res = await fetch(`/api/applications/${id}`, { method: "DELETE" })
-      if (res.ok) {
-        setApplications((prev) => prev?.filter((a) => a.id !== id) ?? null)
-        router.refresh()
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
   if (applications === null) {
     return (
       <div className="rounded-lg border p-4 text-sm text-muted-foreground">Загрузка заявок...</div>
@@ -111,25 +103,21 @@ export function ApplicationsSection({
         </div>
       ) : (
         <ul className="divide-y">
-          {active.map((a) => (
-            <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm">
-              <Badge variant="default" className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30">
-                Активная
-              </Badge>
-              <div className="flex-1 min-w-[200px]">
-                <div className="font-medium">{wardName(a.ward)}</div>
-                <div className="text-xs text-muted-foreground">
-                  {a.direction.name} · {a.branch.name} · от {fmtDate(a.createdAt)}
+          {active.map((a) => {
+            const badge = STAGE_BADGE[a.stage] ?? STAGE_BADGE.none
+            return (
+              <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm">
+                <Badge variant="default" className={badge.className}>{badge.label}</Badge>
+                <div className="flex-1 min-w-[200px]">
+                  <div className="font-medium">{wardName(a.ward)}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {a.direction.name} · {a.branch.name} · от {fmtDate(a.createdAt)}
+                  </div>
+                  {a.comment && <div className="text-xs text-muted-foreground mt-0.5">{a.comment}</div>}
                 </div>
-                {a.comment && <div className="text-xs text-muted-foreground mt-0.5">{a.comment}</div>}
-              </div>
-              {canDelete && (
-                <Button size="sm" variant="ghost" onClick={() => handleDelete(a.id)} title="Удалить заявку">
-                  <Trash2 className="size-3.5 text-destructive" />
-                </Button>
-              )}
-            </li>
-          ))}
+              </li>
+            )
+          })}
 
           {processedToShow.map((a) => (
             <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-2 text-sm opacity-70">

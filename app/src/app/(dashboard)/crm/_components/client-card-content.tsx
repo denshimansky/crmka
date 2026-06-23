@@ -569,10 +569,7 @@ export async function ClientCardContent({
       )}
 
       {/* Заявки */}
-      <ApplicationsSection
-        clientId={client.id}
-        canDelete={session.user.role === "owner" || session.user.role === "manager"}
-      />
+      <ApplicationsSection clientId={client.id} />
 
       {/* Two-column layout */}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">

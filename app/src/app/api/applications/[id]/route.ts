@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
+import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
 
 const updateSchema = z.object({
   branchId: z.string().uuid().optional(),
@@ -107,13 +108,21 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const existing = await db.application.findFirst({
     where: { id, tenantId, deletedAt: null },
+    select: { id: true, wardId: true, clientId: true, stage: true },
   })
   if (!existing) return NextResponse.json({ error: "Заявка не найдена" }, { status: 404 })
 
-  await db.application.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  })
+  // Удаление заявки = вывод из воронки: отменяем её запланированные пробные,
+  // пересчитываем этап ребёнка и закрываем фантомные напоминания (баг #43/#46).
+  const result = await db.$transaction((tx) =>
+    removeApplicationFromFunnel(tx, {
+      tenantId,
+      applicationId: id,
+      wardId: existing.wardId,
+      clientId: existing.clientId,
+      employeeId: session.user.employeeId,
+    }),
+  )
 
   if (session.user.employeeId) {
     await db.auditLog.create({
@@ -123,9 +132,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
         action: "delete",
         entityType: "Application",
         entityId: id,
+        changes: {
+          removedFromFunnel: { cancelledTrials: result.cancelledTrials, stage: existing.stage },
+        },
       },
     })
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, ...result })
 }
