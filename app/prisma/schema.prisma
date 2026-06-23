@@ -1080,6 +1080,8 @@ model Expense {
   account     FinancialAccount @relation(fields: [accountId], references: [id])
   branches    ExpenseBranch[]
   leadChannel LeadChannel?     @relation(fields: [leadChannelId], references: [id])
+  // Расход, автосозданный закупкой на склад (INV-01): связь для трассировки.
+  stockMovements StockMovement[]
 
   @@index([tenantId, date])
   @@index([tenantId, categoryId])
@@ -2127,6 +2129,8 @@ model StockMovement {
   fromBranchId       String?           @map("from_branch_id") @db.Uuid
   toRoomId           String?           @map("to_room_id") @db.Uuid
   amortizationMonths Int?              @map("amortization_months")
+  // Закупка (purchase) создаёт расход (ДДС + ОПИУ); ссылка на него — для трассировки.
+  expenseId          String?           @map("expense_id") @db.Uuid
   date               DateTime          @db.Date
   comment            String?
   createdAt          DateTime          @default(now()) @map("created_at")
@@ -2135,9 +2139,11 @@ model StockMovement {
   organization Organization @relation(fields: [tenantId], references: [id])
   stockItem    StockItem    @relation(fields: [stockItemId], references: [id])
   createdBy    Employee?    @relation("StockMovementCreator", fields: [createdById], references: [id])
+  expense      Expense?     @relation(fields: [expenseId], references: [id])
 
   @@index([tenantId])
   @@index([stockItemId])
+  @@index([expenseId])
   @@map("stock_movements")
 }
 
