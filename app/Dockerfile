@@ -11,10 +11,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-# prisma generate тянет query-engine с binaries.prisma.sh. У msk1 флаки-сеть до CDN,
-# из-за чего сборка падала на этом шаге (а деплой ложно зеленел). Ретраим до 5 раз;
-# если так и не вышло — падаем с ошибкой (exit 1), чтобы деплой не считался успешным.
-RUN sh -c 'for i in 1 2 3 4 5; do npx prisma generate && exit 0; echo "prisma generate failed (attempt $i/5), retry in 5s..."; sleep 5; done; echo "prisma generate failed after 5 attempts"; exit 1'
+# prisma generate тянет query-engine с binaries.prisma.sh. У msk1 интермиттентная
+# блокировка до CDN (отвал на 1–2 мин), из-за чего сборка падала (а деплой ложно
+# зеленел). Ретраим до 12 раз с паузой 15с (~3 мин окно — переживает типичный блип);
+# если так и не вышло — падаем с exit 1, чтобы деплой не считался успешным.
+RUN sh -c 'n=0; until npx prisma generate; do n=$((n+1)); if [ "$n" -ge 12 ]; then echo "prisma generate failed after $n attempts"; exit 1; fi; echo "prisma generate failed (attempt $n/12, binaries.prisma.sh flaky), retry in 15s..."; sleep 15; done'
 RUN npm run build
 
 # Stage 3: Production
