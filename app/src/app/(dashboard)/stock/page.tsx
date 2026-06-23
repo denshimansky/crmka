@@ -11,9 +11,13 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
-import { PackagePlus, ArrowRight, Package, Trash2 } from "lucide-react"
+import { PackagePlus, ArrowRight, ArrowRightLeft, Package, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
+import {
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import { MoveStockDialog, type MoveSource, type MoveBranch } from "@/components/move-stock-dialog"
 
 interface WarehouseBalance {
   id: string
@@ -55,6 +59,8 @@ export default function StockPage() {
   const [warehouse, setWarehouse] = useState<WarehouseBalance[]>([])
   const [branchBalances, setBranchBalances] = useState<BranchBalance[]>([])
   const [items, setItems] = useState<StockItem[]>([])
+  const [branches, setBranches] = useState<MoveBranch[]>([])
+  const [moveSource, setMoveSource] = useState<MoveSource | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [addOpen, setAddOpen] = useState(false)
@@ -73,14 +79,16 @@ export default function StockPage() {
   const [woSaving, setWoSaving] = useState(false)
 
   const load = useCallback(async () => {
-    const [whRes, brRes, itemRes] = await Promise.all([
+    const [whRes, brRes, itemRes, branchRes] = await Promise.all([
       fetch("/api/warehouse-balances"),
       fetch("/api/stock-balances"),
       fetch("/api/stock-items"),
+      fetch("/api/branches"),
     ])
     if (whRes.ok) setWarehouse(await whRes.json())
     if (brRes.ok) setBranchBalances(await brRes.json())
     if (itemRes.ok) setItems(await itemRes.json())
+    if (branchRes.ok) setBranches(await branchRes.json())
     setLoading(false)
   }, [])
 
@@ -189,7 +197,7 @@ export default function StockPage() {
           </Link>
           <Link href="/stock/movements">
             <Button variant="outline" size="sm">
-              <ArrowRight className="size-4 mr-1" /> Перемещения
+              <ArrowRight className="size-4 mr-1" /> Движения товаров
             </Button>
           </Link>
           <Button size="sm" onClick={() => { resetForm(); setAddOpen(true) }}>
@@ -244,20 +252,32 @@ export default function StockPage() {
                       const cost = Number(b.totalCost)
                       const perUnit = qty > 0 ? cost / qty : 0
                       return (
-                        <TableRow key={b.id}>
-                          <TableCell className="font-medium">{b.stockItem.name} <span className="text-muted-foreground text-xs">({b.stockItem.unit})</span></TableCell>
-                          <TableCell className="text-right">{qty}</TableCell>
-                          <TableCell className="text-right">{formatMoney(perUnit)}</TableCell>
-                          <TableCell className="text-right font-medium">{formatMoney(cost)}</TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="icon" className="size-7" title="Списать" onClick={() => openWriteOff({
-                              stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
-                              available: qty, from: { kind: "warehouse" }, locationLabel: "склада",
+                        <ContextMenu key={b.id}>
+                          <ContextMenuTrigger asChild>
+                            <TableRow>
+                              <TableCell className="font-medium">{b.stockItem.name} <span className="text-muted-foreground text-xs">({b.stockItem.unit})</span></TableCell>
+                              <TableCell className="text-right">{qty}</TableCell>
+                              <TableCell className="text-right">{formatMoney(perUnit)}</TableCell>
+                              <TableCell className="text-right font-medium">{formatMoney(cost)}</TableCell>
+                              <TableCell>
+                                <Button variant="ghost" size="icon" className="size-7" title="Списать" onClick={() => openWriteOff({
+                                  stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
+                                  available: qty, from: { kind: "warehouse" }, locationLabel: "склада",
+                                })}>
+                                  <Trash2 className="size-3.5 text-red-500" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem disabled={qty <= 0} onClick={() => setMoveSource({
+                              stockItemId: b.stockItem.id, itemName: b.stockItem.name, unit: b.stockItem.unit,
+                              available: qty, from: { kind: "warehouse" }, fromLabel: "Склад",
                             })}>
-                              <Trash2 className="size-3.5 text-red-500" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
+                              <ArrowRightLeft className="size-3.5" /> Переместить
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
                       )
                     })}
                   </TableBody>
@@ -286,19 +306,31 @@ export default function StockPage() {
                     {list.map(b => {
                       const qty = Number(b.quantity)
                       return (
-                        <TableRow key={b.id}>
-                          <TableCell className="font-medium">{b.stockItem.name} <span className="text-muted-foreground text-xs">({b.stockItem.unit})</span></TableCell>
-                          <TableCell className="text-right">{qty}</TableCell>
-                          <TableCell className="text-right font-medium">{formatMoney(Number(b.totalCost))}</TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="icon" className="size-7" title="Списать" onClick={() => openWriteOff({
-                              stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
-                              available: qty, from: { kind: "branch", id: b.branch.id }, locationLabel: `филиала «${b.branch.name}»`,
+                        <ContextMenu key={b.id}>
+                          <ContextMenuTrigger asChild>
+                            <TableRow>
+                              <TableCell className="font-medium">{b.stockItem.name} <span className="text-muted-foreground text-xs">({b.stockItem.unit})</span></TableCell>
+                              <TableCell className="text-right">{qty}</TableCell>
+                              <TableCell className="text-right font-medium">{formatMoney(Number(b.totalCost))}</TableCell>
+                              <TableCell>
+                                <Button variant="ghost" size="icon" className="size-7" title="Списать" onClick={() => openWriteOff({
+                                  stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
+                                  available: qty, from: { kind: "branch", id: b.branch.id }, locationLabel: `филиала «${b.branch.name}»`,
+                                })}>
+                                  <Trash2 className="size-3.5 text-red-500" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem disabled={qty <= 0} onClick={() => setMoveSource({
+                              stockItemId: b.stockItem.id, itemName: b.stockItem.name, unit: b.stockItem.unit,
+                              available: qty, from: { kind: "branch", id: b.branch.id }, fromLabel: `Филиал · ${b.branch.name}`,
                             })}>
-                              <Trash2 className="size-3.5 text-red-500" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
+                              <ArrowRightLeft className="size-3.5" /> Переместить
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
                       )
                     })}
                   </TableBody>
@@ -308,6 +340,9 @@ export default function StockPage() {
           ))}
         </>
       )}
+
+      {/* Переместить товар (правый клик по строке) */}
+      <MoveStockDialog source={moveSource} branches={branches} onClose={() => setMoveSource(null)} onMoved={load} />
 
       {/* Внести на склад */}
       <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) resetForm() }}>

@@ -11,8 +11,12 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
-import { ArrowLeft, Trash2 } from "lucide-react"
+import { ArrowLeft, ArrowRightLeft, Trash2 } from "lucide-react"
 import Link from "next/link"
+import {
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import { MoveStockDialog, type MoveSource, type MoveBranch } from "@/components/move-stock-dialog"
 
 interface RoomBalance {
   id: string
@@ -28,14 +32,20 @@ function formatMoney(v: number) {
 
 export default function RoomBalancesPage() {
   const [balances, setBalances] = useState<RoomBalance[]>([])
+  const [branches, setBranches] = useState<MoveBranch[]>([])
+  const [moveSource, setMoveSource] = useState<MoveSource | null>(null)
   const [loading, setLoading] = useState(true)
   const [writeOffOpen, setWriteOffOpen] = useState(false)
   const [writeOffItem, setWriteOffItem] = useState<RoomBalance | null>(null)
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/room-balances")
-    if (res.ok) setBalances(await res.json())
+    const [rbRes, brRes] = await Promise.all([
+      fetch("/api/room-balances"),
+      fetch("/api/branches"),
+    ])
+    if (rbRes.ok) setBalances(await rbRes.json())
+    if (brRes.ok) setBranches(await brRes.json())
     setLoading(false)
   }, [])
 
@@ -115,16 +125,29 @@ export default function RoomBalancesPage() {
                     </TableHeader>
                     <TableBody>
                       {items.map(b => (
-                        <TableRow key={b.id}>
-                          <TableCell>{b.stockItem.name} <span className="text-xs text-muted-foreground">({b.stockItem.unit})</span></TableCell>
-                          <TableCell className="text-right">{Number(b.quantity)}</TableCell>
-                          <TableCell className="text-right">{formatMoney(Number(b.totalCost))}</TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="icon" className="size-7" title="Списать" onClick={() => openWriteOff(b)}>
-                              <Trash2 className="size-3.5 text-red-500" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
+                        <ContextMenu key={b.id}>
+                          <ContextMenuTrigger asChild>
+                            <TableRow>
+                              <TableCell>{b.stockItem.name} <span className="text-xs text-muted-foreground">({b.stockItem.unit})</span></TableCell>
+                              <TableCell className="text-right">{Number(b.quantity)}</TableCell>
+                              <TableCell className="text-right">{formatMoney(Number(b.totalCost))}</TableCell>
+                              <TableCell>
+                                <Button variant="ghost" size="icon" className="size-7" title="Списать" onClick={() => openWriteOff(b)}>
+                                  <Trash2 className="size-3.5 text-red-500" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem disabled={Number(b.quantity) <= 0} onClick={() => setMoveSource({
+                              stockItemId: b.stockItem.id, itemName: b.stockItem.name, unit: b.stockItem.unit,
+                              available: Number(b.quantity), from: { kind: "room", id: b.room.id },
+                              fromLabel: `${b.room.branch.name} · каб. ${b.room.name}`,
+                            })}>
+                              <ArrowRightLeft className="size-3.5" /> Переместить
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
                       ))}
                     </TableBody>
                   </Table>
@@ -134,6 +157,9 @@ export default function RoomBalancesPage() {
           </div>
         ))
       )}
+
+      {/* Переместить товар (правый клик по строке) */}
+      <MoveStockDialog source={moveSource} branches={branches} onClose={() => setMoveSource(null)} onMoved={load} />
 
       <Dialog open={writeOffOpen} onOpenChange={setWriteOffOpen}>
         <DialogContent className="sm:max-w-sm">
