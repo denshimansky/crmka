@@ -11,6 +11,27 @@ const createWardSchema = z.object({
   notes: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
 })
 
+// Список подопечных клиента — для диалога «Создать заявку» с поиском по клиенту:
+// после выбора клиента подгружаем его подопечных, чтобы указать wardId в заявке.
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { id } = await params
+  const client = await db.client.findFirst({
+    where: { id, tenantId: session.user.tenantId, deletedAt: null },
+    select: { id: true },
+  })
+  if (!client) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
+
+  const wards = await db.ward.findMany({
+    where: { clientId: id, tenantId: session.user.tenantId },
+    select: { id: true, firstName: true, lastName: true },
+    orderBy: { createdAt: "asc" },
+  })
+  return NextResponse.json(wards)
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

@@ -15,6 +15,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
+import { ClientCombobox, type ClientComboboxOption } from "@/components/client-combobox"
 import { AlertTriangle, ClipboardPlus } from "lucide-react"
 import { formatWardName } from "@/lib/format-name"
 
@@ -45,38 +46,53 @@ interface DirectionOption {
 const wardName = formatWardName
 
 export function CreateApplicationDialog({
-  clientId,
-  wards,
+  clientId: fixedClientId,
+  wards: fixedWards,
+  clients,
   variant = "outline",
   size = "sm",
   buttonClassName,
   triggerLabel = "Создать заявку",
 }: {
-  clientId: string
-  wards: WardLite[]
+  /** Карточка клиента: клиент известен заранее, поле выбора клиента не показываем. */
+  clientId?: string
+  /** Подопечные известного клиента (режим карточки). */
+  wards?: WardLite[]
+  /** Режим «Продажи»: клиент не задан, выбираем поиском из этого списка. */
+  clients?: ClientComboboxOption[]
   variant?: "default" | "outline" | "ghost" | "secondary"
   size?: "sm" | "default"
   buttonClassName?: string
   triggerLabel?: string
 }) {
   const router = useRouter()
+  // Режим поиска клиента: клиент заранее не задан, выбираем из списка.
+  const pickClient = !fixedClientId
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [branches, setBranches] = useState<BranchOption[]>([])
   const [directions, setDirections] = useState<DirectionOption[]>([])
-  const [wardId, setWardId] = useState(wards.length === 1 ? wards[0].id : "")
+  const [pickedClientId, setPickedClientId] = useState("")
+  // В режиме поиска подопечных подгружаем по выбранному клиенту, в режиме карточки — берём из props.
+  const [pickedWards, setPickedWards] = useState<WardLite[]>([])
+  const [wardId, setWardId] = useState("")
   const [branchId, setBranchId] = useState("")
   const [directionId, setDirectionId] = useState("")
   const [comment, setComment] = useState("")
   const [duplicates, setDuplicates] = useState<DuplicateApplication[]>([])
 
+  const clientId = pickClient ? pickedClientId : fixedClientId
+  const wards = pickClient ? pickedWards : (fixedWards ?? [])
+
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setError(null)
-    setWardId(wards.length === 1 ? wards[0].id : "")
+    setPickedClientId("")
+    setPickedWards([])
+    setWardId(!pickClient && fixedWards?.length === 1 ? fixedWards[0].id : "")
     setBranchId("")
     setDirectionId("")
     setComment("")
@@ -94,7 +110,34 @@ export function CreateApplicationDialog({
     return () => {
       cancelled = true
     }
-  }, [open, wards])
+  }, [open, pickClient, fixedWards])
+
+  // Режим поиска: при выборе клиента подгружаем его подопечных и автоселектим единственного.
+  useEffect(() => {
+    if (!open || !pickClient) return
+    setWardId("")
+    if (!pickedClientId) {
+      setPickedWards([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/clients/${pickedClientId}/wards`)
+        if (cancelled) return
+        if (res.ok) {
+          const data: WardLite[] = await res.json()
+          setPickedWards(data)
+          if (data.length === 1) setWardId(data[0].id)
+        }
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, pickClient, pickedClientId])
 
   // Проверка дубля заявки: после выбора Ward + филиала + направления.
   // Дублем считаем активную заявку с теми же параметрами.
@@ -124,11 +167,14 @@ export function CreateApplicationDialog({
     }
   }, [open, wardId, branchId, directionId])
 
-  const noWards = wards.length === 0
+  // В режиме карточки блокируем кнопку, если у клиента нет подопечных. В режиме
+  // поиска кнопка всегда активна — клиента (и его подопечных) выбирают в диалоге.
+  const noWards = !pickClient && wards.length === 0
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    if (pickClient && !clientId) return setError("Выберите клиента")
     if (!wardId) return setError("Выберите подопечного")
     if (!branchId) return setError("Выберите филиал")
     if (!directionId) return setError("Выберите направление")
@@ -206,11 +252,33 @@ export function CreateApplicationDialog({
             </div>
           )}
 
+          {pickClient && (
+            <div className="space-y-1.5">
+              <Label>Клиент *</Label>
+              <ClientCombobox
+                options={clients ?? []}
+                value={pickedClientId}
+                onChange={setPickedClientId}
+                placeholder="Начните вводить ФИО..."
+              />
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label>Подопечный *</Label>
-            <Select value={wardId} onValueChange={(v) => v && setWardId(v)}>
+            <Select value={wardId} onValueChange={(v) => v && setWardId(v)} disabled={pickClient && !clientId}>
               <SelectTrigger className="w-full">
-                {selectedWard ? wardName(selectedWard) : <span className="text-muted-foreground">Выберите подопечного</span>}
+                {selectedWard ? (
+                  wardName(selectedWard)
+                ) : (
+                  <span className="text-muted-foreground">
+                    {pickClient && !clientId
+                      ? "Сначала выберите клиента"
+                      : pickClient && wards.length === 0
+                        ? "У клиента нет подопечных"
+                        : "Выберите подопечного"}
+                  </span>
+                )}
               </SelectTrigger>
               <SelectContent>
                 {wards.map((w) => (

@@ -4,6 +4,7 @@ import { Prisma, WardSalesStage } from "@prisma/client"
 import { PageHelp } from "@/components/page-help"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { CreateClientDialog } from "../clients/create-client-dialog"
+import { CreateApplicationDialog } from "../_components/create-application-dialog"
 import { SalesTabs, type SalesTab } from "./sales-tabs"
 import { SalesTable, type SalesRow, type SalesTabKey } from "./sales-table"
 import { ContactTable, type ContactRow } from "./contact-table"
@@ -127,6 +128,7 @@ export default async function SalesPage({
   const [
     branches,
     directions,
+    clientsForApplication,
     employees,
     countApplication,
     countTrial,
@@ -143,6 +145,13 @@ export default async function SalesPage({
       where: { tenantId, deletedAt: null },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
+    }),
+    // Список клиентов для диалога «Создать заявку» (поиск по подстроке на клиенте).
+    db.client.findMany({
+      where: notArchivedClient(scope),
+      select: { id: true, firstName: true, lastName: true },
+      orderBy: { lastName: "asc" },
+      take: 10000,
     }),
     db.employee.findMany({
       where: { tenantId, deletedAt: null, role: { not: "readonly" } },
@@ -429,7 +438,16 @@ export default async function SalesPage({
           <h1 className="text-2xl font-bold">Продажи</h1>
           <PageHelp pageKey="crm/sales" />
         </div>
-        <CreateClientDialog />
+        <div className="flex items-center gap-2">
+          <CreateApplicationDialog
+            clients={clientsForApplication.map((c) => ({
+              id: c.id,
+              name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
+            }))}
+            size="sm"
+          />
+          <CreateClientDialog />
+        </div>
       </div>
 
       <SalesTabs tabs={tabs} current={tab} />
