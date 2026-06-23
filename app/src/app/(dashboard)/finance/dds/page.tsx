@@ -137,6 +137,8 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
       where: {
         tenantId,
         deletedAt: null,
+        // Списания товара (accountId = null) денег не двигают — в ДДС не показываем.
+        accountId: { not: null },
         date: { gte: monthStart, lte: monthEnd },
         ...scopeExpense(scope),
       },
@@ -197,6 +199,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
   }
 
   for (const e of expenses) {
+    if (!e.accountId) continue // списания товара (без счёта) в ДДС не показываем
     const accName = accountById.get(e.accountId)?.name ?? "—"
     rows.push({
       id: `expense:${e.id}`,
@@ -289,7 +292,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
     else monthSummary[p.accountId].incoming += Number(p.amount)
   }
   for (const e of expenses) {
-    if (!monthSummary[e.accountId]) continue
+    if (!e.accountId || !monthSummary[e.accountId]) continue
     monthSummary[e.accountId].outgoing += Number(e.amount)
   }
   for (const sp of salaryPayments) {

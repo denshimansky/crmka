@@ -137,6 +137,9 @@ export function EditExpenseDialog({
   const [directionId, setDirectionId] = useState<string>(expense.directionId ?? "")
   const [leadChannelId, setLeadChannelId] = useState<string>(expense.leadChannelId ?? "")
 
+  // Списание товара — расход без счёта (только ОПИУ, не ДДС). Счёт не требуем и не показываем.
+  const isWriteoff = !expense.accountId
+
   function toggleBranch(branchId: string) {
     setSelectedBranches(prev => {
       const next = prev.includes(branchId)
@@ -165,7 +168,7 @@ export function EditExpenseDialog({
     setError(null)
 
     if (!categoryId) { setError("Выберите статью расхода"); return }
-    if (!accountId) { setError("Выберите счёт"); return }
+    if (!accountId && !isWriteoff) { setError("Выберите счёт"); return }
     if (!amount || Number(amount) <= 0) { setError("Укажите сумму"); return }
     if (!date) { setError("Укажите дату"); return }
 
@@ -194,7 +197,7 @@ export function EditExpenseDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           categoryId,
-          accountId,
+          accountId: accountId || undefined,
           amount: Number(amount),
           date,
           comment: comment || undefined,
@@ -310,19 +313,25 @@ export function EditExpenseDialog({
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Счёт *</Label>
-            <Select value={accountId} onValueChange={(v) => { if (v) setAccountId(v) }}>
-              <SelectTrigger className="w-full">
-                {selectedAccount ? selectedAccount.name : "Выберите счёт"}
-              </SelectTrigger>
-              <SelectContent>
-                {accounts.map(a => (
-                  <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {isWriteoff ? (
+            <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              Списание товара — без счёта (только ОПИУ, в ДДС не попадает).
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              <Label>Счёт *</Label>
+              <Select value={accountId} onValueChange={(v) => { if (v) setAccountId(v) }}>
+                <SelectTrigger className="w-full">
+                  {selectedAccount ? selectedAccount.name : "Выберите счёт"}
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map(a => (
+                    <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {branches.length > 1 && (
             <div className="space-y-1.5">
@@ -486,21 +495,25 @@ export function EditExpenseDialog({
               </span>
             </label>
 
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="radio"
-                name="recognition-mode-edit"
-                className="mt-1"
-                checked={recognitionMode === "not_in_pnl"}
-                onChange={() => setRecognitionMode("not_in_pnl")}
-              />
-              <span>
-                <span className="font-medium">Не учитывать в финрезе</span>
-                <span className="block text-xs text-muted-foreground">
-                  Только ДДС: расход уменьшит остаток на счёте, но не попадёт в ОПИУ и отчёты о прибыли (вывод средств, возврат займа, покупка актива).
+            {/* «Не учитывать в финрезе» = только ДДС. Для списания товара (без счёта)
+                это недопустимо — расход исчез бы и из ОПИУ, и из ДДС. Скрываем. */}
+            {!isWriteoff && (
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="recognition-mode-edit"
+                  className="mt-1"
+                  checked={recognitionMode === "not_in_pnl"}
+                  onChange={() => setRecognitionMode("not_in_pnl")}
+                />
+                <span>
+                  <span className="font-medium">Не учитывать в финрезе</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Только ДДС: расход уменьшит остаток на счёте, но не попадёт в ОПИУ и отчёты о прибыли (вывод средств, возврат займа, покупка актива).
+                  </span>
                 </span>
-              </span>
-            </label>
+              </label>
+            )}
           </fieldset>
 
           <DialogFooter className="flex justify-between sm:justify-between">

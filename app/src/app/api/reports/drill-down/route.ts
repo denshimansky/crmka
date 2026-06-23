@@ -275,9 +275,10 @@ export async function GET(req: NextRequest) {
         ]
       })
     } else if (field === "outflow") {
-      // Детализация выбытий ДДС (расходы + ЗП выплаты).
+      // Детализация выбытий ДДС (расходы + ЗП выплаты). Списания товара (accountId=null)
+      // денег не двигают — в ДДС не показываем.
       const expenses = await db.expense.findMany({
-        where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
+        where: { tenantId, deletedAt: null, accountId: { not: null }, date: { gte: monthStart, lte: monthEnd } },
         include: { category: { select: { name: true } } },
         orderBy: { date: "desc" },
       })

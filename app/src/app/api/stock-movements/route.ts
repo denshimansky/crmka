@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { isPeriodLocked } from "@/lib/period-check"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -138,17 +139,22 @@ const transferAnySchema = z
     message: "Источник и приёмник совпадают",
   })
 
-// INV-03: списание (расход товара). Из любой локации.
-const writeOffSchema = z
-  .object({
-    type: z.literal("write_off"),
-    stockItemId: z.string().uuid(),
-    from: locationSchema.optional(),
-    roomId: z.string().uuid().optional(), // legacy-форма (списание из кабинета)
-    quantity: z.number().positive(),
-    comment: z.string().optional(),
-  })
-  .refine((d) => d.from || d.roomId, { message: "Не указана локация списания" })
+// INV-03: списание (расход товара). Из любой локации. Создаёт расход в ОПИУ
+// (без счёта — деньги не двигаются, в ДДС не попадает). Поля как у «Нового расхода».
+const writeOffSchema = z.object({
+  type: z.literal("write_off"),
+  stockItemId: z.string().uuid(),
+  from: locationSchema,
+  quantity: z.number().positive(),
+  categoryId: z.string().uuid("Выберите статью расхода"),
+  date: z.string().min(1, "Укажите дату списания"),
+  branchIds: z.array(z.string().uuid()).optional().default([]),
+  directionId: z.string().uuid().nullable().optional(),
+  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized"]).optional().default("by_payment_date"),
+  amortizationStartDate: z.string().optional().nullable(),
+  amortizationMonths: z.number().int().positive().optional().nullable(),
+  comment: z.string().optional(),
+})
 
 const toLoc = (l: z.infer<typeof locationSchema>): Loc =>
   l.kind === "warehouse" ? { kind: "warehouse" } : { kind: l.kind, id: l.id! }
@@ -294,19 +300,90 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true }, { status: 201 })
   }
 
-  // INV-03: списание (израсходовали). Из любой локации.
+  // INV-03: списание (израсходовали). Из любой локации. Создаёт расход в ОПИУ
+  // (accountId = null — деньги не двигаются, в ДДС не идёт). Сумма = кол-во × средняя
+  // себестоимость списываемого остатка.
   if (body.type === "write_off") {
     const parsed = writeOffSchema.safeParse(body)
     if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message }, { status: 400 })
     const d = parsed.data
-    const from: Loc = d.from ? toLoc(d.from) : { kind: "room", id: d.roomId! }
+    const from = toLoc(d.from)
+    const date = new Date(d.date)
+
+    // Статья расхода (системная или тенантная, активная).
+    const category = await db.expenseCategory.findFirst({
+      where: { id: d.categoryId, isActive: true, OR: [{ tenantId }, { tenantId: null }] },
+      select: { id: true, isVariable: true },
+    })
+    if (!category) return NextResponse.json({ error: "Статья расхода не найдена" }, { status: 404 })
+
+    // Направление (если указано) — наше.
+    let directionId: string | null = null
+    if (d.directionId) {
+      const dir = await db.direction.findFirst({ where: { id: d.directionId, tenantId, deletedAt: null }, select: { id: true } })
+      if (!dir) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
+      directionId = dir.id
+    }
+
+    // Проверка закрытия периода (по дате списания).
+    const role = (session.user as { role: string }).role
+    if (await isPeriodLocked(tenantId, date, role)) {
+      return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
+    }
+
+    // Режим признания в ОПИУ (как у обычного расхода, но без «не в финрезе»).
+    let amortMonths: number | null = null
+    let amortStart: Date | null = null
+    if (d.recognitionMode === "single_period") {
+      if (!d.amortizationStartDate) return NextResponse.json({ error: "Укажите месяц признания" }, { status: 400 })
+      amortStart = new Date(d.amortizationStartDate); amortMonths = 1
+    } else if (d.recognitionMode === "amortized") {
+      if (!d.amortizationStartDate || !d.amortizationMonths || d.amortizationMonths < 2) {
+        return NextResponse.json({ error: "Укажите месяц начала и количество месяцев (≥ 2)" }, { status: 400 })
+      }
+      if (d.amortizationMonths > 60) return NextResponse.json({ error: "Максимум 60 месяцев" }, { status: 400 })
+      amortStart = new Date(d.amortizationStartDate); amortMonths = d.amortizationMonths
+    }
 
     try {
       await db.$transaction(async (tx) => {
         await assertItem(tx, tenantId, d.stockItemId)
         await assertLocation(tx, tenantId, from)
+        // Филиалы привязки расхода — наши.
+        for (const bId of d.branchIds) {
+          const b = await tx.branch.findFirst({ where: { id: bId, tenantId, deletedAt: null }, select: { id: true } })
+          if (!b) throw new Error("LOCATION")
+        }
 
         const { unitCost, totalCost } = await debit(tx, tenantId, d.stockItemId, from, d.quantity)
+
+        // Расход в ОПИУ (без счёта/ДДС) — только если у списываемого есть стоимость.
+        let expenseId: string | null = null
+        if (totalCost > 0) {
+          const expense = await tx.expense.create({
+            data: {
+              tenantId,
+              categoryId: category.id,
+              accountId: null,
+              amount: totalCost,
+              date,
+              comment: d.comment ? `Списание товара: ${d.comment}` : "Списание товара со склада",
+              isVariable: category.isVariable,
+              recognitionMode: d.recognitionMode,
+              amortizationMonths: amortMonths,
+              amortizationStartDate: amortStart,
+              createdBy: session.user.employeeId,
+            },
+          })
+          expenseId = expense.id
+          if (d.branchIds.length > 0) {
+            await tx.expenseBranch.createMany({
+              data: d.branchIds.map((branchId) => ({ tenantId, expenseId: expense.id, branchId, directionId })),
+            })
+          } else if (directionId) {
+            await tx.expenseBranch.create({ data: { tenantId, expenseId: expense.id, branchId: null, directionId } })
+          }
+        }
 
         await tx.stockMovement.create({
           data: {
@@ -317,7 +394,8 @@ export async function POST(req: NextRequest) {
             unitCost,
             totalCost,
             ...fromColumns(from),
-            date: new Date(),
+            expenseId,
+            date,
             comment: d.comment,
             createdById: session.user.employeeId,
           },

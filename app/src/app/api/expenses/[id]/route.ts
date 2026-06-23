@@ -45,6 +45,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   const data = parsed.data
 
+  // Расход без счёта (списание товара) обязан быть в ОПИУ — режим «не в финрезе»
+  // оставил бы его и без ОПИУ, и без ДДС (остаток склада уже списан). Запрещаем.
+  const willHaveAccount = data.accountId !== undefined ? !!data.accountId : !!existing.accountId
+  if (data.recognitionMode === "not_in_pnl" && !willHaveAccount) {
+    return NextResponse.json({ error: "Списание товара нельзя исключить из финреза" }, { status: 400 })
+  }
+
   // Валидация режима признания (если он передан в запросе).
   if (data.recognitionMode === "single_period") {
     if (!data.amortizationStartDate) {
@@ -134,16 +141,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const newAccountId = data.accountId ?? existing.accountId
       const oldAmount = Number(existing.amount)
 
-      // Возвращаем старую сумму на старый счёт
-      await tx.financialAccount.update({
-        where: { id: existing.accountId },
-        data: { balance: { increment: oldAmount } },
-      })
-      // Списываем новую сумму с нового счёта
-      await tx.financialAccount.update({
-        where: { id: newAccountId },
-        data: { balance: { decrement: newAmount } },
-      })
+      // Возвращаем старую сумму на старый счёт (если он был — у списаний товара счёта нет).
+      if (existing.accountId) {
+        await tx.financialAccount.update({
+          where: { id: existing.accountId },
+          data: { balance: { increment: oldAmount } },
+        })
+      }
+      // Списываем новую сумму с нового счёта (если он есть).
+      if (newAccountId) {
+        await tx.financialAccount.update({
+          where: { id: newAccountId },
+          data: { balance: { decrement: newAmount } },
+        })
+      }
 
       if (data.amount !== undefined) updateData.amount = data.amount
       if (data.accountId !== undefined) updateData.accountId = data.accountId
@@ -247,11 +258,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!existing) return NextResponse.json({ error: "Расход не найден" }, { status: 404 })
 
   await db.$transaction(async (tx) => {
-    // Возвращаем сумму на счёт
-    await tx.financialAccount.update({
-      where: { id: existing.accountId },
-      data: { balance: { increment: Number(existing.amount) } },
-    })
+    // Возвращаем сумму на счёт (если он был — у списаний товара счёта нет).
+    if (existing.accountId) {
+      await tx.financialAccount.update({
+        where: { id: existing.accountId },
+        data: { balance: { increment: Number(existing.amount) } },
+      })
+    }
 
     // Soft delete
     await tx.expense.update({

@@ -11,13 +11,16 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
-import { PackagePlus, ArrowRight, ArrowRightLeft, Package, Trash2 } from "lucide-react"
+import { PackagePlus, ArrowRight, ArrowRightLeft, Package } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { MoveStockDialog, type MoveSource, type MoveBranch } from "@/components/move-stock-dialog"
+import {
+  WriteOffStockDialog, type WriteOffSource, type WriteOffCategory, type WriteOffDirection,
+} from "@/components/write-off-stock-dialog"
 
 interface WarehouseBalance {
   id: string
@@ -34,6 +37,14 @@ interface BranchBalance {
   branch: { id: string; name: string }
 }
 
+interface RoomBalance {
+  id: string
+  quantity: string
+  totalCost: string
+  stockItem: { id: string; name: string; unit: string }
+  room: { id: string; name: string; branch: { id: string; name: string } }
+}
+
 interface StockItem {
   id: string
   name: string
@@ -41,14 +52,18 @@ interface StockItem {
   defaultUnitCost: string | null
 }
 
-// Цель списания: общий склад (без id) или филиал (с id).
-type WriteOffTarget = {
+// Строка размещения товара в филиале/кабинете (для объединённого списка по филиалу).
+interface LocationRow {
+  key: string
   stockItemId: string
   name: string
   unit: string
-  available: number
-  from: { kind: "warehouse" } | { kind: "branch"; id: string }
-  locationLabel: string
+  quantity: number
+  totalCost: number
+  cabinet: string | null // null — на филиале (без кабинета)
+  from: WriteOffSource["from"]
+  fromLabel: string
+  branchId: string
 }
 
 function formatMoney(v: number) {
@@ -58,9 +73,13 @@ function formatMoney(v: number) {
 export default function StockPage() {
   const [warehouse, setWarehouse] = useState<WarehouseBalance[]>([])
   const [branchBalances, setBranchBalances] = useState<BranchBalance[]>([])
+  const [roomBalances, setRoomBalances] = useState<RoomBalance[]>([])
   const [items, setItems] = useState<StockItem[]>([])
   const [branches, setBranches] = useState<MoveBranch[]>([])
+  const [categories, setCategories] = useState<WriteOffCategory[]>([])
+  const [directions, setDirections] = useState<WriteOffDirection[]>([])
   const [moveSource, setMoveSource] = useState<MoveSource | null>(null)
+  const [writeOffSource, setWriteOffSource] = useState<WriteOffSource | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [addOpen, setAddOpen] = useState(false)
@@ -73,22 +92,29 @@ export default function StockPage() {
   const [unitCost, setUnitCost] = useState("")
   const [quantity, setQuantity] = useState("")
 
-  // Списание
-  const [writeOff, setWriteOff] = useState<WriteOffTarget | null>(null)
-  const [woQty, setWoQty] = useState("")
-  const [woSaving, setWoSaving] = useState(false)
-
   const load = useCallback(async () => {
-    const [whRes, brRes, itemRes, branchRes] = await Promise.all([
+    const [whRes, brRes, rbRes, itemRes, branchRes, catRes, dirRes] = await Promise.all([
       fetch("/api/warehouse-balances"),
       fetch("/api/stock-balances"),
+      fetch("/api/room-balances"),
       fetch("/api/stock-items"),
       fetch("/api/branches"),
+      fetch("/api/expense-categories"),
+      fetch("/api/directions"),
     ])
     if (whRes.ok) setWarehouse(await whRes.json())
     if (brRes.ok) setBranchBalances(await brRes.json())
+    if (rbRes.ok) setRoomBalances(await rbRes.json())
     if (itemRes.ok) setItems(await itemRes.json())
     if (branchRes.ok) setBranches(await branchRes.json())
+    if (catRes.ok) {
+      const cats: (WriteOffCategory & { isSalary?: boolean })[] = await catRes.json()
+      setCategories(cats.filter((c) => !c.isSalary).map((c) => ({ id: c.id, name: c.name, isVariable: c.isVariable })))
+    }
+    if (dirRes.ok) {
+      const dirs: { id: string; name: string }[] = await dirRes.json()
+      setDirections(dirs.map((d) => ({ id: d.id, name: d.name })))
+    }
     setLoading(false)
   }, [])
 
@@ -99,8 +125,6 @@ export default function StockPage() {
     setError(null)
   }
 
-  // Если введённое имя совпадает с существующим товаром — подставляем его
-  // единицу/цену и шлём по id; иначе создаём новый товар на лету.
   const matchedItem = items.find(
     (i) => i.name.trim().toLowerCase() === itemName.trim().toLowerCase(),
   )
@@ -144,43 +168,53 @@ export default function StockPage() {
     load()
   }
 
-  function openWriteOff(t: WriteOffTarget) {
-    setWriteOff(t)
-    setWoQty("")
-  }
-
-  async function handleWriteOff(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (!writeOff) return
-    if (!woQty || Number(woQty) <= 0 || Number(woQty) > writeOff.available) return
-    setWoSaving(true)
-    await fetch("/api/stock-movements", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: "write_off",
-        stockItemId: writeOff.stockItemId,
-        from: writeOff.from,
-        quantity: Number(woQty),
-      }),
+  // Остатки филиалов + кабинетов, сгруппированные по филиалу. Нулевые остатки скрываем.
+  const branchGroups: Record<string, { branchName: string; rows: LocationRow[] }> = {}
+  for (const b of branchBalances) {
+    const qty = Number(b.quantity)
+    if (qty <= 0) continue
+    const g = (branchGroups[b.branch.id] ??= { branchName: b.branch.name, rows: [] })
+    g.rows.push({
+      key: b.id, stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
+      quantity: qty, totalCost: Number(b.totalCost), cabinet: null,
+      from: { kind: "branch", id: b.branch.id }, fromLabel: `Филиал · ${b.branch.name}`, branchId: b.branch.id,
     })
-    setWriteOff(null)
-    setWoSaving(false)
-    load()
+  }
+  for (const b of roomBalances) {
+    const qty = Number(b.quantity)
+    if (qty <= 0) continue
+    const g = (branchGroups[b.room.branch.id] ??= { branchName: b.room.branch.name, rows: [] })
+    g.rows.push({
+      key: b.id, stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
+      quantity: qty, totalCost: Number(b.totalCost), cabinet: b.room.name,
+      from: { kind: "room", id: b.room.id }, fromLabel: `${b.room.branch.name} · каб. ${b.room.name}`, branchId: b.room.branch.id,
+    })
+  }
+  // Сортировка строк внутри филиала: по наименованию, затем по кабинету.
+  for (const g of Object.values(branchGroups)) {
+    g.rows.sort((a, c) => a.name.localeCompare(c.name, "ru") || (a.cabinet ?? "").localeCompare(c.cabinet ?? "", "ru"))
   }
 
-  // Остатки филиалов сгруппированы по филиалу.
-  const branchGroups = branchBalances.reduce<Record<string, BranchBalance[]>>((acc, b) => {
-    (acc[b.branch.name] ??= []).push(b)
-    return acc
-  }, {})
-
-  const whQty = warehouse.reduce((s, b) => s + Number(b.quantity), 0)
-  const whCost = warehouse.reduce((s, b) => s + Number(b.totalCost), 0)
+  const warehouseRows = warehouse.filter((b) => Number(b.quantity) > 0)
+  const whCost = warehouseRows.reduce((s, b) => s + Number(b.totalCost), 0)
 
   const previewSum = Number(quantity) > 0 && Number(unitCost) >= 0
     ? Number(quantity) * Number(unitCost)
     : 0
+
+  function moveFrom(row: { stockItemId: string; name: string; unit: string; quantity: number; from: MoveSource["from"]; fromLabel: string }) {
+    setMoveSource({
+      stockItemId: row.stockItemId, itemName: row.name, unit: row.unit,
+      available: row.quantity, from: row.from, fromLabel: row.fromLabel,
+    })
+  }
+  function writeOffFrom(row: { stockItemId: string; name: string; unit: string; quantity: number; totalCost: number; from: WriteOffSource["from"]; fromLabel: string; branchId?: string }) {
+    setWriteOffSource({
+      stockItemId: row.stockItemId, itemName: row.name, unit: row.unit,
+      available: row.quantity, unitCost: row.quantity > 0 ? row.totalCost / row.quantity : 0,
+      from: row.from, fromLabel: row.fromLabel, branchId: row.branchId,
+    })
+  }
 
   return (
     <div className="space-y-6">
@@ -210,7 +244,7 @@ export default function StockPage() {
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Позиций на складе</p>
-            <p className="text-2xl font-bold">{warehouse.length}</p>
+            <p className="text-2xl font-bold">{warehouseRows.length}</p>
           </CardContent>
         </Card>
         <Card>
@@ -228,10 +262,10 @@ export default function StockPage() {
           {/* Общий склад */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">На складе <span className="text-muted-foreground font-normal text-sm">({whQty} ед.)</span></CardTitle>
+              <CardTitle className="text-base">На складе</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {warehouse.length === 0 ? (
+              {warehouseRows.length === 0 ? (
                 <div className="flex items-center justify-center p-10 text-muted-foreground text-sm">
                   Склад пуст. Нажмите «Внести на склад».
                 </div>
@@ -243,14 +277,19 @@ export default function StockPage() {
                       <TableHead className="text-right">Кол-во</TableHead>
                       <TableHead className="text-right">Цена за ед.</TableHead>
                       <TableHead className="text-right">Сумма</TableHead>
-                      <TableHead className="w-10" />
+                      <TableHead className="w-24" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {warehouse.map(b => {
+                    {warehouseRows.map(b => {
                       const qty = Number(b.quantity)
                       const cost = Number(b.totalCost)
                       const perUnit = qty > 0 ? cost / qty : 0
+                      const row = {
+                        stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
+                        quantity: qty, totalCost: cost,
+                        from: { kind: "warehouse" as const }, fromLabel: "Склад", branchId: undefined,
+                      }
                       return (
                         <ContextMenu key={b.id}>
                           <ContextMenuTrigger asChild>
@@ -259,21 +298,13 @@ export default function StockPage() {
                               <TableCell className="text-right">{qty}</TableCell>
                               <TableCell className="text-right">{formatMoney(perUnit)}</TableCell>
                               <TableCell className="text-right font-medium">{formatMoney(cost)}</TableCell>
-                              <TableCell>
-                                <Button variant="ghost" size="icon" className="size-7" title="Списать" onClick={() => openWriteOff({
-                                  stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
-                                  available: qty, from: { kind: "warehouse" }, locationLabel: "склада",
-                                })}>
-                                  <Trash2 className="size-3.5 text-red-500" />
-                                </Button>
+                              <TableCell className="text-right">
+                                <Button variant="ghost" size="sm" className="h-7 text-red-600 hover:text-red-700" onClick={() => writeOffFrom(row)}>Списать</Button>
                               </TableCell>
                             </TableRow>
                           </ContextMenuTrigger>
                           <ContextMenuContent>
-                            <ContextMenuItem disabled={qty <= 0} onClick={() => setMoveSource({
-                              stockItemId: b.stockItem.id, itemName: b.stockItem.name, unit: b.stockItem.unit,
-                              available: qty, from: { kind: "warehouse" }, fromLabel: "Склад",
-                            })}>
+                            <ContextMenuItem onClick={() => moveFrom(row)}>
                               <ArrowRightLeft className="size-3.5" /> Переместить
                             </ContextMenuItem>
                           </ContextMenuContent>
@@ -286,53 +317,44 @@ export default function StockPage() {
             </CardContent>
           </Card>
 
-          {/* Остатки в филиалах */}
-          {Object.entries(branchGroups).map(([branchName, list]) => (
-            <Card key={branchName}>
+          {/* Остатки в филиалах и кабинетах */}
+          {Object.entries(branchGroups).map(([branchId, g]) => (
+            <Card key={branchId}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Филиал · {branchName}</CardTitle>
+                <CardTitle className="text-base">Филиал · {g.branchName}</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Наименование</TableHead>
+                      <TableHead>Кабинет</TableHead>
                       <TableHead className="text-right">Кол-во</TableHead>
                       <TableHead className="text-right">Стоимость</TableHead>
-                      <TableHead className="w-10" />
+                      <TableHead className="w-24" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {list.map(b => {
-                      const qty = Number(b.quantity)
-                      return (
-                        <ContextMenu key={b.id}>
-                          <ContextMenuTrigger asChild>
-                            <TableRow>
-                              <TableCell className="font-medium">{b.stockItem.name} <span className="text-muted-foreground text-xs">({b.stockItem.unit})</span></TableCell>
-                              <TableCell className="text-right">{qty}</TableCell>
-                              <TableCell className="text-right font-medium">{formatMoney(Number(b.totalCost))}</TableCell>
-                              <TableCell>
-                                <Button variant="ghost" size="icon" className="size-7" title="Списать" onClick={() => openWriteOff({
-                                  stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
-                                  available: qty, from: { kind: "branch", id: b.branch.id }, locationLabel: `филиала «${b.branch.name}»`,
-                                })}>
-                                  <Trash2 className="size-3.5 text-red-500" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent>
-                            <ContextMenuItem disabled={qty <= 0} onClick={() => setMoveSource({
-                              stockItemId: b.stockItem.id, itemName: b.stockItem.name, unit: b.stockItem.unit,
-                              available: qty, from: { kind: "branch", id: b.branch.id }, fromLabel: `Филиал · ${b.branch.name}`,
-                            })}>
-                              <ArrowRightLeft className="size-3.5" /> Переместить
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      )
-                    })}
+                    {g.rows.map(r => (
+                      <ContextMenu key={r.key}>
+                        <ContextMenuTrigger asChild>
+                          <TableRow>
+                            <TableCell className="font-medium">{r.name} <span className="text-muted-foreground text-xs">({r.unit})</span></TableCell>
+                            <TableCell className="text-muted-foreground">{r.cabinet ?? "— на филиале —"}</TableCell>
+                            <TableCell className="text-right">{r.quantity}</TableCell>
+                            <TableCell className="text-right font-medium">{formatMoney(r.totalCost)}</TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="ghost" size="sm" className="h-7 text-red-600 hover:text-red-700" onClick={() => writeOffFrom(r)}>Списать</Button>
+                            </TableCell>
+                          </TableRow>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem onClick={() => moveFrom(r)}>
+                            <ArrowRightLeft className="size-3.5" /> Переместить
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                    ))}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -343,6 +365,16 @@ export default function StockPage() {
 
       {/* Переместить товар (правый клик по строке) */}
       <MoveStockDialog source={moveSource} branches={branches} onClose={() => setMoveSource(null)} onMoved={load} />
+
+      {/* Списание товара (кнопка «Списать») */}
+      <WriteOffStockDialog
+        source={writeOffSource}
+        categories={categories}
+        branches={branches}
+        directions={directions}
+        onClose={() => setWriteOffSource(null)}
+        onDone={load}
+      />
 
       {/* Внести на склад */}
       <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) resetForm() }}>
@@ -391,29 +423,6 @@ export default function StockPage() {
               <Button type="submit" disabled={saving}>{saving ? "..." : "Внести на склад"}</Button>
             </div>
           </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Списание */}
-      <Dialog open={!!writeOff} onOpenChange={(v) => { if (!v) setWriteOff(null) }}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader><DialogTitle>Списание</DialogTitle></DialogHeader>
-          {writeOff && (
-            <form onSubmit={handleWriteOff} className="space-y-4">
-              <p className="text-sm">
-                <b>{writeOff.name}</b> со {writeOff.locationLabel}
-                <br />Доступно: {writeOff.available} {writeOff.unit}
-              </p>
-              <div className="space-y-1.5">
-                <Label>Количество *</Label>
-                <Input type="number" step="0.001" min="0.001" max={writeOff.available} value={woQty} onChange={(e) => setWoQty(e.target.value)} />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setWriteOff(null)}>Отмена</Button>
-                <Button type="submit" variant="destructive" disabled={woSaving}>{woSaving ? "..." : "Списать"}</Button>
-              </div>
-            </form>
-          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -31,6 +31,8 @@ export async function GET(req: NextRequest) {
   const expenseWhere: any = {
     tenantId,
     deletedAt: null,
+    // Списания товара (accountId = null) денег не двигают — в ДДС не показываем.
+    accountId: { not: null },
     date: { gte: dateFrom, lte: dateTo },
   }
   if (branchId) expenseWhere.branches = { some: { branchId } }

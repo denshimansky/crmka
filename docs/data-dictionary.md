@@ -724,7 +724,7 @@
 | id | UUID | да | PK | — |
 | tenant_id | UUID | да | FK → Organization | Мультитенант |
 | category_id | UUID | да | FK → ExpenseCategory | Статья расхода |
-| account_id | UUID | да | FK → Account | Оплачено из счёта |
+| account_id | UUID | нет | FK → Account | Счёт оплаты. NULL = списание товара со склада (расход только в ОПИУ/финрез, в ДДС не попадает, счёт не трогается) |
 | amount | Decimal(12,2) | да | Полная сумма расхода | — |
 | date | Date | да | Дата платежа (используется в ДДС) | — |
 | comment | String | нет | Комментарий | — |
@@ -740,7 +740,7 @@
 | deleted_at | DateTime | нет | Мягкое удаление | — |
 
 **Принципы признания:**
-- В ДДС расход всегда учитывается одной суммой по `date`.
+- В ДДС расход учитывается одной суммой по `date` — КРОМЕ списаний товара (`account_id` = null): они денег не двигают и в ДДС не попадают.
 - В ОПИУ — по `recognition_mode`:
   - `by_payment_date`: одна доля в месяц `date`
   - `single_period`: одна доля в месяц `amortization_start_date` (пример: аренда июня уплачена 25 мая)
@@ -1000,20 +1000,20 @@ CRUD: `/api/expense-categories` (GET для системных + tenant, POST/PA
 
 ## StockMovement
 
-Перемещение склада — закупка, перемещение склад→кабинет, списание.
+Движение товара — внесение на общий склад, перемещение между складом/филиалом/кабинетом, списание (расход в ОПИУ).
 
 | Поле | Тип | Обязательное | Описание | Связь |
 |---|---|---|---|---|
 | id | UUID | да | PK | — |
 | tenant_id | UUID | да | FK → Organization | Мультитенант |
 | stock_item_id | UUID | да | FK → StockItem | Товар |
-| type | StockMovementType | да | Тип: purchase / transfer_to_room / write_off | — |
+| type | StockMovementType | да | Тип: purchase / transfer / transfer_to_room (legacy) / write_off | — |
 | quantity | Decimal(10,3) | да | Количество | — |
 | unit_cost | Decimal(12,2) | нет | Стоимость за единицу | — |
 | total_cost | Decimal(12,2) | да | Общая стоимость | — |
 | from_branch_id | UUID | нет | FK → Branch | Склад-источник | — |
 | to_room_id | UUID | нет | FK → Room | Кабинет-получатель | — |
-| expense_id | UUID | нет | FK → Expense | Связанный расход (при закупке) | — |
+| expense_id | UUID | нет | FK → Expense | Связанный расход: для write_off — расход в ОПИУ (без счёта); legacy — старая закупка | — |
 | amortization_months | Int | нет | Амортизация при закупке (N месяцев) | — |
 | date | Date | да | Дата перемещения | — |
 | comment | String | нет | Комментарий | — |
@@ -1608,7 +1608,7 @@ CRUD: `/api/expense-categories` (GET для системных + tenant, POST/PA
 `percent` | `fixed`
 
 ## StockMovementType
-`purchase` | `transfer_to_room` | `write_off`
+`purchase` | `transfer` | `transfer_to_room` (legacy) | `write_off`
 
 ## TaskType
 `manual` | `auto`

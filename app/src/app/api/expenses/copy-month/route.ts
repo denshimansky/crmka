@@ -80,11 +80,13 @@ export async function POST(req: NextRequest) {
         })
       }
 
-      // Списываем с баланса счёта
-      await tx.financialAccount.update({
-        where: { id: exp.accountId },
-        data: { balance: { decrement: exp.amount } },
-      })
+      // Списываем с баланса счёта (у расходов-списаний товара счёта нет — пропускаем)
+      if (exp.accountId) {
+        await tx.financialAccount.update({
+          where: { id: exp.accountId },
+          data: { balance: { decrement: exp.amount } },
+        })
+      }
 
       results.push(newExpense)
     }
