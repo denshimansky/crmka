@@ -9,13 +9,19 @@ RUN npm ci
 FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-# prisma generate тянет query-engine с binaries.prisma.sh. У msk1 интермиттентная
-# блокировка до CDN (отвал на 1–2 мин), из-за чего сборка падала (а деплой ложно
-# зеленел). Ретраим до 12 раз с паузой 15с (~3 мин окно — переживает типичный блип);
-# если так и не вышло — падаем с exit 1, чтобы деплой не считался успешным.
+# prisma generate тянет query-engine с binaries.prisma.sh, а у msk1 этот CDN
+# флапает по 1–3 мин (блокировка IP). Чтобы НЕ дёргать CDN на каждом деплое,
+# кладём перед generate ТОЛЬКО схему: слой кэшируется и пересобирается лишь
+# когда меняется prisma/ или зависимости. Коммиты, не трогающие схему (большинство),
+# берут готовый слой из кеша — сборка проходит даже при недоступном CDN.
+# node_modules в .dockerignore, поэтому `COPY . .` ниже не затирает сгенерированный
+# клиент в node_modules/.prisma. Ретрай 12×15с — на случай флапа, когда схема
+# реально изменилась и слой пересобирается.
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
 RUN sh -c 'n=0; until npx prisma generate; do n=$((n+1)); if [ "$n" -ge 12 ]; then echo "prisma generate failed after $n attempts"; exit 1; fi; echo "prisma generate failed (attempt $n/12, binaries.prisma.sh flaky), retry in 15s..."; sleep 15; done'
+COPY . .
 RUN npm run build
 
 # Stage 3: Production
