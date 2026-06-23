@@ -2077,6 +2077,10 @@ enum CandidateStatus {
 
 enum StockMovementType {
   purchase
+  // transfer — перемещение в любом направлении: склад↔кабинет, склад↔склад,
+  // кабинет↔кабинет. Источник/приёмник задаются парами from_*/to_* ниже.
+  transfer
+  // transfer_to_room — legacy: только склад→кабинет. Оставлен для старых записей.
   transfer_to_room
   write_off
 }
@@ -2126,7 +2130,12 @@ model StockMovement {
   quantity           Decimal           @db.Decimal(10, 3)
   unitCost           Decimal?          @map("unit_cost") @db.Decimal(12, 2)
   totalCost          Decimal           @map("total_cost") @db.Decimal(12, 2)
+  // Источник и приёмник перемещения. Склад = *_branch_id, кабинет = *_room_id.
+  // purchase: from_branch_id (куда пришло). write_off: to_room_id (откуда списано).
+  // transfer: один from_* + один to_* (любое направление).
   fromBranchId       String?           @map("from_branch_id") @db.Uuid
+  fromRoomId         String?           @map("from_room_id") @db.Uuid
+  toBranchId         String?           @map("to_branch_id") @db.Uuid
   toRoomId           String?           @map("to_room_id") @db.Uuid
   amortizationMonths Int?              @map("amortization_months")
   // Закупка (purchase) создаёт расход (ДДС + ОПИУ); ссылка на него — для трассировки.

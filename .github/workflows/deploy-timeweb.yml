@@ -46,7 +46,17 @@ jobs:
               echo "ALLOW_DESTRUCTIVE_API=true" >> .env
             fi
             docker compose build app
-            docker compose up -d
+            # docker compose up может упасть с "container name already in use", если
+            # прошлый деплой прервался на recreate (SSH-таймаут): docker оставляет
+            # старый контейнер переименованным как <hash>_crmka-<svc>-1, и следующий
+            # up конфликтует по имени (баг msk1 23.06.2026, commit 3432452 «упал»,
+            # хотя образ собрался и поднялся вручную). Чистим застрявшие переименованные
+            # контейнеры и повторяем up. Живые crmka-*-1 (без префикса <hash>_) не трогаем.
+            if ! docker compose up -d; then
+              echo "compose up упал — чистим застрявшие переименованные контейнеры и повторяем"
+              docker ps -a --format '{{.Names}}' | grep -E '_crmka-.+-[0-9]+$' | xargs -r docker rm -f || true
+              docker compose up -d
+            fi
             # Baseline: если _prisma_migrations не существует, создаём и помечаем initial как applied
             docker compose exec -T db psql -U crmka -c "
               CREATE TABLE IF NOT EXISTS \"_prisma_migrations\" (

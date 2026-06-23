@@ -1,11 +1,10 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from "@/components/ui/table"
@@ -26,23 +25,27 @@ interface Movement {
   totalCost: string
   date: string
   comment: string | null
-  fromBranchId: string | null
-  toRoomId: string | null
+  fromLabel: string | null
+  toLabel: string | null
   stockItem: { name: string; unit: string }
   createdBy: { firstName: string; lastName: string } | null
 }
 
-interface StockItem { id: string; name: string; unit: string }
+// Остатки склада филиала и кабинета — из них собираем «где есть товар».
+interface StockBalance { id: string; quantity: string; stockItem: { id: string; name: string; unit: string }; branch: { id: string; name: string } }
+interface RoomBalance { id: string; quantity: string; stockItem: { id: string; name: string; unit: string }; room: { id: string; name: string; branch: { id: string; name: string } } }
 interface Branch { id: string; name: string; rooms: { id: string; name: string }[] }
 
 const TYPE_LABELS: Record<string, string> = {
   purchase: "Закупка",
+  transfer: "Перемещение",
   transfer_to_room: "Перемещение",
   write_off: "Списание",
 }
 
 const TYPE_COLORS: Record<string, string> = {
   purchase: "bg-green-100 text-green-800",
+  transfer: "bg-blue-100 text-blue-800",
   transfer_to_room: "bg-blue-100 text-blue-800",
   write_off: "bg-red-100 text-red-800",
 }
@@ -55,19 +58,33 @@ function formatMoney(v: number) {
   return new Intl.NumberFormat("ru-RU").format(v) + " ₽"
 }
 
+// Колонка «Откуда → Куда» в журнале.
+function routeLabel(m: Movement): string {
+  if (m.type === "purchase") return m.fromLabel ? `→ ${m.fromLabel}` : "—"
+  if (m.type === "write_off") return m.toLabel ? `${m.toLabel} →` : "—"
+  const parts = [m.fromLabel, m.toLabel].filter(Boolean)
+  return parts.length ? parts.join(" → ") : "—"
+}
+
+// Кодируем локацию в значение Select: "warehouse:<branchId>" | "room:<roomId>".
+function parseLoc(v: string): { kind: "warehouse" | "room"; id: string } {
+  const [kind, id] = v.split(":")
+  return { kind: kind as "warehouse" | "room", id }
+}
+
 export default function MovementsPage() {
   const [movements, setMovements] = useState<Movement[]>([])
   const [loading, setLoading] = useState(true)
   const [transferOpen, setTransferOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [items, setItems] = useState<StockItem[]>([])
+  const [stockBalances, setStockBalances] = useState<StockBalance[]>([])
+  const [roomBalances, setRoomBalances] = useState<RoomBalance[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
-  // Контролируемые поля формы перемещения (base-ui Select не отдаёт значения в
-  // FormData — раньше fromBranchId уходил пустым и API отвечал 400, баг #43).
+  // Поля формы перемещения (контролируемые — base-ui Select не отдаёт значения в FormData).
   const [tItemId, setTItemId] = useState("")
-  const [selectedBranch, setSelectedBranch] = useState("")
-  const [tToRoom, setTToRoom] = useState("")
+  const [fromLoc, setFromLoc] = useState("")
+  const [toLoc, setToLoc] = useState("")
   const [tQty, setTQty] = useState("")
   const [tComment, setTComment] = useState("")
 
@@ -80,43 +97,86 @@ export default function MovementsPage() {
   useEffect(() => { load() }, [load])
 
   function resetTransfer() {
-    setTItemId(""); setSelectedBranch(""); setTToRoom(""); setTQty(""); setTComment("")
+    setTItemId(""); setFromLoc(""); setToLoc(""); setTQty(""); setTComment("")
     setError(null)
   }
 
   function openTransfer() {
     resetTransfer()
     Promise.all([
-      fetch("/api/stock-items").then(r => r.ok ? r.json() : []),
-      fetch("/api/branches?includeRooms=true").then(r => r.ok ? r.json() : []),
-    ]).then(([it, br]) => { setItems(it); setBranches(br) })
+      fetch("/api/stock-balances").then(r => r.ok ? r.json() : []),
+      fetch("/api/room-balances").then(r => r.ok ? r.json() : []),
+      fetch("/api/branches").then(r => r.ok ? r.json() : []),
+    ]).then(([sb, rb, br]) => { setStockBalances(sb); setRoomBalances(rb); setBranches(br) })
     setTransferOpen(true)
   }
+
+  // Товары, которые вообще можно переместить — те, что есть хоть где-то (qty > 0).
+  // Это же скрывает «старые» товары без остатков, которые торчали только здесь.
+  const movableItems = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; unit: string }>()
+    for (const b of stockBalances) if (Number(b.quantity) > 0) map.set(b.stockItem.id, b.stockItem)
+    for (const b of roomBalances) if (Number(b.quantity) > 0) map.set(b.stockItem.id, b.stockItem)
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, "ru"))
+  }, [stockBalances, roomBalances])
+
+  // Источники для выбранного товара — только локации, где он реально есть.
+  const sources = useMemo(() => {
+    if (!tItemId) return [] as { key: string; label: string; available: number; unit: string }[]
+    const list: { key: string; label: string; available: number; unit: string }[] = []
+    for (const b of stockBalances) {
+      if (b.stockItem.id === tItemId && Number(b.quantity) > 0) {
+        list.push({ key: `warehouse:${b.branch.id}`, label: `Склад · ${b.branch.name}`, available: Number(b.quantity), unit: b.stockItem.unit })
+      }
+    }
+    for (const b of roomBalances) {
+      if (b.stockItem.id === tItemId && Number(b.quantity) > 0) {
+        list.push({ key: `room:${b.room.id}`, label: `${b.room.branch.name} · каб. ${b.room.name}`, available: Number(b.quantity), unit: b.stockItem.unit })
+      }
+    }
+    return list
+  }, [tItemId, stockBalances, roomBalances])
+
+  // Приёмник — любая локация, кроме выбранного источника.
+  const destinations = useMemo(() => {
+    const list: { key: string; label: string }[] = []
+    for (const br of branches) {
+      list.push({ key: `warehouse:${br.id}`, label: `Склад · ${br.name}` })
+      for (const r of br.rooms) list.push({ key: `room:${r.id}`, label: `${br.name} · каб. ${r.name}` })
+    }
+    return list.filter(l => l.key !== fromLoc)
+  }, [branches, fromLoc])
+
+  const selectedItem = movableItems.find(i => i.id === tItemId)
+  const selectedSource = sources.find(s => s.key === fromLoc)
 
   async function handleTransfer(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
     if (!tItemId) { setError("Выберите товар"); return }
-    if (!selectedBranch) { setError("Выберите филиал (склад)"); return }
-    if (!tToRoom) { setError("Выберите кабинет"); return }
+    if (!fromLoc) { setError("Выберите, откуда переместить"); return }
+    if (!toLoc) { setError("Выберите, куда переместить"); return }
     if (!tQty || Number(tQty) <= 0) { setError("Укажите количество"); return }
+    if (selectedSource && Number(tQty) > selectedSource.available) {
+      setError(`Недостаточно: доступно ${selectedSource.available} ${selectedSource.unit}`); return
+    }
 
     setSaving(true)
     const res = await fetch("/api/stock-movements", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        type: "transfer_to_room",
+        type: "transfer",
         stockItemId: tItemId,
-        fromBranchId: selectedBranch,
-        toRoomId: tToRoom,
+        from: parseLoc(fromLoc),
+        to: parseLoc(toLoc),
         quantity: Number(tQty),
         comment: tComment || undefined,
       }),
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      setError(data.error || "Недостаточно товара на складе")
+      setError(data.error || "Не удалось переместить товар")
       setSaving(false)
       return
     }
@@ -125,8 +185,6 @@ export default function MovementsPage() {
     resetTransfer()
     load()
   }
-
-  const selectedRooms = branches.find(b => b.id === selectedBranch)?.rooms || []
 
   return (
     <div className="space-y-6">
@@ -138,7 +196,7 @@ export default function MovementsPage() {
           <h1 className="text-2xl font-bold">Перемещения</h1>
         </div>
         <Button size="sm" onClick={openTransfer}>
-          <ArrowRight className="size-4 mr-1" /> Переместить в кабинет
+          <ArrowRight className="size-4 mr-1" /> Переместить товар
         </Button>
       </div>
 
@@ -159,6 +217,7 @@ export default function MovementsPage() {
                   <TableHead>Дата</TableHead>
                   <TableHead>Тип</TableHead>
                   <TableHead>Наименование</TableHead>
+                  <TableHead>Откуда → Куда</TableHead>
                   <TableHead className="text-right">Кол-во</TableHead>
                   <TableHead className="text-right">Сумма</TableHead>
                   <TableHead>Комментарий</TableHead>
@@ -175,6 +234,7 @@ export default function MovementsPage() {
                       </span>
                     </TableCell>
                     <TableCell className="font-medium">{m.stockItem.name}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs">{routeLabel(m)}</TableCell>
                     <TableCell className="text-right">{Number(m.quantity)} {m.stockItem.unit}</TableCell>
                     <TableCell className="text-right">{formatMoney(Number(m.totalCost))}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">{m.comment || "—"}</TableCell>
@@ -191,45 +251,51 @@ export default function MovementsPage() {
 
       <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Переместить в кабинет</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Переместить товар</DialogTitle></DialogHeader>
           <form onSubmit={handleTransfer} className="space-y-4">
             {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
             <div className="space-y-1.5">
               <Label>Товар *</Label>
-              <Select value={tItemId} onValueChange={(v) => { if (v) setTItemId(v) }}>
+              <Select value={tItemId} onValueChange={(v) => { if (v) { setTItemId(v); setFromLoc(""); setToLoc("") } }}>
                 <SelectTrigger className="w-full">
-                  {items.find(i => i.id === tItemId)?.name ?? "Выберите товар"}
+                  {selectedItem?.name ?? "Выберите товар"}
                 </SelectTrigger>
                 <SelectContent>
-                  {items.map(i => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}
+                  {movableItems.length === 0
+                    ? <div className="px-2 py-1.5 text-sm text-muted-foreground">Нет товаров с остатком</div>
+                    : movableItems.map(i => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Со склада (филиал) *</Label>
-              <Select value={selectedBranch} onValueChange={(v) => { if (v) { setSelectedBranch(v); setTToRoom("") } }}>
+              <Label>Откуда *</Label>
+              <Select value={fromLoc} onValueChange={(v) => { if (v) { setFromLoc(v); setToLoc("") } }} disabled={!tItemId}>
                 <SelectTrigger className="w-full">
-                  {branches.find(b => b.id === selectedBranch)?.name ?? "Выберите филиал"}
+                  {selectedSource?.label ?? (tItemId ? "Где взять товар" : "Сначала выберите товар")}
                 </SelectTrigger>
                 <SelectContent>
-                  {branches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                  {sources.map(s => (
+                    <SelectItem key={s.key} value={s.key}>{s.label} — {s.available} {s.unit}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>В кабинет *</Label>
-              <Select value={tToRoom} onValueChange={(v) => { if (v) setTToRoom(v) }} disabled={!selectedBranch}>
+              <Label>Куда *</Label>
+              <Select value={toLoc} onValueChange={(v) => { if (v) setToLoc(v) }} disabled={!fromLoc}>
                 <SelectTrigger className="w-full">
-                  {selectedRooms.find(r => r.id === tToRoom)?.name ?? (selectedBranch ? "Выберите кабинет" : "Сначала выберите филиал")}
+                  {destinations.find(d => d.key === toLoc)?.label ?? (fromLoc ? "Куда переместить" : "Сначала выберите источник")}
                 </SelectTrigger>
                 <SelectContent>
-                  {selectedRooms.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                  {destinations.length === 0
+                    ? <div className="px-2 py-1.5 text-sm text-muted-foreground">Нет других локаций</div>
+                    : destinations.map(d => <SelectItem key={d.key} value={d.key}>{d.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Количество *</Label>
-              <Input type="number" step="0.001" min="0.001" value={tQty} onChange={(e) => setTQty(e.target.value)} />
+              <Label>Количество *{selectedSource ? ` (доступно ${selectedSource.available} ${selectedSource.unit})` : ""}</Label>
+              <Input type="number" step="0.001" min="0.001" max={selectedSource?.available} value={tQty} onChange={(e) => setTQty(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Комментарий</Label>
