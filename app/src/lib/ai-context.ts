@@ -402,20 +402,22 @@ export async function buildBaseContext(tenantId: string, _role: string): Promise
         subscription: { select: { directionId: true } },
       },
     }),
-    // Расходы за весь период
+    // Расходы за весь период (финрез: «Не учитывать в финрезе» исключаем —
+    // они не участвуют в прибыли/марже).
     db.expense.findMany({
-      where: { tenantId, deletedAt: null, date: { gte: periodStart, lte: periodEnd } },
+      where: { tenantId, deletedAt: null, date: { gte: periodStart, lte: periodEnd }, recognitionMode: { not: "not_in_pnl" } },
       select: {
         amount: true, date: true, comment: true,
         category: { select: { name: true } },
         branches: { select: { branchId: true, directionId: true } },
       },
     }),
-    // Топ-5 крупных расходов текущего месяца
+    // Топ-5 крупных расходов текущего месяца (без «Не учитывать в финрезе»).
     db.expense.findMany({
       where: {
         tenantId, deletedAt: null,
         date: { gte: current.start, lte: current.end },
+        recognitionMode: { not: "not_in_pnl" },
       },
       orderBy: { amount: "desc" },
       take: 5,

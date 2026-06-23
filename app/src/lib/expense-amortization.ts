@@ -46,11 +46,17 @@ function ymOf(d: Date): { year: number; month: number } {
  * Гарантии:
  *  - сумма всех строк равна `expense.amount` (с округлением до копеек, излишек/нехватка
  *    компенсируется в последнем месяце);
- *  - всегда возвращается ≥ 1 элемент;
+ *  - всегда возвращается ≥ 1 элемент, КРОМЕ режима not_in_pnl (см. ниже);
  *  - для некорректных конфигураций (recognitionMode = amortized без `amortizationStartDate`
  *    или с `amortizationMonths ≤ 0`) откат к режиму by_payment_date.
+ *
+ * Режим not_in_pnl: расход не признаётся в ОПИУ/финрезе вообще — возвращаем []. ДДС
+ * на это не смотрит (он считает по `date`+`amount`), поэтому деньги всё равно учтены.
  */
 export function expandExpenseToMonths(e: ExpenseLike): MonthAmount[] {
+  // Не учитывать в финрезе — ноль строк ОПИУ.
+  if (e.recognitionMode === "not_in_pnl") return []
+
   const total = round2(toNumber(e.amount))
 
   if (e.recognitionMode === "single_period") {

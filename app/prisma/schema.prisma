@@ -1383,6 +1383,9 @@ enum ExpenseRecognitionMode {
   by_payment_date
   single_period
   amortized
+  // Расход не попадает в ОПИУ/финрез вообще (только в ДДС): вывод средств,
+  // возврат тела займа, покупка актива и т.п. expandExpenseToMonths → [].
+  not_in_pnl
 }
 
 enum DiscountType {

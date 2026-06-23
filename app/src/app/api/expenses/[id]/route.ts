@@ -15,7 +15,7 @@ const updateSchema = z.object({
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   isVariable: z.boolean().optional(),
   isRecurring: z.boolean().optional(),
-  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized"]).optional(),
+  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized", "not_in_pnl"]).optional(),
   amortizationStartDate: z.string().nullable().optional(),
   amortizationMonths: z.any().transform(v => {
     if (v === null) return null
@@ -115,7 +115,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     if (data.recognitionMode !== undefined) {
       updateData.recognitionMode = data.recognitionMode
-      if (data.recognitionMode === "by_payment_date") {
+      if (data.recognitionMode === "by_payment_date" || data.recognitionMode === "not_in_pnl") {
+        // Эти режимы не используют поля амортизации — обнуляем.
         updateData.amortizationMonths = null
         updateData.amortizationStartDate = null
       } else if (data.recognitionMode === "single_period") {

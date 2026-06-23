@@ -50,7 +50,7 @@ interface LeadChannelOption {
 const MARKETING_CATEGORY_NAME = "Маркетинг и реклама"
 const NONE_VALUE = "__none__"
 
-type RecognitionMode = "by_payment_date" | "single_period" | "amortized"
+type RecognitionMode = "by_payment_date" | "single_period" | "amortized" | "not_in_pnl"
 
 interface ExpenseData {
   id: string
@@ -483,6 +483,22 @@ export function EditExpenseDialog({
                     )}
                   </div>
                 )}
+              </span>
+            </label>
+
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="recognition-mode-edit"
+                className="mt-1"
+                checked={recognitionMode === "not_in_pnl"}
+                onChange={() => setRecognitionMode("not_in_pnl")}
+              />
+              <span>
+                <span className="font-medium">Не учитывать в финрезе</span>
+                <span className="block text-xs text-muted-foreground">
+                  Только ДДС: расход уменьшит остаток на счёте, но не попадёт в ОПИУ и отчёты о прибыли (вывод средств, возврат займа, покупка актива).
+                </span>
               </span>
             </label>
           </fieldset>

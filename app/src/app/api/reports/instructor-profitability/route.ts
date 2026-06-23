@@ -87,7 +87,8 @@ export async function GET(req: NextRequest) {
 
   // Expenses per branch
   const expenses = await db.expense.findMany({
-    where: { tenantId, deletedAt: null, date: { gte: dateFrom, lte: dateTo } },
+    // «Не учитывать в финрезе» — исключаем из расчёта рентабельности педагогов.
+    where: { tenantId, deletedAt: null, date: { gte: dateFrom, lte: dateTo }, recognitionMode: { not: "not_in_pnl" } },
     select: {
       amount: true,
       isVariable: true,

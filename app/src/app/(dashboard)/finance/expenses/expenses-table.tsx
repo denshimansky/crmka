@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { EditExpenseDialog } from "./edit-expense-dialog"
 
-type RecognitionMode = "by_payment_date" | "single_period" | "amortized"
+type RecognitionMode = "by_payment_date" | "single_period" | "amortized" | "not_in_pnl"
 
 interface ExpenseRow {
   id: string
@@ -127,7 +127,9 @@ export function ExpensesTable({
                 </TableCell>
                 <TableCell className="text-muted-foreground">{exp.accountName}</TableCell>
                 <TableCell className="text-muted-foreground text-xs">
-                  {exp.recognitionMode === "single_period" && exp.amortizationStartDate
+                  {exp.recognitionMode === "not_in_pnl"
+                    ? "Не в финрезе"
+                    : exp.recognitionMode === "single_period" && exp.amortizationStartDate
                     ? `1 мес. с ${formatDate(exp.amortizationStartDate)}`
                     : exp.recognitionMode === "amortized" && exp.amortizationMonths && exp.amortizationStartDate
                       ? `${exp.amortizationMonths} мес. с ${formatDate(exp.amortizationStartDate)}`

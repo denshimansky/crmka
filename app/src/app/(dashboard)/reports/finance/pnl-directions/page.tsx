@@ -95,6 +95,8 @@ export default async function PnlDirectionsPage({
     tenantId,
     deletedAt: null,
     date: { gte: monthStart, lte: monthEnd },
+    // «Не учитывать в финрезе» — исключаем из ОПИУ по направлениям.
+    recognitionMode: { not: "not_in_pnl" },
   }
   if (branchId) expWhere.branches = { some: { branchId } }
 

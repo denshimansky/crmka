@@ -49,6 +49,8 @@ export async function GET(req: NextRequest) {
       deletedAt: null,
       isVariable: true,
       date: { gte: threeMonthsAgo, lt: dateFrom },
+      // «Не учитывать в финрезе» — не участвует в прогнозе прибыли.
+      recognitionMode: { not: "not_in_pnl" },
     },
     select: { amount: true, date: true },
   })
@@ -66,7 +68,7 @@ export async function GET(req: NextRequest) {
 
   // Recurring (fixed) expenses
   const recurringExpenses = await db.expense.findMany({
-    where: { tenantId, deletedAt: null, isRecurring: true },
+    where: { tenantId, deletedAt: null, isRecurring: true, recognitionMode: { not: "not_in_pnl" } },
     select: { amount: true },
   })
   const fixedExpensesForecast = recurringExpenses.reduce((s, e) => s + Number(e.amount), 0)

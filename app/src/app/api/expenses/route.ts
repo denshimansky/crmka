@@ -18,7 +18,7 @@ const createSchema = z.object({
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   isVariable: z.boolean().optional(),
   isRecurring: z.boolean().optional().default(false),
-  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized"]).optional().default("by_payment_date"),
+  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized", "not_in_pnl"]).optional().default("by_payment_date"),
   amortizationStartDate: z.string().optional().nullable(),
   amortizationMonths: z.any().transform(v => {
     const n = Number(v)

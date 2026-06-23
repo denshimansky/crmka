@@ -14,7 +14,7 @@ import {
 function expense(opts: {
   amount: number
   date: string // YYYY-MM-DD
-  mode: "by_payment_date" | "single_period" | "amortized"
+  mode: "by_payment_date" | "single_period" | "amortized" | "not_in_pnl"
   months?: number | null
   start?: string | null
 }) {
@@ -42,6 +42,21 @@ describe("expandExpenseToMonths", () => {
         months: 3, start: "2026-09-01",
       }))
       assert.deepEqual(slices, [{ year: 2026, month: 6, amount: 30000 }])
+    })
+  })
+
+  describe("not_in_pnl (не учитывать в финрезе)", () => {
+    it("возвращает пустой массив — расход не попадает в ОПИУ", () => {
+      const slices = expandExpenseToMonths(expense({
+        amount: 50000, date: "2026-06-10", mode: "not_in_pnl",
+      }))
+      assert.deepEqual(slices, [])
+    })
+
+    it("expenseAmountInWindow всегда 0 для not_in_pnl", () => {
+      const e = expense({ amount: 50000, date: "2026-06-10", mode: "not_in_pnl" })
+      assert.equal(expenseAmountInWindow(e, 2026, 6, 2026, 6), 0)
+      assert.equal(expenseAmountInWindow(e, 2026, 1, 2026, 12), 0)
     })
   })
 
