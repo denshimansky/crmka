@@ -11,14 +11,18 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select, SelectContent, SelectItem, SelectTrigger,
-} from "@/components/ui/select"
-import { PackagePlus, ArrowRight, Package } from "lucide-react"
+import { PackagePlus, ArrowRight, Package, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
 
-interface StockBalance {
+interface WarehouseBalance {
+  id: string
+  quantity: string
+  totalCost: string
+  stockItem: { id: string; name: string; unit: string }
+}
+
+interface BranchBalance {
   id: string
   quantity: string
   totalCost: string
@@ -33,35 +37,24 @@ interface StockItem {
   defaultUnitCost: string | null
 }
 
-interface Branch {
-  id: string
+// Цель списания: общий склад (без id) или филиал (с id).
+type WriteOffTarget = {
+  stockItemId: string
   name: string
-}
-
-interface Account {
-  id: string
-  name: string
-}
-
-interface Category {
-  id: string
-  name: string
-  isSalary: boolean
+  unit: string
+  available: number
+  from: { kind: "warehouse" } | { kind: "branch"; id: string }
+  locationLabel: string
 }
 
 function formatMoney(v: number) {
   return new Intl.NumberFormat("ru-RU").format(v) + " ₽"
 }
 
-// Категория расхода, на которую закупка проводится в ОПИУ (см. API stock-movements).
-const STOCK_CATEGORY_LABEL = "Канцтовары и расходники"
-
 export default function StockPage() {
-  const [balances, setBalances] = useState<StockBalance[]>([])
+  const [warehouse, setWarehouse] = useState<WarehouseBalance[]>([])
+  const [branchBalances, setBranchBalances] = useState<BranchBalance[]>([])
   const [items, setItems] = useState<StockItem[]>([])
-  const [branches, setBranches] = useState<Branch[]>([])
-  const [accounts, setAccounts] = useState<Account[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
 
   const [addOpen, setAddOpen] = useState(false)
@@ -73,40 +66,28 @@ export default function StockPage() {
   const [unit, setUnit] = useState("шт")
   const [unitCost, setUnitCost] = useState("")
   const [quantity, setQuantity] = useState("")
-  const [branchId, setBranchId] = useState("")
-  const [accountId, setAccountId] = useState("")
-  const [categoryId, setCategoryId] = useState("")
-  const [amortMonths, setAmortMonths] = useState("")
-  const [comment, setComment] = useState("")
+
+  // Списание
+  const [writeOff, setWriteOff] = useState<WriteOffTarget | null>(null)
+  const [woQty, setWoQty] = useState("")
+  const [woSaving, setWoSaving] = useState(false)
 
   const load = useCallback(async () => {
-    const [balRes, itemRes, brRes, accRes, catRes] = await Promise.all([
+    const [whRes, brRes, itemRes] = await Promise.all([
+      fetch("/api/warehouse-balances"),
       fetch("/api/stock-balances"),
       fetch("/api/stock-items"),
-      fetch("/api/branches"),
-      fetch("/api/accounts"),
-      fetch("/api/expense-categories"),
     ])
-    if (balRes.ok) setBalances(await balRes.json())
+    if (whRes.ok) setWarehouse(await whRes.json())
+    if (brRes.ok) setBranchBalances(await brRes.json())
     if (itemRes.ok) setItems(await itemRes.json())
-    if (brRes.ok) setBranches(await brRes.json())
-    if (accRes.ok) setAccounts(await accRes.json())
-    if (catRes.ok) {
-      const cats: Category[] = await catRes.json()
-      // Закупка товаров — не зарплата; статьи ЗП в выборе не нужны.
-      setCategories(cats.filter((c) => !c.isSalary))
-    }
     setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
 
-  const defaultCategoryId = categories.find((c) => c.name === STOCK_CATEGORY_LABEL)?.id ?? ""
-
   function resetForm() {
     setItemName(""); setUnit("шт"); setUnitCost(""); setQuantity("")
-    setBranchId(""); setAccountId(""); setCategoryId(defaultCategoryId)
-    setAmortMonths(""); setComment("")
     setError(null)
   }
 
@@ -130,9 +111,7 @@ export default function StockPage() {
     setError(null)
     if (!itemName.trim()) { setError("Укажите наименование"); return }
     if (!quantity || Number(quantity) <= 0) { setError("Укажите количество"); return }
-    if (!unitCost || Number(unitCost) < 0) { setError("Укажите стоимость за единицу"); return }
-    if (!branchId) { setError("Выберите филиал (склад)"); return }
-    if (!accountId) { setError("Выберите счёт оплаты"); return }
+    if (!unitCost || Number(unitCost) < 0) { setError("Укажите цену за единицу"); return }
 
     setSaving(true)
     const res = await fetch("/api/stock-movements", {
@@ -141,13 +120,8 @@ export default function StockPage() {
       body: JSON.stringify({
         type: "purchase",
         ...(matchedItem ? { stockItemId: matchedItem.id } : { itemName: itemName.trim(), unit: unit.trim() || "шт" }),
-        branchId,
-        accountId,
-        categoryId: categoryId || undefined,
         quantity: Number(quantity),
         unitCost: Number(unitCost),
-        amortizationMonths: Number(amortMonths) || undefined,
-        comment: comment || undefined,
       }),
     })
     if (!res.ok) {
@@ -162,16 +136,39 @@ export default function StockPage() {
     load()
   }
 
-  // Группировка по филиалу
-  const grouped = balances.reduce<Record<string, StockBalance[]>>((acc, b) => {
-    const key = b.branch.name
-    if (!acc[key]) acc[key] = []
-    acc[key].push(b)
+  function openWriteOff(t: WriteOffTarget) {
+    setWriteOff(t)
+    setWoQty("")
+  }
+
+  async function handleWriteOff(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!writeOff) return
+    if (!woQty || Number(woQty) <= 0 || Number(woQty) > writeOff.available) return
+    setWoSaving(true)
+    await fetch("/api/stock-movements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "write_off",
+        stockItemId: writeOff.stockItemId,
+        from: writeOff.from,
+        quantity: Number(woQty),
+      }),
+    })
+    setWriteOff(null)
+    setWoSaving(false)
+    load()
+  }
+
+  // Остатки филиалов сгруппированы по филиалу.
+  const branchGroups = branchBalances.reduce<Record<string, BranchBalance[]>>((acc, b) => {
+    (acc[b.branch.name] ??= []).push(b)
     return acc
   }, {})
 
-  const totalItems = balances.reduce((sum, b) => sum + Number(b.quantity), 0)
-  const totalCost = balances.reduce((sum, b) => sum + Number(b.totalCost), 0)
+  const whQty = warehouse.reduce((s, b) => s + Number(b.quantity), 0)
+  const whCost = warehouse.reduce((s, b) => s + Number(b.totalCost), 0)
 
   const previewSum = Number(quantity) > 0 && Number(unitCost) >= 0
     ? Number(quantity) * Number(unitCost)
@@ -204,64 +201,115 @@ export default function StockPage() {
       <div className="grid grid-cols-2 gap-4">
         <Card>
           <CardContent className="pt-4">
-            <p className="text-sm text-muted-foreground">Всего на складах</p>
-            <p className="text-2xl font-bold">{totalItems} ед.</p>
+            <p className="text-sm text-muted-foreground">Позиций на складе</p>
+            <p className="text-2xl font-bold">{warehouse.length}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4">
-            <p className="text-sm text-muted-foreground">Общая стоимость</p>
-            <p className="text-2xl font-bold">{formatMoney(totalCost)}</p>
+            <p className="text-sm text-muted-foreground">Стоимость склада</p>
+            <p className="text-2xl font-bold">{formatMoney(whCost)}</p>
           </CardContent>
         </Card>
       </div>
 
       {loading ? (
         <p className="text-sm text-muted-foreground text-center py-8">Загрузка...</p>
-      ) : Object.keys(grouped).length === 0 ? (
-        <Card>
-          <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
-            Склад пуст. Нажмите «Внести на склад» — товар появится здесь.
-          </CardContent>
-        </Card>
       ) : (
-        Object.entries(grouped).map(([branchName, list]) => (
-          <Card key={branchName}>
+        <>
+          {/* Общий склад */}
+          <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">{branchName}</CardTitle>
+              <CardTitle className="text-base">На складе <span className="text-muted-foreground font-normal text-sm">({whQty} ед.)</span></CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Наименование</TableHead>
-                    <TableHead className="text-right">Кол-во</TableHead>
-                    <TableHead className="text-right">Стоимость за ед.</TableHead>
-                    <TableHead className="text-right">Сумма</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {list.map(b => {
-                    const qty = Number(b.quantity)
-                    const cost = Number(b.totalCost)
-                    const perUnit = qty > 0 ? cost / qty : 0
-                    return (
-                      <TableRow key={b.id}>
-                        <TableCell className="font-medium">{b.stockItem.name} <span className="text-muted-foreground text-xs">({b.stockItem.unit})</span></TableCell>
-                        <TableCell className="text-right">{qty}</TableCell>
-                        <TableCell className="text-right">{formatMoney(perUnit)}</TableCell>
-                        <TableCell className="text-right font-medium">{formatMoney(cost)}</TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
+              {warehouse.length === 0 ? (
+                <div className="flex items-center justify-center p-10 text-muted-foreground text-sm">
+                  Склад пуст. Нажмите «Внести на склад».
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Наименование</TableHead>
+                      <TableHead className="text-right">Кол-во</TableHead>
+                      <TableHead className="text-right">Цена за ед.</TableHead>
+                      <TableHead className="text-right">Сумма</TableHead>
+                      <TableHead className="w-10" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {warehouse.map(b => {
+                      const qty = Number(b.quantity)
+                      const cost = Number(b.totalCost)
+                      const perUnit = qty > 0 ? cost / qty : 0
+                      return (
+                        <TableRow key={b.id}>
+                          <TableCell className="font-medium">{b.stockItem.name} <span className="text-muted-foreground text-xs">({b.stockItem.unit})</span></TableCell>
+                          <TableCell className="text-right">{qty}</TableCell>
+                          <TableCell className="text-right">{formatMoney(perUnit)}</TableCell>
+                          <TableCell className="text-right font-medium">{formatMoney(cost)}</TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="icon" className="size-7" title="Списать" onClick={() => openWriteOff({
+                              stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
+                              available: qty, from: { kind: "warehouse" }, locationLabel: "склада",
+                            })}>
+                              <Trash2 className="size-3.5 text-red-500" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
-        ))
+
+          {/* Остатки в филиалах */}
+          {Object.entries(branchGroups).map(([branchName, list]) => (
+            <Card key={branchName}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Филиал · {branchName}</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Наименование</TableHead>
+                      <TableHead className="text-right">Кол-во</TableHead>
+                      <TableHead className="text-right">Стоимость</TableHead>
+                      <TableHead className="w-10" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {list.map(b => {
+                      const qty = Number(b.quantity)
+                      return (
+                        <TableRow key={b.id}>
+                          <TableCell className="font-medium">{b.stockItem.name} <span className="text-muted-foreground text-xs">({b.stockItem.unit})</span></TableCell>
+                          <TableCell className="text-right">{qty}</TableCell>
+                          <TableCell className="text-right font-medium">{formatMoney(Number(b.totalCost))}</TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="icon" className="size-7" title="Списать" onClick={() => openWriteOff({
+                              stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
+                              available: qty, from: { kind: "branch", id: b.branch.id }, locationLabel: `филиала «${b.branch.name}»`,
+                            })}>
+                              <Trash2 className="size-3.5 text-red-500" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          ))}
+        </>
       )}
 
-      {/* Внести на склад (закупка) */}
+      {/* Внести на склад */}
       <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) resetForm() }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Внести на склад</DialogTitle></DialogHeader>
@@ -299,56 +347,8 @@ export default function StockPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Филиал (склад) *</Label>
-                <Select value={branchId} onValueChange={(v) => { if (v) setBranchId(v) }}>
-                  <SelectTrigger className="w-full">
-                    {branches.find(b => b.id === branchId)?.name ?? "Выберите филиал"}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {branches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Счёт оплаты *</Label>
-                <Select value={accountId} onValueChange={(v) => { if (v) setAccountId(v) }}>
-                  <SelectTrigger className="w-full">
-                    {accounts.find(a => a.id === accountId)?.name ?? "Выберите счёт"}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Статья расхода</Label>
-                <Select value={categoryId} onValueChange={(v) => { if (v) setCategoryId(v) }}>
-                  <SelectTrigger className="w-full">
-                    {categories.find(c => c.id === categoryId)?.name ?? "Выберите статью"}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Амортизация (мес.)</Label>
-                <Input type="number" min="2" max="60" value={amortMonths} onChange={(e) => setAmortMonths(e.target.value)} placeholder="Пусто — сразу" />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Комментарий</Label>
-              <Input value={comment} onChange={(e) => setComment(e.target.value)} />
-            </div>
-
             <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-              На сумму {formatMoney(previewSum)} будет создан расход «{categories.find(c => c.id === categoryId)?.name ?? STOCK_CATEGORY_LABEL}» со счёта (ДДС{amortMonths && Number(amortMonths) >= 2 ? `, в ОПИУ — по ${amortMonths} мес.` : " и ОПИУ сразу"}). Затем товар можно переместить в кабинеты.
+              Товар на сумму {formatMoney(previewSum)} попадёт на общий склад. На финансы (ДДС/ОПИУ) не влияет. Дальше его можно переместить в филиалы и кабинеты.
             </p>
 
             <div className="flex justify-end gap-2">
@@ -356,6 +356,29 @@ export default function StockPage() {
               <Button type="submit" disabled={saving}>{saving ? "..." : "Внести на склад"}</Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Списание */}
+      <Dialog open={!!writeOff} onOpenChange={(v) => { if (!v) setWriteOff(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Списание</DialogTitle></DialogHeader>
+          {writeOff && (
+            <form onSubmit={handleWriteOff} className="space-y-4">
+              <p className="text-sm">
+                <b>{writeOff.name}</b> со {writeOff.locationLabel}
+                <br />Доступно: {writeOff.available} {writeOff.unit}
+              </p>
+              <div className="space-y-1.5">
+                <Label>Количество *</Label>
+                <Input type="number" step="0.001" min="0.001" max={writeOff.available} value={woQty} onChange={(e) => setWoQty(e.target.value)} />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setWriteOff(null)}>Отмена</Button>
+                <Button type="submit" variant="destructive" disabled={woSaving}>{woSaving ? "..." : "Списать"}</Button>
+              </div>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>

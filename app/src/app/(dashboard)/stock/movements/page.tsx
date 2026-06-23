@@ -31,13 +31,14 @@ interface Movement {
   createdBy: { firstName: string; lastName: string } | null
 }
 
-// Остатки склада филиала и кабинета — из них собираем «где есть товар».
-interface StockBalance { id: string; quantity: string; stockItem: { id: string; name: string; unit: string }; branch: { id: string; name: string } }
+// Остатки трёх локаций — из них собираем «где есть товар».
+interface WarehouseBalance { id: string; quantity: string; stockItem: { id: string; name: string; unit: string } }
+interface BranchBalance { id: string; quantity: string; stockItem: { id: string; name: string; unit: string }; branch: { id: string; name: string } }
 interface RoomBalance { id: string; quantity: string; stockItem: { id: string; name: string; unit: string }; room: { id: string; name: string; branch: { id: string; name: string } } }
 interface Branch { id: string; name: string; rooms: { id: string; name: string }[] }
 
 const TYPE_LABELS: Record<string, string> = {
-  purchase: "Закупка",
+  purchase: "Внесение",
   transfer: "Перемещение",
   transfer_to_room: "Перемещение",
   write_off: "Списание",
@@ -60,16 +61,21 @@ function formatMoney(v: number) {
 
 // Колонка «Откуда → Куда» в журнале.
 function routeLabel(m: Movement): string {
-  if (m.type === "purchase") return m.fromLabel ? `→ ${m.fromLabel}` : "—"
-  if (m.type === "write_off") return m.toLabel ? `${m.toLabel} →` : "—"
+  if (m.type === "purchase") return m.toLabel ? `→ ${m.toLabel}` : (m.fromLabel ? `→ ${m.fromLabel}` : "—")
+  if (m.type === "write_off") {
+    const src = m.fromLabel ?? m.toLabel
+    return src ? `${src} →` : "—"
+  }
   const parts = [m.fromLabel, m.toLabel].filter(Boolean)
   return parts.length ? parts.join(" → ") : "—"
 }
 
-// Кодируем локацию в значение Select: "warehouse:<branchId>" | "room:<roomId>".
-function parseLoc(v: string): { kind: "warehouse" | "room"; id: string } {
+// Локация в значении Select: "warehouse" | "branch:<id>" | "room:<id>".
+type Loc = { kind: "warehouse" } | { kind: "branch"; id: string } | { kind: "room"; id: string }
+function parseLoc(v: string): Loc {
+  if (v === "warehouse") return { kind: "warehouse" }
   const [kind, id] = v.split(":")
-  return { kind: kind as "warehouse" | "room", id }
+  return { kind: kind as "branch" | "room", id }
 }
 
 export default function MovementsPage() {
@@ -78,7 +84,8 @@ export default function MovementsPage() {
   const [transferOpen, setTransferOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [stockBalances, setStockBalances] = useState<StockBalance[]>([])
+  const [warehouseBalances, setWarehouseBalances] = useState<WarehouseBalance[]>([])
+  const [branchBalances, setBranchBalances] = useState<BranchBalance[]>([])
   const [roomBalances, setRoomBalances] = useState<RoomBalance[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   // Поля формы перемещения (контролируемые — base-ui Select не отдаёт значения в FormData).
@@ -104,29 +111,35 @@ export default function MovementsPage() {
   function openTransfer() {
     resetTransfer()
     Promise.all([
+      fetch("/api/warehouse-balances").then(r => r.ok ? r.json() : []),
       fetch("/api/stock-balances").then(r => r.ok ? r.json() : []),
       fetch("/api/room-balances").then(r => r.ok ? r.json() : []),
       fetch("/api/branches").then(r => r.ok ? r.json() : []),
-    ]).then(([sb, rb, br]) => { setStockBalances(sb); setRoomBalances(rb); setBranches(br) })
+    ]).then(([wh, sb, rb, br]) => { setWarehouseBalances(wh); setBranchBalances(sb); setRoomBalances(rb); setBranches(br) })
     setTransferOpen(true)
   }
 
   // Товары, которые вообще можно переместить — те, что есть хоть где-то (qty > 0).
-  // Это же скрывает «старые» товары без остатков, которые торчали только здесь.
   const movableItems = useMemo(() => {
     const map = new Map<string, { id: string; name: string; unit: string }>()
-    for (const b of stockBalances) if (Number(b.quantity) > 0) map.set(b.stockItem.id, b.stockItem)
+    for (const b of warehouseBalances) if (Number(b.quantity) > 0) map.set(b.stockItem.id, b.stockItem)
+    for (const b of branchBalances) if (Number(b.quantity) > 0) map.set(b.stockItem.id, b.stockItem)
     for (const b of roomBalances) if (Number(b.quantity) > 0) map.set(b.stockItem.id, b.stockItem)
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, "ru"))
-  }, [stockBalances, roomBalances])
+  }, [warehouseBalances, branchBalances, roomBalances])
 
   // Источники для выбранного товара — только локации, где он реально есть.
   const sources = useMemo(() => {
     if (!tItemId) return [] as { key: string; label: string; available: number; unit: string }[]
     const list: { key: string; label: string; available: number; unit: string }[] = []
-    for (const b of stockBalances) {
+    for (const b of warehouseBalances) {
       if (b.stockItem.id === tItemId && Number(b.quantity) > 0) {
-        list.push({ key: `warehouse:${b.branch.id}`, label: `Склад · ${b.branch.name}`, available: Number(b.quantity), unit: b.stockItem.unit })
+        list.push({ key: "warehouse", label: "Склад", available: Number(b.quantity), unit: b.stockItem.unit })
+      }
+    }
+    for (const b of branchBalances) {
+      if (b.stockItem.id === tItemId && Number(b.quantity) > 0) {
+        list.push({ key: `branch:${b.branch.id}`, label: `Филиал · ${b.branch.name}`, available: Number(b.quantity), unit: b.stockItem.unit })
       }
     }
     for (const b of roomBalances) {
@@ -135,13 +148,13 @@ export default function MovementsPage() {
       }
     }
     return list
-  }, [tItemId, stockBalances, roomBalances])
+  }, [tItemId, warehouseBalances, branchBalances, roomBalances])
 
-  // Приёмник — любая локация, кроме выбранного источника.
+  // Приёмник — общий склад, любой филиал или кабинет, кроме выбранного источника.
   const destinations = useMemo(() => {
-    const list: { key: string; label: string }[] = []
+    const list: { key: string; label: string }[] = [{ key: "warehouse", label: "Склад" }]
     for (const br of branches) {
-      list.push({ key: `warehouse:${br.id}`, label: `Склад · ${br.name}` })
+      list.push({ key: `branch:${br.id}`, label: `Филиал · ${br.name}` })
       for (const r of br.rooms) list.push({ key: `room:${r.id}`, label: `${br.name} · каб. ${r.name}` })
     }
     return list.filter(l => l.key !== fromLoc)

@@ -146,6 +146,7 @@ model Organization {
   communications            Communication[]
   integrations              IntegrationConfig[]
   stockItems                StockItem[]
+  warehouseBalances         WarehouseBalance[]
   stockBalances             StockBalance[]
   stockMovements            StockMovement[]
   roomBalances              RoomBalance[]
@@ -748,41 +749,41 @@ model PackageTemplate {
 }
 
 model Subscription {
-  id                     String             @id @default(uuid()) @db.Uuid
-  tenantId               String             @map("tenant_id") @db.Uuid
-  clientId               String             @map("client_id") @db.Uuid
-  wardId                 String?            @map("ward_id") @db.Uuid
-  directionId            String             @map("direction_id") @db.Uuid
-  groupId                String             @map("group_id") @db.Uuid
-  type                   SubscriptionType   @default(calendar)
-  status                 SubscriptionStatus @default(pending)
-  periodYear             Int?               @map("period_year")
-  periodMonth            Int?               @map("period_month")
-  lessonPrice            Decimal            @map("lesson_price") @db.Decimal(12, 2)
-  totalLessons           Int                @map("total_lessons")
-  totalAmount            Decimal            @map("total_amount") @db.Decimal(12, 2)
-  discountAmount         Decimal            @default(0) @map("discount_amount") @db.Decimal(12, 2)
-  finalAmount            Decimal            @map("final_amount") @db.Decimal(12, 2)
-  balance                Decimal            @default(0) @db.Decimal(12, 2)
-  chargedAmount          Decimal            @default(0) @map("charged_amount") @db.Decimal(12, 2)
+  id                     String                     @id @default(uuid()) @db.Uuid
+  tenantId               String                     @map("tenant_id") @db.Uuid
+  clientId               String                     @map("client_id") @db.Uuid
+  wardId                 String?                    @map("ward_id") @db.Uuid
+  directionId            String                     @map("direction_id") @db.Uuid
+  groupId                String                     @map("group_id") @db.Uuid
+  type                   SubscriptionType           @default(calendar)
+  status                 SubscriptionStatus         @default(pending)
+  periodYear             Int?                       @map("period_year")
+  periodMonth            Int?                       @map("period_month")
+  lessonPrice            Decimal                    @map("lesson_price") @db.Decimal(12, 2)
+  totalLessons           Int                        @map("total_lessons")
+  totalAmount            Decimal                    @map("total_amount") @db.Decimal(12, 2)
+  discountAmount         Decimal                    @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  finalAmount            Decimal                    @map("final_amount") @db.Decimal(12, 2)
+  balance                Decimal                    @default(0) @db.Decimal(12, 2)
+  chargedAmount          Decimal                    @default(0) @map("charged_amount") @db.Decimal(12, 2)
   /// Скидки v2: текущая скидка за занятие (эффективная цена = max(0, lessonPrice − discountPerLesson)).
   /// Будущие списания идут по эффективной цене; прошлые — снимок, не пересчитываются.
-  discountPerLesson      Decimal            @default(0) @map("discount_per_lesson") @db.Decimal(12, 2)
+  discountPerLesson      Decimal                    @default(0) @map("discount_per_lesson") @db.Decimal(12, 2)
   /// Скидки v2: источник текущей скидки (type1/type2/legacy/none).
   discountSource         SubscriptionDiscountSource @default(none) @map("discount_source")
-  startDate              DateTime           @map("start_date") @db.Date
-  endDate                DateTime?          @map("end_date") @db.Date
-  expiresAt              DateTime?          @map("expires_at") @db.Date
-  packageTemplateId      String?            @map("package_template_id") @db.Uuid
-  withdrawalReasonId     String?            @map("withdrawal_reason_id") @db.Uuid
-  withdrawalDate         DateTime?          @map("withdrawal_date") @db.Date
-  isTrialCredited        Boolean            @default(false) @map("is_trial_credited")
-  previousSubscriptionId String?            @map("previous_subscription_id") @db.Uuid
-  activatedAt            DateTime?          @map("activated_at")
-  createdBy              String?            @map("created_by") @db.Uuid
-  createdAt              DateTime           @default(now()) @map("created_at")
-  updatedAt              DateTime           @updatedAt @map("updated_at")
-  deletedAt              DateTime?          @map("deleted_at")
+  startDate              DateTime                   @map("start_date") @db.Date
+  endDate                DateTime?                  @map("end_date") @db.Date
+  expiresAt              DateTime?                  @map("expires_at") @db.Date
+  packageTemplateId      String?                    @map("package_template_id") @db.Uuid
+  withdrawalReasonId     String?                    @map("withdrawal_reason_id") @db.Uuid
+  withdrawalDate         DateTime?                  @map("withdrawal_date") @db.Date
+  isTrialCredited        Boolean                    @default(false) @map("is_trial_credited")
+  previousSubscriptionId String?                    @map("previous_subscription_id") @db.Uuid
+  activatedAt            DateTime?                  @map("activated_at")
+  createdBy              String?                    @map("created_by") @db.Uuid
+  createdAt              DateTime                   @default(now()) @map("created_at")
+  updatedAt              DateTime                   @updatedAt @map("updated_at")
+  deletedAt              DateTime?                  @map("deleted_at")
 
   client              Client                     @relation(fields: [clientId], references: [id])
   ward                Ward?                      @relation(fields: [wardId], references: [id])
@@ -1076,11 +1077,12 @@ model Expense {
   updatedAt             DateTime               @updatedAt @map("updated_at")
   deletedAt             DateTime?              @map("deleted_at")
 
-  category    ExpenseCategory  @relation(fields: [categoryId], references: [id])
-  account     FinancialAccount @relation(fields: [accountId], references: [id])
-  branches    ExpenseBranch[]
-  leadChannel LeadChannel?     @relation(fields: [leadChannelId], references: [id])
-  // Расход, автосозданный закупкой на склад (INV-01): связь для трассировки.
+  category       ExpenseCategory  @relation(fields: [categoryId], references: [id])
+  account        FinancialAccount @relation(fields: [accountId], references: [id])
+  branches       ExpenseBranch[]
+  leadChannel    LeadChannel?     @relation(fields: [leadChannelId], references: [id])
+  // legacy: расход от СТАРОЙ закупки на склад (до переработки склада). Новые внесения
+  // денег не двигают; связь сохранена для исторических записей.
   stockMovements StockMovement[]
 
   @@index([tenantId, date])
@@ -1702,31 +1704,31 @@ enum TrialStatus {
 // === ЗАЯВКИ (продажи: выявленная потребность, ещё не записаны на пробное) ===
 
 model Application {
-  id                String              @id @default(uuid()) @db.Uuid
-  tenantId          String              @map("tenant_id") @db.Uuid
-  clientId          String              @map("client_id") @db.Uuid
-  wardId            String              @map("ward_id") @db.Uuid
-  branchId          String              @map("branch_id") @db.Uuid
-  directionId       String              @map("direction_id") @db.Uuid
-  status            ApplicationStatus   @default(active)
+  id                  String              @id @default(uuid()) @db.Uuid
+  tenantId            String              @map("tenant_id") @db.Uuid
+  clientId            String              @map("client_id") @db.Uuid
+  wardId              String              @map("ward_id") @db.Uuid
+  branchId            String              @map("branch_id") @db.Uuid
+  directionId         String              @map("direction_id") @db.Uuid
+  status              ApplicationStatus   @default(active)
   // Этап воронки продаж самой заявки (Заявка/Пробное/Прошёл пробное/Ожидаем оплату).
   // Воронка ведётся по заявке: у одного ребёнка может быть несколько заявок на разных
   // этапах. Ward.salesStage — денормализованное зеркало (макс. этап активных заявок).
   // Для status='active' заявка показывается во вкладке = stage; 'none' тут не используется.
-  stage             WardSalesStage      @default(application)
-  processedToStatus ApplicationOutcome? @map("processed_to_status")
-  processedAt       DateTime?           @map("processed_at")
-  processedBy       String?             @map("processed_by") @db.Uuid
+  stage               WardSalesStage      @default(application)
+  processedToStatus   ApplicationOutcome? @map("processed_to_status")
+  processedAt         DateTime?           @map("processed_at")
+  processedBy         String?             @map("processed_by") @db.Uuid
   // Дата первого платного занятия ПО ЭТОЙ заявке (per-ребёнок/направление).
   // Редактируется в строке «Продаж» (вкладки «Прошёл пробное»/«Ожидаем оплату»).
   // Client.firstPaidLessonDate остаётся агрегатом (min по заявкам + первое платное
   // посещение) для отчётов — пересчитывается recomputeClientFirstPaidLessonDate.
-  firstPaidLessonDate DateTime?         @map("first_paid_lesson_date") @db.Date
-  comment           String?
-  createdBy         String?             @map("created_by") @db.Uuid
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
-  deletedAt         DateTime?           @map("deleted_at")
+  firstPaidLessonDate DateTime?           @map("first_paid_lesson_date") @db.Date
+  comment             String?
+  createdBy           String?             @map("created_by") @db.Uuid
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+  deletedAt           DateTime?           @map("deleted_at")
 
   organization Organization  @relation(fields: [tenantId], references: [id])
   client       Client        @relation(fields: [clientId], references: [id])
@@ -1878,19 +1880,19 @@ model DiscountTemplate {
 // Маркетинговая разовая скидка-бонус. Начисляет +amount на Client.clientBalance
 // через applyBalanceDelta(type=correction). В ДДС не попадает, видна в отчётах.
 model BonusDiscount {
-  id             String   @id @default(uuid()) @db.Uuid
-  tenantId       String   @map("tenant_id") @db.Uuid
-  clientId       String   @map("client_id") @db.Uuid
-  amount         Decimal  @db.Decimal(12, 2)
-  date           DateTime @db.Date
-  comment        String?
-  reason         String
-  responsibleId  String?  @map("responsible_id") @db.Uuid
-  isMarketing    Boolean  @default(false) @map("is_marketing")
-  channelId      String?  @map("channel_id") @db.Uuid
-  createdBy      String?  @map("created_by") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
-  deletedAt      DateTime? @map("deleted_at")
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  clientId      String    @map("client_id") @db.Uuid
+  amount        Decimal   @db.Decimal(12, 2)
+  date          DateTime  @db.Date
+  comment       String?
+  reason        String
+  responsibleId String?   @map("responsible_id") @db.Uuid
+  isMarketing   Boolean   @default(false) @map("is_marketing")
+  channelId     String?   @map("channel_id") @db.Uuid
+  createdBy     String?   @map("created_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+  deletedAt     DateTime? @map("deleted_at")
 
   client      Client       @relation(fields: [clientId], references: [id])
   responsible Employee?    @relation("BonusDiscountResponsible", fields: [responsibleId], references: [id])
@@ -2074,13 +2076,24 @@ enum CandidateStatus {
 }
 
 // === СКЛАД (INV-01..06) ===
+//
+// Три локации товара (никак не связаны финансово — склад чисто информационный):
+//   • Склад (warehouse) — ОДИН общий на организацию, не привязан к филиалу.
+//     Остаток в WarehouseBalance (по одному на (tenant, товар)). В движениях —
+//     флаг from_warehouse/to_warehouse (своего id у общего склада нет).
+//   • Филиал (branch) — остаток в StockBalance (по branch_id).
+//   • Кабинет (room) — остаток в RoomBalance (по room_id).
+// Внесение товара (purchase) идёт ТОЛЬКО на общий склад и НЕ создаёт расход
+// (не попадает в ДДС/ОПИУ). Дальше товар перемещается между локациями.
 
 enum StockMovementType {
+  // purchase — внесение на общий склад (to_warehouse=true). Без финансовых проводок.
   purchase
-  // transfer — перемещение в любом направлении: склад↔кабинет, склад↔склад,
-  // кабинет↔кабинет. Источник/приёмник задаются парами from_*/to_* ниже.
+  // transfer — перемещение в любом направлении между складом/филиалом/кабинетом.
+  // Источник/приёмник задаются флагом from_warehouse/to_warehouse либо
+  // парами from_*/to_* (branch/room) ниже.
   transfer
-  // transfer_to_room — legacy: только склад→кабинет. Оставлен для старых записей.
+  // transfer_to_room — legacy: только филиал→кабинет. Оставлен для старых записей.
   transfer_to_room
   write_off
 }
@@ -2095,15 +2108,36 @@ model StockItem {
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
 
-  organization   Organization    @relation(fields: [tenantId], references: [id])
-  stockBalances  StockBalance[]
-  stockMovements StockMovement[]
-  roomBalances   RoomBalance[]
+  organization      Organization       @relation(fields: [tenantId], references: [id])
+  warehouseBalances WarehouseBalance[]
+  stockBalances     StockBalance[]
+  stockMovements    StockMovement[]
+  roomBalances      RoomBalance[]
 
   @@index([tenantId])
   @@map("stock_items")
 }
 
+// Остаток на общем складе организации. Общий склад один на тенант, поэтому ключ —
+// (tenantId, stockItemId), без привязки к филиалу/кабинету. totalCost — для оценки
+// стоимости запаса (в финансы не идёт).
+model WarehouseBalance {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  stockItemId String   @map("stock_item_id") @db.Uuid
+  quantity    Decimal  @default(0) @db.Decimal(10, 3)
+  totalCost   Decimal  @default(0) @map("total_cost") @db.Decimal(12, 2)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  stockItem    StockItem    @relation(fields: [stockItemId], references: [id])
+
+  @@unique([tenantId, stockItemId])
+  @@index([tenantId])
+  @@map("warehouse_balances")
+}
+
+// Остаток товара в ФИЛИАЛЕ (не на общем складе — тот в WarehouseBalance).
 model StockBalance {
   id          String   @id @default(uuid()) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
@@ -2130,15 +2164,20 @@ model StockMovement {
   quantity           Decimal           @db.Decimal(10, 3)
   unitCost           Decimal?          @map("unit_cost") @db.Decimal(12, 2)
   totalCost          Decimal           @map("total_cost") @db.Decimal(12, 2)
-  // Источник и приёмник перемещения. Склад = *_branch_id, кабинет = *_room_id.
-  // purchase: from_branch_id (куда пришло). write_off: to_room_id (откуда списано).
-  // transfer: один from_* + один to_* (любое направление).
+  // Источник и приёмник перемещения. Общий склад = from_warehouse/to_warehouse
+  // (своего id нет). Филиал = *_branch_id. Кабинет = *_room_id.
+  //   purchase: to_warehouse=true (товар пришёл на общий склад).
+  //   write_off: один from_* (откуда списано).
+  //   transfer: один источник + один приёмник (любое направление).
+  fromWarehouse      Boolean           @default(false) @map("from_warehouse")
+  toWarehouse        Boolean           @default(false) @map("to_warehouse")
   fromBranchId       String?           @map("from_branch_id") @db.Uuid
   fromRoomId         String?           @map("from_room_id") @db.Uuid
   toBranchId         String?           @map("to_branch_id") @db.Uuid
   toRoomId           String?           @map("to_room_id") @db.Uuid
+  // legacy: амортизация и ссылка на расход от старой закупки (новые внесения денег
+  // не двигают). Колонки сохранены для исторических записей.
   amortizationMonths Int?              @map("amortization_months")
-  // Закупка (purchase) создаёт расход (ДДС + ОПИУ); ссылка на него — для трассировки.
   expenseId          String?           @map("expense_id") @db.Uuid
   date               DateTime          @db.Date
   comment            String?

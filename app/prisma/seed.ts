@@ -2471,7 +2471,7 @@ async function step8_enrichment(
 // ============================================================
 async function step9_stockAndCandidates(ctx: Awaited<ReturnType<typeof step1_setup>>) {
   console.log("\n=== STEP 9: Stock & Candidates ===")
-  const { T, brAkad, brPark, instOlga } = ctx
+  const { T, brAkad, brPark } = ctx
 
   // Rooms для перемещений
   const rooms = await db.room.findMany({ where: { tenantId: T } })
@@ -2488,69 +2488,70 @@ async function step9_stockAndCandidates(ctx: Awaited<ReturnType<typeof step1_set
   ])
   console.log("  StockItems: 5")
 
-  // 9B: Закупки (purchase → stockBalance)
-  const purchases = [
-    { item: paper, branch: brAkad, qty: 20, cost: 350 },
-    { item: paper, branch: brPark, qty: 10, cost: 350 },
-    { item: markers, branch: brAkad, qty: 15, cost: 420 },
-    { item: sanitizer, branch: brAkad, qty: 30, cost: 180 },
-    { item: sanitizer, branch: brPark, qty: 20, cost: 180 },
-    { item: crayons, branch: brAkad, qty: 25, cost: 250 },
-    { item: notebooks, branch: brAkad, qty: 100, cost: 45 },
-    { item: notebooks, branch: brPark, qty: 50, cost: 45 },
+  // 9B: Внесение на общий склад (purchase → warehouseBalance). Денег не двигает.
+  const intake = [
+    { item: paper, qty: 30, cost: 350 },
+    { item: markers, qty: 15, cost: 420 },
+    { item: sanitizer, qty: 50, cost: 180 },
+    { item: crayons, qty: 25, cost: 250 },
+    { item: notebooks, qty: 150, cost: 45 },
   ]
-  for (const p of purchases) {
+  for (const p of intake) {
     const totalCost = p.qty * p.cost
     await db.stockMovement.create({
       data: {
         tenantId: T, stockItemId: p.item.id, type: "purchase",
         quantity: p.qty, unitCost: p.cost, totalCost,
-        fromBranchId: p.branch.id, date: new Date("2026-01-15"),
+        toWarehouse: true, date: new Date("2026-01-15"),
       },
     })
-    await db.stockBalance.upsert({
-      where: { stockItemId_branchId: { stockItemId: p.item.id, branchId: p.branch.id } },
-      create: { tenantId: T, stockItemId: p.item.id, branchId: p.branch.id, quantity: p.qty, totalCost },
+    await db.warehouseBalance.upsert({
+      where: { tenantId_stockItemId: { tenantId: T, stockItemId: p.item.id } },
+      create: { tenantId: T, stockItemId: p.item.id, quantity: p.qty, totalCost },
       update: { quantity: { increment: p.qty }, totalCost: { increment: totalCost } },
     })
   }
-  console.log("  Purchases: " + purchases.length)
+  console.log("  Warehouse intake: " + intake.length)
 
-  // 9C: Перемещения в кабинеты
-  const transfers = [
-    { item: paper, fromBranch: brAkad, toRoom: roomAkad1, qty: 5 },
-    { item: markers, fromBranch: brAkad, toRoom: roomAkad1, qty: 4 },
-    { item: sanitizer, fromBranch: brAkad, toRoom: roomAkad1, qty: 10 },
-    { item: sanitizer, fromBranch: brPark, toRoom: roomPark1, qty: 8 },
-    { item: crayons, fromBranch: brAkad, toRoom: roomAkad1, qty: 10 },
-    { item: notebooks, fromBranch: brPark, toRoom: roomPark1, qty: 20 },
-  ]
-  for (const t of transfers) {
-    const bal = await db.stockBalance.findUnique({
-      where: { stockItemId_branchId: { stockItemId: t.item.id, branchId: t.fromBranch.id } },
-    })
-    const unitCost = bal ? Number(bal.totalCost) / Number(bal.quantity) : 0
-    const totalCost = unitCost * t.qty
-
+  // 9C: Перемещения со склада — в филиалы и кабинеты (по средней себестоимости).
+  async function moveFromWarehouse(item: { id: string }, to: { branchId?: string; roomId?: string }, qty: number) {
+    const wb = await db.warehouseBalance.findUnique({ where: { tenantId_stockItemId: { tenantId: T, stockItemId: item.id } } })
+    if (!wb || Number(wb.quantity) < qty) return
+    const unitCost = Number(wb.totalCost) / Number(wb.quantity)
+    const totalCost = Math.round(unitCost * qty * 100) / 100
+    await db.warehouseBalance.update({ where: { id: wb.id }, data: { quantity: { decrement: qty }, totalCost: { decrement: totalCost } } })
     await db.stockMovement.create({
       data: {
-        tenantId: T, stockItemId: t.item.id, type: "transfer_to_room",
-        quantity: t.qty, unitCost, totalCost,
-        fromBranchId: t.fromBranch.id, toRoomId: t.toRoom.id,
+        tenantId: T, stockItemId: item.id, type: "transfer", quantity: qty, unitCost, totalCost,
+        fromWarehouse: true, toBranchId: to.branchId ?? null, toRoomId: to.roomId ?? null,
         date: new Date("2026-02-01"),
       },
     })
-    await db.stockBalance.update({
-      where: { stockItemId_branchId: { stockItemId: t.item.id, branchId: t.fromBranch.id } },
-      data: { quantity: { decrement: t.qty }, totalCost: { decrement: totalCost } },
-    })
-    await db.roomBalance.upsert({
-      where: { roomId_stockItemId: { roomId: t.toRoom.id, stockItemId: t.item.id } },
-      create: { tenantId: T, roomId: t.toRoom.id, stockItemId: t.item.id, quantity: t.qty, totalCost },
-      update: { quantity: { increment: t.qty }, totalCost: { increment: totalCost } },
-    })
+    if (to.branchId) {
+      await db.stockBalance.upsert({
+        where: { stockItemId_branchId: { stockItemId: item.id, branchId: to.branchId } },
+        create: { tenantId: T, stockItemId: item.id, branchId: to.branchId, quantity: qty, totalCost },
+        update: { quantity: { increment: qty }, totalCost: { increment: totalCost } },
+      })
+    } else if (to.roomId) {
+      await db.roomBalance.upsert({
+        where: { roomId_stockItemId: { roomId: to.roomId, stockItemId: item.id } },
+        create: { tenantId: T, roomId: to.roomId, stockItemId: item.id, quantity: qty, totalCost },
+        update: { quantity: { increment: qty }, totalCost: { increment: totalCost } },
+      })
+    }
   }
-  console.log("  Transfers to rooms: " + transfers.length)
+  const transfers = [
+    { item: paper, to: { branchId: brAkad.id }, qty: 8 },
+    { item: paper, to: { roomId: roomAkad1.id }, qty: 5 },
+    { item: markers, to: { roomId: roomAkad1.id }, qty: 4 },
+    { item: sanitizer, to: { branchId: brPark.id }, qty: 12 },
+    { item: sanitizer, to: { roomId: roomAkad1.id }, qty: 10 },
+    { item: crayons, to: { roomId: roomAkad1.id }, qty: 10 },
+    { item: notebooks, to: { roomId: roomPark1.id }, qty: 20 },
+  ]
+  for (const t of transfers) await moveFromWarehouse(t.item, t.to, t.qty)
+  console.log("  Transfers from warehouse: " + transfers.length)
 
   // 9D: Кандидаты
   const candidateDefs = [

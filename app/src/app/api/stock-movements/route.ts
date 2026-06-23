@@ -5,66 +5,97 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
-// ── Общие хелперы складских движений (используются transfer/transfer_to_room/write_off).
-// На складских таблицах нет RLS (см. примечание в POST) — поэтому принадлежность
-// тенанту каждого id проверяем в приложении, прежде чем читать/менять остаток.
+// ── Складские движения. Три локации товара: общий склад (warehouse, один на
+// организацию, без id), филиал (branch) и кабинет (room). Склад чисто
+// информационный — НИ ОДНА операция не двигает деньги (нет расхода в ДДС/ОПИУ).
+// На складских таблицах нет RLS — поэтому принадлежность тенанту каждого id
+// проверяем в приложении, прежде чем читать/менять остаток.
 type Tx = Prisma.TransactionClient
 const round2 = (n: number) => Math.round(n * 100) / 100
+
+// Локация товара: общий склад (без id) | филиал | кабинет.
+type Loc =
+  | { kind: "warehouse" }
+  | { kind: "branch"; id: string }
+  | { kind: "room"; id: string }
 
 async function assertItem(tx: Tx, tenantId: string, stockItemId: string) {
   const item = await tx.stockItem.findFirst({ where: { id: stockItemId, tenantId, deletedAt: null }, select: { id: true } })
   if (!item) throw new Error("ITEM")
 }
 
-async function assertLocation(tx: Tx, tenantId: string, loc: { kind: "warehouse" | "room"; id: string }) {
-  const found = loc.kind === "warehouse"
+async function assertLocation(tx: Tx, tenantId: string, loc: Loc) {
+  if (loc.kind === "warehouse") return // общий склад есть всегда (один на тенант)
+  const found = loc.kind === "branch"
     ? await tx.branch.findFirst({ where: { id: loc.id, tenantId, deletedAt: null }, select: { id: true } })
     : await tx.room.findFirst({ where: { id: loc.id, tenantId, deletedAt: null }, select: { id: true } })
   if (!found) throw new Error("LOCATION")
 }
 
-// Атомарное списание остатка: условный updateMany (quantity >= нужного) не даёт
-// двум параллельным операциям увести остаток в минус (check-then-decrement race).
-// Если уходит весь остаток — переносим всю себестоимость (иначе на нулевом
-// количестве зависал бы дробный totalCost). Возвращает перенесённую себестоимость.
-async function debitWarehouse(tx: Tx, stockItemId: string, branchId: string, quantity: number) {
-  const bal = await tx.stockBalance.findUnique({ where: { stockItemId_branchId: { stockItemId, branchId } } })
+// Атомарное списание остатка из локации. Условный updateMany (quantity >= нужного)
+// не даёт двум параллельным операциям увести остаток в минус. Если уходит весь
+// остаток — переносим всю себестоимость (иначе на нулевом количестве зависал бы
+// дробный totalCost). Возвращает перенесённую себестоимость.
+type BalanceRow = { id: string; quantity: Prisma.Decimal; totalCost: Prisma.Decimal } | null
+async function debit(tx: Tx, tenantId: string, stockItemId: string, loc: Loc, quantity: number) {
+  if (loc.kind === "warehouse") {
+    const bal = await tx.warehouseBalance.findUnique({ where: { tenantId_stockItemId: { tenantId, stockItemId } } })
+    return debitRow(bal, quantity, (id, qty, tc) =>
+      tx.warehouseBalance.updateMany({ where: { id, quantity: { gte: qty } }, data: { quantity: { decrement: qty }, totalCost: { decrement: tc } } }))
+  }
+  if (loc.kind === "branch") {
+    const bal = await tx.stockBalance.findUnique({ where: { stockItemId_branchId: { stockItemId, branchId: loc.id } } })
+    return debitRow(bal, quantity, (id, qty, tc) =>
+      tx.stockBalance.updateMany({ where: { id, quantity: { gte: qty } }, data: { quantity: { decrement: qty }, totalCost: { decrement: tc } } }))
+  }
+  const bal = await tx.roomBalance.findUnique({ where: { roomId_stockItemId: { roomId: loc.id, stockItemId } } })
+  return debitRow(bal, quantity, (id, qty, tc) =>
+    tx.roomBalance.updateMany({ where: { id, quantity: { gte: qty } }, data: { quantity: { decrement: qty }, totalCost: { decrement: tc } } }))
+}
+
+async function debitRow(bal: BalanceRow, quantity: number, decrement: (id: string, qty: number, totalCost: number) => Promise<{ count: number }>) {
   if (!bal || Number(bal.quantity) < quantity) throw new Error("INSUFFICIENT")
   const q = Number(bal.quantity)
   const unitCost = q > 0 ? Number(bal.totalCost) / q : 0
   const totalCost = Math.abs(q - quantity) < 1e-9 ? Number(bal.totalCost) : round2(unitCost * quantity)
-  const dec = await tx.stockBalance.updateMany({
-    where: { id: bal.id, quantity: { gte: quantity } },
-    data: { quantity: { decrement: quantity }, totalCost: { decrement: totalCost } },
-  })
+  const dec = await decrement(bal.id, quantity, totalCost)
   if (dec.count === 0) throw new Error("INSUFFICIENT")
   return { unitCost, totalCost }
 }
 
-async function debitRoom(tx: Tx, stockItemId: string, roomId: string, quantity: number) {
-  const bal = await tx.roomBalance.findUnique({ where: { roomId_stockItemId: { roomId, stockItemId } } })
-  if (!bal || Number(bal.quantity) < quantity) throw new Error("INSUFFICIENT")
-  const q = Number(bal.quantity)
-  const unitCost = q > 0 ? Number(bal.totalCost) / q : 0
-  const totalCost = Math.abs(q - quantity) < 1e-9 ? Number(bal.totalCost) : round2(unitCost * quantity)
-  const dec = await tx.roomBalance.updateMany({
-    where: { id: bal.id, quantity: { gte: quantity } },
-    data: { quantity: { decrement: quantity }, totalCost: { decrement: totalCost } },
-  })
-  if (dec.count === 0) throw new Error("INSUFFICIENT")
-  return { unitCost, totalCost }
-}
-
-async function creditWarehouse(tx: Tx, tenantId: string, stockItemId: string, branchId: string, quantity: number, totalCost: number) {
-  const ex = await tx.stockBalance.findUnique({ where: { stockItemId_branchId: { stockItemId, branchId } } })
-  if (ex) await tx.stockBalance.update({ where: { id: ex.id }, data: { quantity: { increment: quantity }, totalCost: { increment: totalCost } } })
-  else await tx.stockBalance.create({ data: { tenantId, stockItemId, branchId, quantity, totalCost } })
-}
-
-async function creditRoom(tx: Tx, tenantId: string, stockItemId: string, roomId: string, quantity: number, totalCost: number) {
-  const ex = await tx.roomBalance.findUnique({ where: { roomId_stockItemId: { roomId, stockItemId } } })
+// Зачисление остатка в локацию (создаём, если ещё нет).
+async function credit(tx: Tx, tenantId: string, stockItemId: string, loc: Loc, quantity: number, totalCost: number) {
+  if (loc.kind === "warehouse") {
+    const ex = await tx.warehouseBalance.findUnique({ where: { tenantId_stockItemId: { tenantId, stockItemId } } })
+    if (ex) await tx.warehouseBalance.update({ where: { id: ex.id }, data: { quantity: { increment: quantity }, totalCost: { increment: totalCost } } })
+    else await tx.warehouseBalance.create({ data: { tenantId, stockItemId, quantity, totalCost } })
+    return
+  }
+  if (loc.kind === "branch") {
+    const ex = await tx.stockBalance.findUnique({ where: { stockItemId_branchId: { stockItemId, branchId: loc.id } } })
+    if (ex) await tx.stockBalance.update({ where: { id: ex.id }, data: { quantity: { increment: quantity }, totalCost: { increment: totalCost } } })
+    else await tx.stockBalance.create({ data: { tenantId, stockItemId, branchId: loc.id, quantity, totalCost } })
+    return
+  }
+  const ex = await tx.roomBalance.findUnique({ where: { roomId_stockItemId: { roomId: loc.id, stockItemId } } })
   if (ex) await tx.roomBalance.update({ where: { id: ex.id }, data: { quantity: { increment: quantity }, totalCost: { increment: totalCost } } })
-  else await tx.roomBalance.create({ data: { tenantId, roomId, stockItemId, quantity, totalCost } })
+  else await tx.roomBalance.create({ data: { tenantId, roomId: loc.id, stockItemId, quantity, totalCost } })
+}
+
+// Колонки источника/приёмника в журнале движений из локации.
+function fromColumns(loc: Loc) {
+  return {
+    fromWarehouse: loc.kind === "warehouse",
+    fromBranchId: loc.kind === "branch" ? loc.id : null,
+    fromRoomId: loc.kind === "room" ? loc.id : null,
+  }
+}
+function toColumns(loc: Loc) {
+  return {
+    toWarehouse: loc.kind === "warehouse",
+    toBranchId: loc.kind === "branch" ? loc.id : null,
+    toRoomId: loc.kind === "room" ? loc.id : null,
+  }
 }
 
 // Перевод доменных ошибок транзакции в HTTP-ответ. null — ошибка не доменная (пробросить).
@@ -76,44 +107,24 @@ function stockTxError(e: unknown): NextResponse | null {
   return null
 }
 
-// Категория расхода, на которую относится закупка товара на склад (INV-01).
-// Системная (tenantId=null), переменная. Если её нет — создаём тенантную.
-const STOCK_EXPENSE_CATEGORY = "Канцтовары и расходники"
-
+// INV-01: внесение товара на общий склад. Товар по id (существующий) либо по имени
+// (создаём, если нового нет). Денег НЕ двигает — расход не создаётся.
 const purchaseSchema = z
   .object({
     type: z.literal("purchase"),
-    // Товар: либо по id (существующий), либо по имени (создаётся, если нового нет).
     stockItemId: z.string().uuid().optional(),
     itemName: z.string().trim().min(1).optional(),
     unit: z.string().trim().min(1).optional(),
-    branchId: z.string().uuid(),
-    // Счёт оплаты — закупка проводится расходом в ДДС/ОПИУ, деньги уходят со счёта.
-    accountId: z.string().uuid("Выберите счёт оплаты"),
-    // Статья расхода (категория). Если не указана — «Канцтовары и расходники».
-    categoryId: z.string().uuid().optional(),
     quantity: z.number().positive(),
     unitCost: z.number().min(0),
-    amortizationMonths: z.number().int().min(1).optional(),
-    comment: z.string().optional(),
   })
   .refine((d) => d.stockItemId || d.itemName, { message: "Укажите наименование товара" })
 
-const transferSchema = z.object({
-  type: z.literal("transfer_to_room"),
-  stockItemId: z.string().uuid(),
-  fromBranchId: z.string().uuid(),
-  toRoomId: z.string().uuid(),
-  quantity: z.number().positive(),
-  comment: z.string().optional(),
-})
+const locationSchema = z
+  .object({ kind: z.enum(["warehouse", "branch", "room"]), id: z.string().uuid().optional() })
+  .refine((l) => l.kind === "warehouse" || !!l.id, { message: "Не указана локация" })
 
-// INV-02 (расширенный): перемещение в любом направлении. Локация — склад филиала
-// (warehouse) или кабинет (room). Источник и приёмник не должны совпадать.
-const locationSchema = z.object({
-  kind: z.enum(["warehouse", "room"]),
-  id: z.string().uuid(),
-})
+// INV-02: перемещение в любом направлении между складом/филиалом/кабинетом.
 const transferAnySchema = z
   .object({
     type: z.literal("transfer"),
@@ -123,32 +134,34 @@ const transferAnySchema = z
     quantity: z.number().positive(),
     comment: z.string().optional(),
   })
-  .refine((d) => !(d.from.kind === d.to.kind && d.from.id === d.to.id), {
+  .refine((d) => !(d.from.kind === d.to.kind && (d.from.kind === "warehouse" || d.from.id === d.to.id)), {
     message: "Источник и приёмник совпадают",
   })
 
-const writeOffSchema = z.object({
-  type: z.literal("write_off"),
-  stockItemId: z.string().uuid(),
-  roomId: z.string().uuid(),
-  quantity: z.number().positive(),
-  comment: z.string().optional(),
-})
+// INV-03: списание (расход товара). Из любой локации.
+const writeOffSchema = z
+  .object({
+    type: z.literal("write_off"),
+    stockItemId: z.string().uuid(),
+    from: locationSchema.optional(),
+    roomId: z.string().uuid().optional(), // legacy-форма (списание из кабинета)
+    quantity: z.number().positive(),
+    comment: z.string().optional(),
+  })
+  .refine((d) => d.from || d.roomId, { message: "Не указана локация списания" })
 
-export async function GET(req: NextRequest) {
+const toLoc = (l: z.infer<typeof locationSchema>): Loc =>
+  l.kind === "warehouse" ? { kind: "warehouse" } : { kind: l.kind, id: l.id! }
+
+export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const tenantId = session.user.tenantId
-  const { searchParams } = new URL(req.url)
-  const branchId = searchParams.get("branchId")
-
-  const where: any = { tenantId }
-  if (branchId) where.fromBranchId = branchId
 
   const [movements, branches, rooms] = await Promise.all([
     db.stockMovement.findMany({
-      where,
+      where: { tenantId },
       include: {
         stockItem: { select: { name: true, unit: true } },
         createdBy: { select: { firstName: true, lastName: true } },
@@ -163,15 +176,19 @@ export async function GET(req: NextRequest) {
   ])
 
   const branchMap = new Map(branches.map((b) => [b.id, b.name]))
-  // Кабинет показываем с филиалом — как в модалке, иначе «каб. 1 → каб. 1» неоднозначно.
   const roomMap = new Map(rooms.map((r) => [r.id, `${r.branch.name} · каб. ${r.name}`]))
-  const branchLabel = (id: string | null) => (id ? `Склад · ${branchMap.get(id) ?? "—"}` : null)
-  const roomLabel = (id: string | null) => (id ? (roomMap.get(id) ?? "Кабинет · —") : null)
+  // Локация может быть общим складом (флаг), филиалом (branchId) или кабинетом (roomId).
+  const label = (warehouse: boolean, branchId: string | null, roomId: string | null): string | null => {
+    if (warehouse) return "Склад"
+    if (branchId) return `Филиал · ${branchMap.get(branchId) ?? "—"}`
+    if (roomId) return roomMap.get(roomId) ?? "Кабинет · —"
+    return null
+  }
 
   const enriched = movements.map((m) => ({
     ...m,
-    fromLabel: branchLabel(m.fromBranchId) ?? roomLabel(m.fromRoomId),
-    toLabel: roomLabel(m.toRoomId) ?? branchLabel(m.toBranchId),
+    fromLabel: label(m.fromWarehouse, m.fromBranchId, m.fromRoomId),
+    toLabel: label(m.toWarehouse, m.toBranchId, m.toRoomId),
   }))
 
   return NextResponse.json(enriched)
@@ -187,22 +204,12 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const tenantId = session.user.tenantId
 
-  // INV-01: Закупка на склад. Проводится расходом (категория «Канцтовары и
-  // расходники»): полная сумма уходит в ДДС и в ОПИУ/прибыль сразу (по выбору
-  // владельца). Перемещение в кабинет денег не двигает — только склад.
+  // INV-01: внесение на общий склад. Без финансовых проводок.
   if (body.type === "purchase") {
     const parsed = purchaseSchema.safeParse(body)
     if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message }, { status: 400 })
     const d = parsed.data
-    const totalCost = Math.round(d.quantity * d.unitCost * 100) / 100
-
-    // Счёт и филиал — наши.
-    const [account, branch] = await Promise.all([
-      db.financialAccount.findFirst({ where: { id: d.accountId, tenantId, deletedAt: null }, select: { id: true } }),
-      db.branch.findFirst({ where: { id: d.branchId, tenantId, deletedAt: null }, select: { id: true } }),
-    ])
-    if (!account) return NextResponse.json({ error: "Счёт не найден" }, { status: 404 })
-    if (!branch) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
+    const totalCost = round2(d.quantity * d.unitCost)
 
     // Товар: по id или найти существующий по имени (новый создаём в транзакции).
     let resolvedItemId: string | null = null
@@ -215,36 +222,7 @@ export async function POST(req: NextRequest) {
       resolvedItemId = existing?.id ?? null
     }
 
-    // Категория расхода: выбранная в форме или дефолтная «Канцтовары и расходники»
-    // (если её нет — создаём в транзакции ниже).
-    let category: { id: string } | null
-    if (d.categoryId) {
-      category = await db.expenseCategory.findFirst({
-        where: { id: d.categoryId, isActive: true, OR: [{ tenantId }, { tenantId: null }] },
-        select: { id: true },
-      })
-      if (!category) return NextResponse.json({ error: "Статья расхода не найдена" }, { status: 404 })
-    } else {
-      category = await db.expenseCategory.findFirst({
-        where: { name: STOCK_EXPENSE_CATEGORY, isActive: true, OR: [{ tenantId }, { tenantId: null }] },
-        orderBy: { tenantId: "desc" },
-        select: { id: true },
-      })
-    }
-
-    const today = new Date()
-    const amortized = !!d.amortizationMonths && d.amortizationMonths >= 2
-    const startOfMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))
-
     await db.$transaction(async (tx) => {
-      if (!category) {
-        category = await tx.expenseCategory.create({
-          data: { tenantId, name: STOCK_EXPENSE_CATEGORY, isVariable: true, isActive: true, sortOrder: 7 },
-          select: { id: true },
-        })
-      }
-
-      // Новый товар — создаём.
       let itemId = resolvedItemId
       if (!itemId) {
         const created = await tx.stockItem.create({
@@ -253,34 +231,6 @@ export async function POST(req: NextRequest) {
         itemId = created.id
       }
 
-      // Расход: ДДС (по дате) + ОПИУ (сразу или амортизация по N мес).
-      const expense = await tx.expense.create({
-        data: {
-          tenantId,
-          categoryId: category.id,
-          accountId: d.accountId,
-          amount: totalCost,
-          date: today,
-          comment: d.comment ? `Закупка товара: ${d.comment}` : "Закупка товара на склад",
-          isVariable: true,
-          isRecurring: false,
-          recognitionMode: amortized ? "amortized" : "by_payment_date",
-          amortizationMonths: amortized ? d.amortizationMonths : null,
-          amortizationStartDate: amortized ? startOfMonth : null,
-          createdBy: session.user.employeeId,
-        },
-      })
-      // Привязка к филиалу (для scope и ОПИУ); направление не указываем.
-      await tx.expenseBranch.create({
-        data: { tenantId, expenseId: expense.id, branchId: d.branchId, directionId: null },
-      })
-      // Списываем со счёта (ДДС).
-      await tx.financialAccount.update({
-        where: { id: d.accountId },
-        data: { balance: { decrement: totalCost } },
-      })
-
-      // Движение склада + остаток на складе филиала.
       await tx.stockMovement.create({
         data: {
           tenantId,
@@ -289,99 +239,36 @@ export async function POST(req: NextRequest) {
           quantity: d.quantity,
           unitCost: d.unitCost,
           totalCost,
-          fromBranchId: d.branchId,
-          amortizationMonths: d.amortizationMonths,
-          expenseId: expense.id,
-          date: today,
-          comment: d.comment,
+          toWarehouse: true,
+          date: new Date(),
           createdById: session.user.employeeId,
         },
       })
 
-      const existing = await tx.stockBalance.findUnique({
-        where: { stockItemId_branchId: { stockItemId: itemId, branchId: d.branchId } },
-      })
-      if (existing) {
-        await tx.stockBalance.update({
-          where: { id: existing.id },
-          data: { quantity: { increment: d.quantity }, totalCost: { increment: totalCost } },
-        })
-      } else {
-        await tx.stockBalance.create({
-          data: { tenantId, stockItemId: itemId, branchId: d.branchId, quantity: d.quantity, totalCost },
-        })
-      }
+      await credit(tx, tenantId, itemId, { kind: "warehouse" }, d.quantity, totalCost)
     })
 
     return NextResponse.json({ success: true }, { status: 201 })
   }
 
-  // INV-02 (legacy): Перемещение склад → кабинет. Новый UI шлёт type:"transfer";
-  // оставлено для совместимости API. Те же проверки тенанта и атомарность.
-  if (body.type === "transfer_to_room") {
-    const parsed = transferSchema.safeParse(body)
-    if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message }, { status: 400 })
-    const d = parsed.data
-
-    try {
-      await db.$transaction(async (tx) => {
-        await assertItem(tx, tenantId, d.stockItemId)
-        await assertLocation(tx, tenantId, { kind: "warehouse", id: d.fromBranchId })
-        await assertLocation(tx, tenantId, { kind: "room", id: d.toRoomId })
-
-        const { unitCost, totalCost } = await debitWarehouse(tx, d.stockItemId, d.fromBranchId, d.quantity)
-        await creditRoom(tx, tenantId, d.stockItemId, d.toRoomId, d.quantity, totalCost)
-
-        await tx.stockMovement.create({
-          data: {
-            tenantId,
-            stockItemId: d.stockItemId,
-            type: "transfer_to_room",
-            quantity: d.quantity,
-            unitCost,
-            totalCost,
-            fromBranchId: d.fromBranchId,
-            toRoomId: d.toRoomId,
-            date: new Date(),
-            comment: d.comment,
-            createdById: session.user.employeeId,
-          },
-        })
-      })
-    } catch (e) {
-      const resp = stockTxError(e)
-      if (resp) return resp
-      throw e
-    }
-
-    return NextResponse.json({ success: true }, { status: 201 })
-  }
-
-  // INV-02 (расширенный): перемещение в любом направлении (склад↔кабинет,
-  // склад↔склад, кабинет↔кабинет). Деньги не двигаются — только остатки.
-  // Себестоимость переносится по средней (как в transfer_to_room/write_off).
+  // INV-02: перемещение в любом направлении (склад↔филиал↔кабинет). Себестоимость
+  // переносится по средней. Денег не двигает.
   if (body.type === "transfer") {
     const parsed = transferAnySchema.safeParse(body)
     if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message }, { status: 400 })
     const d = parsed.data
+    const from = toLoc(d.from)
+    const to = toLoc(d.to)
 
     try {
       await db.$transaction(async (tx) => {
-        // Товар, источник и приёмник должны принадлежать тенанту (защита от чужих id).
         await assertItem(tx, tenantId, d.stockItemId)
-        await assertLocation(tx, tenantId, d.from)
-        await assertLocation(tx, tenantId, d.to)
+        await assertLocation(tx, tenantId, from)
+        await assertLocation(tx, tenantId, to)
 
-        // 1. Списываем с источника (атомарно, по средней себестоимости).
-        const { unitCost, totalCost } = d.from.kind === "warehouse"
-          ? await debitWarehouse(tx, d.stockItemId, d.from.id, d.quantity)
-          : await debitRoom(tx, d.stockItemId, d.from.id, d.quantity)
+        const { unitCost, totalCost } = await debit(tx, tenantId, d.stockItemId, from, d.quantity)
+        await credit(tx, tenantId, d.stockItemId, to, d.quantity, totalCost)
 
-        // 2. Зачисляем приёмнику (создаём остаток, если его ещё нет).
-        if (d.to.kind === "warehouse") await creditWarehouse(tx, tenantId, d.stockItemId, d.to.id, d.quantity, totalCost)
-        else await creditRoom(tx, tenantId, d.stockItemId, d.to.id, d.quantity, totalCost)
-
-        // 3. Запись в журнал движений.
         await tx.stockMovement.create({
           data: {
             tenantId,
@@ -390,10 +277,8 @@ export async function POST(req: NextRequest) {
             quantity: d.quantity,
             unitCost,
             totalCost,
-            fromBranchId: d.from.kind === "warehouse" ? d.from.id : null,
-            fromRoomId: d.from.kind === "room" ? d.from.id : null,
-            toBranchId: d.to.kind === "warehouse" ? d.to.id : null,
-            toRoomId: d.to.kind === "room" ? d.to.id : null,
+            ...fromColumns(from),
+            ...toColumns(to),
             date: new Date(),
             comment: d.comment,
             createdById: session.user.employeeId,
@@ -409,18 +294,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true }, { status: 201 })
   }
 
-  // INV-03: Списание из кабинета
+  // INV-03: списание (израсходовали). Из любой локации.
   if (body.type === "write_off") {
     const parsed = writeOffSchema.safeParse(body)
     if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message }, { status: 400 })
     const d = parsed.data
+    const from: Loc = d.from ? toLoc(d.from) : { kind: "room", id: d.roomId! }
 
     try {
       await db.$transaction(async (tx) => {
         await assertItem(tx, tenantId, d.stockItemId)
-        await assertLocation(tx, tenantId, { kind: "room", id: d.roomId })
+        await assertLocation(tx, tenantId, from)
 
-        const { unitCost, totalCost } = await debitRoom(tx, d.stockItemId, d.roomId, d.quantity)
+        const { unitCost, totalCost } = await debit(tx, tenantId, d.stockItemId, from, d.quantity)
 
         await tx.stockMovement.create({
           data: {
@@ -430,7 +316,7 @@ export async function POST(req: NextRequest) {
             quantity: d.quantity,
             unitCost,
             totalCost,
-            toRoomId: d.roomId,
+            ...fromColumns(from),
             date: new Date(),
             comment: d.comment,
             createdById: session.user.employeeId,

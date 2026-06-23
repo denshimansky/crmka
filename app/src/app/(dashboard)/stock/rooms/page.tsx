@@ -57,7 +57,7 @@ export default function RoomBalancesPage() {
       body: JSON.stringify({
         type: "write_off",
         stockItemId: writeOffItem.stockItem.id,
-        roomId: writeOffItem.room.id,
+        from: { kind: "room", id: writeOffItem.room.id },
         quantity: Number(fd.get("quantity")),
         comment: fd.get("comment") || undefined,
       }),
