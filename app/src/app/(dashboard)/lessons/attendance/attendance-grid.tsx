@@ -53,6 +53,17 @@ interface AttendanceGridProps {
 // Стили ячейки по коду статуса
 function cellClassName(cell: AttendanceCellData | null): string {
   if (!cell) return "bg-muted/40"
+  // Пробное: фиолетовый = запланировано, зелёный = пришёл, красный = не пришёл.
+  if (cell.isTrial) {
+    switch (cell.trialStatus) {
+      case "attended":
+        return "bg-green-200 hover:bg-green-300 text-green-900"
+      case "no_show":
+        return "bg-red-200 hover:bg-red-300 text-red-900"
+      default:
+        return "bg-violet-200 hover:bg-violet-300 text-violet-900"
+    }
+  }
   if (cell.isPending) return "bg-yellow-100 hover:bg-yellow-200"
   switch (cell.attendanceTypeCode) {
     case "present":
@@ -77,6 +88,15 @@ function cellClassName(cell: AttendanceCellData | null): string {
 
 function cellShort(cell: AttendanceCellData | null): string {
   if (!cell) return ""
+  // Пробное: запланировано = пустая фиолетовая ячейка (как «план» у обычных),
+  // Б = пришёл, Нб = не пришёл.
+  if (cell.isTrial) {
+    switch (cell.trialStatus) {
+      case "attended": return "Б"
+      case "no_show": return "Нб"
+      default: return ""
+    }
+  }
   if (cell.isPending || !cell.attendanceTypeCode) return ""
   switch (cell.attendanceTypeCode) {
     case "present": return "Б"
@@ -187,6 +207,34 @@ export function AttendanceGrid({
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setError(data?.error || "Не удалось обновить отметку")
+        return
+      }
+      router.refresh()
+    } catch {
+      setError("Сеть недоступна. Повторите попытку.")
+    } finally {
+      setMarking(null)
+    }
+  }
+
+  // Отметка пробного — отдельный эндпоинт: статус пробного ведёт побочные эффекты
+  // (Attendance с isTrial, этап заявки, ЗП педагога). Обычная отметка тут не годится.
+  async function markTrial(
+    cellKey: string,
+    trialId: string,
+    status: "scheduled" | "attended" | "no_show",
+  ) {
+    setError(null)
+    setMarking(cellKey)
+    try {
+      const res = await fetch(`/api/trial-lessons/${trialId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data?.error || "Не удалось обновить пробное")
         return
       }
       router.refresh()
@@ -376,7 +424,14 @@ export function AttendanceGrid({
               {rows.map((row) => (
                 <tr key={row.key} className="border-t hover:bg-muted/20">
                   <td className="sticky left-0 z-10 bg-background px-3 py-1.5 whitespace-nowrap">
-                    <div className="font-medium">{row.contragentLabel}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium">{row.contragentLabel}</span>
+                      {row.isTrial && (
+                        <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">
+                          пробное
+                        </span>
+                      )}
+                    </div>
                     {row.parentLabel && (
                       <div className="text-xs text-muted-foreground">{row.parentLabel}</div>
                     )}
@@ -412,47 +467,76 @@ export function AttendanceGrid({
                       >
                         <DropdownMenu>
                           <DropdownMenuTrigger
-                            disabled={isMarking || noTypesAvailable}
+                            disabled={isMarking || (!cell.isTrial && noTypesAvailable)}
                             className={`flex h-7 w-full items-center justify-center text-xs font-medium transition-colors ${cellClassName(cell)} ${isMarking ? "opacity-50" : ""}`}
-                            title={cell.attendanceTypeName || (cell.isPending ? "Ожидание отметки" : "Не отмечен")}
+                            title={
+                              cell.isTrial
+                                ? cell.trialStatus === "attended"
+                                  ? "Пробное — пришёл"
+                                  : cell.trialStatus === "no_show"
+                                    ? "Пробное — не пришёл"
+                                    : "Пробное — запланировано"
+                                : cell.attendanceTypeName || (cell.isPending ? "Ожидание отметки" : "Не отмечен")
+                            }
                           >
                             {cellShort(cell)}
                           </DropdownMenuTrigger>
                           <DropdownMenuContent className="min-w-[180px]">
-                            <DropdownMenuItem
-                              disabled={!cell.attendanceId}
-                              onClick={() =>
-                                markCell(
-                                  cellKey,
-                                  cell.lessonId,
-                                  row.clientId,
-                                  row.wardId,
-                                  null,
-                                  cell.attendanceId,
-                                )
-                              }
-                              className="text-muted-foreground"
-                            >
-                              Не отмечен
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            {typeOptions.map((t) => (
-                              <DropdownMenuItem
-                                key={t.id}
-                                onClick={() =>
-                                  markCell(
-                                    cellKey,
-                                    cell.lessonId,
-                                    row.clientId,
-                                    row.wardId,
-                                    t.id,
-                                    cell.attendanceId,
-                                  )
-                                }
-                              >
-                                {t.name}
-                              </DropdownMenuItem>
-                            ))}
+                            {cell.isTrial ? (
+                              <>
+                                <DropdownMenuItem
+                                  disabled={cell.trialStatus === "scheduled"}
+                                  onClick={() => markTrial(cellKey, cell.trialId!, "scheduled")}
+                                  className="text-muted-foreground"
+                                >
+                                  Не отмечен
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => markTrial(cellKey, cell.trialId!, "attended")}>
+                                  Был (пробное)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => markTrial(cellKey, cell.trialId!, "no_show")}>
+                                  Не пришёл
+                                </DropdownMenuItem>
+                              </>
+                            ) : (
+                              <>
+                                <DropdownMenuItem
+                                  disabled={!cell.attendanceId}
+                                  onClick={() =>
+                                    markCell(
+                                      cellKey,
+                                      cell.lessonId,
+                                      row.clientId,
+                                      row.wardId,
+                                      null,
+                                      cell.attendanceId,
+                                    )
+                                  }
+                                  className="text-muted-foreground"
+                                >
+                                  Не отмечен
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                {typeOptions.map((t) => (
+                                  <DropdownMenuItem
+                                    key={t.id}
+                                    onClick={() =>
+                                      markCell(
+                                        cellKey,
+                                        cell.lessonId,
+                                        row.clientId,
+                                        row.wardId,
+                                        t.id,
+                                        cell.attendanceId,
+                                      )
+                                    }
+                                  >
+                                    {t.name}
+                                  </DropdownMenuItem>
+                                ))}
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>

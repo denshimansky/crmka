@@ -31,6 +31,11 @@ export interface AttendanceCellData {
   attendanceTypeCode: string | null
   attendanceTypeName: string | null
   isPending: boolean
+  // Пробное занятие: ячейка отмечается через /api/trial-lessons/[id], а не через
+  // обычное посещение. trialStatus задаёт цвет/букву, trialId — цель отметки.
+  isTrial?: boolean
+  trialId?: string | null
+  trialStatus?: "scheduled" | "attended" | "no_show" | null
 }
 
 export interface AttendanceRow {
@@ -45,6 +50,7 @@ export interface AttendanceRow {
   instructorLabel: string
   planCount: number
   cells: (AttendanceCellData | null)[] // длина = daysInMonth, null если нет занятия
+  isTrial?: boolean // строка пробного ученика (лид на пробном в группе)
 }
 
 const DAY_OF_WEEK_LABELS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"]
@@ -409,6 +415,78 @@ export default async function LessonsAttendancePage({
       cells,
     })
   }
+
+  // === Пробные ученики (баг #42) ===
+  // Лиды, записанные на пробное в группу, привязаны к реальному занятию группы
+  // (TrialLesson.lessonId). Берём пробные тех занятий, что уже попали в сетку
+  // (значит, прошли все фильтры — группа/филиал/направление/педагог/«свои» у
+  // инструктора), и добавляем строкой в их группу с ячейкой на дату пробного.
+  // Индивидуальные пробные (без группы и без lessonId) в групповую сетку не
+  // попадают — у них нет колонки группы.
+  const lessonById = new Map(lessons.map((l) => [l.id, l]))
+  const lessonIds = lessons.map((l) => l.id)
+  const trialLessons = lessonIds.length > 0
+    ? await db.trialLesson.findMany({
+        where: {
+          tenantId,
+          lessonId: { in: lessonIds },
+          status: { in: ["scheduled", "attended", "no_show"] },
+        },
+        select: {
+          id: true,
+          status: true,
+          lessonId: true,
+          clientId: true,
+          wardId: true,
+          client: { select: { firstName: true, lastName: true } },
+          ward: { select: { firstName: true, lastName: true, birthDate: true } },
+        },
+      })
+    : []
+
+  const trialRowByKey = new Map<string, AttendanceRow>()
+  for (const t of trialLessons) {
+    const l = t.lessonId ? lessonById.get(t.lessonId) : null
+    if (!l) continue
+    const g = groupById.get(l.groupId)
+    if (!g) continue
+    const day = l.date.getUTCDate()
+    const key = `trial|${t.clientId}|${t.wardId || ""}|${l.groupId}`
+    let row = trialRowByKey.get(key)
+    if (!row) {
+      const parent = clientName(t.client)
+      const contragentLabel = t.ward
+        ? clientName({ firstName: t.ward.firstName, lastName: t.ward.lastName })
+        : parent
+      row = {
+        key,
+        clientId: t.clientId,
+        wardId: t.wardId,
+        contragentLabel,
+        parentLabel: t.ward ? parent : null,
+        birthDate: t.ward?.birthDate ? t.ward.birthDate.toISOString().slice(0, 10) : null,
+        toPayAmount: null,
+        groupName: g.name,
+        instructorLabel: instructorShortName(g.instructor),
+        planCount: 0,
+        cells: Array.from({ length: daysInMonth }, () => null),
+        isTrial: true,
+      }
+      trialRowByKey.set(key, row)
+    }
+    row.cells[day - 1] = {
+      lessonId: l.id,
+      attendanceId: null,
+      attendanceTypeCode: null,
+      attendanceTypeName: null,
+      isPending: false,
+      isTrial: true,
+      trialId: t.id,
+      trialStatus: t.status as "scheduled" | "attended" | "no_show",
+    }
+    row.planCount++
+  }
+  rows.push(...trialRowByKey.values())
 
   // Сортировка: сначала по группе, потом по ФИО контрагента
   rows.sort((a, b) => {
