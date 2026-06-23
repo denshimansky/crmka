@@ -4,7 +4,6 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import type { Loc } from "@/components/move-stock-dialog"
@@ -17,11 +16,14 @@ export interface WriteOffSource {
   unitCost: number
   from: Loc
   fromLabel: string
-  branchId?: string // филиал источника — для предвыбора в «Филиалы»
+  // Филиал источника. Задан для списания из филиала/кабинета — расход жёстко
+  // относится к этому филиалу (изменить нельзя: товар физически там). Для общего
+  // склада не задан — расход распределяется по выручке.
+  branchId?: string
+  branchName?: string
 }
 
 export interface WriteOffCategory { id: string; name: string; isVariable: boolean }
-export interface WriteOffBranch { id: string; name: string }
 export interface WriteOffDirection { id: string; name: string }
 
 type RecognitionMode = "by_payment_date" | "single_period" | "amortized"
@@ -49,14 +51,12 @@ function formatMoney(amount: number): string {
 export function WriteOffStockDialog({
   source,
   categories,
-  branches,
   directions,
   onClose,
   onDone,
 }: {
   source: WriteOffSource | null
   categories: WriteOffCategory[]
-  branches: WriteOffBranch[]
   directions: WriteOffDirection[]
   onClose: () => void
   onDone: () => void
@@ -67,7 +67,6 @@ export function WriteOffStockDialog({
   const [categoryId, setCategoryId] = useState("")
   const [quantity, setQuantity] = useState("")
   const [date, setDate] = useState(todayIso)
-  const [selectedBranches, setSelectedBranches] = useState<string[]>([])
   const [directionId, setDirectionId] = useState("")
   const [comment, setComment] = useState("")
   const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>("by_payment_date")
@@ -83,7 +82,6 @@ export function WriteOffStockDialog({
     setCategoryId(stockCat?.id ?? "")
     setQuantity("")
     setDate(todayIso)
-    setSelectedBranches(source?.branchId ? [source.branchId] : [])
     setDirectionId("")
     setComment("")
     setRecognitionMode("by_payment_date")
@@ -95,10 +93,6 @@ export function WriteOffStockDialog({
   }, [source])
 
   if (!source) return null
-
-  function toggleBranch(branchId: string) {
-    setSelectedBranches((prev) => prev.includes(branchId) ? prev.filter((b) => b !== branchId) : [...prev, branchId])
-  }
 
   const qtyNum = Number(quantity) || 0
   const previewAmount = qtyNum > 0 ? Math.round(qtyNum * source.unitCost * 100) / 100 : 0
@@ -139,7 +133,7 @@ export function WriteOffStockDialog({
         quantity: qtyNum,
         categoryId,
         date,
-        branchIds: selectedBranches,
+        branchIds: source.branchId ? [source.branchId] : [],
         directionId: directionId || null,
         recognitionMode,
         amortizationStartDate,
@@ -201,22 +195,17 @@ export function WriteOffStockDialog({
             Сумма списания ≈ {formatMoney(previewAmount)} (кол-во × себестоимость). Расход идёт в ОПИУ, в ДДС не попадает (деньги не двигаются).
           </p>
 
-          {branches.length > 0 && (
-            <div className="space-y-1.5">
-              <Label>Филиалы</Label>
-              <div className="flex flex-wrap gap-2">
-                {branches.map((b) => (
-                  <label key={b.id} className="flex items-center gap-1.5 text-sm">
-                    <Checkbox checked={selectedBranches.includes(b.id)} onCheckedChange={() => toggleBranch(b.id)} />
-                    {b.name}
-                  </label>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {selectedBranches.length === 0 ? "Не выбрано — распределится по выручке" : `Выбрано: ${selectedBranches.length}`}
-              </p>
-            </div>
-          )}
+          <div className="space-y-1.5">
+            <Label>Филиал</Label>
+            {source.branchId && source.branchName ? (
+              <>
+                <p className="text-sm font-medium">{source.branchName}</p>
+                <p className="text-xs text-muted-foreground">Товар лежит здесь — расход относится к этому филиалу (изменить нельзя).</p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Общий склад — расход распределится по выручке между филиалами.</p>
+            )}
+          </div>
 
           {directions.length > 0 && (
             <div className="space-y-1.5">

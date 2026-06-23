@@ -128,7 +128,7 @@ export default function RoomBalancesPage() {
                                   <Button variant="ghost" size="sm" className="h-7 text-red-600 hover:text-red-700" onClick={() => setWriteOffSource({
                                     stockItemId: row.stockItemId, itemName: row.name, unit: row.unit,
                                     available: qty, unitCost: qty > 0 ? cost / qty : 0,
-                                    from: row.from, fromLabel: row.fromLabel, branchId: row.branchId,
+                                    from: row.from, fromLabel: row.fromLabel, branchId: row.branchId, branchName: b.room.branch.name,
                                   })}>Списать</Button>
                                 </TableCell>
                               </TableRow>
@@ -160,7 +160,6 @@ export default function RoomBalancesPage() {
       <WriteOffStockDialog
         source={writeOffSource}
         categories={categories}
-        branches={branches}
         directions={directions}
         onClose={() => setWriteOffSource(null)}
         onDone={load}

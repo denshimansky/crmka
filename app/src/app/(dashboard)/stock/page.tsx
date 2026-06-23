@@ -64,6 +64,7 @@ interface LocationRow {
   from: WriteOffSource["from"]
   fromLabel: string
   branchId: string
+  branchName: string
 }
 
 function formatMoney(v: number) {
@@ -177,7 +178,7 @@ export default function StockPage() {
     g.rows.push({
       key: b.id, stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
       quantity: qty, totalCost: Number(b.totalCost), cabinet: null,
-      from: { kind: "branch", id: b.branch.id }, fromLabel: `Филиал · ${b.branch.name}`, branchId: b.branch.id,
+      from: { kind: "branch", id: b.branch.id }, fromLabel: `Филиал · ${b.branch.name}`, branchId: b.branch.id, branchName: b.branch.name,
     })
   }
   for (const b of roomBalances) {
@@ -187,7 +188,7 @@ export default function StockPage() {
     g.rows.push({
       key: b.id, stockItemId: b.stockItem.id, name: b.stockItem.name, unit: b.stockItem.unit,
       quantity: qty, totalCost: Number(b.totalCost), cabinet: b.room.name,
-      from: { kind: "room", id: b.room.id }, fromLabel: `${b.room.branch.name} · каб. ${b.room.name}`, branchId: b.room.branch.id,
+      from: { kind: "room", id: b.room.id }, fromLabel: `${b.room.branch.name} · каб. ${b.room.name}`, branchId: b.room.branch.id, branchName: b.room.branch.name,
     })
   }
   // Сортировка строк внутри филиала: по наименованию, затем по кабинету.
@@ -208,11 +209,11 @@ export default function StockPage() {
       available: row.quantity, from: row.from, fromLabel: row.fromLabel,
     })
   }
-  function writeOffFrom(row: { stockItemId: string; name: string; unit: string; quantity: number; totalCost: number; from: WriteOffSource["from"]; fromLabel: string; branchId?: string }) {
+  function writeOffFrom(row: { stockItemId: string; name: string; unit: string; quantity: number; totalCost: number; from: WriteOffSource["from"]; fromLabel: string; branchId?: string; branchName?: string }) {
     setWriteOffSource({
       stockItemId: row.stockItemId, itemName: row.name, unit: row.unit,
       available: row.quantity, unitCost: row.quantity > 0 ? row.totalCost / row.quantity : 0,
-      from: row.from, fromLabel: row.fromLabel, branchId: row.branchId,
+      from: row.from, fromLabel: row.fromLabel, branchId: row.branchId, branchName: row.branchName,
     })
   }
 
@@ -370,7 +371,6 @@ export default function StockPage() {
       <WriteOffStockDialog
         source={writeOffSource}
         categories={categories}
-        branches={branches}
         directions={directions}
         onClose={() => setWriteOffSource(null)}
         onDone={load}
