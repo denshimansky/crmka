@@ -12,13 +12,17 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
-import { PackagePlus, ArrowRight, ArrowRightLeft, Package, Upload } from "lucide-react"
+import { PackagePlus, ArrowRight, ArrowRightLeft, Package, Upload, Download } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
 import { StockImportDialog } from "@/components/stock-import-dialog"
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { exportToExcel } from "@/lib/export-excel"
 import { MoveStockDialog, type MoveSource, type MoveBranch } from "@/components/move-stock-dialog"
 import {
   WriteOffStockDialog, type WriteOffSource, type WriteOffCategory, type WriteOffDirection,
@@ -204,6 +208,64 @@ export default function StockPage() {
   const warehouseRows = warehouse.filter((b) => Number(b.quantity) > 0)
   const whCost = warehouseRows.reduce((s, b) => s + Number(b.totalCost), 0)
 
+  // === Выгрузка остатков в Excel (баг #48): всё / общий склад / конкретный филиал ===
+  const round2 = (n: number) => Math.round(n * 100) / 100
+  const STOCK_COLUMNS = [
+    { header: "Склад/Филиал", key: "location", width: 22 },
+    { header: "Кабинет", key: "cabinet", width: 18 },
+    { header: "Наименование", key: "name", width: 28 },
+    { header: "Ед.", key: "unit", width: 8 },
+    { header: "Кол-во", key: "quantity", width: 10 },
+    { header: "Сумма, ₽", key: "amount", width: 14 },
+  ]
+  const warehouseExportRows = (): Record<string, string | number>[] =>
+    warehouseRows.map((b) => ({
+      location: "Общий склад", cabinet: "",
+      name: b.stockItem.name, unit: b.stockItem.unit,
+      quantity: Number(b.quantity), amount: round2(Number(b.totalCost)),
+    }))
+  const branchExportRows = (branchId: string): Record<string, string | number>[] => {
+    const g = branchGroups[branchId]
+    if (!g) return []
+    return g.rows.map((r) => ({
+      location: `Филиал · ${r.branchName}`, cabinet: r.cabinet ?? "— на филиале —",
+      name: r.name, unit: r.unit,
+      quantity: r.quantity, amount: round2(r.totalCost),
+    }))
+  }
+  function downloadStock(scope: "all" | "warehouse" | string) {
+    let rows: Record<string, string | number>[]
+    let label: string
+    let fnameScope: string
+    if (scope === "all") {
+      rows = [...warehouseExportRows(), ...Object.keys(branchGroups).flatMap((id) => branchExportRows(id))]
+      label = "всё"; fnameScope = "all"
+    } else if (scope === "warehouse") {
+      rows = warehouseExportRows()
+      label = "Общий склад"; fnameScope = "warehouse"
+    } else {
+      const name = branchGroups[scope]?.branchName ?? ""
+      rows = branchExportRows(scope)
+      label = `Филиал · ${name}`; fnameScope = `branch-${name.replace(/\s+/g, "_")}`
+    }
+    if (rows.length === 0) return
+    const total = rows.reduce((s, r) => s + Number(r.amount), 0)
+    rows.push({ location: "Итого", cabinet: "", name: "", unit: "", quantity: "", amount: round2(total) })
+    exportToExcel({
+      title: `Остатки склада — ${label}`,
+      columns: STOCK_COLUMNS,
+      rows,
+      filename: `stock-${fnameScope}-${new Date().toISOString().slice(0, 10)}`,
+      sheetName: "Остатки",
+      metadata: {
+        generated: new Date().toLocaleDateString("ru-RU", {
+          day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+        }),
+      },
+    })
+  }
+  const hasAnyStock = warehouseRows.length > 0 || Object.keys(branchGroups).length > 0
+
   const previewSum = Number(quantity) > 0 && Number(unitCost) >= 0
     ? Number(quantity) * Number(unitCost)
     : 0
@@ -230,6 +292,25 @@ export default function StockPage() {
           <PageHelp pageKey="stock" />
         </div>
         <div className="flex items-center gap-2">
+          {hasAnyStock && (
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                <Download className="size-4 mr-1" /> Скачать Excel
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[200px]">
+                <DropdownMenuItem onClick={() => downloadStock("all")}>Всё вместе</DropdownMenuItem>
+                {warehouseRows.length > 0 && (
+                  <DropdownMenuItem onClick={() => downloadStock("warehouse")}>Общий склад</DropdownMenuItem>
+                )}
+                {Object.keys(branchGroups).length > 0 && <DropdownMenuSeparator />}
+                {Object.entries(branchGroups).map(([id, g]) => (
+                  <DropdownMenuItem key={id} onClick={() => downloadStock(id)}>
+                    Филиал · {g.branchName}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Link href="/stock/rooms">
             <Button variant="outline" size="sm">
               <Package className="size-4 mr-1" /> Кабинеты

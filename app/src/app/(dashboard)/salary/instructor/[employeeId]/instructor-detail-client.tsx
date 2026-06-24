@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { PayByDirectionDialog } from "./pay-by-direction-dialog"
 import { PageHelp } from "@/components/page-help"
+import { ReportExport } from "@/components/report-export"
 
 interface DirectionDetail {
   directionId: string | null
@@ -82,6 +83,27 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
   if (!data) return null
 
   const monthName = new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const monthKey = `${year}-${String(month).padStart(2, "0")}`
+
+  // Расшифровка по занятиям для выгрузки в Excel: одна строка на занятие
+  // (направление/дата/группа/тип/ученики/начислено), затем премии−штрафы и Итого.
+  const hasExport = data.lessons.length > 0 || data.adjustments.net !== 0
+  const exportRows: Record<string, string | number>[] = [
+    ...[...data.lessons]
+      .sort((a, b) => a.directionName.localeCompare(b.directionName, "ru") || a.date.localeCompare(b.date))
+      .map((l) => ({
+        direction: l.directionName,
+        date: new Date(l.date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }),
+        group: l.groupName,
+        type: l.typeName,
+        students: l.studentsCharged,
+        amount: Math.round(l.amount),
+      })),
+    ...(data.adjustments.net !== 0
+      ? [{ direction: "Премии − штрафы (без направления)", date: "", group: "", type: "", students: "", amount: Math.round(data.adjustments.net) }]
+      : []),
+    { direction: "Итого", date: "", group: "", type: "", students: "", amount: Math.round(data.totals.accrued) },
+  ]
 
   return (
     <div className="space-y-6">
@@ -98,12 +120,31 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
             <p className="text-sm text-muted-foreground">Детализация ЗП — {monthName}</p>
           </div>
         </div>
-        {data.canPay && (
-          <div className="flex items-center gap-2">
-            <PayByDirectionDialog mode="advance" data={data} onPaid={load} />
-            <PayByDirectionDialog mode="remainder" data={data} onPaid={load} />
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {hasExport && (
+            <ReportExport
+              title={`Детализация ЗП — ${data.employee.name}`}
+              filename={`salary-${data.employee.name.replace(/\s+/g, "_")}-${monthKey}`}
+              sheetName="Детализация ЗП"
+              period={monthName}
+              columns={[
+                { header: "Направление", key: "direction", width: 22 },
+                { header: "Дата", key: "date", width: 12 },
+                { header: "Группа", key: "group", width: 26 },
+                { header: "Тип", key: "type", width: 14 },
+                { header: "Учеников", key: "students", width: 10 },
+                { header: "Начислено, ₽", key: "amount", width: 14 },
+              ]}
+              rows={exportRows}
+            />
+          )}
+          {data.canPay && (
+            <>
+              <PayByDirectionDialog mode="advance" data={data} onPaid={load} />
+              <PayByDirectionDialog mode="remainder" data={data} onPaid={load} />
+            </>
+          )}
+        </div>
       </div>
 
       {data.periodLocked && (
