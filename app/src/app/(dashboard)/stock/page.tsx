@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useSession } from "next-auth/react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,9 +12,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
-import { PackagePlus, ArrowRight, ArrowRightLeft, Package } from "lucide-react"
+import { PackagePlus, ArrowRight, ArrowRightLeft, Package, Upload } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
+import { StockImportDialog } from "@/components/stock-import-dialog"
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 } from "@/components/ui/context-menu"
@@ -72,6 +74,9 @@ function formatMoney(v: number) {
 }
 
 export default function StockPage() {
+  const { data: session } = useSession()
+  const isOwner = (session?.user as { role?: string } | undefined)?.role === "owner"
+  const [importOpen, setImportOpen] = useState(false)
   const [warehouse, setWarehouse] = useState<WarehouseBalance[]>([])
   const [branchBalances, setBranchBalances] = useState<BranchBalance[]>([])
   const [roomBalances, setRoomBalances] = useState<RoomBalance[]>([])
@@ -235,6 +240,11 @@ export default function StockPage() {
               <ArrowRight className="size-4 mr-1" /> Движения товаров
             </Button>
           </Link>
+          {isOwner && (
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+              <Upload className="size-4 mr-1" /> Загрузить остатки
+            </Button>
+          )}
           <Button size="sm" onClick={() => { resetForm(); setAddOpen(true) }}>
             <PackagePlus className="size-4 mr-1" /> Внести на склад
           </Button>
@@ -375,6 +385,11 @@ export default function StockPage() {
         onClose={() => setWriteOffSource(null)}
         onDone={load}
       />
+
+      {/* Загрузить остатки (только владелец) — перенос старых товаров при переезде */}
+      {isOwner && (
+        <StockImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={load} />
+      )}
 
       {/* Внести на склад */}
       <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) resetForm() }}>
