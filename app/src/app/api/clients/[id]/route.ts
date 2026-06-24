@@ -38,6 +38,8 @@ const updateSchema = z.object({
   promisedPaymentDate: nullableString,
   firstPaidLessonDate: nullableString,
   discountTemplateId: z.string().uuid().nullable().optional(),
+  // Баг #50: «Без скидки вручную» — явный запрет автоматических скидок родителю.
+  autoDiscountDisabled: z.boolean().optional(),
 })
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -124,6 +126,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Баг #50: «Без скидки вручную» (autoDiscountDisabled) и шаблон скидки (тип 2)
+  // взаимоисключающи. Включение запрета сбрасывает выбранный шаблон; выбор
+  // шаблона снимает запрет. Оба поля в одном PATCH — ошибка ввода.
+  if (data.autoDiscountDisabled === true && data.discountTemplateId) {
+    return NextResponse.json(
+      { error: "Нельзя одновременно выбрать шаблон скидки и запретить скидки" },
+      { status: 400 },
+    )
+  }
+  if (data.autoDiscountDisabled === true) data.discountTemplateId = null
+  if (data.discountTemplateId) data.autoDiscountDisabled = false
+
   // Скидки v2: вручную выбирается только постоянный шаблон (тип 2).
   // Автоскидка «за второй абонемент» (тип 1) и легаси-шаблоны не выбираются.
   if (data.discountTemplateId !== undefined && data.discountTemplateId !== null) {
@@ -186,6 +200,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(data.promisedPaymentDate !== undefined && { promisedPaymentDate: data.promisedPaymentDate ? new Date(data.promisedPaymentDate) : null }),
         ...(data.firstPaidLessonDate !== undefined && { firstPaidLessonDate: data.firstPaidLessonDate ? new Date(data.firstPaidLessonDate) : null }),
         ...(data.discountTemplateId !== undefined && { discountTemplateId: data.discountTemplateId }),
+        ...(data.autoDiscountDisabled !== undefined && { autoDiscountDisabled: data.autoDiscountDisabled }),
         // segmentOverride: null допустим (сброс к «Авто»), поэтому проверяем
         // именно на undefined, а не на truthiness.
         ...(data.segmentOverride !== undefined && { segmentOverride: data.segmentOverride }),
@@ -193,7 +208,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       include: { wards: true, branch: { select: { id: true, name: true } } },
     })
 
-    if (data.discountTemplateId !== undefined) {
+    if (data.discountTemplateId !== undefined || data.autoDiscountDisabled !== undefined) {
       await recalcClientDiscounts(tx, {
         tenantId: session.user.tenantId,
         clientId: id,

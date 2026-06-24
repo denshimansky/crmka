@@ -336,6 +336,7 @@ export async function ClientCardContent({
               hasType1Discount={activeSubscriptions.some(
                 (s) => s.discountSource === "type1",
               )}
+              initialAutoDiscountDisabled={client.autoDiscountDisabled}
             />
           </div>
         </div>

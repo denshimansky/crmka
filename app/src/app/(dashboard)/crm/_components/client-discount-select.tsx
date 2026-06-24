@@ -11,6 +11,12 @@ import { Tag } from "lucide-react"
 // Автоскидка «за второй абонемент» (тип 1) показывается индикатором,
 // когда она действует на абонементах клиента, — выбрать или снять её
 // руками нельзя (управляется только тогглом в настройках организации).
+//
+// Баг #50: отдельное значение «Без скидки (вручную)» (sentinel "no-auto")
+// явно запрещает любые автоматические скидки родителю — ни тип 1, ни тип 2.
+// Разовые скидки-бонусы на баланс при этом остаются доступны (отдельная кнопка).
+
+const NO_AUTO = "no-auto"
 
 interface TemplateOption {
   id: string
@@ -38,6 +44,7 @@ export function ClientDiscountSelect({
   initialTemplateId,
   initialTemplate,
   hasType1Discount,
+  initialAutoDiscountDisabled,
 }: {
   clientId: string
   initialTemplateId: string | null
@@ -52,11 +59,15 @@ export function ClientDiscountSelect({
   } | null
   /** Действует ли на абонементах клиента автоскидка «за второй абонемент». */
   hasType1Discount?: boolean
+  /** Баг #50: у родителя явно запрещены автоскидки («Без скидки вручную»). */
+  initialAutoDiscountDisabled?: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [options, setOptions] = useState<TemplateOption[]>([])
-  const [value, setValue] = useState<string>(initialTemplateId ?? "none")
+  const [value, setValue] = useState<string>(
+    initialAutoDiscountDisabled ? NO_AUTO : initialTemplateId ?? "none",
+  )
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
@@ -75,10 +86,16 @@ export function ClientDiscountSelect({
     if (loading) return
     setLoading(true)
     try {
+      // «Без скидки (вручную)» — взаимоисключающе с шаблоном: всегда шлём оба
+      // поля, чтобы выбор одного снимал другое (сервер тоже это гарантирует).
+      const body =
+        next === NO_AUTO
+          ? { discountTemplateId: null, autoDiscountDisabled: true }
+          : { discountTemplateId: next === "none" ? null : next, autoDiscountDisabled: false }
       const res = await fetch(`/api/clients/${clientId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ discountTemplateId: next === "none" ? null : next }),
+        body: JSON.stringify(body),
       })
       if (res.ok) {
         setValue(next)
@@ -95,15 +112,18 @@ export function ClientDiscountSelect({
   // Название берём из загруженного списка; пока он не загружен (или шаблон уже
   // деактивирован и в списке его нет) — из initialTemplate, переданного сервером.
   const selected = options.find((o) => o.id === value)
-  const label = selected
-    ? shortTitle(selected)
-    : value !== "none" && initialTemplate
-      ? shortTitle(initialTemplate)
-      : value !== "none"
-        ? "…"
-        : hasType1Discount
-          ? "Скидка за второй абонемент (авто)"
-          : "Без скидки"
+  let label: string
+  if (value === NO_AUTO) {
+    label = "Без скидки (вручную)"
+  } else if (selected) {
+    label = shortTitle(selected)
+  } else if (value !== "none" && initialTemplate) {
+    label = shortTitle(initialTemplate)
+  } else if (value !== "none") {
+    label = "…"
+  } else {
+    label = hasType1Discount ? "Скидка за второй абонемент (авто)" : "Без скидки"
+  }
 
   return (
     <Select
@@ -119,6 +139,7 @@ export function ClientDiscountSelect({
         <SelectItem value="none">
           {hasType1Discount ? "Без скидки (действует автоскидка)" : "Без скидки"}
         </SelectItem>
+        <SelectItem value={NO_AUTO}>Без скидки (вручную — запрет автоскидок)</SelectItem>
         {options.map((o) => (
           <SelectItem key={o.id} value={o.id}>
             {shortTitle(o)}

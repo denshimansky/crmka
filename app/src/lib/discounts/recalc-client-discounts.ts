@@ -268,24 +268,27 @@ export async function recalcClientDiscounts(
 
   const client = await t.client.findFirst({
     where: { id: input.clientId, tenantId: input.tenantId, deletedAt: null },
-    select: { id: true, discountTemplateId: true },
+    select: { id: true, discountTemplateId: true, autoDiscountDisabled: true },
   })
   if (!client) return result
 
   // Тип 2: выбранный в карточке permanent-шаблон (не легаси). Грузим и
   // выключенный: «выключение шаблона — выданные скидки доживают», поэтому
   // выключенный, но выбранный шаблон блокирует любые изменения скидок клиента.
-  const t2Row = client.discountTemplateId
-    ? await t.discountTemplate.findFirst({
-        where: {
-          id: client.discountTemplateId,
-          tenantId: input.tenantId,
-          kind: "permanent",
-          isLegacy: false,
-        },
-        select: { id: true, name: true, valueType: true, value: true, isActive: true },
-      })
-    : null
+  // Баг #50: при запрете автоскидок шаблон типа 2 игнорируем (даже если он
+  // по какой-то причине остался выбран) — клиент уходит в ветку снятия скидок ниже.
+  const t2Row =
+    client.discountTemplateId && !client.autoDiscountDisabled
+      ? await t.discountTemplate.findFirst({
+          where: {
+            id: client.discountTemplateId,
+            tenantId: input.tenantId,
+            kind: "permanent",
+            isLegacy: false,
+          },
+          select: { id: true, name: true, valueType: true, value: true, isActive: true },
+        })
+      : null
   if (t2Row && !t2Row.isActive) {
     // Шаблон типа 2 выключен организацией, но выбран у клиента: выданные
     // скидки доживают, новые абонементы — без скидки, тип 1 не действует
@@ -450,6 +453,21 @@ export async function recalcClientDiscounts(
     // Локально отражаем изменение для последующих шагов этого же прогона.
     sub.discountPerLesson = newPerLesson
     sub.discountSource = newSource as Row["discountSource"]
+  }
+
+  // Баг #50: родитель с явным запретом автоскидок («Без скидки вручную»).
+  // Ни тип 1, ни тип 2 не действуют и не применяются к новым абонементам.
+  // Уже выданные скидки (тип 1/тип 2) снимаются с ОСТАВШИХСЯ занятий — прошлые
+  // списания остаются снимком. Легаси-скидки заморожены и не трогаются.
+  // Разовые скидки-бонусы на баланс — отдельный механизм, здесь не затрагиваются.
+  if (client.autoDiscountDisabled) {
+    for (const sub of [...calendarSubs, ...packageSubs]) {
+      if (sub.status !== "pending" && sub.status !== "active") continue
+      if (sub.discountSource === "type1" || sub.discountSource === "type2") {
+        await setDiscount(sub, null)
+      }
+    }
+    return result
   }
 
   if (t2) {

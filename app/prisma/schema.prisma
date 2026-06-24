@@ -331,6 +331,12 @@ model Client {
   // Включённый родителем шаблон скидки (постоянная или связанная). NULL — скидки
   // не применяются. Смена пересчитывает не оплаченные pending/active абонементы.
   discountTemplateId      String?           @map("discount_template_id") @db.Uuid
+  // Баг #50: владелец явно запретил автоматические скидки этому родителю
+  // («Без скидки вручную»). true — тип 1 (автоскидка за второй абонемент) и
+  // тип 2 (шаблон) не действуют, уже выданные снимаются с оставшихся занятий.
+  // Разовые скидки-бонусы на баланс остаются доступны. Взаимоисключающе с
+  // выбранным шаблоном скидки (discountTemplateId).
+  autoDiscountDisabled    Boolean           @default(false) @map("auto_discount_disabled")
   createdBy               String?           @map("created_by") @db.Uuid
   createdAt               DateTime          @default(now()) @map("created_at")
   updatedAt               DateTime          @updatedAt @map("updated_at")
