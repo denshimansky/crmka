@@ -3,14 +3,25 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { buildScopedCampaignWhere } from "@/lib/call-campaigns/filter"
+
+const filterSchema = z.object({
+  funnelStatus: z.string().optional(),
+  clientStatus: z.string().optional(),
+  segment: z.string().optional(),
+  branchId: z.string().optional(),
+  minAge: z.number().int().min(0).max(120).optional(),
+  maxAge: z.number().int().min(0).max(120).optional(),
+  withdrawnFrom: z.string().optional(),
+  withdrawnTo: z.string().optional(),
+  lastContactFrom: z.string().optional(),
+  lastContactTo: z.string().optional(),
+  autoTriggers: z.array(z.string()).optional(),
+}).optional().default({})
 
 const createSchema = z.object({
   name: z.string().min(1, "Введите название"),
-  filterCriteria: z.object({
-    funnelStatus: z.string().optional(),
-    branchId: z.string().optional(),
-    segment: z.string().optional(),
-  }).optional().default({}),
+  filterCriteria: filterSchema,
 })
 
 export async function GET(req: NextRequest) {
@@ -37,32 +48,14 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data
 
-  // Формируем список клиентов по фильтру.
-  // Продажные стадии (application/trial_*/awaiting_payment) переехали на Ward.salesStage —
-  // фильтруем по родителям, у которых есть хотя бы один Ward в нужной стадии.
-  const WARD_STAGES = new Set([
-    "application",
-    "trial_scheduled",
-    "trial_attended",
-    "awaiting_payment",
-  ])
-  const clientWhere: any = {
-    tenantId: session.user.tenantId,
-    deletedAt: null,
-  }
-  const fc = data.filterCriteria
-  if (fc.funnelStatus) {
-    if (WARD_STAGES.has(fc.funnelStatus)) {
-      clientWhere.wards = { some: { salesStage: fc.funnelStatus } }
-    } else {
-      clientWhere.funnelStatus = fc.funnelStatus
-    }
-  }
-  if (fc.branchId) clientWhere.branchId = fc.branchId
-  if (fc.segment) clientWhere.segment = fc.segment
+  const where = buildScopedCampaignWhere(
+    session.user.tenantId,
+    (session.user as { allowedBranchIds?: string[] | null }).allowedBranchIds ?? null,
+    data.filterCriteria,
+  )
 
   const clients = await db.client.findMany({
-    where: clientWhere,
+    where,
     select: { id: true },
     take: 500,
   })

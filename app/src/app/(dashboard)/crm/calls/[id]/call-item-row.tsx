@@ -9,23 +9,35 @@ import { TableCell, TableRow } from "@/components/ui/table"
 import { Phone, Check } from "lucide-react"
 import Link from "next/link"
 
-interface CallItem {
+export interface CallItem {
   id: string
   clientId: string
   clientName: string
   phone: string
-  wardInfo: string
+  wardName: string
+  age: number | null
+  clientStatusLabel: string
   status: string
   comment: string | null
   result: string | null
 }
 
-const STATUS_LABELS: Record<string, string> = {
+export const CALL_STATUS_LABELS: Record<string, string> = {
   pending: "Не обзвонен",
   called: "Обзвонен",
   no_answer: "Не ответил",
   callback: "Перезвонить",
   completed: "Завершён",
+}
+const STATUS_LABELS = CALL_STATUS_LABELS
+
+/** Русское склонение «год/года/лет» после числа. */
+function ruYears(n: number): string {
+  const m10 = n % 10
+  const m100 = n % 100
+  if (m10 === 1 && m100 !== 11) return `${n} год`
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return `${n} года`
+  return `${n} лет`
 }
 
 const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -65,8 +77,10 @@ export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: 
             {item.clientName}
           </Link>
         </TableCell>
-        <TableCell className="text-muted-foreground">{item.phone}</TableCell>
-        <TableCell className="text-muted-foreground text-xs">{item.wardInfo}</TableCell>
+        <TableCell className="text-muted-foreground">{item.phone || "—"}</TableCell>
+        <TableCell className="text-muted-foreground text-xs">{item.wardName || "—"}</TableCell>
+        <TableCell className="text-muted-foreground text-xs">{item.age != null ? ruYears(item.age) : "—"}</TableCell>
+        <TableCell className="text-muted-foreground text-xs">{item.clientStatusLabel || "—"}</TableCell>
         <TableCell>
           <Badge variant={STATUS_VARIANTS[item.status] || "outline"}>
             {STATUS_LABELS[item.status] || item.status}
@@ -86,7 +100,7 @@ export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: 
       </TableRow>
       {showForm && (
         <TableRow>
-          <TableCell colSpan={6}>
+          <TableCell colSpan={8}>
             <div className="flex items-center gap-2 py-1">
               <Input
                 placeholder="Комментарий"

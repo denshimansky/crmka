@@ -1,4 +1,5 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
+import { scopeBranch } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -27,12 +28,20 @@ const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline"> = {
 export default async function CallsPage() {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const scope = await getBranchScope()
 
-  const campaigns = await db.callCampaign.findMany({
-    where: { tenantId, deletedAt: null },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  })
+  const [campaigns, branches] = await Promise.all([
+    db.callCampaign.findMany({
+      where: { tenantId, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
+    db.branch.findMany({
+      where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ])
 
   const activeCampaigns = campaigns.filter(c => c.status === "active").length
   const totalContacts = campaigns.reduce((s, c) => s + c.totalItems, 0)
@@ -45,7 +54,7 @@ export default async function CallsPage() {
           <h1 className="text-2xl font-bold">Обзвон</h1>
           <PageHelp pageKey="crm/calls" />
         </div>
-        <CreateCampaignDialog />
+        <CreateCampaignDialog branches={branches} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
