@@ -133,7 +133,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
         entityType: "Application",
         entityId: id,
         changes: {
-          removedFromFunnel: { cancelledTrials: result.cancelledTrials, stage: existing.stage },
+          removedFromFunnel: {
+            cancelledTrials: result.cancelledTrials,
+            deletedSubscriptions: result.deletedSubscriptions,
+            stage: existing.stage,
+          },
         },
       },
     })

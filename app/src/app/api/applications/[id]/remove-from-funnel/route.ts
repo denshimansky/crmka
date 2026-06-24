@@ -41,7 +41,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         entityId: id,
         changes: {
           status: { old: "active", new: "processed" },
-          removedFromFunnel: { cancelledTrials: result.cancelledTrials, stage: application.stage },
+          removedFromFunnel: {
+            cancelledTrials: result.cancelledTrials,
+            deletedSubscriptions: result.deletedSubscriptions,
+            stage: application.stage,
+          },
         },
       },
     })
