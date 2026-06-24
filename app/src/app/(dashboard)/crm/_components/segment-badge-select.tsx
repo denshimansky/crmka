@@ -6,6 +6,7 @@ import { Check, ChevronDown, Loader2 } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -85,17 +86,22 @@ export function SegmentBadgeSelect({
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuLabel>Сегмент клиента</DropdownMenuLabel>
-        {SEGMENT_ORDER.map((key) => (
-          <DropdownMenuItem
-            key={key}
-            onClick={() => setSegment(key)}
-            className="justify-between"
-          >
-            {SEGMENT_LABELS[key]}
-            {override === key && <Check className="size-4" />}
-          </DropdownMenuItem>
-        ))}
+        {/* Base UI требует, чтобы GroupLabel был внутри Menu.Group — иначе при
+            открытии меню падает ошибка #31 (MenuGroupRootContext is missing),
+            и карточка активного клиента крашится при клике по бейджу (баг #49). */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Сегмент клиента</DropdownMenuLabel>
+          {SEGMENT_ORDER.map((key) => (
+            <DropdownMenuItem
+              key={key}
+              onClick={() => setSegment(key)}
+              className="justify-between"
+            >
+              {SEGMENT_LABELS[key]}
+              {override === key && <Check className="size-4" />}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => setSegment(null)} className="justify-between">
           <span>
