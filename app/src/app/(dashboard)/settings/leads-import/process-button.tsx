@@ -13,14 +13,23 @@ interface Conflict {
   fio: string
   phone: string
   state: string
-  reason: "child_in_lead_and_other" | "phone_has_lead_and_others"
+  branch: string
+  reason:
+    | "child_in_lead_and_other"
+    | "phone_has_lead_and_others"
+    | "phone_has_multiple_branches"
   sourceRow: number
 }
 
 function reasonLabel(reason: Conflict["reason"]): string {
-  return reason === "child_in_lead_and_other"
-    ? "Один ребёнок в статусе «Лид» и в другом статусе"
-    : "На одном телефоне «Лид» и другие статусы"
+  switch (reason) {
+    case "child_in_lead_and_other":
+      return "Один ребёнок в статусе «Лид» и в другом статусе"
+    case "phone_has_lead_and_others":
+      return "На одном телефоне «Лид» и другие статусы"
+    case "phone_has_multiple_branches":
+      return "Разные филиалы у одного телефона"
+  }
 }
 
 interface ImportStats {
@@ -29,6 +38,7 @@ interface ImportStats {
   afterDedup: number
   surnameChanged: number
   needsReview: number
+  missingBranch: number
   byStatus: Record<string, number>
 }
 
@@ -52,12 +62,13 @@ export function ProcessLeadsButton() {
       "ФИО": c.fio,
       "Телефон": c.phone || "",
       "Статус": c.state,
+      "Филиал": c.branch || "",
       "Причина": reasonLabel(c.reason),
     }))
     const ws = XLSX.utils.json_to_sheet(rows, {
-      header: ["Строка в файле", "ФИО", "Телефон", "Статус", "Причина"],
+      header: ["Строка в файле", "ФИО", "Телефон", "Статус", "Филиал", "Причина"],
     })
-    ws["!cols"] = [{ wch: 13 }, { wch: 32 }, { wch: 16 }, { wch: 16 }, { wch: 50 }]
+    ws["!cols"] = [{ wch: 13 }, { wch: 32 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 50 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Проблемные клиенты")
     const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" })
@@ -134,7 +145,7 @@ export function ProcessLeadsButton() {
             <DialogTitle>Этап 1. Обработка выгрузки 1С</DialogTitle>
             <DialogDescription>
               Загрузите файл <code>Список лидов.xlsx</code> с колонками: ФИО, Контактное лицо,
-              Телефон, Соцсети, Дата рождения, Состояние лида. Получите файл
+              Телефон, Соцсети, Дата рождения, Состояние лида, Филиал. Получите файл
               <code> Список лидов — для импорта.xlsx</code> для вычитки.
             </DialogDescription>
           </DialogHeader>
@@ -169,12 +180,9 @@ export function ProcessLeadsButton() {
                     <li key={i} className="text-xs">
                       <span className="text-muted-foreground">стр. {c.sourceRow}</span> ·{" "}
                       <span className="font-medium">{c.fio}</span> · {c.phone || "(нет телефона)"} ·{" "}
-                      <span className="text-muted-foreground">{c.state}</span>{" "}
-                      <span className="text-muted-foreground">
-                        {c.reason === "child_in_lead_and_other"
-                          ? "(один ребёнок в Лиде и другом статусе)"
-                          : "(на одном телефоне Лид + другие)"}
-                      </span>
+                      <span className="text-muted-foreground">{c.state}</span>
+                      {c.branch ? <> · <span className="text-muted-foreground">{c.branch}</span></> : null}{" "}
+                      <span className="text-muted-foreground">({reasonLabel(c.reason)})</span>
                     </li>
                   ))}
                   {conflicts.length > 50 && (
@@ -194,6 +202,7 @@ export function ProcessLeadsButton() {
                 <div className="text-xs text-muted-foreground">
                   Исходных строк: {success.totalInput} → после правил: {success.afterPriority} → итог:{" "}
                   {success.afterDedup}. Фамилий согласовано: {success.surnameChanged}. На проверку: {success.needsReview}.
+                  {success.missingBranch > 0 && ` Без филиала: ${success.missingBranch}.`}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   По статусам: {Object.entries(success.byStatus)

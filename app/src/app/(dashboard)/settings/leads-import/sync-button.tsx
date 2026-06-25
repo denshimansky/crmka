@@ -22,6 +22,11 @@ interface CreatedWithoutPhone {
   child: string
 }
 
+interface BranchNotFound {
+  name: string
+  count: number
+}
+
 interface SyncReport {
   leadsParsed: number
   moneyParsed: number
@@ -32,6 +37,8 @@ interface SyncReport {
   withoutPhone: CreatedWithoutPhone[]
   totalBalance: number
   balanceMissing: number
+  branchAssigned: number
+  branchMissing: number
   warnings: string[]
 }
 
@@ -44,11 +51,13 @@ export function SyncBalanceButton() {
   const [error, setError] = useState<string | null>(null)
   const [detectedHeaders, setDetectedHeaders] = useState<string[] | null>(null)
   const [needsReview, setNeedsReview] = useState<NeedsReview[] | null>(null)
+  const [branchNotFound, setBranchNotFound] = useState<BranchNotFound[] | null>(null)
   const [report, setReport] = useState<SyncReport | null>(null)
 
   function reset() {
     setLeadsFile(null); setMoneyFile(null)
-    setError(null); setDetectedHeaders(null); setNeedsReview(null); setReport(null)
+    setError(null); setDetectedHeaders(null); setNeedsReview(null)
+    setBranchNotFound(null); setReport(null)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -56,7 +65,8 @@ export function SyncBalanceButton() {
     if (!leadsFile) {
       setError("Выберите файл «Список лидов — для импорта.xlsx»"); return
     }
-    setLoading(true); setError(null); setDetectedHeaders(null); setNeedsReview(null); setReport(null)
+    setLoading(true); setError(null); setDetectedHeaders(null); setNeedsReview(null)
+    setBranchNotFound(null); setReport(null)
 
     try {
       const fd = new FormData()
@@ -66,6 +76,11 @@ export function SyncBalanceButton() {
 
       if (res.status === 422) {
         const data = await res.json()
+        if (Array.isArray(data.branchNotFound)) {
+          setBranchNotFound(data.branchNotFound)
+          setError(data.error ?? "Есть филиалы, которых нет в CRM")
+          return
+        }
         setNeedsReview(data.needsReview ?? [])
         setError(data.error ?? "Есть строки на проверку")
         return
@@ -103,6 +118,8 @@ export function SyncBalanceButton() {
               баланс существующих клиентов <b>не трогаем</b> (останется как был),
               новые создадутся с нулевым балансом. Дети одного телефона станут
               подопечными одного клиента (родителя), балансы суммируются.
+              Филиалы из колонки «Филиал» должны быть заранее заведены в CRM
+              с такими же названиями.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -153,6 +170,24 @@ export function SyncBalanceButton() {
               </div>
             )}
 
+            {branchNotFound && branchNotFound.length > 0 && (
+              <div className="space-y-2 max-h-64 overflow-y-auto rounded-md border bg-muted/30 p-3 text-sm">
+                <div className="font-medium">
+                  Филиалов нет в CRM: {branchNotFound.length}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Создайте филиалы с такими же названиями в «Настройки → Филиалы» и запустите импорт снова.
+                </div>
+                <ul className="space-y-1">
+                  {branchNotFound.map((b, i) => (
+                    <li key={i} className="text-xs">
+                      <span className="font-medium">{b.name}</span> · строк: {b.count}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {report && (
               <div className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm space-y-1">
                 <div className="font-medium text-emerald-700 dark:text-emerald-500">
@@ -171,6 +206,10 @@ export function SyncBalanceButton() {
                 <div className="text-xs text-muted-foreground">
                   Суммарный баланс: {report.totalBalance.toLocaleString("ru-RU")} ₽ · без баланса:{" "}
                   {report.balanceMissing}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Филиал проставлен: {report.branchAssigned}
+                  {report.branchMissing > 0 ? ` · без филиала: ${report.branchMissing}` : ""}
                 </div>
                 {report.clientsCreatedWithoutPhone > 0 && (
                   <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-200">

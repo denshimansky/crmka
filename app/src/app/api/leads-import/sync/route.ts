@@ -50,6 +50,17 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     )
   }
+  if (!result.ok && result.reason === "branch_not_found") {
+    return NextResponse.json(
+      {
+        error:
+          "В файле есть филиалы, которых нет в CRM. Создайте филиалы с такими же названиями " +
+          "(Настройки → Филиалы) и запустите импорт снова. Импорт не выполнен.",
+        branchNotFound: result.branches,
+      },
+      { status: 422 },
+    )
+  }
   if (!result.ok) {
     return NextResponse.json(
       {
@@ -70,6 +81,8 @@ export async function POST(req: NextRequest) {
     wardsCreated: result.wardsCreated,
     totalBalance: result.totalBalance,
     balanceMissing: result.balanceMissing,
+    branchAssigned: result.branchAssigned,
+    branchMissing: result.branchMissing,
     warnings: result.warnings,
   })
 }

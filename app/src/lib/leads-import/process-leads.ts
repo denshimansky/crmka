@@ -14,6 +14,8 @@ export interface RawLeadRow {
   birthDate: unknown
   statusRaw: string
   status: LeadStatus | null
+  // Филиал из 1С (код/название точки). Пусто = филиал не указан.
+  branch: string
   // ключ группы (ФИО+телефон); если телефон пуст — уникальный.
   key: string
   // индекс исходной строки в массиве данных (после шапки)
@@ -26,7 +28,12 @@ export interface Conflict {
   fio: string
   phone: string
   state: string
-  reason: "child_in_lead_and_other" | "phone_has_lead_and_others"
+  // Филиал строки (для причины «разные филиалы у одного телефона»).
+  branch: string
+  reason:
+    | "child_in_lead_and_other"
+    | "phone_has_lead_and_others"
+    | "phone_has_multiple_branches"
   // номер строки в исходном «Список лидов.xlsx» (1-based)
   sourceRow: number
 }
@@ -41,6 +48,7 @@ export interface ProcessResult {
     afterDedup: number
     surnameChanged: number
     needsReview: number
+    missingBranch: number
     byStatus: Record<LeadStatus, number>
   }
 }
@@ -62,6 +70,7 @@ const COLUMN_PHONE = ["Телефон", "телефон"]
 const COLUMN_SOCIALS = ["Соцсети", "соцсети"]
 const COLUMN_BIRTH = ["Дата рождения", "Дата_рождения"]
 const COLUMN_STATUS = ["Состояние лида", "Состояние_лида", "Статус"]
+const COLUMN_BRANCH = ["Филиал", "Подразделение", "Точка"]
 
 function loadRawRows(buffer: Buffer): RawLeadRow[] {
   // 1С-выгрузка: пробуем разные позиции шапки. Сначала header=3 (старый формат),
@@ -85,6 +94,7 @@ function loadRawRows(buffer: Buffer): RawLeadRow[] {
         const birthDate = row["Дата рождения"] ?? row["Дата_рождения"] ?? null
         const statusRaw = getCell(row, ...COLUMN_STATUS)
         const status = parseStatus(statusRaw)
+        const branch = getCell(row, ...COLUMN_BRANCH)
         const key = phoneNorm
           ? `${normName(fio)}|${phoneNorm}`
           : `__solo_${idx}`
@@ -94,7 +104,7 @@ function loadRawRows(buffer: Buffer): RawLeadRow[] {
         // оценка на случай отсутствия __rowNum__; точен лишь если в файле нет пустых строк.
         const rowNum = row["__rowNum__"]
         const sourceRow = typeof rowNum === "number" ? rowNum + 1 : headerRow + idx + 2
-        rows.push({ fio, contactPerson, phone, phoneNorm, socials, birthDate, statusRaw, status, key, rowIdx: idx, sourceRow })
+        rows.push({ fio, contactPerson, phone, phoneNorm, socials, birthDate, statusRaw, status, branch, key, rowIdx: idx, sourceRow })
       })
       return rows
     }
@@ -124,6 +134,7 @@ function detectConflicts(rows: RawLeadRow[]): Conflict[] {
             fio: r.fio,
             phone: r.phone,
             state: r.statusRaw,
+            branch: r.branch,
             reason: "child_in_lead_and_other",
             sourceRow: r.sourceRow,
           })
@@ -151,7 +162,33 @@ function detectConflicts(rows: RawLeadRow[]): Conflict[] {
             fio: r.fio,
             phone: r.phone,
             state: r.statusRaw,
+            branch: r.branch,
             reason: "phone_has_lead_and_others",
+            sourceRow: r.sourceRow,
+          })
+        }
+      }
+    }
+  }
+
+  // (в) у одного телефона дети в разных филиалах — нельзя автоматически выбрать
+  // филиал клиента (один телефон = один родитель = один клиент). Владелец сам
+  // решает, что делать (напр. offline + ONLINE), поэтому помечаем как проблемные.
+  for (const [, group] of byPhone) {
+    const branches = new Set(
+      group.map((g) => g.branch).filter((b): b is string => !!b && b.trim() !== ""),
+    )
+    if (branches.size > 1) {
+      for (const r of group) {
+        const k = `${r.rowIdx}:c`
+        if (!seen.has(k)) {
+          seen.add(k)
+          conflicts.push({
+            fio: r.fio,
+            phone: r.phone,
+            state: r.statusRaw,
+            branch: r.branch,
+            reason: "phone_has_multiple_branches",
             sourceRow: r.sourceRow,
           })
         }
@@ -198,6 +235,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
     "Соцсети": string
     "Дата_рождения": string
     "Статус": string
+    "Филиал": string
     "Баланс": string
     "Проверить": string
   }
@@ -213,6 +251,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
   }
   let surnameChanged = 0
   let needsReviewCount = 0
+  let missingBranch = 0
   for (const [, group] of byKey2) {
     const base = group[0]
     const socials = Array.from(new Set(
@@ -220,6 +259,10 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
     )).join("; ")
     const contact = group.map((g) => g.contactPerson).find((c) => c && c.trim()) ?? ""
     const dob = group.map((g) => g.birthDate).find((d) => d !== null && d !== "" && d !== undefined) ?? null
+    // Филиал группы: первый непустой. После detectConflicts в группе остаётся
+    // не более одного различного филиала, поэтому выбор однозначен.
+    const branch = group.map((g) => g.branch).find((b) => b && b.trim()) ?? ""
+    if (!branch) missingBranch++
     const parent = parentFullName(base.fio, contact)
     if (parent.changed) surnameChanged++
     if (parent.needsReview) needsReviewCount++
@@ -232,6 +275,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
       "Соцсети": socials,
       "Дата_рождения": fmtDate(dob),
       "Статус": base.statusRaw,
+      "Филиал": branch,
       "Баланс": "",
       "Проверить": parent.needsReview ? "да" : "",
     })
@@ -244,6 +288,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
     "Соцсети",
     "Дата_рождения",
     "Статус",
+    "Филиал",
     "Баланс",
     "Проверить",
   ]
@@ -263,6 +308,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
       afterDedup: outRows.length,
       surnameChanged,
       needsReview: needsReviewCount,
+      missingBranch,
       byStatus,
     },
   }

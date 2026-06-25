@@ -31,6 +31,7 @@ export function writeSheet(rows: Record<string, unknown>[], headers: string[], s
     "Соцсети": 40,
     "Дата_рождения": 16,
     "Статус": 18,
+    "Филиал": 16,
     "Баланс": 14,
     "Проверить": 12,
   }

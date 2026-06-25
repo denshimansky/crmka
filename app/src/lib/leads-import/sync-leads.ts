@@ -14,6 +14,7 @@ interface LeadFileRow {
   socials: string
   birthDate: string
   status: LeadStatus | null
+  branch: string
   balance: number
   /** true, если значение баланса пришло из явной ячейки файла («Баланс» в
    *  Списке лидов или матч в деньги.xlsx). false — это «нет данных», и
@@ -51,6 +52,8 @@ export interface SyncReport {
   withoutPhone: CreatedWithoutPhone[]
   totalBalance: number
   balanceMissing: number
+  branchAssigned: number
+  branchMissing: number
   warnings: string[]
 }
 
@@ -66,9 +69,23 @@ export interface SyncBlocked {
   rows: NeedsReview[]
 }
 
+export interface SyncBranchNotFound {
+  ok: false
+  reason: "branch_not_found"
+  // Названия филиалов из файла, которым нет соответствия среди филиалов CRM.
+  branches: { name: string; count: number }[]
+}
+
 // Нормализация ключа колонки: lower-case, ё→е, _→пробел, схлопывание пробелов.
 function normColKey(s: string): string {
   return s.trim().toLowerCase().replace(/ё/g, "е").replace(/_/g, " ").replace(/\s+/g, " ")
+}
+
+// Нормализация названия филиала для сопоставления кода 1С с филиалом CRM:
+// без учёта регистра, ё→е, схлопывание пробелов. Пунктуацию (точки в «С.ПОРТ»)
+// не трогаем — владелец заводит филиал с идентичным названием.
+function normBranchName(s: string): string {
+  return s.trim().toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ")
 }
 
 function pickValue(
@@ -104,6 +121,7 @@ function loadLeadsFile(buffer: Buffer): { rows: LeadFileRow[]; headers: string[]
     const socials = String(pickValue(row, normMap, "Соцсети") ?? "").trim()
     const birthDate = String(pickValue(row, normMap, "Дата_рождения", "Дата рождения") ?? "").trim()
     const status = parseStatus(String(pickValue(row, normMap, "Статус", "Состояние лида") ?? ""))
+    const branch = String(pickValue(row, normMap, "Филиал", "Подразделение", "Точка") ?? "").trim()
     const balanceRaw = pickValue(row, normMap, "Баланс")
     const balanceHasValue =
       balanceRaw !== "" && balanceRaw !== null && balanceRaw !== undefined
@@ -117,6 +135,7 @@ function loadLeadsFile(buffer: Buffer): { rows: LeadFileRow[]; headers: string[]
       socials,
       birthDate,
       status,
+      branch,
       balance: Number.isFinite(balance) ? balance : 0,
       balanceFromFile: balanceHasValue && Number.isFinite(balance),
       needsReview: review === "да" || review === "yes" || review === "true",
@@ -206,7 +225,9 @@ export interface SyncOptions {
   createdBy: string | null
 }
 
-export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlocked | SyncEmpty> {
+export async function syncLeads(
+  opts: SyncOptions,
+): Promise<SyncReport | SyncBlocked | SyncEmpty | SyncBranchNotFound> {
   const parsedLeads = loadLeadsFile(opts.leadsBuffer)
   const leads = parsedLeads.rows
   if (leads.length === 0) {
@@ -218,6 +239,35 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
       ok: false,
       reason: "needs_review",
       rows: reviewBlocked.map((r) => ({ rowIdx: r.rowIdx, fio: r.child, phone: r.phone })),
+    }
+  }
+
+  // Филиалы тенанта: сопоставляем код филиала из файла с branchId по
+  // нормализованному названию. Владелец заранее создаёт филиалы с такими же
+  // названиями, как в 1С (см. справку «Импорт базы»).
+  const branches = await db.branch.findMany({
+    where: { tenantId: opts.tenantId, deletedAt: null },
+    select: { id: true, name: true },
+  })
+  const branchByName = new Map<string, string>()
+  for (const b of branches) branchByName.set(normBranchName(b.name), b.id)
+
+  // Все непустые филиалы из файла должны существовать в CRM. Если нет —
+  // блокируем импорт и показываем список, чтобы владелец завёл филиалы.
+  const unmatched = new Map<string, { name: string; count: number }>()
+  for (const r of leads) {
+    if (!r.branch) continue
+    const key = normBranchName(r.branch)
+    if (branchByName.has(key)) continue
+    const cur = unmatched.get(key)
+    if (cur) cur.count++
+    else unmatched.set(key, { name: r.branch, count: 1 })
+  }
+  if (unmatched.size > 0) {
+    return {
+      ok: false,
+      reason: "branch_not_found",
+      branches: [...unmatched.values()].sort((a, b) => b.count - a.count),
     }
   }
 
@@ -304,6 +354,8 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
           funnelStatus: true,
           clientStatus: true,
           clientBalance: true,
+          branchId: true,
+          lastBranchId: true,
           wards: { select: { firstName: true, lastName: true } },
         },
       })
@@ -316,6 +368,8 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
   let clientsMerged = 0
   let wardsCreated = 0
   let totalBalance = 0
+  let branchAssigned = 0
+  let branchMissing = 0
 
   // Транзакция: одна большая операция.
   await db.$transaction(async (tx) => {
@@ -339,6 +393,15 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
       const { firstName, lastName } = splitParent(parentName)
       const socialLink =
         group.rows.map((r) => r.socials).find((s) => s && s.trim()) ?? null
+      // Филиал группы (телефона) = первый непустой; на этапе 1 уже гарантировано,
+      // что в группе один филиал. Несуществующие названия отсеяны валидацией выше,
+      // поэтому resolvedBranchId=null только когда филиал в файле пуст.
+      const groupBranch =
+        group.rows.map((r) => r.branch).find((b) => b && b.trim()) ?? ""
+      const resolvedBranchId = groupBranch
+        ? branchByName.get(normBranchName(groupBranch)) ?? null
+        : null
+      if (!resolvedBranchId) branchMissing++
 
       const existing = group.phone ? existingByPhone.get(group.phone) : undefined
 
@@ -355,14 +418,22 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
           ? topStatus([currentTopFromExisting, top]) ?? top
           : top
         const mergedDb = toDbStatus(merged)
+        // Бэкфилл филиала: проставляем каждое из полей только если в БД оно
+        // пусто — не затираем реальный филиал, проставленный позже из абонемента.
+        // Это даёт привязку выбывших при повторном прогоне импорта тем же файлом.
+        const setBranchId = resolvedBranchId !== null && existing.branchId === null
+        const setLastBranchId = resolvedBranchId !== null && existing.lastBranchId === null
         await tx.client.update({
           where: { id: existing.id },
           data: {
             funnelStatus: mergedDb.funnelStatus,
             clientStatus: mergedDb.clientStatus,
             socialLink: existing.wards.length ? undefined : socialLink ?? undefined,
+            branchId: setBranchId ? resolvedBranchId : undefined,
+            lastBranchId: setLastBranchId ? resolvedBranchId : undefined,
           },
         })
+        if (setBranchId || setLastBranchId) branchAssigned++
         clientId = existing.id
         clientsMerged++
         if (groupHasBalanceData) {
@@ -404,6 +475,10 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
             socialLink: socialLink ?? null,
             funnelStatus: dbStatus.funnelStatus,
             clientStatus: dbStatus.clientStatus ?? undefined,
+            // Филиал из 1С → и «домашний» branchId, и lastBranchId (последний
+            // нужен для видимости выбывших/архива/ЧС по филиалам, ADM-04).
+            branchId: resolvedBranchId ?? undefined,
+            lastBranchId: resolvedBranchId ?? undefined,
             // Импорт исторической базы из 1С — не «новый лид месяца»
             // (createdAt = дата импорта, а не реального обращения).
             source: "import",
@@ -413,6 +488,7 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
         })
         clientId = created.id
         clientsCreated++
+        if (resolvedBranchId) branchAssigned++
         if (groupHasBalanceData && groupBalance !== 0) {
           await applyBalanceDelta(tx, {
             tenantId: opts.tenantId,
@@ -475,6 +551,8 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
           clientsMerged,
           wardsCreated,
           totalBalance,
+          branchAssigned,
+          branchMissing,
           clientsCreatedWithoutPhone: withoutPhone.length,
           withoutPhone: withoutPhone.slice(0, 200),
           warnings: warnings.slice(0, 200),
@@ -494,6 +572,8 @@ export async function syncLeads(opts: SyncOptions): Promise<SyncReport | SyncBlo
     withoutPhone,
     totalBalance,
     balanceMissing,
+    branchAssigned,
+    branchMissing,
     warnings,
   }
 }
