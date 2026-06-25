@@ -135,7 +135,16 @@ export function ClientDiscountSelect({
         <Tag className="size-3 mr-1.5 text-muted-foreground shrink-0" />
         <span className="truncate" title={label}>{label}</span>
       </SelectTrigger>
-      <SelectContent>
+      {/* Ширину поповера отвязываем от триггера: по умолчанию SelectContent
+          получает w-(--anchor-width) и overflow-x-hidden, из-за чего длинные
+          подписи («…запрет автоскидок», «−50 ₽/занятие») обрезались. align=start
+          + alignItemWithTrigger=false дают обычный дропдаун, а w-auto растягивает
+          его под самый длинный пункт (пункты в одну строку, без переноса). */}
+      <SelectContent
+        align="start"
+        alignItemWithTrigger={false}
+        className="w-auto min-w-(--anchor-width) max-w-[90vw]"
+      >
         <SelectItem value="none">
           {hasType1Discount ? "Без скидки (действует автоскидка)" : "Без скидки"}
         </SelectItem>
