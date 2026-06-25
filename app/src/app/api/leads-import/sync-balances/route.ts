@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth"
 import { syncBalances } from "@/lib/leads-import/sync-balances"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+// 120 с — под стать таймауту транзакции syncBalances (импорт остатков большой базы).
+export const maxDuration = 120
 
 // POST /api/leads-import/sync-balances — точечная синхронизация Client.clientBalance
 // по файлу формата «остатки.xlsx». НЕ создаёт клиентов, НЕ пишет в ДДС.

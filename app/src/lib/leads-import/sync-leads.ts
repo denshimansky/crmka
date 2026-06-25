@@ -367,6 +367,7 @@ export async function syncLeads(
   let clientsCreated = 0
   let clientsMerged = 0
   let wardsCreated = 0
+  const wardsToCreate: Prisma.WardCreateManyInput[] = []
   let totalBalance = 0
   let branchAssigned = 0
   let branchMissing = 0
@@ -523,18 +524,31 @@ export async function syncLeads(
         if (!wFirst) continue
         const wardKey = `${(wLast ?? "").toLowerCase()}|${wFirst.toLowerCase()}`
         if (existingWardKeys.has(wardKey)) continue
-        await tx.ward.create({
-          data: {
-            tenantId: opts.tenantId,
-            clientId,
-            firstName: wFirst,
-            lastName: wLast ?? undefined,
-            birthDate: parseDob(r.birthDate) ?? undefined,
-          },
+        // Копим подопечных и создаём одним createMany после цикла — иначе на
+        // большой базе тысячи последовательных INSERT не укладываются в таймаут
+        // интерактивной транзакции.
+        wardsToCreate.push({
+          tenantId: opts.tenantId,
+          clientId,
+          firstName: wFirst,
+          lastName: wLast ?? undefined,
+          birthDate: parseDob(r.birthDate) ?? undefined,
         })
         wardsCreated++
       }
     }
+
+    // Подопечных пишем пакетно одним INSERT — это снимает основную долю
+    // round-trip'ов внутри транзакции на импорте крупной базы.
+    if (wardsToCreate.length > 0) {
+      await tx.ward.createMany({ data: wardsToCreate })
+    }
+  }, {
+    // Импорт большой базы из 1С: дефолтный таймаут интерактивной транзакции
+    // Prisma (5 с) недостаточен. Поднимаем до 120 с (совпадает с maxDuration
+    // роута); maxWait — ожидание свободного соединения в пуле.
+    maxWait: 20_000,
+    timeout: 120_000,
   })
 
   // Аудит-метка: с этого момента в течение 7 дней доступна «Очистить базу клиентов».

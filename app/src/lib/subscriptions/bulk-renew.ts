@@ -343,6 +343,12 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
       })
       totalIssuedAmount = new Prisma.Decimal(issuedAgg._sum.finalAmount ?? 0)
     }
+  }, {
+    // Массовая выписка по всей базе: на крупном тенанте цикл (create абонемента +
+    // update клиента + recalcClientDiscounts на каждого) не укладывается в
+    // дефолтные 5 с интерактивной транзакции Prisma.
+    maxWait: 20_000,
+    timeout: 120_000,
   })
 
   if (opts.createdBy) {

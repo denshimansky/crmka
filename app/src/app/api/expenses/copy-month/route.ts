@@ -92,6 +92,11 @@ export async function POST(req: NextRequest) {
     }
 
     return results
+  }, {
+    // Копирование всех повторяющихся расходов месяца: при большом числе
+    // расходов/филиалов построчный цикл выходит за дефолтные 5 с транзакции.
+    maxWait: 20_000,
+    timeout: 120_000,
   })
 
   return NextResponse.json({ copied: created.length }, { status: 201 })

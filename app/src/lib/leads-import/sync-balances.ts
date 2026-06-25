@@ -217,6 +217,11 @@ export async function syncBalances(
         delta: delta.toNumber(),
       })
     }
+  }, {
+    // Импорт остатков большой базы: дефолтный таймаут интерактивной транзакции
+    // Prisma (5 с) недостаточен на тысячах построчных корректировок баланса.
+    maxWait: 20_000,
+    timeout: 120_000,
   })
 
   if (opts.createdBy) {
