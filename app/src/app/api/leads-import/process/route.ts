@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   if (!result.ok) {
     return NextResponse.json(
       {
-        error: "Найдены конфликты «Лид + другой статус». Поправьте источник и попробуйте снова.",
+        error: "Найдены проблемные строки: статус «Лид» вместе с другим статусом. Поправьте источник и попробуйте снова.",
         conflicts: result.conflicts,
       },
       { status: 409 },

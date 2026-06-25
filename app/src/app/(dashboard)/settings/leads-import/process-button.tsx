@@ -7,13 +7,20 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Upload, AlertCircle } from "lucide-react"
+import { Upload, AlertCircle, Download } from "lucide-react"
 
 interface Conflict {
   fio: string
   phone: string
   state: string
   reason: "child_in_lead_and_other" | "phone_has_lead_and_others"
+  sourceRow: number
+}
+
+function reasonLabel(reason: Conflict["reason"]): string {
+  return reason === "child_in_lead_and_other"
+    ? "Один ребёнок в статусе «Лид» и в другом статусе"
+    : "На одном телефоне «Лид» и другие статусы"
 }
 
 interface ImportStats {
@@ -37,6 +44,36 @@ export function ProcessLeadsButton() {
     setFile(null); setError(null); setConflicts(null); setSuccess(null)
   }
 
+  async function downloadConflicts() {
+    if (!conflicts || conflicts.length === 0) return
+    const XLSX = await import("xlsx")
+    const rows = conflicts.map((c) => ({
+      "Строка в файле": c.sourceRow,
+      "ФИО": c.fio,
+      "Телефон": c.phone || "",
+      "Статус": c.state,
+      "Причина": reasonLabel(c.reason),
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows, {
+      header: ["Строка в файле", "ФИО", "Телефон", "Статус", "Причина"],
+    })
+    ws["!cols"] = [{ wch: 13 }, { wch: 32 }, { wch: 16 }, { wch: 16 }, { wch: 50 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Проблемные клиенты")
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" })
+    const blob = new Blob([buf], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "Проблемные клиенты — импорт.xlsx"
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!file) { setError("Выберите файл .xlsx"); return }
@@ -50,7 +87,7 @@ export function ProcessLeadsButton() {
       if (res.status === 409) {
         const data = await res.json()
         setConflicts(data.conflicts ?? [])
-        setError(data.error ?? "Конфликты в данных")
+        setError(data.error ?? "Проблемные строки в данных")
         return
       }
       if (!res.ok) {
@@ -119,11 +156,18 @@ export function ProcessLeadsButton() {
             )}
 
             {conflicts && conflicts.length > 0 && (
-              <div className="space-y-2 max-h-64 overflow-y-auto rounded-md border bg-muted/30 p-3 text-sm">
-                <div className="font-medium">Конфликтов: {conflicts.length}</div>
-                <ul className="space-y-1">
+              <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium">Проблемных строк: {conflicts.length}</div>
+                  <Button type="button" variant="outline" size="sm" onClick={downloadConflicts}>
+                    <Download className="size-4" />
+                    Скачать таблицей
+                  </Button>
+                </div>
+                <ul className="space-y-1 max-h-64 overflow-y-auto">
                   {conflicts.slice(0, 50).map((c, i) => (
                     <li key={i} className="text-xs">
+                      <span className="text-muted-foreground">стр. {c.sourceRow}</span> ·{" "}
                       <span className="font-medium">{c.fio}</span> · {c.phone || "(нет телефона)"} ·{" "}
                       <span className="text-muted-foreground">{c.state}</span>{" "}
                       <span className="text-muted-foreground">
@@ -134,7 +178,9 @@ export function ProcessLeadsButton() {
                     </li>
                   ))}
                   {conflicts.length > 50 && (
-                    <li className="text-xs text-muted-foreground">… и ещё {conflicts.length - 50}</li>
+                    <li className="text-xs text-muted-foreground">
+                      … и ещё {conflicts.length - 50}. Полный список — в таблице выше.
+                    </li>
                   )}
                 </ul>
               </div>

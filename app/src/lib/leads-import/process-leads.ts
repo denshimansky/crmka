@@ -16,8 +16,10 @@ export interface RawLeadRow {
   status: LeadStatus | null
   // ключ группы (ФИО+телефон); если телефон пуст — уникальный.
   key: string
-  // индекс исходной строки
+  // индекс исходной строки в массиве данных (после шапки)
   rowIdx: number
+  // номер строки в исходном файле Excel (1-based, как видит пользователь)
+  sourceRow: number
 }
 
 export interface Conflict {
@@ -25,6 +27,8 @@ export interface Conflict {
   phone: string
   state: string
   reason: "child_in_lead_and_other" | "phone_has_lead_and_others"
+  // номер строки в исходном «Список лидов.xlsx» (1-based)
+  sourceRow: number
 }
 
 export interface ProcessResult {
@@ -84,7 +88,13 @@ function loadRawRows(buffer: Buffer): RawLeadRow[] {
         const key = phoneNorm
           ? `${normName(fio)}|${phoneNorm}`
           : `__solo_${idx}`
-        rows.push({ fio, contactPerson, phone, phoneNorm, socials, birthDate, statusRaw, status, key, rowIdx: idx })
+        // SheetJS пропускает пустые строки, поэтому idx ≠ номеру строки в файле.
+        // __rowNum__ — реальный 0-based номер строки листа; +1 = номер в Excel
+        // (в xlsx 0.18.5 присутствует всегда). Фоллбэк headerRow+idx+2 — грубая
+        // оценка на случай отсутствия __rowNum__; точен лишь если в файле нет пустых строк.
+        const rowNum = row["__rowNum__"]
+        const sourceRow = typeof rowNum === "number" ? rowNum + 1 : headerRow + idx + 2
+        rows.push({ fio, contactPerson, phone, phoneNorm, socials, birthDate, statusRaw, status, key, rowIdx: idx, sourceRow })
       })
       return rows
     }
@@ -112,9 +122,10 @@ function detectConflicts(rows: RawLeadRow[]): Conflict[] {
           seen.add(k)
           conflicts.push({
             fio: r.fio,
-            phone: r.phoneNorm,
+            phone: r.phone,
             state: r.statusRaw,
             reason: "child_in_lead_and_other",
+            sourceRow: r.sourceRow,
           })
         }
       }
@@ -138,9 +149,10 @@ function detectConflicts(rows: RawLeadRow[]): Conflict[] {
           seen.add(k)
           conflicts.push({
             fio: r.fio,
-            phone: r.phoneNorm,
+            phone: r.phone,
             state: r.statusRaw,
             reason: "phone_has_lead_and_others",
+            sourceRow: r.sourceRow,
           })
         }
       }
