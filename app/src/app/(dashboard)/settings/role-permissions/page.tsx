@@ -25,7 +25,10 @@ export default async function RolePermissionsPage() {
       <RoleDisplayNamesForm
         initialValues={(org?.roleDisplayNames as Record<string, string>) ?? {}}
       />
-      <RolePermissionsMatrix isOwner={isOwner} />
+      <RolePermissionsMatrix
+        isOwner={isOwner}
+        roleDisplayNames={(org?.roleDisplayNames as Record<string, string>) ?? {}}
+      />
     </div>
   )
 }

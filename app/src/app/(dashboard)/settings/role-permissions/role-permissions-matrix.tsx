@@ -8,18 +8,19 @@ import { Badge } from "@/components/ui/badge"
 import {
   PERMISSIONS,
   EDITABLE_ROLES,
-  ROLE_LABELS,
   DEFAULT_PERMISSIONS,
   type RolePermissions,
   type PermissionKey,
 } from "@/lib/permissions"
+import { getRoleDisplayName } from "@/lib/roles"
 import { Loader2, RotateCcw, Save, ShieldCheck } from "lucide-react"
 
 type Props = {
   isOwner: boolean
+  roleDisplayNames?: Record<string, string>
 }
 
-export function RolePermissionsMatrix({ isOwner }: Props) {
+export function RolePermissionsMatrix({ isOwner, roleDisplayNames }: Props) {
   const [permissions, setPermissions] = useState<RolePermissions | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -190,12 +191,12 @@ export function RolePermissionsMatrix({ isOwner }: Props) {
                   <th className="p-3 text-center font-medium min-w-[100px]">
                     <div className="flex flex-col items-center gap-0.5">
                       <ShieldCheck className="size-4 text-primary" />
-                      <span>{ROLE_LABELS.owner}</span>
+                      <span>{getRoleDisplayName("owner", roleDisplayNames)}</span>
                     </div>
                   </th>
                   {EDITABLE_ROLES.map((role) => (
                     <th key={role} className="p-3 text-center font-medium min-w-[100px]">
-                      {ROLE_LABELS[role]}
+                      {getRoleDisplayName(role, roleDisplayNames)}
                     </th>
                   ))}
                 </tr>
