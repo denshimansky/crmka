@@ -13,6 +13,7 @@ import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate } from "@/lib/subscriptions/last-paid-lesson-date"
+import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -322,6 +323,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         group: { select: { id: true, name: true } },
       },
     })
+
+    // Отчисление последнего активного абонемента → клиент «Выбывший».
+    // ПОСЛЕ update: текущий абонемент уже withdrawn и не попадёт в счётчик
+    // активных. effectiveWithdrawalDate при withdrawn гарантированно задан
+    // (валидируется до транзакции), фоллбэк на now — на всякий случай.
+    if (data.status === "withdrawn" && existing.status !== "withdrawn") {
+      await churnClientIfNoActiveSubscription(
+        tx,
+        session.user.tenantId,
+        existing.clientId,
+        effectiveWithdrawalDate ?? new Date(),
+      )
+    }
 
     // Комментарий к отчислению → заметка в историю коммуникаций клиента (виден
     // в ленте/фиде карточки родителя). Только при переходе в withdrawn и если

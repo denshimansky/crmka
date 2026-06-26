@@ -7,6 +7,7 @@ import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate } from "@/lib/subscriptions/last-paid-lesson-date"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -195,6 +196,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       excludeSubscriptionId: id,
       withdrawnAt: nextDayUtc(withdrawAt),
     })
+
+    // Отчисление последнего активного абонемента → клиент «Выбывший».
+    // ПОСЛЕ update выше: текущий абонемент уже withdrawn и не попадёт в счётчик
+    // активных. /refund — основной путь отчисления, поэтому именно здесь чаще
+    // всего и срабатывает перевод clientStatus active→churned.
+    await churnClientIfNoActiveSubscription(
+      tx,
+      session.user.tenantId,
+      subscription.clientId,
+      withdrawAt,
+    )
 
     // Скидки v2: отчисленный выпадает из состава месяца — пересчёт скидок
     // оставшихся абонементов клиента (/refund — основной путь отчисления).
