@@ -166,9 +166,9 @@ export function RenewButton({
           <DialogHeader>
             <DialogTitle>Массовая выписка абонементов</DialogTitle>
             <DialogDescription>
-              Создаёт <b>pending</b>-абонементы (статус «Ожидает оплаты») для каждого
+              Создаёт абонементы со статусом <b>«Ожидает оплаты»</b> для каждого
               ребёнка, у которого сейчас есть <b>активный</b> календарный абонемент.
-              Цена занятия копируется из текущего абона, число занятий считается по
+              Цена занятия копируется из текущего абонемента, число занятий считается по
               расписанию группы за указанный период (с учётом производственного календаря).
               Скидки в этой версии не переносятся.
             </DialogDescription>
@@ -209,7 +209,7 @@ export function RenewButton({
               )}
               <DialogFooter>
                 <Button type="submit" disabled={loading}>
-                  {loading ? "Считаю…" : "Превью"}
+                  {loading ? "Считаю…" : "Предосмотр"}
                 </Button>
               </DialogFooter>
             </form>
@@ -226,7 +226,7 @@ export function RenewButton({
                   абонементов · пропущено: <b>{preview.skipped.length}</b>
                 </div>
                 <div className="text-muted-foreground text-xs">
-                  Σ сумм к оплате:{" "}
+                  Итого к оплате:{" "}
                   <b>
                     {fmt(preview.toCreate.reduce((s, c) => s + c.finalAmount, 0))} ₽
                   </b>
@@ -303,11 +303,11 @@ export function RenewButton({
                   Выписка завершена
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Создано pending-абонементов: <b>{commit.created}</b> · пропущено:{" "}
+                  Создано абонементов «Ожидает оплаты»: <b>{commit.created}</b> · пропущено:{" "}
                   <b>{commit.skipped}</b>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Σ сумм к оплате: <b>{fmt(commit.totalIssuedAmount)} ₽</b>
+                  Итого к оплате: <b>{fmt(commit.totalIssuedAmount)} ₽</b>
                 </div>
               </div>
               <DialogFooter>

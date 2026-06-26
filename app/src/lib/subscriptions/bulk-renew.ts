@@ -130,6 +130,40 @@ async function loadActiveSources(opts: BulkRenewInput): Promise<SourceRow[]> {
   return [...keyToRow.values()]
 }
 
+// Сравнимое число YYYYMMDD. Даты-колонки приходят из БД как UTC-полночь,
+// а rangeStart/rangeEnd (parseDay) — как локальная полночь; берём
+// соответствующие компоненты, чтобы сравнение календарных дат не зависело от TZ.
+function dayNumUTC(d: Date): number {
+  return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate()
+}
+function dayNumLocal(d: Date): number {
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate()
+}
+
+// Последний день месяца (month1 — 1-based) в виде YYYYMMDD.
+function monthEndDayNum(year: number, month1: number): number {
+  const lastDay = new Date(year, month1, 0).getDate()
+  return year * 10000 + month1 * 100 + lastDay
+}
+
+// Конец действия календарного абонемента (YYYYMMDD). У импортированных/легаси
+// абонементов endDate часто null — тогда период берём по periodYear/periodMonth
+// (последний день месяца), а если их нет — по месяцу startDate. Без этого null
+// endDate раньше трактовался как «бессрочный», и любой июньский абонемент ложно
+// «перекрывал» июль → массовая выписка пропускала всех (баг выписки на след. период).
+function calendarEndDayNum(e: {
+  endDate: Date | null
+  periodYear: number | null
+  periodMonth: number | null
+  startDate: Date
+}): number {
+  if (e.endDate) return dayNumUTC(e.endDate)
+  if (e.periodYear != null && e.periodMonth != null) {
+    return monthEndDayNum(e.periodYear, e.periodMonth)
+  }
+  return monthEndDayNum(e.startDate.getUTCFullYear(), e.startDate.getUTCMonth() + 1)
+}
+
 async function loadCollisions(
   tenantId: string,
   rangeStart: Date,
@@ -138,9 +172,11 @@ async function loadCollisions(
 ): Promise<Set<string>> {
   if (keys.length === 0) return new Set()
 
-  // Пересечение интервалов: (existingStart <= rangeEnd) AND (COALESCE(end, start) >= rangeStart)
-  // Берём pending+active. Для package endDate=null, но есть expiresAt; здесь работаем
-  // только с calendar, у которых обычно есть startDate и endDate в пределах месяца.
+  // Кандидаты: pending/active календарные абонементы, чей старт не позже конца
+  // диапазона (необходимое условие пересечения). Конец периода вычисляем в JS —
+  // в т.ч. для строк с пустым endDate (см. calendarEndDayNum). Так корректно
+  // отсекаем только реально пересекающиеся периоды и не считаем «бессрочным»
+  // календарный абонемент без endDate.
   const existing = await db.subscription.findMany({
     where: {
       tenantId,
@@ -148,22 +184,27 @@ async function loadCollisions(
       status: { in: ["pending", "active"] },
       type: "calendar",
       startDate: { lte: rangeEnd },
-      OR: [
-        { endDate: null, expiresAt: null },
-        { endDate: { gte: rangeStart } },
-        { endDate: null, expiresAt: { gte: rangeStart } },
-      ],
     },
     select: {
       clientId: true,
       wardId: true,
       directionId: true,
       groupId: true,
+      startDate: true,
+      endDate: true,
+      periodYear: true,
+      periodMonth: true,
     },
   })
+
+  const startNum = dayNumLocal(rangeStart)
+  const endNum = dayNumLocal(rangeEnd)
   const set = new Set<string>()
   for (const e of existing) {
-    set.add(`${e.clientId}|${e.wardId ?? ""}|${e.directionId}|${e.groupId}`)
+    // Пересечение интервалов: startDate <= rangeEnd И конецПериода >= rangeStart.
+    if (dayNumUTC(e.startDate) <= endNum && calendarEndDayNum(e) >= startNum) {
+      set.add(`${e.clientId}|${e.wardId ?? ""}|${e.directionId}|${e.groupId}`)
+    }
   }
   return set
 }
