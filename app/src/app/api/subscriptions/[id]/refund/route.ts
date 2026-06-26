@@ -5,7 +5,7 @@ import { db } from "@/lib/db"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
-import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate } from "@/lib/subscriptions/last-paid-lesson-date"
+import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate, subscriptionPeriodEnd } from "@/lib/subscriptions/last-paid-lesson-date"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 import { Prisma } from "@prisma/client"
@@ -101,9 +101,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let withdrawAt: Date
     if (withdrawalDate) {
       const override = new Date(withdrawalDate)
-      const dateError = validateWithdrawalDate(override, subscription.startDate, new Date())
-      if (dateError) {
-        return { error: dateError, status: 400 }
+      const check = validateWithdrawalDate(override, subscription.startDate, new Date(), subscriptionPeriodEnd(subscription))
+      if (check.error) {
+        return { error: check.error, status: 400 }
+      }
+      // Будущая дата = отложенное отчисление — это путь PATCH-диалога «Отчислить».
+      // POST /refund — немедленное закрытие с возвратом, будущую дату не обслуживает.
+      if (check.mode === "scheduled") {
+        return {
+          error: "Для отчисления будущей датой используйте «Отчислить» в карточке абонемента.",
+          status: 400,
+        }
       }
       withdrawAt = override
     } else {
@@ -311,8 +319,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     balanceDelta,
     lastPaidDate: lastPaidDate ? lastPaidDate.toISOString().slice(0, 10) : null,
     hasPaidAttendance: lastPaidDate !== null,
-    // Границы для поля даты отчисления в диалоге: не раньше начала абонемента.
+    // Границы поля даты отчисления в диалоге: от начала абонемента до конца
+    // периода (будущую дату в пределах периода можно — это отложенное отчисление).
+    // today — граница immediate/scheduled (дата > today → планируем).
     startDate: subscription.startDate.toISOString().slice(0, 10),
+    periodEnd: subscriptionPeriodEnd(subscription).toISOString().slice(0, 10),
+    today: new Date().toISOString().slice(0, 10),
     direction: subscription.direction.name,
     group: subscription.group.name,
     status: subscription.status,

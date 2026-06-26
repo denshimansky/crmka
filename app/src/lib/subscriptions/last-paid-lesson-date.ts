@@ -49,22 +49,78 @@ export function nextDayUtc(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1))
 }
 
+export type WithdrawalMode = "immediate" | "scheduled"
+
+export interface WithdrawalDateCheck {
+  /** Текст ошибки (для 400) или null, если дата валидна. */
+  error: string | null
+  /** immediate — дата ≤ сегодня (немедленное отчисление); scheduled — дата в
+   *  будущем в пределах периода (отложенное отчисление, Подход A). */
+  mode: WithdrawalMode
+}
+
 /**
- * Проверка вручную указанной даты отчисления. Возвращает текст ошибки (для 400)
- * или null, если дата валидна. Правила: дата не в будущем (последнее платное
- * занятие не может быть в будущем) и не раньше начала абонемента. now передаётся
- * явно — для тестируемости. Сравнение по полночи UTC (как @db.Date в схеме).
+ * Проверка вручную указанной даты отчисления.
+ *
+ * Правила:
+ *   — не раньше начала абонемента (startDate);
+ *   — дата ≤ сегодня → `immediate` (немедленная сверка, прежнее поведение);
+ *   — дата > сегодня → `scheduled` (отложенное отчисление), но не позже конца
+ *     периода абонемента (`periodEnd`) — следующий месяц это уже отдельный
+ *     абонемент. Для абонемента, чей период уже истёк, будущая дата всегда
+ *     попадёт за periodEnd и будет отклонена.
+ *
+ * now/periodEnd передаются явно — для тестируемости. Сравнение по полночи UTC
+ * (как @db.Date в схеме).
  */
 export function validateWithdrawalDate(
   override: Date,
   startDate: Date,
   now: Date,
-): string | null {
-  if (Number.isNaN(override.getTime())) return "Некорректная дата отчисления"
+  periodEnd: Date,
+): WithdrawalDateCheck {
+  if (Number.isNaN(override.getTime())) {
+    return { error: "Некорректная дата отчисления", mode: "immediate" }
+  }
+  if (override < startDate) {
+    return { error: "Дата отчисления не может быть раньше начала абонемента", mode: "immediate" }
+  }
   const todayUtc = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
   )
-  if (override > todayUtc) return "Дата отчисления не может быть в будущем"
-  if (override < startDate) return "Дата отчисления не может быть раньше начала абонемента"
-  return null
+  if (override > todayUtc) {
+    if (override > periodEnd) {
+      return {
+        error: "Дата отчисления не может быть позже конца периода абонемента",
+        mode: "scheduled",
+      }
+    }
+    return { error: null, mode: "scheduled" }
+  }
+  return { error: null, mode: "immediate" }
+}
+
+/**
+ * Конец периода абонемента (полночь UTC) — верхняя граница даты отложенного
+ * отчисления. Календарный: последний день месяца периода. Пакет: expiresAt.
+ * Нет ни того, ни другого — далёкое будущее (не ограничиваем).
+ */
+export function subscriptionPeriodEnd(sub: {
+  endDate: Date | null
+  periodYear: number | null
+  periodMonth: number | null
+  expiresAt?: Date | null
+}): Date {
+  if (sub.endDate) {
+    return new Date(Date.UTC(sub.endDate.getUTCFullYear(), sub.endDate.getUTCMonth(), sub.endDate.getUTCDate()))
+  }
+  if (sub.periodYear && sub.periodMonth) {
+    // Date.UTC(year, monthIndex, 0): periodMonth 1-based → monthIndex=periodMonth
+    // указывает на следующий месяц, день 0 = последний день месяца периода.
+    return new Date(Date.UTC(sub.periodYear, sub.periodMonth, 0))
+  }
+  if (sub.expiresAt) {
+    return new Date(Date.UTC(sub.expiresAt.getUTCFullYear(), sub.expiresAt.getUTCMonth(), sub.expiresAt.getUTCDate()))
+  }
+  return new Date(Date.UTC(9999, 0, 1))
 }

@@ -783,6 +783,13 @@ model Subscription {
   packageTemplateId      String?                    @map("package_template_id") @db.Uuid
   withdrawalReasonId     String?                    @map("withdrawal_reason_id") @db.Uuid
   withdrawalDate         DateTime?                  @map("withdrawal_date") @db.Date
+  /// Отложенное отчисление: дата ухода в будущем (в пределах периода). Пока
+  /// абонемент остаётся active; занятия до этой даты списываются по факту, на
+  /// дату X+1 cron finalize-scheduled-withdrawals проводит финальную сверку и
+  /// переводит в withdrawn. reasonId/comment — что применить при финализации.
+  scheduledWithdrawalDate     DateTime?             @map("scheduled_withdrawal_date") @db.Date
+  scheduledWithdrawalReasonId String?               @map("scheduled_withdrawal_reason_id") @db.Uuid
+  scheduledWithdrawalComment  String?               @map("scheduled_withdrawal_comment")
   isTrialCredited        Boolean                    @default(false) @map("is_trial_credited")
   previousSubscriptionId String?                    @map("previous_subscription_id") @db.Uuid
   activatedAt            DateTime?                  @map("activated_at")
@@ -807,6 +814,7 @@ model Subscription {
   @@index([tenantId, periodYear, periodMonth])
   @@index([tenantId, type, status, expiresAt])
   @@index([tenantId, clientId, groupId, type, status])
+  @@index([tenantId, scheduledWithdrawalDate])
   @@map("subscriptions")
 }
 

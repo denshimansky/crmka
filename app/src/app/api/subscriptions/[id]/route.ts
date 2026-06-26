@@ -12,7 +12,7 @@ import {
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
-import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate } from "@/lib/subscriptions/last-paid-lesson-date"
+import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate, subscriptionPeriodEnd, type WithdrawalMode } from "@/lib/subscriptions/last-paid-lesson-date"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 
 const updateSchema = z.object({
@@ -27,6 +27,8 @@ const updateSchema = z.object({
   withdrawalReasonId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
   // Комментарий при отчислении — сохраняется в историю коммуникаций клиента (заметка).
   withdrawalComment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  // Отмена запланированного (отложенного) отчисления — снять scheduledWithdrawal*.
+  cancelScheduledWithdrawal: z.any().transform(v => v === true),
   // Продление срока пакетного абонемента (ISO-дата) — только для type='package'.
   expiresAt: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
 })
@@ -66,9 +68,60 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   const data = parsed.data
 
+  // Отмена отложенного отчисления (Подход A): снять scheduledWithdrawal*, вернуть
+  // ребёнка в состав группы. Отдельный ранний путь — не трогает основную логику.
+  if (data.cancelScheduledWithdrawal) {
+    const result = await db.$transaction(async (tx) => {
+      const existing = await tx.subscription.findFirst({
+        where: { id, tenantId: session.user.tenantId, deletedAt: null },
+        include: { direction: { select: { name: true } } },
+      })
+      if (!existing) return null
+      const updated = await tx.subscription.update({
+        where: { id },
+        data: {
+          scheduledWithdrawalDate: null,
+          scheduledWithdrawalReasonId: null,
+          scheduledWithdrawalComment: null,
+        },
+      })
+      if (existing.scheduledWithdrawalDate) {
+        // Вернуть зачисление в группе (отменяем выставленный withdrawnAt = X+1).
+        await tx.groupEnrollment.updateMany({
+          where: {
+            tenantId: session.user.tenantId,
+            groupId: existing.groupId,
+            clientId: existing.clientId,
+            wardId: existing.wardId,
+            deletedAt: null,
+            isActive: false,
+          },
+          data: { isActive: true, withdrawnAt: null },
+        })
+        await tx.communication.create({
+          data: {
+            tenantId: session.user.tenantId,
+            clientId: existing.clientId,
+            type: "note",
+            channel: "internal",
+            direction: "internal",
+            content: `Отменено запланированное отчисление абонемента «${existing.direction.name}».`,
+            employeeId: session.user.employeeId || undefined,
+          },
+        })
+      }
+      return { subscription: updated }
+    })
+    if (!result) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
+    return NextResponse.json({ ...result.subscription, _scheduledWithdrawalCancelled: true })
+  }
+
   // Дата отчисления = последнее платное занятие (правило заказчика). Считаем ДО
   // транзакции, чтобы отдать чистый 400 — throw внутри $transaction не ловится.
   let effectiveWithdrawalDate: Date | null = null
+  // immediate — дата ≤ сегодня (немедленная сверка); scheduled — дата в будущем
+  // (отложенное отчисление, финализация cron'ом на X+1).
+  let withdrawalMode: WithdrawalMode = "immediate"
 
   // Переход в withdrawn требует причины из справочника и даты отчисления.
   // Проверка до транзакции — отдаём 400, если поле пустое или причина не найдена/неактивна.
@@ -101,16 +154,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const override = new Date(data.withdrawalDate)
       const sub = await db.subscription.findFirst({
         where: { id, tenantId: session.user.tenantId, deletedAt: null },
-        select: { startDate: true },
+        select: { startDate: true, endDate: true, periodYear: true, periodMonth: true, expiresAt: true },
       })
       if (!sub) {
         return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
       }
-      const dateError = validateWithdrawalDate(override, sub.startDate, new Date())
-      if (dateError) {
-        return NextResponse.json({ error: dateError }, { status: 400 })
+      const check = validateWithdrawalDate(override, sub.startDate, new Date(), subscriptionPeriodEnd(sub))
+      if (check.error) {
+        return NextResponse.json({ error: check.error }, { status: 400 })
       }
       effectiveWithdrawalDate = override
+      withdrawalMode = check.mode
     } else {
       effectiveWithdrawalDate = await getLastPaidLessonDate(db, session.user.tenantId, id)
       if (!effectiveWithdrawalDate) {
@@ -123,7 +177,75 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           { status: 400 },
         )
       }
+      withdrawalMode = "immediate"
     }
+  }
+
+  // Отложенное отчисление (Подход A): дата в будущем (в пределах периода).
+  // Абонемент остаётся active; ребёнок ходит до X, занятия списываются по факту.
+  // Финальная сверка — cron finalize-scheduled-withdrawals на X+1. Здесь только
+  // планируем (отдельный ранний путь — немедленная логика ниже не трогается).
+  if (data.status === "withdrawn" && withdrawalMode === "scheduled" && effectiveWithdrawalDate) {
+    const scheduledDate = effectiveWithdrawalDate
+    const result = await db.$transaction(async (tx) => {
+      const existing = await tx.subscription.findFirst({
+        where: { id, tenantId: session.user.tenantId, deletedAt: null },
+      })
+      if (!existing) return { code: 404 as const }
+      if (existing.status !== "active" && existing.status !== "pending") {
+        return { code: 400 as const, error: "Запланировать отчисление можно только для активного абонемента" }
+      }
+      const updated = await tx.subscription.update({
+        where: { id },
+        data: {
+          scheduledWithdrawalDate: scheduledDate,
+          scheduledWithdrawalReasonId: data.withdrawalReasonId,
+          scheduledWithdrawalComment: data.withdrawalComment ?? null,
+        },
+        include: {
+          client: { select: { id: true, firstName: true, lastName: true } },
+          direction: { select: { id: true, name: true } },
+          group: { select: { id: true, name: true } },
+        },
+      })
+      // Ребёнок выпадает из расписания после X (withdrawnAt = X+1), но до X
+      // остаётся в составе и платит по факту. deactivate деактивирует зачисление
+      // только если нет другого живого абонемента той же группы.
+      await deactivateGroupEnrollmentOnWithdrawal(tx, {
+        tenantId: session.user.tenantId,
+        groupId: existing.groupId,
+        clientId: existing.clientId,
+        wardId: existing.wardId,
+        excludeSubscriptionId: id,
+        withdrawnAt: nextDayUtc(scheduledDate),
+      })
+      const period =
+        existing.periodMonth && existing.periodYear
+          ? `${String(existing.periodMonth).padStart(2, "0")}.${existing.periodYear}`
+          : null
+      await tx.communication.create({
+        data: {
+          tenantId: session.user.tenantId,
+          clientId: existing.clientId,
+          type: "note",
+          channel: "internal",
+          direction: "internal",
+          content:
+            `Запланировано отчисление абонемента «${updated.direction.name}»` +
+            `${period ? ` (${period})` : ""} на ${scheduledDate.toLocaleDateString("ru-RU")}.` +
+            `${data.withdrawalComment ? ` ${data.withdrawalComment}` : ""}`,
+          employeeId: session.user.employeeId || undefined,
+        },
+      })
+      return { subscription: updated }
+    })
+    if ("code" in result) {
+      return NextResponse.json(
+        { error: result.code === 404 ? "Абонемент не найден" : result.error },
+        { status: result.code },
+      )
+    }
+    return NextResponse.json({ ...result.subscription, _scheduledWithdrawal: true })
   }
 
   // Транзакция: findFirst + update атомарно (M-5 audit fix)

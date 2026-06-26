@@ -63,6 +63,8 @@ interface Subscription {
   refundedToBalance?: number
   /** Скидки v2: число отметок, списавших занятие (включая бесплатные при 100% скидке). */
   attendedLessons?: number
+  /** Отложенное отчисление: запланированная дата ухода (ISO) или null. */
+  scheduledWithdrawalDate?: string | null
 }
 
 interface Payment {
@@ -504,6 +506,11 @@ interface WithdrawPreview {
   hasPaidAttendance: boolean
   // Начало абонемента (yyyy-MM-dd) — нижняя граница для поля даты отчисления.
   startDate: string
+  // Конец периода абонемента (yyyy-MM-dd) — верхняя граница (будущую дату в
+  // пределах периода можно: отложенное отчисление).
+  periodEnd: string
+  // Сегодня по серверу (yyyy-MM-dd) — граница immediate/scheduled.
+  today: string
 }
 
 interface WithdrawalReasonOption {
@@ -609,6 +616,10 @@ function WithdrawSubscriptionDialog({
     }
   }
 
+  // Будущая дата → отложенное отчисление: финальный расчёт по факту на дату X,
+  // поэтому прогноз возврата сейчас не показываем (он неизвестен до X).
+  const isScheduled = !!preview && !!withdrawalDate && withdrawalDate > preview.today
+
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
       <DialogTrigger
@@ -675,17 +686,21 @@ function WithdrawSubscriptionDialog({
                 <span className="text-muted-foreground">Отработано (стоимость):</span>
                 <span>{formatMoney(preview.usedAmount)}</span>
               </div>
-              <hr className="my-1 border-orange-200 dark:border-orange-800" />
-              <div className="flex justify-between font-bold text-base">
-                <span>{preview.balanceDelta >= 0 ? "На баланс клиента:" : "В долг клиента:"}</span>
-                <span className={preview.balanceDelta >= 0 ? "text-orange-600" : "text-red-600"}>
-                  {preview.balanceDelta > 0
-                    ? `+${formatMoney(preview.balanceDelta)}`
-                    : preview.balanceDelta < 0
-                      ? `−${formatMoney(Math.abs(preview.balanceDelta))}`
-                      : "0 ₽"}
-                </span>
-              </div>
+              {!isScheduled && (
+                <>
+                  <hr className="my-1 border-orange-200 dark:border-orange-800" />
+                  <div className="flex justify-between font-bold text-base">
+                    <span>{preview.balanceDelta >= 0 ? "На баланс клиента:" : "В долг клиента:"}</span>
+                    <span className={preview.balanceDelta >= 0 ? "text-orange-600" : "text-red-600"}>
+                      {preview.balanceDelta > 0
+                        ? `+${formatMoney(preview.balanceDelta)}`
+                        : preview.balanceDelta < 0
+                          ? `−${formatMoney(Math.abs(preview.balanceDelta))}`
+                          : "0 ₽"}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200 space-y-1.5">
@@ -694,7 +709,14 @@ function WithdrawSubscriptionDialog({
                 по эту дату включительно он остаётся в составе, а из более поздних
                 пропадёт (прошедшие посещения сохранятся).
               </p>
-              {preview.balanceDelta > 0 ? (
+              {isScheduled ? (
+                <p>
+                  Дата в будущем — отчисление <b>запланируется</b>. Ребёнок ходит до
+                  этой даты, занятия списываются по факту. Итоговый возврат/долг
+                  рассчитается <b>в этот день</b> по фактическим посещениям (остаток
+                  за непосещённые занятия вернётся на баланс).
+                </p>
+              ) : preview.balanceDelta > 0 ? (
                 <p>
                   Переплата <b>{formatMoney(preview.balanceDelta)}</b> вернётся на баланс
                   родителя — он сможет потратить её на следующий абонемент.
@@ -719,13 +741,19 @@ function WithdrawSubscriptionDialog({
                 type="date"
                 value={withdrawalDate}
                 min={preview.startDate}
-                max={new Date().toISOString().slice(0, 10)}
+                max={preview.periodEnd}
                 onChange={(e) => setWithdrawalDate(e.target.value)}
               />
-              {preview.hasPaidAttendance ? (
+              {isScheduled ? (
+                <p className="text-xs text-blue-600 dark:text-blue-400">
+                  Дата в будущем — отчисление будет <b>запланировано</b> на этот день.
+                  Ребёнок ходит до него, расчёт — в этот день по факту посещений.
+                </p>
+              ) : preview.hasPaidAttendance ? (
                 <p className="text-xs text-muted-foreground">
                   По умолчанию — дата последнего платного занятия. После неё ученик
-                  не показывается в составе группы. Можно изменить.
+                  не показывается в составе группы. Можно изменить (в т.ч. на будущую —
+                  тогда отчисление запланируется).
                 </p>
               ) : (
                 <p className="text-xs text-amber-600 dark:text-amber-500">
@@ -788,11 +816,13 @@ function WithdrawSubscriptionDialog({
               >
                 {loading
                   ? "Обработка…"
-                  : preview.balanceDelta > 0
-                    ? `Отчислить и вернуть ${formatMoney(preview.balanceDelta)}`
-                    : preview.balanceDelta < 0
-                      ? `Отчислить с долгом ${formatMoney(Math.abs(preview.balanceDelta))}`
-                      : "Отчислить"}
+                  : isScheduled
+                    ? `Запланировать отчисление на ${new Date(withdrawalDate).toLocaleDateString("ru-RU")}`
+                    : preview.balanceDelta > 0
+                      ? `Отчислить и вернуть ${formatMoney(preview.balanceDelta)}`
+                      : preview.balanceDelta < 0
+                        ? `Отчислить с долгом ${formatMoney(Math.abs(preview.balanceDelta))}`
+                        : "Отчислить"}
               </Button>
             </DialogFooter>
           </div>
@@ -803,6 +833,54 @@ function WithdrawSubscriptionDialog({
         ) : null}
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ===== Scheduled withdrawal badge (отложенное отчисление) =====
+
+function ScheduledWithdrawalBadge({
+  subscription,
+  onSuccess,
+}: {
+  subscription: Subscription
+  onSuccess: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  if (!subscription.scheduledWithdrawalDate) return null
+  const dateLabel = new Date(subscription.scheduledWithdrawalDate).toLocaleDateString("ru-RU")
+
+  async function cancel() {
+    if (!confirm(`Отменить запланированное отчисление на ${dateLabel}?`)) return
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancelScheduledWithdrawal: true }),
+      })
+      if (res.ok) onSuccess()
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="mt-1 flex items-center gap-1">
+      <span
+        className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+        title="Отчисление запланировано: ребёнок ходит до этой даты, расчёт — в этот день по факту посещений"
+      >
+        Отчисление {dateLabel}
+      </span>
+      <button
+        type="button"
+        onClick={cancel}
+        disabled={loading}
+        className="text-[11px] text-muted-foreground underline hover:text-foreground disabled:opacity-50"
+      >
+        Отменить
+      </button>
+    </div>
   )
 }
 
@@ -1011,6 +1089,9 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[s.status] || ""}`}>
                         {STATUS_LABELS[s.status] || s.status}
                       </span>
+                      {(s.status === "active" || s.status === "pending") && s.scheduledWithdrawalDate && (
+                        <ScheduledWithdrawalBadge subscription={s} onSuccess={handleSubUpdated} />
+                      )}
                     </TableCell>
                     <TableCell className="text-right text-sm text-muted-foreground">
                       {formatMoney(finalAmount)}

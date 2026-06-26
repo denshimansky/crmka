@@ -40,6 +40,11 @@ export async function closeFinishedCalendarSubscriptions(now: Date = new Date())
       status: "active",
       deletedAt: null,
       balance: { lte: 0 },
+      // Запланированное отчисление финализирует отдельный cron
+      // (finalize-scheduled-withdrawals) — с причиной и переводом клиента в
+      // «Выбывшие». Не перехватываем его здесь (иначе абонемент станет closed
+      // вместо withdrawn, без причины/churn).
+      scheduledWithdrawalDate: null,
       // periodYear < currentYear OR (periodYear = currentYear AND periodMonth < currentMonth)
       OR: [
         { periodYear: { lt: currentYear } },

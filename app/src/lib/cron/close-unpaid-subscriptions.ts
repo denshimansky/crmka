@@ -65,6 +65,8 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
           status: { in: ["pending", "active"] },
           balance: { gt: 0 },
           startDate: { lte: threshold },
+          // Запланированное отчисление обслуживает finalize-scheduled-withdrawals.
+          scheduledWithdrawalDate: null,
         },
         select: {
           id: true,

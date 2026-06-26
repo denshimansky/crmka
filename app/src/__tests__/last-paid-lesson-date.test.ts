@@ -11,6 +11,7 @@ import {
   getLastPaidLessonDate,
   nextDayUtc,
   validateWithdrawalDate,
+  subscriptionPeriodEnd,
 } from "../lib/subscriptions/last-paid-lesson-date"
 
 type FindFirstArgs = { where: Record<string, any>; orderBy?: any; select?: any }
@@ -76,24 +77,65 @@ describe("validateWithdrawalDate", () => {
   const start = new Date("2026-06-01T00:00:00.000Z")
   // «сейчас» 22 июня (с временем) — сегодня по UTC = 2026-06-22
   const now = new Date("2026-06-22T10:00:00.000Z")
+  // конец периода (июнь) = 30 июня
+  const periodEnd = new Date("2026-06-30T00:00:00.000Z")
 
-  it("дата в прошлом в пределах абонемента — валидна (null)", () => {
-    assert.equal(validateWithdrawalDate(new Date("2026-06-15"), start, now), null)
+  it("дата в прошлом в пределах абонемента — immediate, без ошибки", () => {
+    assert.deepEqual(
+      validateWithdrawalDate(new Date("2026-06-15"), start, now, periodEnd),
+      { error: null, mode: "immediate" },
+    )
   })
 
-  it("дата = сегодня (UTC) — допустима", () => {
-    assert.equal(validateWithdrawalDate(new Date("2026-06-22"), start, now), null)
+  it("дата = сегодня (UTC) — immediate, допустима", () => {
+    assert.deepEqual(
+      validateWithdrawalDate(new Date("2026-06-22"), start, now, periodEnd),
+      { error: null, mode: "immediate" },
+    )
   })
 
-  it("дата в будущем — ошибка", () => {
-    assert.ok(validateWithdrawalDate(new Date("2026-06-23"), start, now))
+  it("дата в будущем в пределах периода — scheduled, без ошибки", () => {
+    assert.deepEqual(
+      validateWithdrawalDate(new Date("2026-06-30"), start, now, periodEnd),
+      { error: null, mode: "scheduled" },
+    )
+  })
+
+  it("дата в будущем за пределами периода — scheduled с ошибкой", () => {
+    const res = validateWithdrawalDate(new Date("2026-07-05"), start, now, periodEnd)
+    assert.equal(res.mode, "scheduled")
+    assert.ok(res.error)
   })
 
   it("дата раньше начала абонемента — ошибка", () => {
-    assert.ok(validateWithdrawalDate(new Date("2026-05-31"), start, now))
+    assert.ok(validateWithdrawalDate(new Date("2026-05-31"), start, now, periodEnd).error)
   })
 
   it("некорректная дата — ошибка", () => {
-    assert.ok(validateWithdrawalDate(new Date("нет"), start, now))
+    assert.ok(validateWithdrawalDate(new Date("нет"), start, now, periodEnd).error)
+  })
+})
+
+describe("subscriptionPeriodEnd", () => {
+  it("берёт endDate, если задан", () => {
+    const end = new Date("2026-06-30T00:00:00.000Z")
+    assert.equal(
+      subscriptionPeriodEnd({ endDate: end, periodYear: 2026, periodMonth: 6 }).toISOString(),
+      "2026-06-30T00:00:00.000Z",
+    )
+  })
+
+  it("без endDate — последний день месяца периода", () => {
+    assert.equal(
+      subscriptionPeriodEnd({ endDate: null, periodYear: 2026, periodMonth: 6 }).toISOString(),
+      "2026-06-30T00:00:00.000Z",
+    )
+  })
+
+  it("февраль високосного года", () => {
+    assert.equal(
+      subscriptionPeriodEnd({ endDate: null, periodYear: 2028, periodMonth: 2 }).toISOString(),
+      "2028-02-29T00:00:00.000Z",
+    )
   })
 })

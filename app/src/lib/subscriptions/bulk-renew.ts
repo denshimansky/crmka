@@ -96,6 +96,8 @@ async function loadActiveSources(opts: BulkRenewInput): Promise<SourceRow[]> {
     deletedAt: null,
     status: "active",
     type: "calendar",
+    // Не продлеваем абонементы с запланированным отчислением — ребёнок уходит.
+    scheduledWithdrawalDate: null,
   }
   if (opts.directionId) where.directionId = opts.directionId
   if (opts.branchId) where.group = { branchId: opts.branchId }
