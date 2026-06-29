@@ -376,15 +376,18 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     n > 0 ? new Intl.NumberFormat("ru-RU").format(Math.round(n)) : "—"
 
   // === ПРОГНОЗ ПРИБЫЛИ (reports-logic §7.1, упрощённый под дашборд) ===
-  // Прибыль = Сумма абонементов − Прогноз ЗП педагогов − Прогноз постоянных
-  // платежей. «Сумма абонементов» — тот же subAmount, что в виджете
-  // «Ожидаемые поступления». ЗП — оклад или ставка×занятия (см. helper).
-  // Постоянные платежи — плановые расходы постоянных категорий за месяц
-  // (PlannedExpense, isVariable=false), «заполняется вручную раз в месяц».
-  // Переменные расходы в виджет не входят (на макете их нет).
+  // Прибыль = Сумма абонементов − Прогноз ЗП педагогов − Переменные расходы
+  // − Прогноз постоянных платежей. «Сумма абонементов» — тот же subAmount,
+  // что в виджете «Ожидаемые поступления». ЗП — оклад или ставка×занятия
+  // (см. helper). Переменные расходы — плановые расходы переменных категорий
+  // БЕЗ ЗП-категорий (PlannedExpense, isVariable=true, isSalary=false): ЗП
+  // педагогов уже учтена отдельным столбцом (считается из расписания), поэтому
+  // категории ЗП исключаем, чтобы не задвоить. Постоянные платежи — плановые
+  // расходы постоянных категорий (PlannedExpense, isVariable=false),
+  // «заполняется вручную раз в месяц».
   const profitSubAmount = incomeTotals.subAmount
 
-  const [salaryForecast, plannedFixed] = await Promise.all([
+  const [salaryForecast, plannedFixed, plannedVariable] = await Promise.all([
     computeMonthlySalaryForecast(db, tenantId, year, month),
     db.plannedExpense.findMany({
       where: {
@@ -395,12 +398,26 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       },
       select: { plannedAmount: true },
     }),
+    db.plannedExpense.findMany({
+      where: {
+        tenantId,
+        periodYear: year,
+        periodMonth: month,
+        category: { isVariable: true, isSalary: false },
+      },
+      select: { plannedAmount: true },
+    }),
   ])
   const fixedPaymentsForecast = plannedFixed.reduce(
     (s, p) => s + Number(p.plannedAmount),
     0
   )
-  const profitForecast = profitSubAmount - salaryForecast - fixedPaymentsForecast
+  const variableExpensesForecast = plannedVariable.reduce(
+    (s, p) => s + Number(p.plannedAmount),
+    0
+  )
+  const profitForecast =
+    profitSubAmount - salaryForecast - variableExpensesForecast - fixedPaymentsForecast
 
   const monthStartLabel = monthStart.toLocaleDateString("ru-RU", { month: "long" })
   const profitMonthLabel =
@@ -919,7 +936,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {profitSubAmount === 0 && salaryForecast === 0 && fixedPaymentsForecast === 0 ? (
+        {profitSubAmount === 0 &&
+        salaryForecast === 0 &&
+        variableExpensesForecast === 0 &&
+        fixedPaymentsForecast === 0 ? (
           <p className="text-sm text-muted-foreground">
             Нет данных по прогнозу за выбранный месяц
           </p>
@@ -930,6 +950,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <TableHead>Месяц</TableHead>
                 <TableHead className="text-right whitespace-normal">Сумма<br />абонементов</TableHead>
                 <TableHead className="text-right whitespace-normal">Прогноз зарплаты<br />педагогов</TableHead>
+                <TableHead className="text-right whitespace-normal">Переменные<br />расходы</TableHead>
                 <TableHead className="text-right whitespace-normal">Прогноз постоянных<br />платежей</TableHead>
                 <TableHead className="text-right whitespace-normal">Прогноз<br />прибыли</TableHead>
               </TableRow>
@@ -939,6 +960,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <TableCell className="font-medium">{profitMonthLabel}</TableCell>
                 <TableCell className="text-right tabular-nums">{fmtIncome(profitSubAmount)}</TableCell>
                 <TableCell className="text-right tabular-nums">{fmtIncome(salaryForecast)}</TableCell>
+                <TableCell className="text-right tabular-nums">{fmtIncome(variableExpensesForecast)}</TableCell>
                 <TableCell className="text-right tabular-nums">{fmtIncome(fixedPaymentsForecast)}</TableCell>
                 <TableCell
                   className={`text-right font-semibold tabular-nums ${
