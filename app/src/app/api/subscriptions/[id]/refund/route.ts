@@ -5,7 +5,7 @@ import { db } from "@/lib/db"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
-import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate, subscriptionPeriodEnd } from "@/lib/subscriptions/last-paid-lesson-date"
+import { getLastPaidLessonDate, validateWithdrawalDate, subscriptionPeriodEnd } from "@/lib/subscriptions/last-paid-lesson-date"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 import { Prisma } from "@prisma/client"
@@ -202,7 +202,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       clientId: subscription.clientId,
       wardId: subscription.wardId,
       excludeSubscriptionId: id,
-      withdrawnAt: nextDayUtc(withdrawAt),
     })
 
     // Отчисление последнего активного абонемента → клиент «Выбывший».

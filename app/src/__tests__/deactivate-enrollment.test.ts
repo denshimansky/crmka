@@ -129,4 +129,27 @@ describe("deactivateGroupEnrollmentOnWithdrawal", () => {
     assert.deepEqual(w.chargeAmount, { gt: 0 })
     assert.deepEqual(w.lesson, { groupId: "g" })
   })
+
+  it("отложенное отчисление: withdrawnAt = scheduledBoundary (X+1), последнее платное НЕ учитывается", async () => {
+    const scheduledBoundary = new Date("2026-07-01T00:00:00.000Z") // X=30.06 → X+1
+    const { tx, calls } = makeTx({
+      otherLive: 0,
+      enrollments: [{ id: "e1", enrolledAt: new Date("2026-06-01T00:00:00.000Z") }],
+      // last paid — в прошлом (13.06); при выводе по нему ребёнок выпал бы из
+      // занятий 14–30.06 сразу. Отложенное отчисление обязано это игнорировать.
+      lastPaidDate: new Date("2026-06-13T00:00:00.000Z"),
+    })
+    const res = await deactivateGroupEnrollmentOnWithdrawal(tx as any, { ...base, scheduledBoundary })
+    assert.equal(res, 1)
+    assert.equal(
+      (calls.update[0].data!.withdrawnAt as Date).getTime(),
+      scheduledBoundary.getTime(),
+      "граница = X+1, а не последнее платное + 1",
+    )
+    assert.equal(
+      calls.attendanceFindFirst.length,
+      0,
+      "запрос последнего платного при явной границе не нужен",
+    )
+  })
 })

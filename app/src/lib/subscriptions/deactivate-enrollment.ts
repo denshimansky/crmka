@@ -30,11 +30,17 @@ export interface DeactivateEnrollmentInput {
   /** Текущий абонемент — исключается из проверки «есть ли другие живые». */
   excludeSubscriptionId: string
   /**
-   * @deprecated Не используется. Граница состава вычисляется ВНУТРИ по
-   * последнему платному занятию ребёнка в группе (+1), а не по дате отчисления
-   * абонемента. Поле оставлено для совместимости вызовов.
+   * Явная граница состава (withdrawnAt) для ОТЛОЖЕННОГО отчисления (Подход A):
+   * ребёнок ходит и платит по факту до даты X, из расписания выпадает после —
+   * передаётся X+1. Если задана, используется КАК ЕСТЬ, без вывода по последнему
+   * платному занятию: на момент планирования будущих (до X) занятий ещё не было,
+   * и вывод по последнему платному выкинул бы ребёнка из расписания немедленно
+   * (баг: занятия до даты отчисления пропадали сразу при планировании).
+   *
+   * Для немедленного отчисления НЕ передаётся: граница = последнее платное
+   * занятие ребёнка в группе + 1 день (баг #40).
    */
-  withdrawnAt?: Date
+  scheduledBoundary?: Date
 }
 
 /**
@@ -52,6 +58,11 @@ export interface DeactivateEnrollmentInput {
  * платного занятия, а не с даты отчисления абонемента» (баг #40). Дата отчисления
  * абонемента (Subscription.withdrawalDate) — отдельная учётная величина и сюда
  * НЕ влияет.
+ *
+ * Исключение — ОТЛОЖЕННОЕ отчисление (`scheduledBoundary` задан): граница берётся
+ * как есть (X+1), последнее платное занятие НЕ учитывается. Иначе будущие (до X)
+ * занятия пропали бы из расписания сразу при планировании — на тот момент их ещё
+ * не отметили, и вывод по «последнему платному» дал бы границу в прошлом.
  */
 export async function deactivateGroupEnrollmentOnWithdrawal(
   tx: Tx,
@@ -85,19 +96,30 @@ export async function deactivateGroupEnrollmentOnWithdrawal(
   })
   if (enrollments.length === 0) return 0
 
-  // Последнее платное занятие ребёнка именно в ЭТОЙ группе (по всем абонементам).
-  const lastPaid = await tx.attendance.findFirst({
-    where: {
-      tenantId: input.tenantId,
-      clientId: input.clientId,
-      wardId: input.wardId,
-      chargeAmount: { gt: 0 },
-      lesson: { groupId: input.groupId },
-    },
-    orderBy: { lesson: { date: "desc" } },
-    select: { lesson: { select: { date: true } } },
-  })
-  const boundary = lastPaid ? nextDayUtc(lastPaid.lesson.date) : null
+  // Граница состава (withdrawnAt): withdrawnAt > дата занятия ⇒ занятие в день
+  // (граница − 1) показывается, всё что позже — нет.
+  let boundary: Date | null
+  if (input.scheduledBoundary) {
+    // Отложенное отчисление: явная граница X+1. НЕ выводим по последнему платному
+    // занятию — будущих (до X) занятий ещё не было, иначе ребёнок выпал бы из
+    // расписания сразу при планировании (занятия до X пропадали немедленно).
+    boundary = input.scheduledBoundary
+  } else {
+    // Немедленное отчисление: последнее платное занятие ребёнка именно в ЭТОЙ
+    // группе (по всем абонементам) + 1 день.
+    const lastPaid = await tx.attendance.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        clientId: input.clientId,
+        wardId: input.wardId,
+        chargeAmount: { gt: 0 },
+        lesson: { groupId: input.groupId },
+      },
+      orderBy: { lesson: { date: "desc" } },
+      select: { lesson: { select: { date: true } } },
+    })
+    boundary = lastPaid ? nextDayUtc(lastPaid.lesson.date) : null
+  }
 
   let count = 0
   for (const e of enrollments) {

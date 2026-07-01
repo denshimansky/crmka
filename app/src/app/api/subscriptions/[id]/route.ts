@@ -217,7 +217,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         clientId: existing.clientId,
         wardId: existing.wardId,
         excludeSubscriptionId: id,
-        withdrawnAt: nextDayUtc(scheduledDate),
+        // Отложенное отчисление: явная граница X+1 — ребёнок остаётся в составе
+        // на всех занятиях по дату X включительно, выпадает после (иначе будущие
+        // занятия до X пропадали сразу при планировании).
+        scheduledBoundary: nextDayUtc(scheduledDate),
       })
       const period =
         existing.periodMonth && existing.periodYear
@@ -344,9 +347,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         clientId: existing.clientId,
         wardId: existing.wardId,
         excludeSubscriptionId: id,
-        withdrawnAt: effectiveWithdrawalDate
-          ? nextDayUtc(effectiveWithdrawalDate)
-          : undefined,
       })
     }
 

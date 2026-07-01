@@ -111,7 +111,6 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
             clientId: s.clientId,
             wardId: s.wardId,
             excludeSubscriptionId: s.id,
-            withdrawnAt: today,
           })
           return true
         })
