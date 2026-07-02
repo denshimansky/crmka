@@ -173,7 +173,8 @@ export default async function LessonsAbsencesPage({
   const editableTypes: EditableAttendanceType[] = attendanceTypesRaw
     .filter((t) => {
       if (t.code === "makeup_scheduled" || t.code === "makeup") return false
-      if (!t.availableToInstructor && !t.availableToAdmin) return false
+      // Владелец/управляющий видят все типы (критерий «оба availableTo*=false»
+      // прятал типы со снятыми галочками доступности и от них — баг 02.07.2026).
       if (role === "instructor") return t.availableToInstructor
       if (role === "admin") return t.availableToAdmin
       return true

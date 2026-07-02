@@ -104,9 +104,13 @@ export default function AttendanceMatrixPage() {
       const res = await fetch("/api/attendance-types")
       if (res.ok) {
         const all = (await res.json()) as AttendanceType[]
-        // Ф7: скрываем internal-only типы (оба availableTo*=false) — они ставятся
-        // программно (bulk safety-net), вручную не выбираются ни одной ролью.
-        setTypes(all.filter((t) => t.availableToInstructor || t.availableToAdmin))
+        // Скрываем только внутренний тип «Отработка» (code=makeup) — он ставится
+        // программно, когда пропуск отработан, и не настраивается. Прежний критерий
+        // «оба availableTo*=false» был ловушкой: сняв у типа обе галочки доступности,
+        // владелец терял его из этого списка и не мог вернуть через интерфейс
+        // (так «Назначена отработка», «Уваж. пропуск» и «Перерасчёт» пропали из
+        // настроек и выпадашек — баг 02.07.2026).
+        setTypes(all.filter((t) => t.code !== "makeup"))
       }
     } catch { /* ignore */ }
     finally { setLoading(false) }

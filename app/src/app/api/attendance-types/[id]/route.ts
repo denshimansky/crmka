@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { logAudit } from "@/lib/audit"
 import { z } from "zod"
 
 const updateSchema = z.object({
@@ -91,6 +92,28 @@ export async function PATCH(
   if (parsed.data.sortOrder !== undefined) data.sortOrder = parsed.data.sortOrder
 
   const updated = await db.attendanceType.update({ where: { id }, data })
+
+  // Аудит: справочник влияет на видимость типов во всех выпадашках отметки —
+  // без записи невозможно восстановить, кто и когда снял/вернул флаг (баг
+  // 02.07.2026: у трёх системных типов оказался снят «Доступно админу», а
+  // датировать изменение было нечем).
+  const changes: Record<string, { old: unknown; new: unknown }> = {}
+  for (const key of Object.keys(data)) {
+    changes[key] = {
+      old: (existing as Record<string, unknown>)[key],
+      new: data[key],
+    }
+  }
+  logAudit({
+    tenantId,
+    employeeId: (session.user as any).employeeId,
+    action: "update",
+    entityType: "AttendanceType",
+    entityId: id,
+    changes,
+    req: request,
+  })
+
   return NextResponse.json(updated)
 }
 

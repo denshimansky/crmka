@@ -886,14 +886,13 @@ export function AttendanceTable({
                       }
                       return true
                     }
-                    // Системные internal-only типы (оба availableTo*=false) скрываем
-                    // из выпадашки для ВСЕХ ролей — они ставятся программно (bulk).
-                    if (
-                      type.availableToInstructor === false &&
-                      type.availableToAdmin === false
-                    ) {
-                      return false
-                    }
+                    // Внутренний тип «Отработка» ставится только программно (когда
+                    // пропуск отработан) — вручную не выбирается никем. Прежний
+                    // критерий «оба availableTo*=false» прятал тип и от владельца/
+                    // управляющего, если у него сняли обе галочки доступности
+                    // («Назначена отработка» пропадала у всех ролей — баг 02.07.2026);
+                    // по справке управляющий и владелец видят все типы всегда.
+                    if (type.code === "makeup") return false
                     if (currentUserRole === "instructor") return type.availableToInstructor === true
                     if (currentUserRole === "admin") return type.availableToAdmin !== false
                     return true
