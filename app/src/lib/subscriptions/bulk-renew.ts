@@ -3,6 +3,10 @@
 // clientBalance не трогается: долг живёт на Subscription.balance до момента
 // «Оплатить с баланса» (как и в одиночном POST /api/subscriptions).
 //
+// Цена занятия нового абонемента = текущий прайс направления (не цена
+// исходника): скидки клиента накладываются заново recalcClientDiscounts,
+// подорожание направления подхватывается со следующего месяца.
+//
 // Что включаем: только календарные абонементы (type=calendar) — пользователь
 // явно подтвердил, что массовая выписка нужна именно для них; package идут
 // другим механизмом (по сроку годности).
@@ -67,10 +71,9 @@ interface SourceRow {
   wardId: string | null
   ward: { id: string; firstName: string; lastName: string | null } | null
   directionId: string
-  direction: { id: string; name: string }
+  direction: { id: string; name: string; lessonPrice: Prisma.Decimal }
   groupId: string
   group: { id: string; name: string; branchId: string; branch: { name: string } }
-  lessonPrice: Prisma.Decimal
   startDate: Date
 }
 
@@ -112,10 +115,9 @@ async function loadActiveSources(opts: BulkRenewInput): Promise<SourceRow[]> {
       wardId: true,
       ward: { select: { id: true, firstName: true, lastName: true } },
       directionId: true,
-      direction: { select: { id: true, name: true } },
+      direction: { select: { id: true, name: true, lessonPrice: true } },
       groupId: true,
       group: { select: { id: true, name: true, branchId: true, branch: { select: { name: true } } } },
-      lessonPrice: true,
       startDate: true,
     },
     orderBy: { startDate: "desc" },
@@ -268,7 +270,12 @@ export async function previewBulkRenew(opts: BulkRenewInput): Promise<BulkRenewP
       })
       continue
     }
-    const price = new Prisma.Decimal(s.lessonPrice)
+    // Цена выписки = актуальный прайс НАПРАВЛЕНИЯ, а не цена исходного
+    // абонемента. Скидки клиента наложит recalcClientDiscounts после создания.
+    // Копирование цены исходника дублировало скидку, «зашитую» оператором прямо
+    // в цену (исходник 400 при прайсе 450 → новый 400 − 50 шаблона = 350,
+    // двойная скидка), и навсегда замораживало старый прайс при подорожании.
+    const price = new Prisma.Decimal(s.direction.lessonPrice)
     const finalAmount = price.mul(g.count)
     toCreate.push({
       sourceSubscriptionId: s.id,
