@@ -123,12 +123,71 @@ export async function deactivateGroupEnrollmentOnWithdrawal(
 
   let count = 0
   for (const e of enrollments) {
+    const withdrawnAt = boundary ?? e.enrolledAt
     await tx.groupEnrollment.update({
       where: { id: e.id },
       // Нет платных занятий → withdrawnAt = enrolledAt (ребёнок невидим везде).
-      data: { isActive: false, withdrawnAt: boundary ?? e.enrolledAt },
+      data: { isActive: false, withdrawnAt },
+    })
+    // Bug 2: подчистить «висящие» пустые отметки на занятиях ПОСЛЕ границы выбытия
+    // (Не был/Уваж. после отчисления задним числом). Ребёнок там уже вне состава,
+    // но реестр «Пропуски» читал Attendance напрямую и продолжал их показывать.
+    await cleanPostWithdrawalEmptyAttendance(tx, {
+      tenantId: input.tenantId,
+      groupId: input.groupId,
+      clientId: input.clientId,
+      wardId: input.wardId,
+      cutoff: withdrawnAt,
     })
     count++
   }
   return count
+}
+
+/**
+ * Bug 2: удаляет «висящие» финансово-пустые отметки посещения (Не был/Уваж./
+ * Перерасчёт без списания) на занятиях группы ПОСЛЕ границы выбытия `cutoff`
+ * (= withdrawnAt зачисления). Такой ребёнок уже вне состава (расписание и вкладка
+ * «Неотмеченные» его прячут по withdrawnAt), но реестр «Пропуски» (вкладка «Не был»)
+ * и отчёты по посещениям читают Attendance напрямую и продолжали показывать/считать
+ * эти отметки. Удаляем ТОЛЬКО безопасные строки: chargeAmount=0 И instructorPayAmount=0
+ * И тип не списывает и не платит педагогу; платные посещения, отработки (isMakeup /
+ * scheduledMakeupLessonId), пробные и заглушки (isPending) не трогаем. Разовые
+ * посещения без зачисления не затрагиваются: чистка привязана к выбывшему зачислению
+ * (client+ward+group), а фильтр по типу/деньгам не даёт задеть платные визиты.
+ * Возвращает число удалённых строк.
+ *
+ * Граница `cutoff` включительна по «занятие вне состава»: занятие в составе, если
+ * withdrawnAt > дата занятия, значит date >= withdrawnAt ⇒ вне состава ⇒ подлежит чистке.
+ */
+export async function cleanPostWithdrawalEmptyAttendance(
+  tx: Tx,
+  input: {
+    tenantId: string
+    groupId: string
+    clientId: string
+    wardId: string | null
+    cutoff: Date
+  },
+): Promise<number> {
+  const res = await tx.attendance.deleteMany({
+    where: {
+      tenantId: input.tenantId,
+      clientId: input.clientId,
+      wardId: input.wardId,
+      chargeAmount: 0,
+      instructorPayAmount: 0,
+      isPending: false,
+      isMakeup: false,
+      isTrial: false,
+      scheduledMakeupLessonId: null,
+      attendanceType: { chargesSubscription: false, paysInstructor: false },
+      lesson: {
+        groupId: input.groupId,
+        date: { gte: input.cutoff },
+        status: { not: "cancelled" },
+      },
+    },
+  })
+  return res.count
 }

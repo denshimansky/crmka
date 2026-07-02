@@ -10,7 +10,10 @@
  */
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
-import { deactivateGroupEnrollmentOnWithdrawal } from "../lib/subscriptions/deactivate-enrollment"
+import {
+  deactivateGroupEnrollmentOnWithdrawal,
+  cleanPostWithdrawalEmptyAttendance,
+} from "../lib/subscriptions/deactivate-enrollment"
 
 type AnyArgs = { where: Record<string, any>; data?: Record<string, any>; orderBy?: any; select?: any }
 
@@ -23,6 +26,7 @@ function makeTx(opts: {
     count: [] as AnyArgs[],
     findMany: [] as AnyArgs[],
     attendanceFindFirst: [] as AnyArgs[],
+    attendanceDeleteMany: [] as AnyArgs[],
     update: [] as AnyArgs[],
   }
   const enrollments = opts.enrollments ?? [
@@ -41,6 +45,10 @@ function makeTx(opts: {
         return opts.lastPaidDate
           ? { lesson: { date: opts.lastPaidDate } }
           : null
+      },
+      deleteMany: async (args: AnyArgs) => {
+        calls.attendanceDeleteMany.push(args)
+        return { count: 0 }
       },
     },
     groupEnrollment: {
@@ -72,6 +80,11 @@ describe("deactivateGroupEnrollmentOnWithdrawal", () => {
     assert.equal(res, 0)
     assert.equal(calls.update.length, 0, "update не должен вызываться")
     assert.equal(calls.findMany.length, 0, "findMany не должен вызываться")
+    assert.equal(
+      calls.attendanceDeleteMany.length,
+      0,
+      "чистка отметок не должна вызываться, пока ребёнок остаётся в группе",
+    )
     // guard считает только живые и исключает текущий абонемент
     assert.deepEqual(calls.count[0].where.status, { in: ["pending", "active"] })
     assert.deepEqual(calls.count[0].where.id, { not: "s1" })
@@ -95,6 +108,26 @@ describe("deactivateGroupEnrollmentOnWithdrawal", () => {
       new Date("2026-06-14T00:00:00.000Z").getTime(),
       "withdrawnAt = последнее платное + 1",
     )
+    // Bug 2: чистка висящих отметок вызвана с cutoff = withdrawnAt (14.06), тем же
+    // групповым/детским scope и денежно-безопасным фильтром.
+    assert.equal(calls.attendanceDeleteMany.length, 1, "должна вызываться чистка отметок")
+    const cw = calls.attendanceDeleteMany[0].where
+    assert.equal(
+      (cw.lesson.date.gte as Date).getTime(),
+      new Date("2026-06-14T00:00:00.000Z").getTime(),
+      "cutoff чистки = withdrawnAt",
+    )
+    assert.equal(cw.lesson.groupId, "g")
+    assert.equal(cw.clientId, "c")
+    assert.equal(cw.wardId, "w")
+    assert.equal(cw.chargeAmount, 0)
+    assert.equal(cw.instructorPayAmount, 0)
+    assert.equal(cw.isMakeup, false)
+    assert.equal(cw.isTrial, false)
+    assert.equal(cw.isPending, false)
+    assert.equal(cw.scheduledMakeupLessonId, null)
+    assert.deepEqual(cw.attendanceType, { chargesSubscription: false, paysInstructor: false })
+    assert.deepEqual(cw.lesson.status, { not: "cancelled" })
   })
 
   it("нет платных занятий → withdrawnAt = enrolledAt (невидим везде)", async () => {
@@ -151,5 +184,68 @@ describe("deactivateGroupEnrollmentOnWithdrawal", () => {
       0,
       "запрос последнего платного при явной границе не нужен",
     )
+    // Отложенное отчисление тоже чистит висящие отметки по своей границе (X+1).
+    assert.equal(calls.attendanceDeleteMany.length, 1)
+    assert.equal(
+      (calls.attendanceDeleteMany[0].where.lesson.date.gte as Date).getTime(),
+      scheduledBoundary.getTime(),
+    )
+  })
+})
+
+describe("cleanPostWithdrawalEmptyAttendance", () => {
+  function makeDeleteTx() {
+    const calls: AnyArgs[] = []
+    const tx = {
+      attendance: {
+        deleteMany: async (args: AnyArgs) => {
+          calls.push(args)
+          return { count: 2 }
+        },
+      },
+    }
+    return { tx, calls }
+  }
+
+  it("удаляет только финансово-пустые отметки после cutoff в этой группе", async () => {
+    const { tx, calls } = makeDeleteTx()
+    const cutoff = new Date("2026-06-19T00:00:00.000Z")
+    const n = await cleanPostWithdrawalEmptyAttendance(tx as any, {
+      tenantId: "t",
+      groupId: "g",
+      clientId: "c",
+      wardId: "w",
+      cutoff,
+    })
+    assert.equal(n, 2)
+    assert.equal(calls.length, 1)
+    const w = calls[0].where
+    // Денежно-безопасный фильтр: не тронет платные/ЗП/отработки/пробные/заглушки.
+    assert.equal(w.chargeAmount, 0)
+    assert.equal(w.instructorPayAmount, 0)
+    assert.equal(w.isPending, false)
+    assert.equal(w.isMakeup, false)
+    assert.equal(w.isTrial, false)
+    assert.equal(w.scheduledMakeupLessonId, null)
+    assert.deepEqual(w.attendanceType, { chargesSubscription: false, paysInstructor: false })
+    // Scope: та же группа/клиент/подопечный, занятия с cutoff включительно, без отменённых.
+    assert.equal(w.lesson.groupId, "g")
+    assert.equal((w.lesson.date.gte as Date).getTime(), cutoff.getTime())
+    assert.deepEqual(w.lesson.status, { not: "cancelled" })
+    assert.equal(w.clientId, "c")
+    assert.equal(w.wardId, "w")
+    assert.equal(w.tenantId, "t")
+  })
+
+  it("взрослый абонемент: wardId=null сохраняется (не снимает фильтр)", async () => {
+    const { tx, calls } = makeDeleteTx()
+    await cleanPostWithdrawalEmptyAttendance(tx as any, {
+      tenantId: "t",
+      groupId: "g",
+      clientId: "c",
+      wardId: null,
+      cutoff: new Date("2026-06-19T00:00:00.000Z"),
+    })
+    assert.equal(calls[0].where.wardId, null)
   })
 })

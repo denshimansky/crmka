@@ -160,7 +160,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         include: { attendanceType: { select: { code: true } } },
       })
     : await db.attendance.findFirst({
-        where: { lessonId, tenantId, clientId: data.clientId, wardId: data.wardId, subscriptionId: null },
+        // subscriptionId НЕ фиксируем: сетка «Посещения» шлёт null, а реальная
+        // отметка (в т.ч. «Назначена отработка») может нести subscriptionId.
+        // Ищем по (занятие, клиент, подопечный) — иначе роль-гейт «снять
+        // Назначена отработка / Был на отработке» обходился через null-путь сетки.
+        where: { lessonId, tenantId, clientId: data.clientId, wardId: data.wardId },
         include: { attendanceType: { select: { code: true } } },
       })
   if (
@@ -310,6 +314,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Calculate charge amount
     let chargeAmount = new Prisma.Decimal(0)
     let subscriptionId = data.subscriptionId
+
+    // Баг: сетка «Посещения» шлёт subscriptionId=null (в отличие от карточки
+    // занятия, которая шлёт реальный id). При смене СПИСЫВАЮЩЕЙ отметки на
+    // несписывающую (Был → Не был/Уваж./Перерасчёт) резолв ниже subscriptionId не
+    // восстанавливал — управление уходило в ветку «без абонемента», строка
+    // present(S) не находилась (искалась по subscriptionId=null) → создавалась
+    // ВТОРАЯ строка, а списание не откатывалось: отметку было не исправить.
+    // Восстанавливаем subscriptionId по уже существующей отметке ученика на этом
+    // занятии — тогда upsert идёт по ТОЙ ЖЕ строке и корректно откатывает старое
+    // списание/переключает абонемент. orderBy chargeAmount desc — если остался
+    // исторический дубль, берём заряженную строку (её и надо откатить). Пробное и
+    // виртуальную отработку не трогаем: там свои ключи и отдельная семантика.
+    if (!subscriptionId && !isMakeupArrival && !lesson.isTrial) {
+      const priorMark = await tx.attendance.findFirst({
+        where: { tenantId, lessonId, clientId: data.clientId, wardId: data.wardId },
+        orderBy: { chargeAmount: "desc" },
+        select: { subscriptionId: true },
+      })
+      if (priorMark?.subscriptionId) subscriptionId = priorMark.subscriptionId
+    }
 
     if (attendanceType.chargesSubscription && subscriptionId) {
       const subscription = await tx.subscription.findFirst({
