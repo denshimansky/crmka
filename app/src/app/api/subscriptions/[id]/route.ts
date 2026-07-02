@@ -12,6 +12,7 @@ import {
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
+import { prorateScheduledWithdrawal } from "@/lib/subscriptions/prorate-scheduled-withdrawal"
 import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate, subscriptionPeriodEnd, type WithdrawalMode } from "@/lib/subscriptions/last-paid-lesson-date"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 
@@ -85,6 +86,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           scheduledWithdrawalComment: null,
         },
       })
+      let prorationRestored = false
       if (existing.scheduledWithdrawalDate) {
         // Вернуть зачисление в группе (отменяем выставленный withdrawnAt = X+1).
         await tx.groupEnrollment.updateMany({
@@ -98,6 +100,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           },
           data: { isActive: true, withdrawnAt: null },
         })
+        // Вернуть полную стоимость периода (планирование пересчитало «к оплате»
+        // на занятия по дату X — теперь ребёнок снова ходит весь месяц).
+        const proration = await prorateScheduledWithdrawal(tx, {
+          tenantId: session.user.tenantId,
+          subscription: existing,
+          until: null,
+          createdBy: session.user.employeeId ?? null,
+        })
+        prorationRestored = proration.changed
+        if (proration.changed) {
+          await recalcClientDiscounts(tx, {
+            tenantId: session.user.tenantId,
+            clientId: existing.clientId,
+            createdBy: session.user.employeeId ?? null,
+          })
+        }
         await tx.communication.create({
           data: {
             tenantId: session.user.tenantId,
@@ -105,12 +123,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             type: "note",
             channel: "internal",
             direction: "internal",
-            content: `Отменено запланированное отчисление абонемента «${existing.direction.name}».`,
+            content:
+              `Отменено запланированное отчисление абонемента «${existing.direction.name}».` +
+              `${proration.changed ? ` Стоимость восстановлена: занятий в периоде — ${proration.totalLessons}.` : ""}`,
             employeeId: session.user.employeeId || undefined,
           },
         })
       }
-      return { subscription: updated }
+      const freshSub = prorationRestored
+        ? await tx.subscription.findFirst({ where: { id, tenantId: session.user.tenantId } })
+        : updated
+      return { subscription: freshSub ?? updated }
     })
     if (!result) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
     return NextResponse.json({ ...result.subscription, _scheduledWithdrawalCancelled: true })
@@ -222,6 +245,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         // занятия до X пропадали сразу при планировании).
         scheduledBoundary: nextDayUtc(scheduledDate),
       })
+      // «К оплате» приводим к занятиям по дату X включительно: иначе до самой
+      // финализации (X+1) абонемент просил бы полную стоимость месяца, а
+      // должники/напоминания пугали бы родителя долгом за занятия после X.
+      const proration = await prorateScheduledWithdrawal(tx, {
+        tenantId: session.user.tenantId,
+        subscription: existing,
+        until: scheduledDate,
+        createdBy: session.user.employeeId ?? null,
+      })
+      if (proration.changed) {
+        // Стоимость абонемента изменилась — мог смениться «самый дорогой» месяца.
+        await recalcClientDiscounts(tx, {
+          tenantId: session.user.tenantId,
+          clientId: existing.clientId,
+          createdBy: session.user.employeeId ?? null,
+        })
+      }
       const period =
         existing.periodMonth && existing.periodYear
           ? `${String(existing.periodMonth).padStart(2, "0")}.${existing.periodYear}`
@@ -236,11 +276,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           content:
             `Запланировано отчисление абонемента «${updated.direction.name}»` +
             `${period ? ` (${period})` : ""} на ${scheduledDate.toLocaleDateString("ru-RU")}.` +
+            `${proration.changed ? ` К оплате пересчитано: занятий по дату отчисления — ${proration.totalLessons}.` : ""}` +
             `${data.withdrawalComment ? ` ${data.withdrawalComment}` : ""}`,
           employeeId: session.user.employeeId || undefined,
         },
       })
-      return { subscription: updated }
+      // После пересчёта totalLessons/finalAmount/balance изменились — отдаём свежие.
+      const freshSub = proration.changed
+        ? await tx.subscription.findFirst({
+            where: { id, tenantId: session.user.tenantId },
+            include: {
+              client: { select: { id: true, firstName: true, lastName: true } },
+              direction: { select: { id: true, name: true } },
+              group: { select: { id: true, name: true } },
+            },
+          })
+        : updated
+      return { subscription: freshSub ?? updated }
     })
     if ("code" in result) {
       return NextResponse.json(
