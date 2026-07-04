@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { readSheet, normPhone, normName } from "./parse-xlsx"
 import { parseStatus, toDbStatus, topStatus, type LeadStatus } from "./status-map"
+import { splitParentFio } from "./surname-gender"
 
 interface LeadFileRow {
   parent: string
@@ -211,12 +212,7 @@ function splitFio(fio: string): { firstName: string; lastName: string | null } {
   return { firstName, lastName }
 }
 
-function splitParent(parent: string): { firstName: string; lastName: string } {
-  const parts = parent.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return { firstName: "", lastName: "" }
-  if (parts.length === 1) return { firstName: parts[0], lastName: "" }
-  return { firstName: parts.slice(1).join(" "), lastName: parts[0] }
-}
+// Разбор «Фамилия Имя [Отчество]» — splitParentFio из surname-gender.ts.
 
 export interface SyncOptions {
   leadsBuffer: Buffer
@@ -391,7 +387,7 @@ export async function syncLeads(
       const groupHasBalanceData = group.rows.some((r) => r.balanceFromFile)
       const dbStatus = toDbStatus(top)
       const parentName = group.rows[0].parent
-      const { firstName, lastName } = splitParent(parentName)
+      const { firstName, lastName, patronymic } = splitParentFio(parentName)
       const socialLink =
         group.rows.map((r) => r.socials).find((s) => s && s.trim()) ?? null
       // Филиал группы (телефона) = первый непустой; на этапе 1 уже гарантировано,
@@ -472,6 +468,7 @@ export async function syncLeads(
             tenantId: opts.tenantId,
             firstName: firstName || null,
             lastName: lastName || null,
+            patronymic: patronymic || null,
             phone: group.phone || null,
             socialLink: socialLink ?? null,
             funnelStatus: dbStatus.funnelStatus,

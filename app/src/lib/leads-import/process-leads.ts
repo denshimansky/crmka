@@ -1,5 +1,6 @@
 // Этап 1: обработка сырой выгрузки 1С → промежуточный xlsx.
-// Логика идентична import/build_leads.py.
+// База логики — import/build_leads.py; сверх него: конфликт филиалов и разбор
+// полного ФИО в «Контактном лице» (parentFullName в surname-gender.ts).
 
 import { readSheet, writeSheet, getCell, normPhone, normName, fmtDate } from "./parse-xlsx"
 import { parentFullName } from "./surname-gender"
@@ -47,6 +48,8 @@ export interface ProcessResult {
     afterPriority: number
     afterDedup: number
     surnameChanged: number
+    // ФИО родителя взято из «Контактного лица» целиком (там было полное ФИО).
+    parentFromContact: number
     needsReview: number
     missingBranch: number
     byStatus: Record<LeadStatus, number>
@@ -250,6 +253,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
     "Лид": 0, "Потенциал": 0, "Выбыл": 0, "Архив": 0, "Черный список": 0,
   }
   let surnameChanged = 0
+  let parentFromContact = 0
   let needsReviewCount = 0
   let missingBranch = 0
   for (const [, group] of byKey2) {
@@ -265,6 +269,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
     if (!branch) missingBranch++
     const parent = parentFullName(base.fio, contact)
     if (parent.changed) surnameChanged++
+    if (parent.fromContact) parentFromContact++
     if (parent.needsReview) needsReviewCount++
     const status = base.status
     if (status) byStatus[status]++
@@ -307,6 +312,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
       afterPriority: filtered.length,
       afterDedup: outRows.length,
       surnameChanged,
+      parentFromContact,
       needsReview: needsReviewCount,
       missingBranch,
       byStatus,

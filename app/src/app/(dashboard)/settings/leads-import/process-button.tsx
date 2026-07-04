@@ -37,6 +37,7 @@ interface ImportStats {
   afterPriority: number
   afterDedup: number
   surnameChanged: number
+  parentFromContact: number
   needsReview: number
   missingBranch: number
   byStatus: Record<string, number>
@@ -107,11 +108,13 @@ export function ProcessLeadsButton() {
         return
       }
 
-      // Парсим статистику из header'а
+      // Парсим статистику из header'а. atob даёт latin1-строку — кириллицу
+      // в ключах byStatus нужно декодировать из UTF-8 байтов явно.
       const statsB64 = res.headers.get("X-Import-Stats")
       if (statsB64) {
         try {
-          const json = atob(statsB64)
+          const bytes = Uint8Array.from(atob(statsB64), (c) => c.charCodeAt(0))
+          const json = new TextDecoder().decode(bytes)
           setSuccess(JSON.parse(json) as ImportStats)
         } catch { /* ignore */ }
       }
@@ -202,6 +205,7 @@ export function ProcessLeadsButton() {
                 <div className="text-xs text-muted-foreground">
                   Исходных строк: {success.totalInput} → после правил: {success.afterPriority} → итог:{" "}
                   {success.afterDedup}. Фамилий согласовано: {success.surnameChanged}. На проверку: {success.needsReview}.
+                  {success.parentFromContact > 0 && ` ФИО из «Контактного лица» целиком: ${success.parentFromContact}.`}
                   {success.missingBranch > 0 && ` Без филиала: ${success.missingBranch}.`}
                 </div>
                 <div className="text-xs text-muted-foreground">
