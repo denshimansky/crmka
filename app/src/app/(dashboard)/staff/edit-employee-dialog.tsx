@@ -113,7 +113,9 @@ export function EditEmployeeDialog({
           email: email.trim() || null,
           phone: phone.trim() || null,
           birthDate: birthDate || null,
-          role,
+          // Роль владельца не редактируется и не должна попадать в запрос:
+          // API принимает только manager/admin/instructor/readonly.
+          role: employee.role === "owner" ? undefined : role,
           password: password || undefined,
           branchIds: selectedBranches,
           monthlySalary: monthlySalary.trim() === "" ? null : Number(monthlySalary),
