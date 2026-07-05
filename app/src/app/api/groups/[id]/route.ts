@@ -146,9 +146,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   })
 
   // Педагог занятия копируется из группы при генерации, поэтому смену педагога
-  // распространяем на будущие запланированные занятия. Прошлое не трогаем
-  // (там фактический педагог), занятия с отметками — тоже (ЗП уже начислена
-  // по ставке прежнего педагога), назначенные замены (substituteInstructorId)
+  // распространяем на запланированные занятия начиная с ЗАВТРА. Сегодняшние не
+  // трогаем: утреннее занятие могло быть уже проведено старым педагогом, но ещё
+  // не отмечено (status остаётся scheduled) — переатрибуция уведёт ЗП новому;
+  // на оставшиеся сегодня занятия есть «Назначить замену». Занятия с уже
+  // начисленной ЗП (отметка с instructorPayAmount > 0) не трогаем — начислено
+  // по ставке прежнего педагога; заранее проставленные отметки без начислений
+  // (пропуски) переводу не мешают. Назначенные замены (substituteInstructorId)
   // сохраняются. Условие «не равен» заодно чинит ранее разъехавшиеся занятия
   // при повторном сохранении группы.
   if (rest.instructorId !== undefined) {
@@ -158,10 +162,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       where: {
         groupId: id,
         tenantId: session.user.tenantId,
-        date: { gte: today },
+        date: { gt: today },
         status: "scheduled",
         instructorId: { not: group.instructorId },
-        attendances: { none: { isPending: false } },
+        attendances: { none: { instructorPayAmount: { gt: 0 } } },
       },
       data: { instructorId: group.instructorId },
     })
