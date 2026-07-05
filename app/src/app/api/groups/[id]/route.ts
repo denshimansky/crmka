@@ -145,6 +145,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     include: { direction: true, room: true, instructor: { select: { firstName: true, lastName: true } } },
   })
 
+  // Педагог занятия копируется из группы при генерации, поэтому смену педагога
+  // распространяем на будущие запланированные занятия. Прошлое не трогаем
+  // (там фактический педагог), занятия с отметками — тоже (ЗП уже начислена
+  // по ставке прежнего педагога), назначенные замены (substituteInstructorId)
+  // сохраняются. Условие «не равен» заодно чинит ранее разъехавшиеся занятия
+  // при повторном сохранении группы.
+  if (rest.instructorId !== undefined) {
+    const today = new Date()
+    today.setUTCHours(0, 0, 0, 0)
+    await db.lesson.updateMany({
+      where: {
+        groupId: id,
+        tenantId: session.user.tenantId,
+        date: { gte: today },
+        status: "scheduled",
+        instructorId: { not: group.instructorId },
+        attendances: { none: { isPending: false } },
+      },
+      data: { instructorId: group.instructorId },
+    })
+  }
+
   // При изменении дат жизни группы перегенерируем расписание относительно
   // новых границ [startDate, endDate]: вне диапазона — удаляем занятия без
   // посещений (с посещениями — оставляем); внутри — чистим неактуальные
