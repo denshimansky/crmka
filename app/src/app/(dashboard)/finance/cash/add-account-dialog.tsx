@@ -71,11 +71,13 @@ export function AddAccountDialog({
   const [name, setName] = useState("")
   const [type, setType] = useState("")
   const [branchId, setBranchId] = useState("")
+  const [balance, setBalance] = useState("")
 
   function reset() {
     setName("")
     setType("")
     setBranchId("")
+    setBalance("")
     setError(null)
   }
 
@@ -86,6 +88,14 @@ export function AddAccountDialog({
     if (!name.trim()) { setError("Введите название счёта"); return }
     if (!type) { setError("Выберите тип счёта"); return }
 
+    const balanceNum = balance.trim()
+      ? Number(balance.replace(",", ".").replace(/\s/g, ""))
+      : undefined
+    if (balanceNum !== undefined && !Number.isFinite(balanceNum)) {
+      setError("Некорректный начальный остаток")
+      return
+    }
+
     setLoading(true)
     try {
       const res = await fetch("/api/accounts", {
@@ -95,6 +105,7 @@ export function AddAccountDialog({
           name: name.trim(),
           type,
           branchId: branchId || undefined,
+          balance: balanceNum,
         }),
       })
 
@@ -178,6 +189,16 @@ export function AddAccountDialog({
               </Select>
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <Label>Начальный остаток, ₽</Label>
+            <Input
+              inputMode="decimal"
+              value={balance}
+              onChange={e => setBalance(e.target.value)}
+              placeholder="0"
+            />
+          </div>
 
           <DialogFooter>
             <Button type="submit" disabled={loading}>

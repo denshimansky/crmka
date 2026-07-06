@@ -59,6 +59,8 @@ export function EditAccountDialog({
   const [name, setName] = useState(account.name)
   const [type, setType] = useState(account.type)
   const [branchId, setBranchId] = useState(account.branchId || "")
+  const [balance, setBalance] = useState(String(account.balance))
+  const [balanceTouched, setBalanceTouched] = useState(false)
 
   const canArchive = userRole === "owner"
   const balanceIsZero = Math.abs(account.balance) < 0.005
@@ -67,6 +69,8 @@ export function EditAccountDialog({
     setName(account.name)
     setType(account.type)
     setBranchId(account.branchId || "")
+    setBalance(String(account.balance))
+    setBalanceTouched(false)
     setError(null)
   }
 
@@ -107,6 +111,22 @@ export function EditAccountDialog({
       return
     }
 
+    // остаток уходит на сервер только если пользователь трогал поле —
+    // иначе «Сохранить» мог бы затереть баланс устаревшим значением
+    let balanceNum: number | undefined
+    if (balanceTouched) {
+      if (!balance.trim()) {
+        setError("Введите остаток счёта")
+        return
+      }
+      balanceNum = Number(balance.replace(",", ".").replace(/\s/g, ""))
+      if (!Number.isFinite(balanceNum)) {
+        setError("Некорректный остаток")
+        return
+      }
+      if (Math.abs(balanceNum - account.balance) < 0.005) balanceNum = undefined
+    }
+
     setLoading(true)
     try {
       const res = await fetch(`/api/accounts/${account.id}`, {
@@ -116,12 +136,16 @@ export function EditAccountDialog({
           name: name.trim(),
           type,
           branchId: branchId || undefined,
+          balance: balanceNum,
+          ...(balanceNum !== undefined && { expectedBalance: account.balance }),
         }),
       })
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setError(data.error || "Ошибка при обновлении счёта")
+        // баланс сместила параллельная операция — подтягиваем свежие данные
+        if (res.status === 409) router.refresh()
         return
       }
 
@@ -142,7 +166,9 @@ export function EditAccountDialog({
       open={open}
       onOpenChange={(v) => {
         setOpen(v)
-        if (!v) reset()
+        // синхронизация с актуальными пропсами при открытии: баланс мог
+        // измениться (платёж, перевод, router.refresh), пока стейт хранил старый
+        if (v) reset()
       }}
     >
       <DialogTrigger
@@ -216,6 +242,22 @@ export function EditAccountDialog({
               </Select>
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <Label>Остаток, ₽</Label>
+            <Input
+              inputMode="decimal"
+              value={balance}
+              onChange={(e) => {
+                setBalance(e.target.value)
+                setBalanceTouched(true)
+              }}
+              placeholder="0"
+            />
+            <p className="text-xs text-muted-foreground">
+              Прямая корректировка остатка: операция в ДДС не создаётся
+            </p>
+          </div>
 
           <DialogFooter className="flex items-center justify-between gap-2 sm:justify-between">
             <div>

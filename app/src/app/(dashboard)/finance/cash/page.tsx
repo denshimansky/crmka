@@ -44,6 +44,7 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
   const session = await getSession()
   const tenantId = session.user.tenantId
   const userRole = session.user.role
+  const canManageAccounts = userRole === "owner" || userRole === "manager"
   const params = await searchParams
   const scope = await getBranchScope()
 
@@ -131,7 +132,7 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
               accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
             />
           )}
-          <AddAccountDialog branches={branches} />
+          {canManageAccounts && <AddAccountDialog branches={branches} />}
         </div>
       </div>
 
@@ -139,7 +140,7 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
         <Card>
           <CardContent className="flex flex-col items-center justify-center gap-3 p-12 text-muted-foreground">
             <p>Создайте счета для учёта денежных средств</p>
-            <AddAccountDialog branches={branches} />
+            {canManageAccounts && <AddAccountDialog branches={branches} />}
           </CardContent>
         </Card>
       ) : (
@@ -263,17 +264,19 @@ function AccountColumn({ title, accounts, monthTotals, branches, userRole }: Acc
                     </div>
                     <div className="flex items-center gap-1">
                       <Badge variant="outline" className="shrink-0">{TYPE_LABELS[a.type]}</Badge>
-                      <EditAccountDialog
-                        account={{
-                          id: a.id,
-                          name: a.name,
-                          type: a.type,
-                          branchId: a.branchId,
-                          balance,
-                        }}
-                        branches={branches}
-                        userRole={userRole}
-                      />
+                      {(userRole === "owner" || userRole === "manager") && (
+                        <EditAccountDialog
+                          account={{
+                            id: a.id,
+                            name: a.name,
+                            type: a.type,
+                            branchId: a.branchId,
+                            balance,
+                          }}
+                          branches={branches}
+                          userRole={userRole}
+                        />
+                      )}
                     </div>
                   </div>
                   {mt && (mt.incoming > 0 || mt.outgoing > 0) && (
