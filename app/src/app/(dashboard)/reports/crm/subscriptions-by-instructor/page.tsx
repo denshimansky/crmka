@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ReportShell, ReportStatus, useReportData } from "@/components/report-scaffold"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface ChurnedClient {
   clientId: string
@@ -30,6 +31,7 @@ function fmtDate(iso: string): string {
 }
 
 export default function SubscriptionsByInstructorReportPage() {
+  const roleNames = useRoleNames()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/subscriptions-by-instructor")
   const num = (k: string) => Number((metadata as Record<string, unknown> | null)?.[k] ?? 0)
 
@@ -49,7 +51,7 @@ export default function SubscriptionsByInstructorReportPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Педагог</TableHead>
+                  <TableHead>{roleNames.instructor}</TableHead>
                   <TableHead className="text-right">Активные</TableHead>
                   <TableHead className="text-right">Новые</TableHead>
                   <TableHead className="text-right">Выбывшие</TableHead>

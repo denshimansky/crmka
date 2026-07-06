@@ -27,6 +27,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { ClipboardCheck, ExternalLink, X, Sparkles } from "lucide-react"
+import { useRoleNames } from "@/components/role-names-provider"
 
 const MONTH_SHORT = [
   "",
@@ -360,6 +361,7 @@ function AttendanceItemsTable({
   items: AttendanceItem[]
   showWardColumn: boolean
 }) {
+  const roleNames = useRoleNames()
   return (
     <Table>
       <TableHeader>
@@ -369,7 +371,7 @@ function AttendanceItemsTable({
           <TableHead>Направление</TableHead>
           <TableHead>Группа</TableHead>
           {showWardColumn && <TableHead>Подопечный</TableHead>}
-          <TableHead>Педагог</TableHead>
+          <TableHead>{roleNames.instructor}</TableHead>
           <TableHead>Вид</TableHead>
           <TableHead>Период абонемента</TableHead>
           <TableHead className="text-right">Списание</TableHead>

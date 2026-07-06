@@ -8,7 +8,8 @@ import { PageTracking } from "@/components/page-tracking"
 import { AutoBreadcrumbs } from "@/components/auto-breadcrumbs"
 import { Separator } from "@/components/ui/separator"
 import { getSession } from "@/lib/session"
-import { db } from "@/lib/db"
+import { getOrgUiSettings, getRoleNames } from "@/lib/role-names"
+import { RoleNamesProvider } from "@/components/role-names-provider"
 import { hasPermission, PERMISSIONS, type PermissionKey, type RolePermissions } from "@/lib/permissions"
 import { requiredPermissionForPath } from "@/lib/route-permissions"
 import { AccessDenied } from "@/components/access-denied"
@@ -22,15 +23,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const headerStore = await headers()
   const pathname = headerStore.get("x-pathname") || "/"
 
-  // Загружаем кастомизированную матрицу прав ровно один раз — нужна и гарду, и сайдбару.
+  // Кастомизированная матрица прав и названия ролей — один cached-запрос
+  // (getOrgUiSettings) на весь рендер: нужен и гарду, и сайдбару, и провайдеру.
   let orgPerms: RolePermissions | null = null
   if (role !== "owner") {
-    const org = await db.organization.findUnique({
-      where: { id: tenantId },
-      select: { rolePermissions: true },
-    })
+    const org = await getOrgUiSettings(tenantId)
     orgPerms = (org?.rolePermissions as RolePermissions | null) ?? null
   }
+
+  // Кастомные названия ролей — для сайдбара и всех клиентских компонентов (через контекст)
+  const roleNames = await getRoleNames(tenantId)
 
   // Эффективные права текущей роли (для сайдбара)
   const effectivePermissions: Record<PermissionKey, boolean> = {} as Record<PermissionKey, boolean>
@@ -53,6 +55,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
+    <RoleNamesProvider value={roleNames}>
     <SidebarProvider>
       <AppSidebar permissions={effectivePermissions} />
       <SidebarInset>
@@ -73,5 +76,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <PageTracking />
       <AiChat />
     </SidebarProvider>
+    </RoleNamesProvider>
   )
 }

@@ -100,10 +100,10 @@ test.describe.serial("Полный бизнес-сценарий", () => {
     await dialog.locator('input[id="login"]').fill(INSTRUCTOR_LOGIN)
     await dialog.locator('input[id="password"]').fill("test123456")
 
-    // Роль = Инструктор
+    // Роль = инструктор (дефолтное отображаемое название — «Педагог»)
     await dialog.locator("[data-slot='select-trigger']").first().click()
     await page.waitForTimeout(500)
-    await page.locator("[data-slot='select-item']:visible", { hasText: "Инструктор" }).first().click()
+    await page.locator("[data-slot='select-item']:visible", { hasText: "Педагог" }).first().click()
     await page.waitForTimeout(500)
 
     await dialog.locator("button:has-text('Создать')").click()

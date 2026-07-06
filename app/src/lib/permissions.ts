@@ -56,14 +56,6 @@ export type RolePermissions = Record<string, Record<PermissionKey, boolean>>
 /** Роли, которые видны в матрице (без owner — у него всё включено) */
 export const EDITABLE_ROLES: Role[] = ["manager", "admin", "instructor", "readonly"]
 
-export const ROLE_LABELS: Record<Role, string> = {
-  owner: "Владелец",
-  manager: "Управляющий",
-  admin: "Администратор",
-  instructor: "Инструктор",
-  readonly: "Только чтение",
-}
-
 const ALL_TRUE = Object.fromEntries(
   PERMISSIONS.map((p) => [p.key, true])
 ) as Record<PermissionKey, boolean>

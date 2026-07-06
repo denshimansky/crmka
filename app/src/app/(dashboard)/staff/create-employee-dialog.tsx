@@ -15,13 +15,9 @@ import {
   Select, SelectTrigger, SelectContent, SelectItem,
 } from "@/components/ui/select"
 import { Plus } from "lucide-react"
+import { useRoleNames } from "@/components/role-names-provider"
 
-const ROLES = [
-  { value: "manager", label: "Управляющий" },
-  { value: "admin", label: "Администратор" },
-  { value: "instructor", label: "Инструктор" },
-  { value: "readonly", label: "Только чтение" },
-] as const
+const ASSIGNABLE_ROLES = ["manager", "admin", "instructor", "readonly"] as const
 
 const CYR_TO_LAT: Record<string, string> = {
   а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z",
@@ -88,6 +84,9 @@ export function CreateEmployeeDialog({
   }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const roleNames = useRoleNames()
+  const roleOptions = ASSIGNABLE_ROLES.map((value) => ({ value, label: roleNames[value] }))
 
   const [lastName, setLastName] = useState("")
   const [firstName, setFirstName] = useState("")
@@ -156,7 +155,7 @@ export function CreateEmployeeDialog({
     // ADM-04: хотя бы один филиал нужен только администратору (ограничивает
     // видимость данных). Инструктор и так видит только свои занятия.
     if (role === "admin" && selectedBranches.length === 0) {
-      setError("Для роли «администратор» нужно выбрать хотя бы один филиал")
+      setError(`Для роли «${roleNames.admin}» нужно выбрать хотя бы один филиал`)
       return
     }
 
@@ -296,10 +295,10 @@ export function CreateEmployeeDialog({
               <Label>Роль</Label>
               <Select value={role} onValueChange={(v) => { if (v) setRole(v) }}>
                 <SelectTrigger className="w-full">
-                  {ROLES.find(r => r.value === role)?.label ?? <span className="text-muted-foreground">Выберите роль</span>}
+                  {roleOptions.find(r => r.value === role)?.label ?? <span className="text-muted-foreground">Выберите роль</span>}
                 </SelectTrigger>
                 <SelectContent>
-                  {ROLES.map((r) => (
+                  {roleOptions.map((r) => (
                     <SelectItem key={r.value} value={r.value}>
                       {r.label}
                     </SelectItem>
@@ -330,13 +329,13 @@ export function CreateEmployeeDialog({
                 </div>
                 {role === "admin" && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Для администратора — обязательно хотя бы один филиал
+                    Для роли «{roleNames.admin}» — обязательно хотя бы один филиал
                     (ограничивает видимость данных в CRM).
                   </p>
                 )}
                 {role === "instructor" && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Необязательно: инструктор видит только свои занятия.
+                    Необязательно: роль «{roleNames.instructor}» видит только свои занятия.
                   </p>
                 )}
               </div>

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table"
 import { CheckCircle2, Loader2, Users, UserCheck, X } from "lucide-react"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface AbsenceReasonData {
   id: string
@@ -187,6 +188,7 @@ export function AttendanceTable({
   currentUserRole,
   groupIsOneTime = false,
 }: AttendanceTableProps) {
+  const roleNames = useRoleNames()
   const router = useRouter()
   const [students, setStudents] = useState(initialStudents)
   const [makeupStudents, setMakeupStudents] = useState(initialMakeupStudents)
@@ -976,7 +978,7 @@ export function AttendanceTable({
             <div className="flex items-center gap-4">
               <UserCheck className="size-5 text-muted-foreground" />
               <div className="flex-1">
-                <div className="text-xs text-muted-foreground">Педагог группы</div>
+                <div className="text-xs text-muted-foreground">{roleNames.instructor} группы</div>
                 <div className="text-sm font-medium">{instructorName}</div>
               </div>
               {substituteId ? (

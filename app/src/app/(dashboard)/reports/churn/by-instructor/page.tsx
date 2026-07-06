@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ReportShell, ReportStatus, useReportData } from "@/components/report-scaffold"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface Row {
   instructorId?: string
@@ -17,6 +18,7 @@ interface Row {
 }
 
 export default function ChurnByInstructorReportPage() {
+  const roleNames = useRoleNames()
   const [groupBy, setGroupBy] = useState<"instructor" | "branch">("instructor")
   const { loading, error, data } = useReportData<Row>("/api/reports/churn-by-instructors", { groupBy })
 
@@ -46,7 +48,7 @@ export default function ChurnByInstructorReportPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{groupBy === "instructor" ? "Педагог" : "Филиал"}</TableHead>
+                  <TableHead>{groupBy === "instructor" ? roleNames.instructor : "Филиал"}</TableHead>
                   <TableHead className="text-right">Активные абонементы</TableHead>
                   <TableHead className="text-right">Отток</TableHead>
                   <TableHead className="text-right">% оттока</TableHead>

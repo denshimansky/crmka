@@ -2,6 +2,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { getRoleNames } from "@/lib/role-names"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -42,6 +43,7 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
   const session = await getSession()
   const tenantId = session.user.tenantId
   const { id } = await params
+  const roleNames = await getRoleNames(tenantId)
 
   const ward = await db.ward.findFirst({
     where: { id, tenantId },
@@ -220,7 +222,7 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
                       <div className="grid gap-1 text-xs sm:grid-cols-2">
                         <div className="flex items-center gap-1.5">
                           <UserIcon className="size-3 text-muted-foreground" />
-                          <span className="text-muted-foreground">Педагог:</span>
+                          <span className="text-muted-foreground">{roleNames.instructor}:</span>
                           <span>{instr}</span>
                         </div>
                         <div className="flex items-center gap-1.5">

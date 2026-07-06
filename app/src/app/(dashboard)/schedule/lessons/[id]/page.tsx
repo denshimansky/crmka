@@ -1,5 +1,6 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { getRoleNames } from "@/lib/role-names"
 import { rosterWhereOnDate, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
 import { notFound } from "next/navigation"
 import { isUnscoped } from "@/lib/branch-scope"
@@ -53,6 +54,7 @@ export default async function LessonCardPage({
   const { id } = await params
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const roleNames = await getRoleNames(tenantId)
 
   const lesson = await db.lesson.findFirst({
     where: { id, tenantId },
@@ -760,7 +762,7 @@ export default async function LessonCardPage({
           <CardContent className="flex items-center gap-3 p-4">
             <User className="size-5 text-muted-foreground" />
             <div>
-              <div className="text-xs text-muted-foreground">Педагог</div>
+              <div className="text-xs text-muted-foreground">{roleNames.instructor}</div>
               <div className="text-sm font-medium">{instructorName}</div>
             </div>
           </CardContent>

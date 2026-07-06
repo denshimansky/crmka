@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface Row {
   instructorId: string
@@ -25,6 +26,7 @@ const SCHEME: Record<string, string> = {
 }
 
 export default function SalaryForecastReportPage() {
+  const roleNames = useRoleNames()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/salary-forecast")
   const num = (k: string) => Number((metadata as Record<string, unknown> | null)?.[k] ?? 0)
 
@@ -41,7 +43,7 @@ export default function SalaryForecastReportPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Педагог</TableHead>
+                  <TableHead>{roleNames.instructor}</TableHead>
                   <TableHead>Направление</TableHead>
                   <TableHead>Схема</TableHead>
                   <TableHead className="text-right">Учеников</TableHead>

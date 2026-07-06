@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ReportShell, ReportStatus, useReportData } from "@/components/report-scaffold"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface Row {
   instructorId: string
@@ -12,6 +13,7 @@ interface Row {
 }
 
 export default function InstructorHoursReportPage() {
+  const roleNames = useRoleNames()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/instructor-hours")
   const totalHours = Number(metadata?.totalHours ?? 0)
 
@@ -28,7 +30,7 @@ export default function InstructorHoursReportPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Педагог</TableHead>
+                  <TableHead>{roleNames.instructor}</TableHead>
                   <TableHead className="text-right">Дней с занятиями</TableHead>
                   <TableHead className="text-right">Всего часов</TableHead>
                 </TableRow>

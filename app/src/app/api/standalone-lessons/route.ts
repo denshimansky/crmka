@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { getRoleNames } from "@/lib/role-names"
 import { z } from "zod"
 
 const createSchema = z.object({
@@ -55,7 +56,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Кабинет не относится к выбранному филиалу" }, { status: 400 })
   }
   if (!direction) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
-  if (!instructor) return NextResponse.json({ error: "Педагог не найден" }, { status: 404 })
+  if (!instructor) {
+    const roleNames = await getRoleNames(tenantId)
+    return NextResponse.json({ error: `${roleNames.instructor} не найден` }, { status: 404 })
+  }
 
   const dateObj = new Date(data.date)
   if (isNaN(dateObj.getTime())) {

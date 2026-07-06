@@ -77,9 +77,9 @@ test.describe("E2E: Полный цикл CRM", () => {
     await dialog.locator('input[id="login"]').fill("e2e_instructor_" + TS)
     await dialog.locator('input[id="password"]').fill("test123456")
 
-    // Выбираем роль "Инструктор"
+    // Выбираем роль инструктора (дефолтное отображаемое название — «Педагог»)
     await dialog.locator("[data-slot='select-trigger']").first().click()
-    await page.locator("[data-slot='select-item']", { hasText: "Инструктор" }).click()
+    await page.locator("[data-slot='select-item']", { hasText: "Педагог" }).click()
     await page.waitForTimeout(300)
 
     await dialog.locator("button:has-text('Создать')").click()

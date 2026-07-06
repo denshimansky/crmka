@@ -2,6 +2,7 @@ import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
+import { getRoleNames } from "@/lib/role-names"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,6 +23,7 @@ export default async function TrialConversionReportPage({
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const roleNames = await getRoleNames(tenantId)
 
   const sp = await searchParams
   const { year, month } = getMonthFromParams(sp)
@@ -258,7 +260,7 @@ export default async function TrialConversionReportPage({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Педагог</TableHead>
+                  <TableHead>{roleNames.instructor}</TableHead>
                   <TableHead className="text-right">Пробных записано</TableHead>
                   <TableHead className="text-right">Пришли</TableHead>
                   <TableHead className="text-right">Не пришли</TableHead>

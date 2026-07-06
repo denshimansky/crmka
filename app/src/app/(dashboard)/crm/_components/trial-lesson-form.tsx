@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { Calendar } from "@/components/ui/calendar"
+import { useRoleNames } from "@/components/role-names-provider"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 import { formatWardName } from "@/lib/format-name"
 
@@ -77,6 +78,7 @@ export function TrialLessonForm({
   errorMessage?: string | null
   submitLabel?: string
 }) {
+  const roleNames = useRoleNames()
   const [directions, setDirections] = useState<DirectionOption[]>([])
   const [groups, setGroups] = useState<GroupOption[]>([])
   const [instructorsList, setInstructorsList] = useState<InstructorOption[]>([])
@@ -188,7 +190,7 @@ export function TrialLessonForm({
     if (!directionId) return setValidationError("Выберите направление")
     if (!branchId) return setValidationError("Выберите филиал")
     if (kind === "group" && !groupId) return setValidationError("Выберите группу")
-    if (kind === "individual" && !instructorId) return setValidationError("Выберите педагога")
+    if (kind === "individual" && !instructorId) return setValidationError(`Заполните поле «${roleNames.instructor}»`)
     if (kind === "individual" && !startTime) return setValidationError("Укажите время")
     if (kind === "individual" && !roomId) return setValidationError("Выберите кабинет")
     if (!scheduledDate) return setValidationError("Укажите дату")
@@ -358,12 +360,12 @@ export function TrialLessonForm({
       {kind === "individual" && (
         <>
           <div className="space-y-1.5">
-            <Label>Педагог *</Label>
+            <Label>{roleNames.instructor} *</Label>
             <Select value={instructorId} onValueChange={(v) => v && setInstructorId(v)}>
               <SelectTrigger className="w-full">
                 {(() => {
                   const sel = instructorsList.find((e) => e.id === instructorId)
-                  if (!sel) return <span className="text-muted-foreground">Выберите педагога</span>
+                  if (!sel) return <span className="text-muted-foreground">Выберите из списка</span>
                   return [sel.lastName, sel.firstName].filter(Boolean).join(" ") || "Без имени"
                 })()}
               </SelectTrigger>

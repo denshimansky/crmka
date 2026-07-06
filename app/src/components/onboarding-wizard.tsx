@@ -28,6 +28,7 @@ import { SalaryRatesDialog } from "@/app/(dashboard)/staff/salary-rates-dialog"
 import {
   AddAccountDialog, type CreatedAccount,
 } from "@/app/(dashboard)/finance/cash/add-account-dialog"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface OnboardingWizardProps {
   orgName: string
@@ -103,14 +104,6 @@ interface PackagePreset {
   validDays: number | ""
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: "Владелец",
-  manager: "Управляющий",
-  admin: "Администратор",
-  instructor: "Инструктор",
-  readonly: "Только чтение",
-}
-
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
   cash: "Касса",
   bank_account: "Р/с",
@@ -120,6 +113,7 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
 
 export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
   const router = useRouter()
+  const roleNames = useRoleNames()
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -751,7 +745,7 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
                           <div className="truncate font-medium">{fullName || e.login}</div>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Badge variant="outline" className="text-[10px]">
-                              {ROLE_LABELS[e.role] || e.role}
+                              {roleNames[e.role as keyof typeof roleNames] || e.role}
                             </Badge>
                             {e.role === "instructor" && (
                               <span>

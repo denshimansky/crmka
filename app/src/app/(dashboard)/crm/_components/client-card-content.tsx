@@ -1,5 +1,6 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { getRoleNames } from "@/lib/role-names"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { scopeFinancialAccount, scopeSubscription } from "@/lib/branch-scope"
 import { notFound } from "next/navigation"
@@ -76,6 +77,7 @@ export async function ClientCardContent({
   const session = await getSession()
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
+  const roleNames = await getRoleNames(tenantId)
 
   const client = await db.client.findFirst({
     where: { id, tenantId, deletedAt: null },
@@ -500,7 +502,7 @@ export async function ClientCardContent({
                   <div className="grid gap-1 text-xs sm:grid-cols-2">
                     <div className="flex items-center gap-1.5">
                       <User className="size-3 text-muted-foreground" />
-                      <span className="text-muted-foreground">Педагог:</span>
+                      <span className="text-muted-foreground">{roleNames.instructor}:</span>
                       <span>{instr}</span>
                     </div>
                     <div className="flex items-center gap-1.5">

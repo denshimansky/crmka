@@ -14,6 +14,7 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface BranchOption {
   id: string
@@ -34,6 +35,7 @@ interface InstructorOption {
 }
 
 export function StandaloneLessonDialog({ defaultDate }: { defaultDate: string }) {
+  const roleNames = useRoleNames()
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [branches, setBranches] = useState<BranchOption[]>([])
@@ -180,7 +182,7 @@ export function StandaloneLessonDialog({ defaultDate }: { defaultDate: string })
           </div>
 
           <div className="space-y-1.5">
-            <Label>Педагог</Label>
+            <Label>{roleNames.instructor}</Label>
             <select
               value={instructorId}
               onChange={(e) => setInstructorId(e.target.value)}

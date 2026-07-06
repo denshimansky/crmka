@@ -35,6 +35,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Archive, ArchiveRestore, ArrowRightLeft, CalendarDays, ExternalLink, Users } from "lucide-react"
 import Link from "next/link"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface LessonData {
   id: string
@@ -229,6 +230,8 @@ function ScheduleTab({
   monthLabel: string
   onRefresh: () => void
 }) {
+  const roleNames = useRoleNames()
+
   return (
     <div className="space-y-4 mt-4">
       <div className="flex items-center justify-between">
@@ -253,7 +256,7 @@ function ScheduleTab({
               <TableHead>Дата</TableHead>
               <TableHead>Время</TableHead>
               <TableHead>Длительность</TableHead>
-              <TableHead>Педагог</TableHead>
+              <TableHead>{roleNames.instructor}</TableHead>
               <TableHead>Статус</TableHead>
               <TableHead className="w-[40px]" />
             </TableRow>
@@ -528,6 +531,8 @@ function SettingsTab({
   groupInfo: GroupInfo
   onRefresh: () => void
 }) {
+  const roleNames = useRoleNames()
+
   // --- Основные данные группы ---
   const [infoName, setInfoName] = useState(groupInfo.name)
   const [infoDirectionId, setInfoDirectionId] = useState(groupInfo.directionId)
@@ -729,7 +734,7 @@ function SettingsTab({
             </div>
 
             <div className="space-y-2">
-              <Label>Педагог</Label>
+              <Label>{roleNames.instructor}</Label>
               <Select value={infoInstructorId} onValueChange={(v) => { if (v) setInfoInstructorId(v) }}>
                 <SelectTrigger className="w-full">
                   {infoInstructorId ? (() => { const i = instructors.find((i) => i.id === infoInstructorId); return i ? `${i.lastName} ${i.firstName}` : "" })() : <span className="text-muted-foreground">Выберите педагога</span>}

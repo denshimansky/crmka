@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { RefreshCw, Loader2 } from "lucide-react"
+import { useRoleNames } from "@/components/role-names-provider"
 import type { AbsenceGroupRow, AbsenceDetail, EditableAttendanceType } from "./page"
 
 const ALL_VALUE = "__all__"
@@ -77,6 +78,7 @@ export function AbsencesView({
   attendanceTypes,
   canEdit,
 }: AbsencesViewProps) {
+  const roleNames = useRoleNames()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -309,7 +311,7 @@ export function AbsencesView({
         </div>
 
         <div className="space-y-1">
-          <Label className="text-xs">Педагог</Label>
+          <Label className="text-xs">{roleNames.instructor}</Label>
           <Select
             value={instructorId || ALL_VALUE}
             onValueChange={(v) => updateParam({ instructorId: v === ALL_VALUE ? null : v })}
@@ -362,7 +364,7 @@ export function AbsencesView({
                 <TableHead>ФИО</TableHead>
                 <TableHead>Направление</TableHead>
                 <TableHead>Сегмент</TableHead>
-                <TableHead>Педагог</TableHead>
+                <TableHead>{roleNames.instructor}</TableHead>
                 <TableHead className="text-center">Кол.занятий</TableHead>
                 <TableHead>Дата</TableHead>
                 <TableHead>Вид дня</TableHead>

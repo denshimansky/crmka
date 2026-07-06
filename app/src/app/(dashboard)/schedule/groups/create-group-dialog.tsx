@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog"
 import { Plus, Trash2, Wallet, AlertTriangle } from "lucide-react"
 import { ClientCombobox } from "@/components/client-combobox"
+import { useRoleNames } from "@/components/role-names-provider"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 import {
   SalaryRateForm,
@@ -107,6 +108,7 @@ export function CreateGroupDialog({
   branches: BranchOption[]
   instructors: InstructorOption[]
 }) {
+  const roleNames = useRoleNames()
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -382,7 +384,7 @@ export function CreateGroupDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Педагог</Label>
+              <Label>{roleNames.instructor}</Label>
               {(() => {
                 const filtered = filterEmployeesByBranch(instructors, branchId)
                 const selected = instructors.find((x) => x.id === instructorId)
@@ -396,7 +398,7 @@ export function CreateGroupDialog({
                     options={visible.map((i) => ({ id: i.id, name: i.name }))}
                     value={instructorId}
                     onChange={setInstructorId}
-                    placeholder="Педагог"
+                    placeholder={roleNames.instructor}
                     className="w-full"
                   />
                 )

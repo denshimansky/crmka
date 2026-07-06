@@ -1,5 +1,6 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { getRoleNames } from "@/lib/role-names"
 import { scopeBranch, scopeRoom, isUnscoped } from "@/lib/branch-scope"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -29,6 +30,7 @@ export default async function GroupsPage({
   const session = await getSession()
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
+  const roleNames = await getRoleNames(tenantId)
 
   // Множественный фильтр по филиалам: ?branches=id1,id2.
   // Пустой/отсутствующий — все филиалы.
@@ -164,7 +166,7 @@ export default async function GroupsPage({
               <TableHead>Название</TableHead>
               <TableHead>Направление</TableHead>
               <TableHead>Кабинет</TableHead>
-              <TableHead>Педагог</TableHead>
+              <TableHead>{roleNames.instructor}</TableHead>
               <TableHead>Расписание</TableHead>
               <TableHead>Учеников</TableHead>
               <TableHead>Статус</TableHead>

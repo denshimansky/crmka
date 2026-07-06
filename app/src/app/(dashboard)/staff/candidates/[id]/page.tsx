@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select"
 import { ArrowLeft, Plus, UserCheck, X } from "lucide-react"
 import Link from "next/link"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface Candidate {
   id: string
@@ -57,6 +58,7 @@ function formatDateTime(dateStr: string) {
 export default function CandidateCardPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const roleNames = useRoleNames()
   const [candidate, setCandidate] = useState<Candidate | null>(null)
   const [loading, setLoading] = useState(true)
   const [meetingOpen, setMeetingOpen] = useState(false)
@@ -289,10 +291,10 @@ export default function CandidateCardPage() {
               <Select name="role" defaultValue="instructor">
                 <SelectTrigger className="w-full">Выберите роль</SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="manager">Управляющий</SelectItem>
-                  <SelectItem value="admin">Администратор</SelectItem>
-                  <SelectItem value="instructor">Инструктор</SelectItem>
-                  <SelectItem value="readonly">Только чтение</SelectItem>
+                  <SelectItem value="manager">{roleNames.manager}</SelectItem>
+                  <SelectItem value="admin">{roleNames.admin}</SelectItem>
+                  <SelectItem value="instructor">{roleNames.instructor}</SelectItem>
+                  <SelectItem value="readonly">{roleNames.readonly}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -14,23 +14,17 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
+import { getRoleNames } from "@/lib/role-names"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
-
-const ROLE_LABELS: Record<string, string> = {
-  owner: "Владелец",
-  manager: "Управляющий",
-  admin: "Администратор",
-  instructor: "Инструктор",
-  readonly: "Только чтение",
 }
 
 export default async function SalaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
+  const roleNames = await getRoleNames(tenantId)
 
   const { year, month } = getMonthFromParams(await searchParams)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
@@ -164,7 +158,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   // Данные для экспорта
   const salaryExportRows = displayRows.map((r) => ({
     name: r.name,
-    role: ROLE_LABELS[r.role] || r.role,
+    role: roleNames[r.role as keyof typeof roleNames] || r.role,
     accrued: Math.round(r.accrued),
     bonuses: Math.round(r.bonuses),
     penalties: Math.round(r.penalties),
@@ -273,7 +267,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
                         <ChevronRight className="size-4" />
                       </Link>
                     </TableCell>
-                    <TableCell><Badge variant="outline">{ROLE_LABELS[r.role] || r.role}</Badge></TableCell>
+                    <TableCell><Badge variant="outline">{roleNames[r.role as keyof typeof roleNames] || r.role}</Badge></TableCell>
                     <TableCell className="text-right">{formatMoney(r.accrued)}</TableCell>
                     <TableCell className="text-right text-green-600">{r.bonuses > 0 ? formatMoney(r.bonuses) : "—"}</TableCell>
                     <TableCell className="text-right text-red-600">{r.penalties > 0 ? formatMoney(r.penalties) : "—"}</TableCell>

@@ -9,6 +9,7 @@ import { Search } from "lucide-react"
 import { CreateApplicationDialog } from "../_components/create-application-dialog"
 import { formatWardName } from "@/lib/format-name"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
+import { useRoleNames } from "@/components/role-names-provider"
 import { truncateGroupName } from "@/lib/format-group"
 import {
   EditableDateCell,
@@ -144,6 +145,7 @@ export function ContactsTable({
   employees: EmployeeOption[]
   initialQuery?: string
 }) {
+  const roleNames = useRoleNames()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -240,7 +242,7 @@ export function ContactsTable({
             {tab === "active" && <TableHead>Филиал</TableHead>}
             {tab === "active" && <TableHead>Направление</TableHead>}
             {tab === "active" && <TableHead>Группа</TableHead>}
-            {tab === "active" && <TableHead>Педагог</TableHead>}
+            {tab === "active" && <TableHead>{roleNames.instructor}</TableHead>}
             {tab === "leads" && <TableHead>Дата создания</TableHead>}
             {(tab === "leads" || tab === "potential" || tab === "active" || tab === "churned") && (
               <TableHead>След. связь</TableHead>

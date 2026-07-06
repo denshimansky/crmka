@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ReportShell, ReportStatus, useReportData } from "@/components/report-scaffold"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface Row {
   adminId: string
@@ -15,6 +16,7 @@ interface Row {
 }
 
 export default function AdminMotivationReportPage() {
+  const roleNames = useRoleNames()
   const { loading, error, data } = useReportData<Row>("/api/reports/admin-motivation")
 
   return (
@@ -30,7 +32,7 @@ export default function AdminMotivationReportPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Администратор</TableHead>
+                  <TableHead>{roleNames.admin}</TableHead>
                   <TableHead>Филиал</TableHead>
                   <TableHead className="text-right">Пробных проведено</TableHead>
                   <TableHead className="text-right">Продаж новым</TableHead>

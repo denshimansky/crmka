@@ -15,7 +15,11 @@ const updateSchema = z.object({
   payForAbsence: z.boolean().optional(),
   payForTrialLessons: z.boolean().optional(),
   attendanceDeadline: z.number().min(1).max(90).optional(),
-  roleDisplayNames: z.record(z.string()).optional(),
+  // Только известные роли, названия до 50 символов; trim и отбрасывание
+  // пустых значений — при сохранении (пустое = «использовать дефолт»)
+  roleDisplayNames: z
+    .record(z.enum(["owner", "manager", "admin", "instructor", "readonly"]), z.string().max(50))
+    .optional(),
   rolePermissions: z.record(z.record(z.boolean())).optional(),
   onboardingCompleted: z.boolean().optional(),
   subscriptionType: z.enum(["calendar", "fixed", "package"]).optional(),
@@ -54,6 +58,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
   const data = parsed.data
+
+  // Названия ролей: trim, пустые значения выбрасываем — пустое поле в форме
+  // означает «использовать дефолтное название», а не хранить ""
+  if (data.roleDisplayNames) {
+    data.roleDisplayNames = Object.fromEntries(
+      Object.entries(data.roleDisplayNames)
+        .map(([role, name]) => [role, name.trim()])
+        .filter(([, name]) => name !== ""),
+    ) as typeof data.roleDisplayNames
+  }
 
   // Тип абонемента нельзя сменить после блокировки (= после создания первого абонемента).
   // Разблокировать может только техподдержка через backoffice.

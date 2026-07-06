@@ -21,14 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { Role } from "@prisma/client"
 import type { PermissionKey } from "@/lib/permissions"
-
-const ROLE_LABELS: Record<Role, string> = {
-  owner: "Владелец",
-  manager: "Управляющий",
-  admin: "Администратор",
-  instructor: "Инструктор",
-  readonly: "Только чтение",
-}
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface NavItem {
   title: string
@@ -96,6 +89,7 @@ export function AppSidebar({
   const pathname = usePathname()
   const { data: session, status } = useSession()
   const { isMobile, setOpenMobile } = useSidebar()
+  const roleNames = useRoleNames()
 
   const user = session?.user as
     | { name?: string | null; role?: Role; orgName?: string }
@@ -204,7 +198,7 @@ export function AppSidebar({
                 {getShortName(user?.name)}
               </span>
               <span className="text-xs text-muted-foreground">
-                {user?.role ? ROLE_LABELS[user.role] : "---"}
+                {user?.role ? roleNames[user.role] : "---"}
               </span>
             </div>
             <NotificationBell />

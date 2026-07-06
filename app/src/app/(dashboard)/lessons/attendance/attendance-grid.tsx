@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { useRoleNames } from "@/components/role-names-provider"
 import type { AttendanceRow, AttendanceTypeOption, AttendanceCellData } from "./page"
 
 const ALL_VALUE = "__all__"
@@ -136,6 +137,7 @@ export function AttendanceGrid({
   filterOptions,
   typeOptions,
 }: AttendanceGridProps) {
+  const roleNames = useRoleNames()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -323,7 +325,7 @@ export function AttendanceGrid({
         </div>
 
         <div className="space-y-1">
-          <Label className="text-xs">Педагог</Label>
+          <Label className="text-xs">{roleNames.instructor}</Label>
           <Select
             value={instructorId || ALL_VALUE}
             onValueChange={(v) =>
@@ -407,7 +409,7 @@ export function AttendanceGrid({
                 <th className="px-2 py-2 text-left font-medium whitespace-nowrap">Дата рожд.</th>
                 <th className="px-2 py-2 text-right font-medium whitespace-nowrap">К оплате</th>
                 <th className="px-2 py-2 text-left font-medium whitespace-nowrap">Группа</th>
-                <th className="px-2 py-2 text-left font-medium whitespace-nowrap">Педагог</th>
+                <th className="px-2 py-2 text-left font-medium whitespace-nowrap">{roleNames.instructor}</th>
                 <th className="px-2 py-2 text-center font-medium whitespace-nowrap">План</th>
                 {dayHeaders.map((dh) => (
                   <th

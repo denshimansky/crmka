@@ -32,6 +32,7 @@ import { PayFromBalanceDialog } from "./pay-from-balance-dialog"
 import { CommunicationFeed } from "@/components/communication-feed"
 import { ClientHistory } from "./client-history"
 import { formatWardName } from "@/lib/format-name"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface Ward {
   id: string
@@ -2018,6 +2019,7 @@ function formatScheduleDate(iso: string): string {
 }
 
 function ScheduleTab({ clientId }: { clientId: string }) {
+  const roleNames = useRoleNames()
   const [lessons, setLessons] = useState<ScheduleLesson[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -2055,7 +2057,7 @@ function ScheduleTab({ clientId }: { clientId: string }) {
                 <TableHead>Время</TableHead>
                 <TableHead>Направление</TableHead>
                 <TableHead>Группа</TableHead>
-                <TableHead>Педагог</TableHead>
+                <TableHead>{roleNames.instructor}</TableHead>
                 <TableHead>Кабинет</TableHead>
               </TableRow>
             </TableHeader>

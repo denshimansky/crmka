@@ -2,6 +2,7 @@ import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
+import { getRoleNames } from "@/lib/role-names"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -26,6 +27,7 @@ const WITHDRAWAL_REASONS: Record<string, string> = {
 export default async function ChurnDetailsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const roleNames = await getRoleNames(tenantId)
 
   const { year, month } = getMonthFromParams(await searchParams)
   const dateFrom = new Date(Date.UTC(year, month - 1, 1))
@@ -209,7 +211,7 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
                 <TableHead>Клиент</TableHead>
                 <TableHead>Филиал</TableHead>
                 <TableHead>Направление</TableHead>
-                <TableHead>Инструктор</TableHead>
+                <TableHead>{roleNames.instructor}</TableHead>
                 <TableHead>Дата выбытия</TableHead>
               </TableRow>
             </TableHeader>

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db"
 import { Prisma, type TrialLesson } from "@prisma/client"
+import { getRoleNames } from "@/lib/role-names"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 
 export type CreateTrialLessonInput = {
@@ -127,7 +128,10 @@ export async function createTrialLessonForClient(
       where: { id: input.instructorId, tenantId, deletedAt: null, isActive: true },
       select: { id: true },
     })
-    if (!instructor) return { ok: false, error: "Педагог не найден", status: 404 }
+    if (!instructor) {
+      const roleNames = await getRoleNames(tenantId)
+      return { ok: false, error: `${roleNames.instructor} не найден`, status: 404 }
+    }
 
     const room = await db.room.findFirst({
       where: { id: input.roomId, tenantId, deletedAt: null },

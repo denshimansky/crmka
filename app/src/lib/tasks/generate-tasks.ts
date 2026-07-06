@@ -1,4 +1,5 @@
 import { db } from "@/lib/db"
+import { getRoleNames } from "@/lib/role-names"
 import { isTriggerEnabled, parseTriggerSettings } from "@/lib/tasks/trigger-settings"
 import { createContactDateTaskIfDue } from "@/lib/tasks/contact-date-task"
 
@@ -168,6 +169,7 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
 
   // 6. «Не был» старше 3 дней — переходный статус не уточнён администратором.
   if (isTriggerEnabled("no_show_review", triggerSettings, todayLocal)) {
+    const roleNames = await getRoleNames(tenantId)
     const threeDaysAgo = new Date(today)
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
     const pendingNoShows = await db.attendance.findMany({
@@ -204,7 +206,7 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
 
       const marker = `[att=${att.id}]`
       const description =
-        `Педагог отметил «Не был» на занятии «${directionName} — ${groupName}» ` +
+        `${roleNames.instructor} отметил «Не был» на занятии «${directionName} — ${groupName}» ` +
         `${lessonDateStr}. Уточните причину и переведите в «Уваж. пропуск», ` +
         `«Прогул» или «Назначена отработка». ${marker}`
 

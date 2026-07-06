@@ -15,6 +15,7 @@ import {
 import { X, Filter, Baby } from "lucide-react"
 import type { ScheduleView } from "./schedule-week-nav"
 import { BRANCH_ALL_VALUE, useBranchFilter } from "@/hooks/use-branch-filter"
+import { useRoleNames } from "@/components/role-names-provider"
 import { MonthCalendarView } from "./month-calendar-view"
 
 interface Room {
@@ -126,6 +127,7 @@ export function ScheduleFilterableGrid({
   weekHourStart,
   weekHourEnd,
 }: ScheduleFiltersProps) {
+  const roleNames = useRoleNames()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -222,7 +224,7 @@ export function ScheduleFilterableGrid({
   if (instructorFilter) {
     const instr = instructors.find((i) => i.id === instructorFilter)
     activeFilterLabels.push({
-      label: `Педагог: ${instr ? `${instr.lastName} ${instr.firstName?.[0] || ""}.` : "?"}`,
+      label: `${roleNames.instructor}: ${instr ? `${instr.lastName} ${instr.firstName?.[0] || ""}.` : "?"}`,
       onClear: () => setInstructorFilter(""),
     })
   }
@@ -325,7 +327,7 @@ export function ScheduleFilterableGrid({
           <SelectTrigger className="w-[200px]">
             {(() => {
               const instr = instructors.find((i) => i.id === instructorFilter)
-              if (!instr) return <span className="text-muted-foreground">Педагог</span>
+              if (!instr) return <span className="text-muted-foreground">{roleNames.instructor}</span>
               return `${instr.lastName} ${instr.firstName?.[0] || ""}.`.trim()
             })()}
           </SelectTrigger>

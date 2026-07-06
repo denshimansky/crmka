@@ -2,6 +2,7 @@ import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
+import { getRoleNames } from "@/lib/role-names"
 import { db } from "@/lib/db"
 import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -42,6 +43,7 @@ export default async function UnmarkedReportPage({
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const roleNames = await getRoleNames(tenantId)
   const sp = await searchParams
 
   const { year, month } = getMonthFromParams(sp)
@@ -220,7 +222,7 @@ export default async function UnmarkedReportPage({
             { header: "Время", key: "time", width: 8 },
             { header: "Группа", key: "group", width: 22 },
             { header: "Направление", key: "direction", width: 22 },
-            { header: "Педагог", key: "instructor", width: 22 },
+            { header: roleNames.instructor, key: "instructor", width: 22 },
             { header: "Филиал", key: "branch", width: 18 },
             { header: "Ученик", key: "student", width: 22 },
             { header: "Клиент", key: "client", width: 22 },
@@ -286,7 +288,7 @@ export default async function UnmarkedReportPage({
                   <TableRow>
                     <TableHead>Дата</TableHead>
                     <TableHead>Группа</TableHead>
-                    <TableHead>Педагог</TableHead>
+                    <TableHead>{roleNames.instructor}</TableHead>
                     <TableHead>Неотмеченные ученики</TableHead>
                     <TableHead className="text-right">Кол-во</TableHead>
                     <TableHead />

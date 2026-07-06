@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function RoleDisplayNamesForm({ initialValues }: Props) {
+  const router = useRouter()
   const [values, setValues] = useState<Record<string, string>>(() => {
     const merged: Record<string, string> = {}
     for (const role of ALL_ROLES) {
@@ -53,6 +55,9 @@ export function RoleDisplayNamesForm({ initialValues }: Props) {
       }
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
+      // Обновить серверные компоненты (layout → RoleNamesProvider, сайдбар),
+      // чтобы новые названия ролей применились сразу, без перезагрузки страницы
+      router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка сохранения")
     } finally {

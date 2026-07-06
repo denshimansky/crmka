@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface Row {
   instructorId: string
@@ -17,6 +18,7 @@ interface Row {
 }
 
 export default function SalaryInstructorsReportPage() {
+  const roleNames = useRoleNames()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/salary-instructors")
   const num = (k: string) => Number((metadata as Record<string, unknown> | null)?.[k] ?? 0)
 
@@ -33,7 +35,7 @@ export default function SalaryInstructorsReportPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Педагог</TableHead>
+                  <TableHead>{roleNames.instructor}</TableHead>
                   <TableHead className="text-right">Начислено</TableHead>
                   <TableHead className="text-right">Премии</TableHead>
                   <TableHead className="text-right">Штрафы</TableHead>

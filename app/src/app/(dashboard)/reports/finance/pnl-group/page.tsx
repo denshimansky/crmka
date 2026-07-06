@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface Row {
   groupId: string
@@ -19,6 +20,7 @@ interface Row {
 }
 
 export default function PnlGroupReportPage() {
+  const roleNames = useRoleNames()
   const { loading, error, data } = useReportData<Row>("/api/reports/pnl-group")
 
   return (
@@ -35,7 +37,7 @@ export default function PnlGroupReportPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Группа</TableHead>
-                  <TableHead>Педагог</TableHead>
+                  <TableHead>{roleNames.instructor}</TableHead>
                   <TableHead className="text-right">Выручка</TableHead>
                   <TableHead className="text-right">ЗП</TableHead>
                   <TableHead className="text-right">Перем.</TableHead>

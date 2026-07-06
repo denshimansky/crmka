@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ReportShell, ReportStatus, useReportData, fmtDay } from "@/components/report-scaffold"
+import { useRoleNames } from "@/components/role-names-provider"
 
 interface Row {
   id: string
@@ -30,6 +31,7 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 }
 
 export default function TrialDetailsReportPage() {
+  const roleNames = useRoleNames()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/trial-details")
   const total = Number(metadata?.total ?? data.length)
 
@@ -50,7 +52,7 @@ export default function TrialDetailsReportPage() {
                   <TableHead>Клиент / ребёнок</TableHead>
                   <TableHead>Направление</TableHead>
                   <TableHead>Группа</TableHead>
-                  <TableHead>Педагог</TableHead>
+                  <TableHead>{roleNames.instructor}</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead>Посетил</TableHead>
                 </TableRow>

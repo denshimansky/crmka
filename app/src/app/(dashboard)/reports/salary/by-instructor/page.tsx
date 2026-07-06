@@ -2,6 +2,7 @@ import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
+import { getRoleNames } from "@/lib/role-names"
 import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -16,6 +17,7 @@ function formatMoney(amount: number): string {
 export default async function SalaryByInstructorPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const roleNames = await getRoleNames(tenantId)
 
   const { year, month } = getMonthFromParams(await searchParams)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
@@ -150,7 +152,7 @@ export default async function SalaryByInstructorPage({ searchParams }: { searchP
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Инструктор</TableHead>
+                <TableHead>{roleNames.instructor}</TableHead>
                 <TableHead className="text-right">Занятий</TableHead>
                 <TableHead className="text-right">Учеников (посещений)</TableHead>
                 <TableHead className="text-right">Начислено ЗП</TableHead>

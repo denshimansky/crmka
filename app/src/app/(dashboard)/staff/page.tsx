@@ -12,14 +12,7 @@ import { SalaryRatesDialog } from "./salary-rates-dialog"
 import type { Role } from "@prisma/client"
 import { PageHelp } from "@/components/page-help"
 import Link from "next/link"
-
-const ROLE_LABELS: Record<Role, string> = {
-  owner: "Владелец",
-  manager: "Управляющий",
-  admin: "Администратор",
-  instructor: "Инструктор",
-  readonly: "Только чтение",
-}
+import { getRoleNames } from "@/lib/role-names"
 
 const ROLE_COLORS: Record<Role, string> = {
   owner: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
@@ -39,6 +32,8 @@ export default async function StaffPage() {
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
   const canEdit = session.user.role === "owner" || session.user.role === "manager"
+
+  const roleNames = await getRoleNames(tenantId)
 
   const [employees, branches, directions] = await Promise.all([
     db.employee.findMany({
@@ -116,7 +111,7 @@ export default async function StaffPage() {
                       <TableCell className="font-mono text-xs">{emp.login}</TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_COLORS[emp.role]}`}>
-                          {ROLE_LABELS[emp.role]}
+                          {roleNames[emp.role]}
                         </span>
                       </TableCell>
                       <TableCell>
