@@ -26,6 +26,7 @@ const updateSchema = z.object({
   phone2: nullableString,
   email: nullableString.pipe(z.string().email("Некорректный email").nullish()),
   socialLink: nullableString,
+  channelId: z.string().uuid().nullable().optional(),
   funnelStatus: z.enum(["new", "trial_scheduled", "trial_attended", "awaiting_payment", "active_client", "potential", "non_target", "blacklisted", "archived"]).optional(),
   clientStatus: z.enum(["active", "churned", "archived"]).nullable().optional(),
   // Ручной сегмент (баг #26): null — «Авто» (сброс к авто-расчёту по настройкам).
@@ -126,6 +127,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Канал привлечения — проверяем принадлежность тенанту (изоляция на app-layer).
+  if (data.channelId) {
+    const channel = await db.leadChannel.findFirst({
+      where: { id: data.channelId, tenantId: session.user.tenantId },
+      select: { id: true },
+    })
+    if (!channel) {
+      return NextResponse.json({ error: "Канал привлечения не найден" }, { status: 404 })
+    }
+  }
+
   // Баг #50: «Без скидки вручную» (autoDiscountDisabled) и шаблон скидки (тип 2)
   // взаимоисключающи. Включение запрета сбрасывает выбранный шаблон; выбор
   // шаблона снимает запрет. Оба поля в одном PATCH — ошибка ввода.
@@ -185,6 +197,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(data.phone2 !== undefined && { phone2: data.phone2 }),
         ...(data.email !== undefined && { email: data.email }),
         ...(data.socialLink !== undefined && { socialLink: data.socialLink }),
+        ...(data.channelId !== undefined && { channelId: data.channelId }),
         ...(data.funnelStatus && { funnelStatus: data.funnelStatus }),
         ...(movingToArchived
           ? { clientStatus: null }

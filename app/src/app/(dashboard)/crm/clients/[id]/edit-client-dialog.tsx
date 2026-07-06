@@ -28,6 +28,12 @@ interface BranchOption {
   name: string
 }
 
+interface ChannelOption {
+  id: string
+  name: string
+  isActive: boolean
+}
+
 interface EmployeeOption {
   id: string
   firstName: string | null
@@ -44,6 +50,7 @@ interface ClientData {
   phone2: string | null
   email: string | null
   socialLink: string | null
+  channelId: string | null
   branchId: string | null
   assignedTo: string | null
   comment: string | null
@@ -56,6 +63,7 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   const [error, setError] = useState<string | null>(null)
   const [branches, setBranches] = useState<BranchOption[]>([])
   const [employees, setEmployees] = useState<EmployeeOption[]>([])
+  const [channels, setChannels] = useState<ChannelOption[]>([])
 
   const [firstName, setFirstName] = useState(client.firstName || "")
   const [lastName, setLastName] = useState(client.lastName || "")
@@ -64,6 +72,7 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   const [phone2, setPhone2] = useState(client.phone2 || "")
   const [email, setEmail] = useState(client.email || "")
   const [socialLink, setSocialLink] = useState(client.socialLink || "")
+  const [channelId, setChannelId] = useState(client.channelId || "")
   const [branchId, setBranchId] = useState(client.branchId || "")
   const [assignedTo, setAssignedTo] = useState(client.assignedTo || "")
   const [comment, setComment] = useState(client.comment || "")
@@ -72,12 +81,14 @@ export function EditClientDialog({ client }: { client: ClientData }) {
     if (!open) return
     async function load() {
       try {
-        const [bRes, eRes] = await Promise.all([
+        const [bRes, eRes, cRes] = await Promise.all([
           fetch("/api/branches"),
           fetch("/api/employees"),
+          fetch("/api/lead-channels"),
         ])
         if (bRes.ok) setBranches(await bRes.json())
         if (eRes.ok) setEmployees(await eRes.json())
+        if (cRes.ok) setChannels(await cRes.json())
       } catch {
         /* ignore */
       }
@@ -93,6 +104,7 @@ export function EditClientDialog({ client }: { client: ClientData }) {
     setPhone2(client.phone2 || "")
     setEmail(client.email || "")
     setSocialLink(client.socialLink || "")
+    setChannelId(client.channelId || "")
     setBranchId(client.branchId || "")
     setAssignedTo(client.assignedTo || "")
     setComment(client.comment || "")
@@ -121,6 +133,7 @@ export function EditClientDialog({ client }: { client: ClientData }) {
           phone2: phone2.trim() || null,
           email: email.trim() || null,
           socialLink: socialLink.trim() || null,
+          channelId: channelId || null,
           branchId: branchId || null,
           assignedTo: assignedTo || null,
           comment: comment.trim() || null,
@@ -143,6 +156,7 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   }
 
   const selectedBranch = branches.find((b) => b.id === branchId)
+  const selectedChannel = channels.find((c) => c.id === channelId)
   const selectedAssignee = employees.find((e) => e.id === assignedTo)
   const assigneeLabel = selectedAssignee
     ? [selectedAssignee.lastName, selectedAssignee.firstName].filter(Boolean).join(" ") || "Без имени"
@@ -239,6 +253,34 @@ export function EditClientDialog({ client }: { client: ClientData }) {
               />
             </div>
           </div>
+
+          {channels.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Канал привлечения</Label>
+              <Select
+                value={channelId}
+                onValueChange={(v) => {
+                  if (v !== null) setChannelId(v)
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  {selectedChannel ? selectedChannel.name : "Не выбран"}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Не выбран</SelectItem>
+                  {/* Активные каналы + текущий канал клиента, даже если он выключен
+                      в справочнике — иначе его нельзя увидеть/оставить как есть. */}
+                  {channels
+                    .filter((c) => c.isActive || c.id === client.channelId)
+                    .map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {branches.length > 0 && (
             <div className="space-y-1.5">

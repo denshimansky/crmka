@@ -596,6 +596,7 @@ export async function ClientCardContent({
                     phone2: visiblePhone2,
                     email: client.email,
                     socialLink: client.socialLink,
+                    channelId: client.channelId,
                     branchId: client.branchId,
                     assignedTo: client.assignedTo,
                     comment: client.comment,
