@@ -12,6 +12,7 @@ import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { effectiveLessonPrice } from "@/lib/discounts/effective-price"
 import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
+import { isConsumingAttendanceType } from "@/lib/subscriptions/consumed-lessons"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
@@ -247,6 +248,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     select: { payForTrialLessons: true, subscriptionType: true },
   })
 
+  // Тип дня без начисления педагогу (Уваж. пропуск, Перерасчёт и т.п.) —
+  // галочка «Оплата инструктору» не имеет смысла и принудительно снимается,
+  // что бы ни прислал клиент (по умолчанию schema шлёт true).
+  const instructorPayEnabled = attendanceType.paysInstructor
+    ? data.instructorPayEnabled
+    : false
+
   // === Вся бизнес-логика в транзакции ===
   const attendance = await db.$transaction(async (tx) => {
     // Ф8: Отмена отработки. «Не был» на L2-виртуальной отработке = отработка
@@ -282,12 +290,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
                 chargedAmount: { decrement: existingOnL2.chargeAmount },
               },
             })
-            // Скидки v2: выравниваем finalAmount/balance после отката списания.
-            await repriceSubscription(tx, {
-              tenantId,
-              subscriptionId: existingOnL2.subscriptionId,
-              createdBy: employeeId,
-            })
           }
         }
         if (Number(existingOnL2.instructorPayAmount) > 0) {
@@ -304,6 +306,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           }
         }
         await tx.attendance.delete({ where: { id: existingOnL2.id } })
+        if (existingOnL2.subscriptionId) {
+          // Скидки v2 + расход слотов: выравниваем finalAmount/balance после
+          // отката. Строго ПОСЛЕ delete (иначе пересчёт видит удаляемую строку)
+          // и независимо от chargeAmount (бесплатная при 100% скидке отметка
+          // тоже расходовала занятие).
+          await repriceSubscription(tx, {
+            tenantId,
+            subscriptionId: existingOnL2.subscriptionId,
+            createdBy: employeeId,
+          })
+        }
       }
       if (virtualMakeup) {
         await tx.attendance.delete({ where: { id: virtualMakeup.id } })
@@ -326,14 +339,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // списание/переключает абонемент. orderBy chargeAmount desc — если остался
     // исторический дубль, берём заряженную строку (её и надо откатить). Пробное и
     // виртуальную отработку не трогаем: там свои ключи и отдельная семантика.
+    let oneTimeChargedPrior = false
     if (!subscriptionId && !isMakeupArrival && !lesson.isTrial) {
       const priorMark = await tx.attendance.findFirst({
         where: { tenantId, lessonId, clientId: data.clientId, wardId: data.wardId },
         orderBy: { chargeAmount: "desc" },
-        select: { subscriptionId: true },
+        select: { subscriptionId: true, chargeAmount: true, isPending: true },
       })
-      if (priorMark?.subscriptionId) subscriptionId = priorMark.subscriptionId
+      if (priorMark?.subscriptionId) {
+        subscriptionId = priorMark.subscriptionId
+      } else if (priorMark && !priorMark.isPending && Number(priorMark.chargeAmount) > 0) {
+        // Заряженная РАЗОВАЯ отметка (subscriptionId=null, списание с баланса
+        // родителя). Несписывающий тип не должен резолвить абонемент (даже если
+        // он появился позже): иначе upsert по (lesson, subscriptionId) не найдёт
+        // строку → дубль, разовое списание не откатится, а слот абонемента
+        // ошибочно израсходуется. else-ветка ниже обновит строку на месте и
+        // откатит personal_lesson_charge.
+        oneTimeChargedPrior = true
+      }
     }
+
+    // Финальная несписывающая отметка (Уваж. пропуск/Перерасчёт) расходует
+    // занятие календарного абонемента без списания — её тоже нужно привязать
+    // к абонементу, чтобы repriceSubscription убрал ожидание оплаты за это
+    // занятие (иначе фантомный долг «К оплате» за пропущенное занятие).
+    const consumesSlot = isConsumingAttendanceType(attendanceType)
 
     if (attendanceType.chargesSubscription && subscriptionId) {
       const subscription = await tx.subscription.findFirst({
@@ -343,7 +373,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         // Скидки v2: списание по эффективной цене (цена − скидка за занятие).
         chargeAmount = effectiveLessonPrice(subscription)
       }
-    } else if (attendanceType.chargesSubscription && !subscriptionId) {
+    } else if (
+      !subscriptionId &&
+      (attendanceType.chargesSubscription ||
+        (consumesSlot && !oneTimeChargedPrior))
+    ) {
       // Резолв абонемента по дате состава (исходная дата при переносе): иначе
       // перенесённое на более поздний день занятие списало бы с абонемента
       // ученика, начавшего заниматься позже исходной даты (пакет по startDate,
@@ -355,21 +389,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         //  - startDate <= дата занятия
         //  - expiresAt не указан ИЛИ >= дата занятия
         //  - есть остаток (balance > 0)
-        subscription = await tx.subscription.findFirst({
-          where: {
-            tenantId,
-            clientId: data.clientId,
-            groupId: lesson.groupId,
-            type: "package",
-            deletedAt: null,
-            status: { in: ["active", "pending"] },
-            startDate: { lte: lessonDate },
-            OR: [{ expiresAt: null }, { expiresAt: { gte: lessonDate } }],
-            balance: { gt: 0 },
-            ...(data.wardId ? { wardId: data.wardId } : {}),
-          },
-          orderBy: { startDate: "asc" },
-        })
+        // Только для СПИСЫВАЮЩИХ отметок: пропуск занятие пакета не сжигает,
+        // привязка несписывающей отметки к пакету не нужна.
+        subscription = attendanceType.chargesSubscription
+          ? await tx.subscription.findFirst({
+              where: {
+                tenantId,
+                clientId: data.clientId,
+                groupId: lesson.groupId,
+                type: "package",
+                deletedAt: null,
+                status: { in: ["active", "pending"] },
+                startDate: { lte: lessonDate },
+                OR: [{ expiresAt: null }, { expiresAt: { gte: lessonDate } }],
+                balance: { gt: 0 },
+                ...(data.wardId ? { wardId: data.wardId } : {}),
+              },
+              orderBy: { startDate: "asc" },
+            })
+          : null
       } else {
         // Календарный: поиск по месяцу занятия.
         subscription = await tx.subscription.findFirst({
@@ -387,14 +425,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
       if (subscription) {
         subscriptionId = subscription.id
-        // Скидки v2: списание по эффективной цене (цена − скидка за занятие).
-        chargeAmount = effectiveLessonPrice(subscription)
+        if (attendanceType.chargesSubscription) {
+          // Скидки v2: списание по эффективной цене (цена − скидка за занятие).
+          chargeAmount = effectiveLessonPrice(subscription)
+        }
       }
     }
 
     // Calculate instructor pay через единые утилиты resolve-rate + calc-pay
     let instructorPayAmount = new Prisma.Decimal(0)
-    if (attendanceType.paysInstructor && data.instructorPayEnabled) {
+    if (attendanceType.paysInstructor && instructorPayEnabled) {
       const rate = await resolveRate(tx, {
         tenantId,
         groupId: lesson.groupId,
@@ -485,7 +525,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             attendanceTypeId: data.attendanceTypeId,
             chargeAmount,
             instructorPayAmount,
-            instructorPayEnabled: data.instructorPayEnabled,
+            instructorPayEnabled,
             scheduledMakeupLessonId,
             isMakeup: isMakeupArrival,
             makeupOfLessonId: sourceMakeupLessonId,
@@ -504,7 +544,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             attendanceTypeId: data.attendanceTypeId,
             chargeAmount,
             instructorPayAmount,
-            instructorPayEnabled: data.instructorPayEnabled,
+            instructorPayEnabled,
             scheduledMakeupLessonId,
             isMakeup: isMakeupArrival,
             makeupOfLessonId: sourceMakeupLessonId,
@@ -604,7 +644,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             attendanceTypeId: data.attendanceTypeId,
             chargeAmount: newChargeAmount,
             instructorPayAmount,
-            instructorPayEnabled: data.instructorPayEnabled,
+            instructorPayEnabled,
             scheduledMakeupLessonId,
             isMakeup: isMakeupArrival,
             makeupOfLessonId: sourceMakeupLessonId,
@@ -624,7 +664,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             attendanceTypeId: data.attendanceTypeId,
             chargeAmount: newChargeAmount,
             instructorPayAmount,
-            instructorPayEnabled: data.instructorPayEnabled,
+            instructorPayEnabled,
             scheduledMakeupLessonId,
             isMakeup: isMakeupArrival,
             makeupOfLessonId: sourceMakeupLessonId,
@@ -944,7 +984,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               attendanceTypeId: effectiveType.id,
               chargeAmount,
               instructorPayAmount,
-              instructorPayEnabled: true,
+              instructorPayEnabled: effectiveType.paysInstructor,
               markedBy: employeeId,
               markedAt: new Date(),
             },
@@ -960,7 +1000,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               attendanceTypeId: effectiveType.id,
               chargeAmount,
               instructorPayAmount,
-              instructorPayEnabled: true,
+              instructorPayEnabled: effectiveType.paysInstructor,
               markedBy: employeeId,
               markedAt: new Date(),
             },
@@ -1005,7 +1045,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               attendanceTypeId: effectiveType.id,
               chargeAmount: 0,
               instructorPayAmount,
-              instructorPayEnabled: true,
+              instructorPayEnabled: effectiveType.paysInstructor,
               markedBy: employeeId,
               markedAt: new Date(),
             },
@@ -1022,7 +1062,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               attendanceTypeId: effectiveType.id,
               chargeAmount: 0,
               instructorPayAmount,
-              instructorPayEnabled: true,
+              instructorPayEnabled: effectiveType.paysInstructor,
               markedBy: employeeId,
               markedAt: new Date(),
             },
@@ -1030,6 +1070,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           atts.push(att)
         }
       }
+    }
+
+    // Массовая отметка могла заменить несписывающую отметку (Уваж./Перерасчёт)
+    // списывающей «Явкой» — расход слотов и chargedAmount изменились, выравниваем
+    // finalAmount/balance затронутых абонементов (раньше bulk не пересчитывал).
+    const touchedSubIds = new Set<string>()
+    for (const a of atts) {
+      if (a.subscriptionId) touchedSubIds.add(a.subscriptionId)
+    }
+    for (const sid of touchedSubIds) {
+      await repriceSubscription(tx, { tenantId, subscriptionId: sid, createdBy: employeeId })
     }
 
     return atts
@@ -1184,13 +1235,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
           chargedAmount: { decrement: existing.chargeAmount },
         },
       })
-      // Скидки v2: занятие вернулось в «оставшиеся» — повторное списание
-      // пойдёт по текущей эффективной цене; выравниваем finalAmount/balance.
-      await repriceSubscription(tx, {
-        tenantId,
-        subscriptionId: existing.subscriptionId,
-        createdBy: employeeId,
-      })
     }
 
     // Откат списания с баланса родителя (для разовых без абонемента).
@@ -1265,6 +1309,19 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
           markedBy: null,
           markedAt: null,
         },
+      })
+    }
+
+    if (existing.subscriptionId) {
+      // Занятие вернулось в «оставшиеся» — повторное списание пойдёт по текущей
+      // эффективной цене; выравниваем finalAmount/balance. Пересчёт нужен и для
+      // несписывающих отметок (Уваж. пропуск/Перерасчёт расходовали слот
+      // календарного абонемента — после удаления занятие снова ждёт оплату).
+      // Строго ПОСЛЕ delete/update: иначе пересчёт считает удаляемую строку живой.
+      await repriceSubscription(tx, {
+        tenantId,
+        subscriptionId: existing.subscriptionId,
+        createdBy: employeeId,
       })
     }
   })

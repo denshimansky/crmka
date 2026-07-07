@@ -10,6 +10,7 @@ import { calcRefund } from "@/lib/balance/calc-refund"
 import { logAudit } from "@/lib/audit"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
+import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
 import {
   branchScopeFromSession,
   canAccessBranch,
@@ -461,13 +462,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
       // Эффективный педагог занятия — для корректировки ЗП при выплате.
       const effectiveInstructorId = existing.substituteInstructorId || existing.instructorId
+      // Затронутые абонементы — для пересчёта finalAmount/balance после отката.
+      const touchedSubIds = new Set<string>()
       for (const att of attendances) {
-        // Откат списания с абонемента
+        if (att.subscriptionId) touchedSubIds.add(att.subscriptionId)
+        // Откат списания с абонемента. balance вручную НЕ трогаем: он живёт по
+        // инварианту balance = finalAmount − paid и выравнивается reprice ниже
+        // (ручной increment конфликтовал с пересчётом и портил legacy-абонементы,
+        // у которых отметка баланс вообще не меняет).
         if (att.subscriptionId && Number(att.chargeAmount) > 0) {
           await tx.subscription.update({
             where: { id: att.subscriptionId },
             data: {
-              balance: { increment: att.chargeAmount },
               chargedAmount: { decrement: att.chargeAmount },
             },
           })
@@ -504,6 +510,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           })
         }
         await tx.attendance.delete({ where: { id: att.id } })
+      }
+
+      // Пересчёт затронутых абонементов ПОСЛЕ удаления всех отметок: занятия
+      // вернулись в «оставшиеся» (включая израсходованные без списания
+      // Уваж. пропуск/Перерасчёт) — выравниваем finalAmount/balance.
+      for (const sid of touchedSubIds) {
+        await repriceSubscription(tx, {
+          tenantId,
+          subscriptionId: sid,
+          createdBy: employeeId,
+        })
       }
     }
 

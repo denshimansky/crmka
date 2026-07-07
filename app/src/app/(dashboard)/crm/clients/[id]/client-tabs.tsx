@@ -64,6 +64,9 @@ interface Subscription {
   refundedToBalance?: number
   /** Скидки v2: число отметок, списавших занятие (включая бесплатные при 100% скидке). */
   attendedLessons?: number
+  /** Израсходовано занятий: списывающие отметки + финальные несписывающие
+   *  (Уваж. пропуск/Перерасчёт) у календарных — для столбца «Остаток». */
+  consumedLessons?: number
   /** Отложенное отчисление: запланированная дата ухода (ISO) или null. */
   scheduledWithdrawalDate?: string | null
 }
@@ -1062,7 +1065,12 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                 // цены занятий внутри абонемента могут различаться (скидка
                 // применяется к оставшимся занятиям), деление сумм не работает.
                 const usedLessons = s.attendedLessons ?? 0
-                const remainingLessons = Math.max(0, s.totalLessons - usedLessons)
+                // Остаток — по израсходованным слотам: Уваж. пропуск/Перерасчёт
+                // расходуют занятие календарного абонемента без списания.
+                const remainingLessons = Math.max(
+                  0,
+                  s.totalLessons - (s.consumedLessons ?? usedLessons)
+                )
                 const canEdit = s.status === "pending" || s.status === "active"
                 const wardLabel = s.ward ? formatWardName(s.ward) : null
                 return (
@@ -1098,13 +1106,15 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                       {formatMoney(finalAmount)}
                     </TableCell>
                     {s.status === "withdrawn" ||
-                    (s.status === "closed" && balance === 0 && paid === 0 && usedLessons === 0) ? (
+                    (s.status === "closed" && balance === 0 && paid === 0 &&
+                      (s.consumedLessons ?? usedLessons) === 0) ? (
                       // Отчисленному и аннулированному (закрыт без оплат и
                       // посещений, напр. автозакрытием неоплаченных) нечего
                       // «оплачивать»: balance обнулён закрытием, зелёный
                       // «Оплачен» здесь вводил в заблуждение. Закрытый с
                       // непогашенным остатком (истёкший пакет) продолжает
-                      // показывать красную сумму — он и в должниках.
+                      // показывать красную сумму — он и в должниках. Абонемент
+                      // из одних уваж. пропусков — состоявшийся, не аннулирован.
                       <TableCell className="text-right text-muted-foreground">—</TableCell>
                     ) : (
                       <TableCell className={`text-right font-medium ${balance > 0 ? "text-red-600" : "text-green-600"}`}>

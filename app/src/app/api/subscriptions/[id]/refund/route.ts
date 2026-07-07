@@ -7,6 +7,7 @@ import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { getLastPaidLessonDate, validateWithdrawalDate, subscriptionPeriodEnd } from "@/lib/subscriptions/last-paid-lesson-date"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
@@ -144,6 +145,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         attendanceType: { chargesSubscription: true },
       },
     })
+    // «Остаток занятий» — по израсходованным слотам: у календарных Уваж. пропуск/
+    // Перерасчёт занятие расходуют без списания и в остатке не висят.
+    const consumedCount = await tx.attendance.count({
+      where: {
+        tenantId: session.user.tenantId,
+        subscriptionId: id,
+        isPending: false,
+        attendanceType: consumedTypeWhereFor(subscription.type),
+      },
+    })
     // Уже применённые сверки прошлых закрытий (знаковая сумма): повторное
     // закрытие после реактивации применяет только недостающую часть.
     const priorAgg = await tx.clientBalanceTransaction.aggregate({
@@ -159,7 +170,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const delta = paidToSub
       .minus(usedAmount)
       .minus(new Prisma.Decimal(priorAgg._sum.amount ?? 0))
-    const remainingLessons = Math.max(0, subscription.totalLessons - attendedCount)
+    const remainingLessons = Math.max(0, subscription.totalLessons - consumedCount)
 
     if (!delta.isZero()) {
       await applyBalanceDelta(tx, {
@@ -289,6 +300,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       attendanceType: { chargesSubscription: true },
     },
   })
+  // «Остаток занятий» — по израсходованным слотам (Уваж. пропуск/Перерасчёт
+  // расходуют занятие календарного абонемента без списания).
+  const consumedCount = await db.attendance.count({
+    where: {
+      tenantId: session.user.tenantId,
+      subscriptionId: id,
+      isPending: false,
+      attendanceType: consumedTypeWhereFor(subscription.type),
+    },
+  })
   const priorAgg = await db.clientBalanceTransaction.aggregate({
     where: {
       tenantId: session.user.tenantId,
@@ -301,7 +322,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const paidToSub = paidToSubDec.toNumber()
   const usedAmount = Number(usedAgg._sum.chargeAmount ?? 0)
   const balanceDelta = paidToSub - usedAmount - Number(priorAgg._sum.amount ?? 0)
-  const remainingLessons = Math.max(0, subscription.totalLessons - attendedCount)
+  const remainingLessons = Math.max(0, subscription.totalLessons - consumedCount)
 
   // Дата последнего платного занятия — предлагается диалогу «Отчислить» как дата
   // отчисления по умолчанию. null → платных посещений нет (отчисление требует

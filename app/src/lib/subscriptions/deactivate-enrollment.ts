@@ -18,6 +18,7 @@
 
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { nextDayUtc } from "./last-paid-lesson-date"
+import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -170,24 +171,41 @@ export async function cleanPostWithdrawalEmptyAttendance(
     cutoff: Date
   },
 ): Promise<number> {
-  const res = await tx.attendance.deleteMany({
-    where: {
-      tenantId: input.tenantId,
-      clientId: input.clientId,
-      wardId: input.wardId,
-      chargeAmount: 0,
-      instructorPayAmount: 0,
-      isPending: false,
-      isMakeup: false,
-      isTrial: false,
-      scheduledMakeupLessonId: null,
-      attendanceType: { chargesSubscription: false, paysInstructor: false },
-      lesson: {
-        groupId: input.groupId,
-        date: { gte: input.cutoff },
-        status: { not: "cancelled" },
-      },
+  const where = {
+    tenantId: input.tenantId,
+    clientId: input.clientId,
+    wardId: input.wardId,
+    chargeAmount: 0,
+    instructorPayAmount: 0,
+    isPending: false,
+    isMakeup: false,
+    isTrial: false,
+    scheduledMakeupLessonId: null,
+    attendanceType: { chargesSubscription: false, paysInstructor: false },
+    lesson: {
+      groupId: input.groupId,
+      date: { gte: input.cutoff },
+      status: { not: "cancelled" as const },
     },
+  }
+  // Сначала собираем затронутые абонементы: несписывающие отметки (Уваж. пропуск/
+  // Перерасчёт) расходуют занятие календарного абонемента и влияют на
+  // finalAmount/balance — после удаления живые абонементы надо пересчитать
+  // (сценарий: отложенное отчисление — абонемент остаётся active до границы X).
+  const rows = await tx.attendance.findMany({
+    where,
+    select: { id: true, subscriptionId: true },
   })
+  if (rows.length === 0) return 0
+
+  const res = await tx.attendance.deleteMany({
+    where: { id: { in: rows.map((r) => r.id) } },
+  })
+
+  const subIds = new Set(rows.map((r) => r.subscriptionId).filter((s): s is string => !!s))
+  for (const sid of subIds) {
+    // Guard внутри reprice сам пропустит closed/withdrawn/legacy.
+    await repriceSubscription(tx, { tenantId: input.tenantId, subscriptionId: sid })
+  }
   return res.count
 }

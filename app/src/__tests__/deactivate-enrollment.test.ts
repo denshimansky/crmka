@@ -26,6 +26,7 @@ function makeTx(opts: {
     count: [] as AnyArgs[],
     findMany: [] as AnyArgs[],
     attendanceFindFirst: [] as AnyArgs[],
+    attendanceFindMany: [] as AnyArgs[],
     attendanceDeleteMany: [] as AnyArgs[],
     update: [] as AnyArgs[],
   }
@@ -38,6 +39,8 @@ function makeTx(opts: {
         calls.count.push(args)
         return opts.otherLive
       },
+      // repriceSubscription внутри чистки: findFirst → null = ранний выход.
+      findFirst: async (_args: AnyArgs) => null,
     },
     attendance: {
       findFirst: async (args: AnyArgs) => {
@@ -45,6 +48,13 @@ function makeTx(opts: {
         return opts.lastPaidDate
           ? { lesson: { date: opts.lastPaidDate } }
           : null
+      },
+      // Чистка теперь двухфазная: findMany (денежно-безопасный фильтр) →
+      // deleteMany по id. Возвращаем одну строку без абонемента, чтобы
+      // deleteMany вызвался, а reprice — нет.
+      findMany: async (args: AnyArgs) => {
+        calls.attendanceFindMany.push(args)
+        return [{ id: "a1", subscriptionId: null }]
       },
       deleteMany: async (args: AnyArgs) => {
         calls.attendanceDeleteMany.push(args)
@@ -109,9 +119,11 @@ describe("deactivateGroupEnrollmentOnWithdrawal", () => {
       "withdrawnAt = последнее платное + 1",
     )
     // Bug 2: чистка висящих отметок вызвана с cutoff = withdrawnAt (14.06), тем же
-    // групповым/детским scope и денежно-безопасным фильтром.
-    assert.equal(calls.attendanceDeleteMany.length, 1, "должна вызываться чистка отметок")
-    const cw = calls.attendanceDeleteMany[0].where
+    // групповым/детским scope и денежно-безопасным фильтром. Фильтр живёт в
+    // findMany (первая фаза), deleteMany удаляет по собранным id.
+    assert.equal(calls.attendanceFindMany.length, 1, "должна вызываться чистка отметок")
+    assert.equal(calls.attendanceDeleteMany.length, 1, "deleteMany по найденным id")
+    const cw = calls.attendanceFindMany[0].where
     assert.equal(
       (cw.lesson.date.gte as Date).getTime(),
       new Date("2026-06-14T00:00:00.000Z").getTime(),
@@ -185,22 +197,40 @@ describe("deactivateGroupEnrollmentOnWithdrawal", () => {
       "запрос последнего платного при явной границе не нужен",
     )
     // Отложенное отчисление тоже чистит висящие отметки по своей границе (X+1).
-    assert.equal(calls.attendanceDeleteMany.length, 1)
+    assert.equal(calls.attendanceFindMany.length, 1)
     assert.equal(
-      (calls.attendanceDeleteMany[0].where.lesson.date.gte as Date).getTime(),
+      (calls.attendanceFindMany[0].where.lesson.date.gte as Date).getTime(),
       scheduledBoundary.getTime(),
     )
   })
 })
 
 describe("cleanPostWithdrawalEmptyAttendance", () => {
-  function makeDeleteTx() {
-    const calls: AnyArgs[] = []
+  function makeDeleteTx(rows?: { id: string; subscriptionId: string | null }[]) {
+    const calls = {
+      findMany: [] as AnyArgs[],
+      deleteMany: [] as AnyArgs[],
+      subFindFirst: [] as AnyArgs[],
+    }
     const tx = {
       attendance: {
+        findMany: async (args: AnyArgs) => {
+          calls.findMany.push(args)
+          return rows ?? [
+            { id: "a1", subscriptionId: null },
+            { id: "a2", subscriptionId: null },
+          ]
+        },
         deleteMany: async (args: AnyArgs) => {
-          calls.push(args)
-          return { count: 2 }
+          calls.deleteMany.push(args)
+          return { count: (args.where as any).id.in.length }
+        },
+      },
+      subscription: {
+        // repriceSubscription: findFirst → null = ранний выход (без денег в моке).
+        findFirst: async (args: AnyArgs) => {
+          calls.subFindFirst.push(args)
+          return null
         },
       },
     }
@@ -218,8 +248,8 @@ describe("cleanPostWithdrawalEmptyAttendance", () => {
       cutoff,
     })
     assert.equal(n, 2)
-    assert.equal(calls.length, 1)
-    const w = calls[0].where
+    assert.equal(calls.findMany.length, 1)
+    const w = calls.findMany[0].where
     // Денежно-безопасный фильтр: не тронет платные/ЗП/отработки/пробные/заглушки.
     assert.equal(w.chargeAmount, 0)
     assert.equal(w.instructorPayAmount, 0)
@@ -235,6 +265,8 @@ describe("cleanPostWithdrawalEmptyAttendance", () => {
     assert.equal(w.clientId, "c")
     assert.equal(w.wardId, "w")
     assert.equal(w.tenantId, "t")
+    // Удаление — строго по найденным id.
+    assert.deepEqual(calls.deleteMany[0].where, { id: { in: ["a1", "a2"] } })
   })
 
   it("взрослый абонемент: wardId=null сохраняется (не снимает фильтр)", async () => {
@@ -246,6 +278,37 @@ describe("cleanPostWithdrawalEmptyAttendance", () => {
       wardId: null,
       cutoff: new Date("2026-06-19T00:00:00.000Z"),
     })
-    assert.equal(calls[0].where.wardId, null)
+    assert.equal(calls.findMany[0].where.wardId, null)
+  })
+
+  it("нет подходящих отметок → deleteMany не вызывается", async () => {
+    const { tx, calls } = makeDeleteTx([])
+    const n = await cleanPostWithdrawalEmptyAttendance(tx as any, {
+      tenantId: "t",
+      groupId: "g",
+      clientId: "c",
+      wardId: "w",
+      cutoff: new Date("2026-06-19T00:00:00.000Z"),
+    })
+    assert.equal(n, 0)
+    assert.equal(calls.deleteMany.length, 0)
+  })
+
+  it("удалённые отметки с абонементом → пересчёт затронутых абонементов (уваж. пропуск расходовал слот)", async () => {
+    const { tx, calls } = makeDeleteTx([
+      { id: "a1", subscriptionId: "s1" },
+      { id: "a2", subscriptionId: "s1" },
+      { id: "a3", subscriptionId: null },
+    ])
+    await cleanPostWithdrawalEmptyAttendance(tx as any, {
+      tenantId: "t",
+      groupId: "g",
+      clientId: "c",
+      wardId: "w",
+      cutoff: new Date("2026-06-19T00:00:00.000Z"),
+    })
+    // repriceSubscription вызван один раз для s1 (dedupe), null пропущен.
+    assert.equal(calls.subFindFirst.length, 1)
+    assert.equal(calls.subFindFirst[0].where.id, "s1")
   })
 })

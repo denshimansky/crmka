@@ -23,6 +23,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { activateSubscription } from "@/lib/subscriptions/activate-subscription"
+import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -72,19 +73,23 @@ function monthIndex(year: number, month: number): number {
   return year * 12 + (month - 1)
 }
 
-/** Число «использованных» занятий: отметки, списывающие занятие с абонемента
- *  (включая бесплатные при 100% скидке). Заглушки isPending не считаются. */
+/** Число «использованных» занятий: списывающие отметки (включая бесплатные при
+ *  100% скидке), а для календарных абонементов — ещё и финальные несписывающие
+ *  (Уваж. пропуск, Перерасчёт): клиент за них не платит, слот израсходован —
+ *  иначе абонемент вечно ждёт оплату пропущенного занятия (фантомный долг).
+ *  Заглушки isPending не считаются. */
 export async function countAttendedLessons(
   t: Tx,
   tenantId: string,
   subscriptionId: string,
+  subType: string,
 ): Promise<number> {
   return t.attendance.count({
     where: {
       tenantId,
       subscriptionId,
       isPending: false,
-      attendanceType: { chargesSubscription: true },
+      attendanceType: consumedTypeWhereFor(subType),
     },
   })
 }
@@ -103,6 +108,11 @@ function perLessonByTemplate(tpl: TemplateLite, lessonPrice: Prisma.Decimal): Pr
  * Денежный пересчёт абонемента под заданную скидку за занятие:
  * finalAmount = снимок списаний + остаток × эффективная цена; переплата →
  * возврат на баланс (discount_refund) + сторно-платёж; недоплата → долг.
+ *
+ * attended — израсходованные занятия (для календарных включая финальные
+ * несписывающие: Уваж. пропуск/Перерасчёт). consumedNoCharge — сколько из них
+ * израсходовано БЕЗ списания: их номинал вычитается из discountAmount, чтобы
+ * прощённые пропуски не отображались «скидкой» в отчётах.
  * Возвращает сумму возврата.
  */
 async function recomputeMoney(
@@ -111,12 +121,13 @@ async function recomputeMoney(
     tenantId: string
     sub: SubMoney
     attended: number
+    consumedNoCharge: number
     perLesson: Prisma.Decimal
     source: "none" | "type1" | "type2" | "legacy"
     createdBy?: string | null
   },
 ): Promise<Prisma.Decimal> {
-  const { tenantId, sub, attended, perLesson, source, createdBy } = input
+  const { tenantId, sub, attended, consumedNoCharge, perLesson, source, createdBy } = input
   const remaining = Math.max(0, sub.totalLessons - attended)
   const lessonPrice = new Prisma.Decimal(sub.lessonPrice)
   const effective = Prisma.Decimal.max(new Prisma.Decimal(0), lessonPrice.minus(perLesson))
@@ -156,6 +167,8 @@ async function recomputeMoney(
       throw new Error("Возврат по скидке невозможен: нет активного счёта (кассы)")
     }
     if (account) {
+      // Комментарий нейтральный: сюда попадают и пересчёт по скидке, и возврат
+      // за занятия, израсходованные без списания (Уваж. пропуск/Перерасчёт).
       const storno = await t.payment.create({
         data: {
           tenantId,
@@ -166,7 +179,7 @@ async function recomputeMoney(
           type: "transfer_in",
           method: "bank_transfer",
           date: new Date(),
-          comment: "Возврат по скидке",
+          comment: "Возврат по перерасчёту абонемента",
           createdBy: createdBy ?? null,
         },
         select: { id: true },
@@ -177,11 +190,20 @@ async function recomputeMoney(
         delta: refunded,
         type: "discount_refund",
         refs: { subscriptionId: sub.id, paymentId: storno.id, directionId: sub.directionId },
-        comment: "Возврат по скидке",
+        comment: "Возврат по перерасчёту абонемента",
         createdBy,
       })
     }
   }
+
+  // discountAmount — только скидочная часть: из разницы с номиналом вычитаем
+  // стоимость занятий, израсходованных без списания (Уваж. пропуск/Перерасчёт),
+  // иначе пропуски выглядели бы скидкой в отчётах и списке абонементов.
+  const forgivenAmount = lessonPrice.mul(consumedNoCharge)
+  const pureDiscount = Prisma.Decimal.max(
+    new Prisma.Decimal(0),
+    new Prisma.Decimal(sub.totalAmount).minus(newFinal).minus(forgivenAmount),
+  )
 
   await t.subscription.update({
     where: { id: sub.id },
@@ -189,13 +211,21 @@ async function recomputeMoney(
       discountPerLesson: perLesson,
       discountSource: source,
       finalAmount: newFinal,
-      discountAmount: new Prisma.Decimal(sub.totalAmount).minus(newFinal),
+      discountAmount: pureDiscount,
       balance: newBalance,
     },
   })
 
   // Автоактивация: долга не осталось (100% скидка или возврат «доплатил»).
-  if (sub.status === "pending" && newBalance.lessThanOrEqualTo(0)) {
+  // Guard: ноль должен быть достигнут деньгами (paid > 0) или бесплатностью
+  // занятий (100% скидка), а НЕ прощёнными пропусками — иначе неоплаченный
+  // pending, целиком закрытый «Уваж. пропусками», активировался бы и помечал
+  // заявку won («Купил» без единой оплаты — та же метрика, что баг #16).
+  if (
+    sub.status === "pending" &&
+    newBalance.lessThanOrEqualTo(0) &&
+    (paid.greaterThan(0) || effective.lessThanOrEqualTo(0))
+  ) {
     await activateSubscription(t, {
       tenantId,
       subscription: {
@@ -229,6 +259,7 @@ export async function repriceSubscription(
       wardId: true,
       groupId: true,
       directionId: true,
+      type: true,
       status: true,
       lessonPrice: true,
       totalLessons: true,
@@ -242,7 +273,17 @@ export async function repriceSubscription(
   // выставленный закрытием, и мог бы вернуть деньги второй раз.
   if (!sub || sub.discountSource === "legacy") return
   if (sub.status !== "pending" && sub.status !== "active") return
-  const attended = await countAttendedLessons(t, input.tenantId, sub.id)
+  const attended = await countAttendedLessons(t, input.tenantId, sub.id, sub.type)
+  // Из израсходованных — со списанием: разница даёт «прощённые» занятия
+  // (Уваж. пропуск/Перерасчёт), их номинал не должен попадать в discountAmount.
+  const charged = await t.attendance.count({
+    where: {
+      tenantId: input.tenantId,
+      subscriptionId: sub.id,
+      isPending: false,
+      attendanceType: { chargesSubscription: true },
+    },
+  })
   // Скидка за занятие зафиксирована в рублях — при смене цены не пересчитывается
   // (только капится новой ценой).
   const perLesson = Prisma.Decimal.min(
@@ -253,6 +294,7 @@ export async function repriceSubscription(
     tenantId: input.tenantId,
     sub,
     attended,
+    consumedNoCharge: Math.max(0, attended - charged),
     perLesson,
     source: sub.discountSource as "none" | "type1" | "type2",
     createdBy: input.createdBy,
@@ -367,23 +409,45 @@ export async function recalcClientDiscounts(
   )
   const packageSubs = subsRaw.filter((s) => s.type === "package")
 
-  // «Отхожено» одним запросом для всех.
+  // «Отхожено» по одному запросу на тип абонемента: календарные считают и
+  // финальные несписывающие отметки (Уваж. пропуск/Перерасчёт расходуют слот),
+  // пакетные — только списывающие (пропуск занятие пакета не сжигает).
+  const attendedBySub = new Map<string, number>()
+  for (const [ids, subType] of [
+    [calendarSubs.map((s) => s.id), "calendar"],
+    [packageSubs.map((s) => s.id), "package"],
+  ] as const) {
+    if (ids.length === 0) continue
+    const rows = await t.attendance.groupBy({
+      by: ["subscriptionId"],
+      where: {
+        tenantId: input.tenantId,
+        subscriptionId: { in: [...ids] },
+        isPending: false,
+        attendanceType: consumedTypeWhereFor(subType),
+      },
+      _count: { _all: true },
+    })
+    for (const r of rows) attendedBySub.set(r.subscriptionId as string, r._count._all)
+  }
+
+  // Списывающие отдельно: разница с израсходованными даёт «прощённые» занятия,
+  // чей номинал вычитается из discountAmount в recomputeMoney.
   const allIds = [...calendarSubs, ...packageSubs].map((s) => s.id)
-  const attendedRows = allIds.length
-    ? await t.attendance.groupBy({
-        by: ["subscriptionId"],
-        where: {
-          tenantId: input.tenantId,
-          subscriptionId: { in: allIds },
-          isPending: false,
-          attendanceType: { chargesSubscription: true },
-        },
-        _count: { _all: true },
-      })
-    : []
-  const attendedBySub = new Map<string, number>(
-    attendedRows.map((r) => [r.subscriptionId as string, r._count._all]),
-  )
+  const chargingBySub = new Map<string, number>()
+  if (allIds.length > 0) {
+    const rows = await t.attendance.groupBy({
+      by: ["subscriptionId"],
+      where: {
+        tenantId: input.tenantId,
+        subscriptionId: { in: allIds },
+        isPending: false,
+        attendanceType: { chargesSubscription: true },
+      },
+      _count: { _all: true },
+    })
+    for (const r of rows) chargingBySub.set(r.subscriptionId as string, r._count._all)
+  }
 
   /** Применить/снять скидку на абонементе (только оставшиеся занятия). */
   async function setDiscount(
@@ -407,6 +471,7 @@ export async function recalcClientDiscounts(
       tenantId: input.tenantId,
       sub,
       attended,
+      consumedNoCharge: Math.max(0, attended - (chargingBySub.get(sub.id) ?? 0)),
       perLesson: newPerLesson,
       source: newSource,
       createdBy: input.createdBy,

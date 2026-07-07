@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext } from "@/lib/report-helpers"
+import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 
 /** 5.9. Остатки оплаченных занятий */
 export async function GET(req: NextRequest) {
@@ -34,6 +35,7 @@ export async function GET(req: NextRequest) {
       balance: true,
       chargedAmount: true,
       finalAmount: true,
+      discountSource: true,
       endDate: true,
       client: {
         select: {
@@ -63,9 +65,27 @@ export async function GET(req: NextRequest) {
   })
   const countMap = new Map(attendanceCounts.map((a) => [a.subscriptionId, a._count]))
 
+  // «Остаток» — по израсходованным слотам: Уваж. пропуск/Перерасчёт расходуют
+  // занятие календарного абонемента без списания, деньги за них уже не ждут —
+  // иначе отчёт показывал бы «остаток» при нулевом балансе.
+  const consumedCounts = await db.attendance.groupBy({
+    by: ["subscriptionId"],
+    where: {
+      tenantId,
+      subscriptionId: { in: subIds },
+      isPending: false,
+      attendanceType: consumingAttendanceTypeWhere,
+    },
+    _count: true,
+  })
+  const consumedMap = new Map(consumedCounts.map((a) => [a.subscriptionId, a._count]))
+
   const data = subs.map((s) => {
     const attended = countMap.get(s.id) || 0
-    const remaining = Math.max(0, s.totalLessons - attended)
+    // legacy идёт по замороженной денежной модели — остаток по старой семантике.
+    const consumed =
+      s.discountSource === "legacy" ? attended : consumedMap.get(s.id) || 0
+    const remaining = Math.max(0, s.totalLessons - consumed)
     const balanceToday = Number(s.balance)
 
     return {

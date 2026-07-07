@@ -361,6 +361,11 @@ export function AttendanceTable({
     const uniqueKey = student.enrollmentId
     setLoadingStudentId(uniqueKey)
 
+    // Тип дня без начисления педагогу → галочка «Оплата инструктору»
+    // снимается автоматически (сервер тоже нормализует).
+    const markType = attendanceTypes.find((t) => t.id === attendanceTypeId)
+    const payEnabled = markType?.paysInstructor === false ? false : instructorPayEnabled
+
     try {
       const res = await fetch(`/api/lessons/${lessonId}/attendance`, {
         method: "POST",
@@ -370,7 +375,7 @@ export function AttendanceTable({
           wardId: student.wardId,
           subscriptionId: student.subscriptionId,
           attendanceTypeId,
-          instructorPayEnabled,
+          instructorPayEnabled: payEnabled,
           scheduledMakeupLessonId,
         }),
       })
@@ -391,7 +396,7 @@ export function AttendanceTable({
         if (attType) {
           const chargeAmount = attType.chargesSubscription ? student.lessonPrice : 0
           let instructorPayAmount = 0
-          if (attType.paysInstructor && instructorPayEnabled && salaryRate) {
+          if (attType.paysInstructor && payEnabled && salaryRate) {
             if (salaryRate.scheme === "per_student" && salaryRate.ratePerStudent) {
               instructorPayAmount = salaryRate.ratePerStudent
             } else if (salaryRate.scheme === "per_lesson" && salaryRate.ratePerLesson) {
@@ -414,7 +419,7 @@ export function AttendanceTable({
                       attendanceTypeCode: attType.code,
                       chargeAmount,
                       instructorPayAmount,
-                      instructorPayEnabled,
+                      instructorPayEnabled: payEnabled,
                       scheduledMakeupLessonId,
                     },
                   }
@@ -495,8 +500,17 @@ export function AttendanceTable({
   // Toggle instructor pay
   async function toggleInstructorPay(student: StudentData) {
     if (!student.attendance) return
+    // Тип без начисления педагогу — переключать нечего (чекбокс задизейблен).
+    if (!typePaysInstructor(student.attendance.attendanceTypeId)) return
     const newEnabled = !student.attendance.instructorPayEnabled
     await markAttendance(student, student.attendance.attendanceTypeId, newEnabled)
+  }
+
+  // Есть ли у типа дня начисление педагогу (для неизвестного типа — true,
+  // чтобы не блокировать чекбокс на исторических данных).
+  function typePaysInstructor(attendanceTypeId: string): boolean {
+    const type = attendanceTypes.find((t) => t.id === attendanceTypeId)
+    return type ? type.paysInstructor : true
   }
 
   // Save absence reason
@@ -957,8 +971,12 @@ export function AttendanceTable({
           {student.attendance ? (
             <div className="flex justify-center">
               <Checkbox
-                checked={student.attendance.instructorPayEnabled}
+                checked={
+                  student.attendance.instructorPayEnabled &&
+                  typePaysInstructor(student.attendance.attendanceTypeId)
+                }
                 onCheckedChange={() => toggleInstructorPay(student)}
+                disabled={!typePaysInstructor(student.attendance.attendanceTypeId)}
               />
             </div>
           ) : (

@@ -528,7 +528,7 @@ const modules: Module[] = [
           { what: "Абонемент: количество занятий, дата окончания", from: "Авто (totalLessons и endDate из расписания группы при создании абонемента)" },
           { what: "Количество отмеченных посещений", from: "Авто (счётчик Attendance по абонементу)" },
         ],
-        formula: "Остаток занятий = Subscription.totalLessons − COUNT(Attendance) по абонементу. Баланс на сегодня = totalAmount − chargedAmount. У выбывших с остатком денег остатки = 0 (стоимость может измениться при возврате)",
+        formula: "Отхожено = COUNT(отметок со списанием). Остаток занятий = totalLessons − COUNT(израсходованных отметок: списывающие + Уваж. пропуск/Перерасчёт — consumed-семантика, lib/subscriptions/consumed-lessons.ts). Баланс на сегодня = Subscription.balance (= finalAmount − оплачено). У выбывших с остатком денег остатки = 0 (стоимость может измениться при возврате)",
         status: "ok",
       },
       {

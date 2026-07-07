@@ -15,6 +15,7 @@ import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deact
 import { prorateScheduledWithdrawal } from "@/lib/subscriptions/prorate-scheduled-withdrawal"
 import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate, subscriptionPeriodEnd, type WithdrawalMode } from "@/lib/subscriptions/last-paid-lesson-date"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
+import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -617,7 +618,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     // Скидки v2 §11.1: удалять можно только абонементы без денег и без
     // посещений — иначе оплаченное/отхоженное «повисает в воздухе».
-    // Отметки считаем по числу (бесплатные занятия при 100% скидке тоже).
+    // Отметки считаем по израсходованным слотам: бесплатные занятия при 100%
+    // скидке и финальные несписывающие (Уваж. пропуск/Перерасчёт) тоже значат,
+    // что абонемент жил — его отчисляют, а не удаляют.
     const [paymentsCount, attendedCount] = await Promise.all([
       tx.payment.count({
         where: { tenantId: session.user.tenantId, subscriptionId: id, deletedAt: null },
@@ -627,7 +630,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
           tenantId: session.user.tenantId,
           subscriptionId: id,
           isPending: false,
-          attendanceType: { chargesSubscription: true },
+          attendanceType: consumedTypeWhereFor(existing.type),
         },
       }),
     ])

@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
 import { z } from "zod"
@@ -109,12 +110,35 @@ export async function GET(req: NextRequest) {
     : []
   const attendedBySub = new Map(attendedRows.map((r) => [r.subscriptionId, r._count._all]))
 
+  // «Израсходовано» для столбца «Остаток»: у календарных Уваж. пропуск/Перерасчёт
+  // расходуют занятие без списания (клиент за него не платит и не отходит его).
+  const calendarIds = subscriptions.filter((s) => s.type !== "package").map((s) => s.id)
+  const consumedRows = calendarIds.length
+    ? await db.attendance.groupBy({
+        by: ["subscriptionId"],
+        where: {
+          tenantId: session.user.tenantId,
+          subscriptionId: { in: calendarIds },
+          isPending: false,
+          attendanceType: consumingAttendanceTypeWhere,
+        },
+        _count: { _all: true },
+      })
+    : []
+  const consumedBySub = new Map(consumedRows.map((r) => [r.subscriptionId, r._count._all]))
+
   // Маскирование телефонов для инструктора.
   const masked = subscriptions.map((s) => ({
     ...s,
     client: { ...s.client, phone: maskPhone(s.client.phone, session.user.role) },
     refundedToBalance: refundBySub.get(s.id) ?? 0,
     attendedLessons: attendedBySub.get(s.id) ?? 0,
+    // legacy идёт по замороженной денежной модели (reprice его пропускает) —
+    // consumed-остаток показывал бы «0», пока «К оплате» ждёт денег.
+    consumedLessons:
+      s.type !== "package" && s.discountSource !== "legacy"
+        ? consumedBySub.get(s.id) ?? 0
+        : attendedBySub.get(s.id) ?? 0,
   }))
 
   return NextResponse.json(masked)

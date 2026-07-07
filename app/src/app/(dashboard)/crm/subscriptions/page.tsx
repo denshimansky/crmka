@@ -1,6 +1,7 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
+import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { PageHelp } from "@/components/page-help"
 import { SubscriptionsTable, type SubscriptionRow, type SubsTabKey } from "./subscriptions-table"
 import {
@@ -30,9 +31,11 @@ function buildWhere(
     base.status = { in: ["closed", "withdrawn"] }
     // Не стартовавшие абонементы (ни одной отметки за занятие) не считаем
     // «закончившимися». Скидки v2: считаем по отметкам, не по chargedAmount —
-    // занятия со 100% скидкой бесплатны, но абонемент состоялся.
+    // занятия со 100% скидкой бесплатны, но абонемент состоялся. Расход слотов:
+    // финальные несписывающие (Уваж. пропуск/Перерасчёт) тоже означают, что
+    // абонемент жил — месяц из одних пропусков не должен «исчезать» из списка.
     base.attendances = {
-      some: { isPending: false, attendanceType: { chargesSubscription: true } },
+      some: { isPending: false, attendanceType: consumingAttendanceTypeWhere },
     }
   }
 

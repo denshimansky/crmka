@@ -409,6 +409,7 @@
 | part_of_fact | Boolean | да | **Ф1:** Засчитывается как фактическое посещение | — |
 | part_of_forecast | Boolean | да | **Ф1:** Входит в прогноз выручки/списаний | — |
 | charge_percent | Int | да | **Ф1:** Процент списания (0-100), применяется при `charges_subscription=true`. Дефолт 100. При <100 списывает полную цену с абонемента, разницу возвращает на `clientBalance` (`lesson_refund`) | — |
+| *(производный признак)* | — | — | **Consumed (07.07.2026):** отметка «расходует занятие» календарного абонемента, если `charges_subscription=true` ИЛИ `code NOT IN ('no_show','makeup_scheduled','makeup')`. Кастомные несписывающие типы расходуют занятие (как Уваж. пропуск). Для пакетных — только списывающие. Хелпер `lib/subscriptions/consumed-lessons.ts` | — |
 | is_system | Boolean | да | Системный — нельзя удалить | — |
 | is_flags_locked | Boolean | да | **Ф1:** Бизнес-флаги (`charges_subscription` и т.п.) нельзя менять через UI. Изменяемы только: `available_to_*`, `is_active`, `sort_order` | — |
 | is_active | Boolean | да | Активен (дефолт true) | — |
@@ -527,10 +528,10 @@
 | lesson_price | Decimal(12,2) | да | Стоимость одного занятия (может быть индивидуальной) | — |
 | total_lessons | Int | да | Количество занятий в абонементе | — |
 | total_amount | Decimal(12,2) | да | Полная сумма абонемента (до скидок) | — |
-| discount_amount | Decimal(12,2) | да | Сумма скидки (дефолт 0) | — |
-| final_amount | Decimal(12,2) | да | Итоговая сумма (total_amount - discount_amount) | — |
-| balance | Decimal(12,2) | да | **Ф2:** Финансовый остаток абонемента **в ₽** (не в занятиях!). Уменьшается на `lesson_price` при каждой платной отметке. Не уходит в минус. Количество оставшихся занятий = `round(balance / lesson_price)` | — |
-| charged_amount | Decimal(12,2) | да | **Ф2:** Накопительная сумма списаний по абонементу в ₽. Количество отработанных занятий = `round(charged_amount / lesson_price)` | — |
+| discount_amount | Decimal(12,2) | да | Сумма скидки (дефолт 0). **Скидки v2 + consumed (07.07.2026):** только скидочная часть = `max(0, total_amount − final_amount − lesson_price × израсходовано_без_списания)`; стоимость прощённых пропусков (Уваж. пропуск/Перерасчёт) в скидку не входит | — |
+| final_amount | Decimal(12,2) | да | Итоговая сумма. **Скидки v2:** `charged_amount + остаток × эффективная_цена`, где остаток = `max(0, total_lessons − израсходовано)`; израсходовано = списывающие отметки + (для календарных) финальные несписывающие — Уваж. пропуск/Перерасчёт (см. `lib/subscriptions/consumed-lessons.ts`) | — |
+| balance | Decimal(12,2) | да | **Скидки v2:** долг «К оплате» = `final_amount − оплачено` (transfer_in со сторно − возвраты). Не уходит в минус (переплата возвращается на баланс родителя). Уменьшается и при уваж. пропуске (без списания). Пересчитывается только `repriceSubscription`/`recalcClientDiscounts`; формула `round(balance / lesson_price)` для остатка занятий **недействительна** | — |
+| charged_amount | Decimal(12,2) | да | **Ф2:** Накопительная сумма списаний по абонементу в ₽. Формула `round(charged_amount / lesson_price)` для числа отработанных **недействительна** при скидках — считать по отметкам `chargesSubscription=true` | — |
 | start_date | Date | да | Дата начала (может быть не 1 число) | — |
 | end_date | Date | нет | Дата окончания | — |
 | expires_at | Date | нет | **Для package:** дата сгорания пакета (`start_date + valid_days`). Cron `close-expired-packages` переводит в `closed` после истечения | — |

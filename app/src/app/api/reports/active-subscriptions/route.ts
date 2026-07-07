@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
+import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
@@ -22,13 +23,14 @@ export async function GET(req: NextRequest) {
   const prevYear = prevDate.getUTCFullYear()
   const prevMonth = prevDate.getUTCMonth() + 1
 
-  // Отметки, списывающие занятие, в текущем месяце (= активный абонемент).
+  // Отметки, расходующие занятие, в текущем месяце (= активный абонемент).
   // Скидки v2: по типу отметки, не по chargeAmount > 0 — занятия со 100%
-  // скидкой бесплатны, но абонемент активен.
+  // скидкой бесплатны, но абонемент активен. Расход слотов: Уваж. пропуск/
+  // Перерасчёт тоже означают активный абонемент (ребёнок болел, но месяц купил).
   const currentWhere: any = {
     tenantId,
     isPending: false,
-    attendanceType: { chargesSubscription: true },
+    attendanceType: consumingAttendanceTypeWhere,
     lesson: { date: { gte: dateFrom, lte: dateTo } },
   }
   if (branchId) currentWhere.lesson = { ...currentWhere.lesson, group: { branchId } }
@@ -67,7 +69,7 @@ export async function GET(req: NextRequest) {
     where: {
       tenantId,
       isPending: false,
-      attendanceType: { chargesSubscription: true },
+      attendanceType: consumingAttendanceTypeWhere,
       lesson: { date: { gte: prevMonthStart, lte: prevMonthEnd } },
     },
     select: { subscriptionId: true },

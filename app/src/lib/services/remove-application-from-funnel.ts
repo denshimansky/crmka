@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client"
 import { recomputeWardSalesStage } from "./ward-sales-stage"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 
 /**
  * Вывод одной заявки из воронки продаж. Общая логика для:
@@ -82,12 +83,14 @@ export async function removeApplicationFromFunnel(
         tx.payment.count({
           where: { tenantId, subscriptionId: sub.id, deletedAt: null },
         }),
+        // Израсходованные слоты: финальная несписывающая отметка (Уваж. пропуск/
+        // Перерасчёт) тоже означает, что абонемент жил — не удаляем молча.
         tx.attendance.count({
           where: {
             tenantId,
             subscriptionId: sub.id,
             isPending: false,
-            attendanceType: { chargesSubscription: true },
+            attendanceType: consumingAttendanceTypeWhere,
           },
         }),
       ])

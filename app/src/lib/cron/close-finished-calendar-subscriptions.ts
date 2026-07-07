@@ -1,4 +1,5 @@
 import { db } from "@/lib/db"
+import { NON_CONSUMING_CODES } from "@/lib/subscriptions/consumed-lessons"
 
 /**
  * Авто-закрытие отработанных календарных абонементов.
@@ -66,16 +67,21 @@ export async function closeFinishedCalendarSubscriptions(now: Date = new Date())
     return { closed: 0, skipped: 0 }
   }
 
-  // По каждому считаем посещения с 100%-списанием через groupBy. Один большой
-  // запрос вместо N маленьких — затраты на cron'е минимальные даже на тысячах
-  // абонементов.
+  // По каждому считаем израсходованные занятия через groupBy: посещения со
+  // 100%-списанием ПЛЮС финальные несписывающие отметки (Уваж. пропуск,
+  // Перерасчёт) — они расходуют занятие без оплаты, и месяц с ними должен
+  // закрываться так же, как полностью отхоженный. Один большой запрос вместо
+  // N маленьких — затраты на cron'е минимальные даже на тысячах абонементов.
   const counts = await db.attendance.groupBy({
     by: ["subscriptionId"],
     where: {
       subscriptionId: { in: candidates.map((c) => c.id) },
+      isPending: false,
       attendanceType: {
-        chargesSubscription: true,
-        chargePercent: 100,
+        OR: [
+          { chargesSubscription: true, chargePercent: 100 },
+          { chargesSubscription: false, code: { notIn: NON_CONSUMING_CODES } },
+        ],
       },
     },
     _count: { _all: true },
