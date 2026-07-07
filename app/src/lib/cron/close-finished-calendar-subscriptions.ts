@@ -4,7 +4,7 @@ import { NON_CONSUMING_CODES } from "@/lib/subscriptions/consumed-lessons"
 /**
  * Авто-закрытие отработанных календарных абонементов.
  *
- * Запускается раз в сутки в 03:00 МСК 1-го числа (см.
+ * Запускается ежедневно в 03:00 МСК (см.
  * /api/cron/close-finished-calendar-subscriptions). Закрывает абонементы за
  * прошедшие месяцы, у которых:
  *   1. type='calendar'
