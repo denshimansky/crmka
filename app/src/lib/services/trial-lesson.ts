@@ -88,9 +88,8 @@ export async function createTrialLessonForClient(
 
   const org = await db.organization.findUnique({
     where: { id: tenantId },
-    select: { payForTrialLessons: true },
+    select: { trialPayMode: true },
   })
-  const defaultInstructorPay = !!org?.payForTrialLessons
 
   let lessonId: string | null = null
   let storedDirectionId: string | null = null
@@ -275,6 +274,23 @@ export async function createTrialLessonForClient(
         status: 409,
       }
     }
+  }
+
+  // Дефолт флага «оплата педагогу» — из режима организации: all — платим за
+  // любое пробное; paid_only — только если у направления задана цена пробного
+  // (бесплатное пробное → флаг снят); none — не платим. На конкретном пробном
+  // флаг переключается вручную в карточке занятия — режим задаёт лишь дефолт.
+  let defaultInstructorPay = false
+  if (org?.trialPayMode === "all") {
+    defaultInstructorPay = true
+  } else if (org?.trialPayMode === "paid_only" && effectiveDirectionId) {
+    const dir = await db.direction.findFirst({
+      where: { id: effectiveDirectionId, tenantId },
+      select: { trialPrice: true, trialFree: true },
+    })
+    // trialFree и trialPrice в API направлений независимы — галочка «бесплатное»
+    // побеждает застрявшую цену.
+    defaultInstructorPay = !dir?.trialFree && Number(dir?.trialPrice ?? 0) > 0
   }
 
   const trial = await db.$transaction(async (tx) => {

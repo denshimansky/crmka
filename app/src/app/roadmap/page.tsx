@@ -150,7 +150,7 @@ const modules: RoadmapModule[] = [
     total: 19,
     items: [
       { id: "SAL-01…09", text: "3 схемы ЗП, автоначисление, премии, бонус админа", status: "done" },
-      { id: "SAL-10", text: "Оплата пробных (payForTrialLessons)", status: "done" },
+      { id: "SAL-10", text: "Оплата пробных (trialPayMode: не платить / только платные / все)", status: "done" },
       { id: "SAL-11", text: "ЗП при замене инструктора", status: "done" },
       { id: "SAL-11b", text: "Корректировки прошлых периодов", status: "done" },
       { id: "SAL-12", text: "Расширенные схемы ставок: процент, плавающая матрица, ставка на группу", status: "done" },

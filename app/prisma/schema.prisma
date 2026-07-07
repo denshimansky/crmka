@@ -80,7 +80,9 @@ model Organization {
   salaryDay1          Int?     @default(15) @map("salary_day_1")
   salaryDay2          Int?     @default(30) @map("salary_day_2")
   payForAbsence       Boolean  @default(false) @map("pay_for_absence")
-  payForTrialLessons  Boolean  @default(false) @map("pay_for_trial_lessons")
+  /// Оплата пробных педагогу: none — не платить, paid_only — только платные
+  /// (у направления задана цена пробного), all — все пробные.
+  trialPayMode        String   @default("none") @map("trial_pay_mode")
   attendanceDeadline  Int      @default(14) @map("attendance_deadline")
   debtLimit           Decimal? @map("debt_limit") @db.Decimal(12, 2)
   makeupDaysLimit     Int?     @map("makeup_days_limit")

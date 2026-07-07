@@ -245,7 +245,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // Fetch org setting for trial lesson instructor pay + subscription type
   const org = await db.organization.findUnique({
     where: { id: tenantId },
-    select: { payForTrialLessons: true, subscriptionType: true },
+    select: { trialPayMode: true, subscriptionType: true },
   })
 
   // Тип дня без начисления педагогу (Уваж. пропуск, Перерасчёт и т.п.) —
@@ -452,11 +452,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
-    // Trial lesson instructor pay logic:
-    // - Setting OFF → never pay for trials
-    // - Setting ON → pay only if chargeAmount > 0 (paid trial)
+    // Trial lesson instructor pay logic (trialPayMode):
+    // - none      → never pay for trials
+    // - paid_only → pay only if chargeAmount > 0 (paid trial)
+    // - all       → pay regardless
+    // Fail-closed: неизвестное значение режима = не платим.
     if (lesson.isTrial && Number(instructorPayAmount) > 0) {
-      if (!org?.payForTrialLessons || Number(chargeAmount) === 0) {
+      const mode = org?.trialPayMode ?? "none"
+      const allowPay = mode === "all" || (mode === "paid_only" && Number(chargeAmount) > 0)
+      if (!allowPay) {
         instructorPayAmount = new Prisma.Decimal(0)
       }
     }
@@ -863,7 +867,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   // Fetch org setting for trial lesson instructor pay
   const orgBulk = await db.organization.findUnique({
     where: { id: tenantId },
-    select: { payForTrialLessons: true },
+    select: { trialPayMode: true },
   })
 
   // === Предзагрузка existing attendances (batch вместо N+1) ===
@@ -936,9 +940,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         })
       }
 
-      // Trial lesson instructor pay logic (same as single attendance)
+      // Trial lesson instructor pay logic (same as single attendance, fail-closed)
       if (lesson.isTrial && Number(instructorPayAmount) > 0) {
-        if (!orgBulk?.payForTrialLessons || Number(chargeAmount) === 0) {
+        const mode = orgBulk?.trialPayMode ?? "none"
+        const allowPay = mode === "all" || (mode === "paid_only" && Number(chargeAmount) > 0)
+        if (!allowPay) {
           instructorPayAmount = new Prisma.Decimal(0)
         }
       }

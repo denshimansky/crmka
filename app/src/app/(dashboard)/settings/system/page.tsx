@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { PageHelp } from "@/components/page-help"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { TrialPayModeSelect } from "./trial-pay-mode-select"
 
 export default async function SystemParamsPage() {
   const session = await getSession()
@@ -12,7 +13,7 @@ export default async function SystemParamsPage() {
     where: { id: session.user.tenantId },
     select: {
       payForAbsence: true,
-      payForTrialLessons: true,
+      trialPayMode: true,
       attendanceDeadline: true,
       debtLimit: true,
       salaryDay1: true,
@@ -51,9 +52,10 @@ export default async function SystemParamsPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Оплата пробных занятий педагогу</span>
-                <Badge variant={org.payForTrialLessons ? "default" : "secondary"}>
-                  {org.payForTrialLessons ? "Только платные" : "Нет"}
-                </Badge>
+                <TrialPayModeSelect
+                  value={org.trialPayMode}
+                  canEdit={session.user.role === "owner" || session.user.role === "manager"}
+                />
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Дедлайн отметки посещений</span>

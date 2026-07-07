@@ -13,7 +13,8 @@ const updateSchema = z.object({
   salaryDay1: z.number().min(1).max(28).optional(),
   salaryDay2: z.number().min(1).max(31).optional(),
   payForAbsence: z.boolean().optional(),
-  payForTrialLessons: z.boolean().optional(),
+  // Оплата пробных педагогу: none — не платить, paid_only — только платные, all — все
+  trialPayMode: z.enum(["none", "paid_only", "all"]).optional(),
   attendanceDeadline: z.number().min(1).max(90).optional(),
   // Только известные роли, названия до 50 символов; trim и отбрасывание
   // пустых значений — при сохранении (пустое = «использовать дефолт»)

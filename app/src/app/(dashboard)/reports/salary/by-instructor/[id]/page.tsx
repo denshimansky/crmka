@@ -24,15 +24,18 @@ function whyZero(args: {
   salary: number
   hasPayingAttendances: boolean
   isTrial: boolean
-  payForTrialLessons: boolean
+  trialPayMode: string
   rateConfigured: boolean
 }): string | null {
   if (args.salary > 0) return null
-  if (args.isTrial && !args.payForTrialLessons) {
+  if (args.isTrial && args.trialPayMode === "none") {
     return "пробное — организация не платит за пробные"
   }
   if (!args.rateConfigured) {
     return "ставка не настроена"
+  }
+  if (args.isTrial && args.trialPayMode === "paid_only") {
+    return "пробное — ЗП только за платные пробные (или флаг «оплачивать» снят)"
   }
   if (!args.hasPayingAttendances) {
     return "нет оплачиваемых отметок"
@@ -114,13 +117,12 @@ export default async function SalaryByInstructorDetailPage({
 
   const org = await db.organization.findUnique({
     where: { id: tenantId },
-    select: { payForTrialLessons: true },
+    select: { trialPayMode: true },
   })
-  const payForTrials = !!org?.payForTrialLessons
+  const trialPayMode = org?.trialPayMode ?? "none"
 
   // Сводка
   const totalLessons = effectiveLessons.length
-  const totalTrials = effectiveLessons.filter((l) => l.isTrial).length
   let totalStudents = 0
   let totalSalary = 0
 
@@ -178,12 +180,16 @@ export default async function SalaryByInstructorDetailPage({
         salary,
         hasPayingAttendances,
         isTrial: lessonIsTrial,
-        payForTrialLessons: payForTrials,
+        trialPayMode,
         rateConfigured,
       }),
       rateLabel,
     }
   })
+
+  // Пробные считаем по строкам: групповое пробное живёт в Attendance.isTrial
+  // при Lesson.isTrial=false — фильтр только по Lesson.isTrial занижал счётчик.
+  const totalTrials = rows.filter((r) => r.isTrial).length
 
   const instructorName =
     [instructor.lastName, instructor.firstName].filter(Boolean).join(" ") || "Без имени"
@@ -242,12 +248,14 @@ export default async function SalaryByInstructorDetailPage({
         </Card>
       </div>
 
-      {totalTrials > 0 && !payForTrials && (
+      {totalTrials > 0 && trialPayMode !== "all" && (
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="p-4 text-sm">
             В этом месяце {totalTrials} {totalTrials === 1 ? "пробное" : "пробных"} —
-            за них ЗП не начисляется по настройке организации
-            («Настройки → Организация → Платить педагогу за пробные»).
+            {trialPayMode === "none"
+              ? " за них ЗП не начисляется по настройке организации"
+              : " ЗП начисляется только за платные пробные по настройке организации"}
+            {" "}(«Настройки → Организация → Параметры системы → Оплата пробных занятий педагогу»).
           </CardContent>
         </Card>
       )}

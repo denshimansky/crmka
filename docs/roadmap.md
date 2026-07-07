@@ -76,7 +76,7 @@
 - FIN-27: Экспорт — ExportButton + ReportExport (Excel)
 
 **Зарплата:**
-- SAL-10: Оплата пробных — payForTrialLessons настройка организации
+- SAL-10: Оплата пробных — trialPayMode настройка организации (не платить / только платные / все пробные)
 - SAL-11b: Корректировки прошлых периодов — salary-corrections.tsx + API
 
 **Администрирование:**
