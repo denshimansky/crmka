@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
+import { logAudit } from "@/lib/audit"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -254,11 +255,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   return NextResponse.json(ward)
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// Удаление подопечного — только владелец, только «чистого» (без абонементов,
+// зачислений, пробных, заявок и посещений). Удаление жёсткое (у Ward нет
+// soft delete): кейс — случайно/неверно заведённый ребёнок без истории.
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (session.user.role !== "owner" && session.user.role !== "manager") {
-    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 })
+  if (session.user.role !== "owner") {
+    return NextResponse.json({ error: "Удалять подопечных может только владелец" }, { status: 403 })
   }
 
   const { id } = await params
@@ -271,18 +275,44 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   })
   if (!existing) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
 
+  // Attendance не имеет relation на Ward — считаем отдельно. Без этого гарда
+  // разовые посещения ребёнка (без зачисления) осиротели бы после удаления.
+  const attendanceCount = await db.attendance.count({
+    where: { tenantId: session.user.tenantId, wardId: id },
+  })
+
   const hasLinks =
     existing._count.subscriptions > 0 ||
     existing._count.enrollments > 0 ||
     existing._count.trialLessons > 0 ||
-    existing._count.applications > 0
+    existing._count.applications > 0 ||
+    attendanceCount > 0
   if (hasLinks) {
     return NextResponse.json(
-      { error: "Нельзя удалить подопечного: есть связанные абонементы, зачисления, пробные или заявки" },
+      {
+        error:
+          "Нельзя удалить подопечного: есть связанные абонементы, зачисления, пробные, заявки или посещения. " +
+          "Если ребёнок больше не занимается — отчислите его, история сохранится.",
+      },
       { status: 400 },
     )
   }
 
   await db.ward.delete({ where: { id } })
+
+  logAudit({
+    tenantId: session.user.tenantId,
+    employeeId: session.user.employeeId,
+    action: "delete",
+    entityType: "Ward",
+    entityId: id,
+    changes: {
+      firstName: { old: existing.firstName },
+      lastName: { old: existing.lastName },
+      clientId: { old: existing.clientId },
+    },
+    req,
+  })
+
   return NextResponse.json({ ok: true })
 }

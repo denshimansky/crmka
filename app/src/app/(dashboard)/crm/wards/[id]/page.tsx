@@ -10,6 +10,7 @@ import { Building2, GraduationCap, User as UserIcon, CalendarDays } from "lucide
 import { BackButton } from "@/components/back-button"
 import { PageHelp } from "@/components/page-help"
 import { EditWardForm } from "./edit-ward-form"
+import { DeleteWardButton } from "./delete-ward-button"
 import { ClientHistory } from "../../clients/[id]/client-history"
 import { TrialLessonDialog } from "../../_components/trial-lesson-dialog"
 import { WardSalesStageActions } from "../../_components/ward-sales-stage-actions"
@@ -260,6 +261,14 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
               birthDate: ward.birthDate ? ward.birthDate.toISOString().slice(0, 10) : "",
             }}
           />
+          {/* Удаление — только владелец; для случайно заведённых детей без истории. */}
+          {session.user.role === "owner" && (
+            <DeleteWardButton
+              wardId={ward.id}
+              wardName={wardName}
+              clientId={ward.client.id}
+            />
+          )}
         </div>
       </div>
     </div>
