@@ -51,6 +51,9 @@ export interface ProcessResult {
     // ФИО родителя взято из «Контактного лица» целиком (там было полное ФИО).
     parentFromContact: number
     needsReview: number
+    // Из них: строки без телефона И без соцсетей (помечены «Проверить = да»;
+    // этап 2 такие строки не пропустит — заполнить контакты или удалить).
+    noContacts: number
     missingBranch: number
     byStatus: Record<LeadStatus, number>
   }
@@ -255,6 +258,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
   let surnameChanged = 0
   let parentFromContact = 0
   let needsReviewCount = 0
+  let noContactsCount = 0
   let missingBranch = 0
   for (const [, group] of byKey2) {
     const base = group[0]
@@ -270,7 +274,14 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
     const parent = parentFullName(base.fio, contact)
     if (parent.changed) surnameChanged++
     if (parent.fromContact) parentFromContact++
-    if (parent.needsReview) needsReviewCount++
+    // Нет НИ телефона, НИ соцсетей — клиента не найти и не сматчить, повторный
+    // импорт плодит дубли (телефон — ключ группировки). Помечаем «Проверить =
+    // да», как и другие проблемные строки: владелец заполняет контакты или
+    // удаляет строку при вычитке; этап 2 строки с «да» не пропускает.
+    const noContacts = !base.phoneNorm && !socials
+    if (noContacts) noContactsCount++
+    const review = parent.needsReview || noContacts
+    if (review) needsReviewCount++
     const status = base.status
     if (status) byStatus[status]++
     outRows.push({
@@ -282,7 +293,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
       "Статус": base.statusRaw,
       "Филиал": branch,
       "Баланс": "",
-      "Проверить": parent.needsReview ? "да" : "",
+      "Проверить": review ? "да" : "",
     })
   }
 
@@ -314,6 +325,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
       surnameChanged,
       parentFromContact,
       needsReview: needsReviewCount,
+      noContacts: noContactsCount,
       missingBranch,
       byStatus,
     },

@@ -50,6 +50,19 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     )
   }
+  if (!result.ok && result.reason === "no_contacts") {
+    return NextResponse.json(
+      {
+        error:
+          `Найдено ${result.rows.length} строк без телефона и без соцсетей. ` +
+          "У каждой импортируемой строки должен быть заполнен телефон или соцсети — " +
+          "иначе клиента нельзя найти и повторный импорт создаст дубли. " +
+          "Исправьте таблицу и загрузите снова. Импорт не выполнен.",
+        noContacts: result.rows,
+      },
+      { status: 422 },
+    )
+  }
   if (!result.ok && result.reason === "branch_not_found") {
     return NextResponse.json(
       {

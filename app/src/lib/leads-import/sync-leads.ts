@@ -70,6 +70,18 @@ export interface SyncBlocked {
   rows: NeedsReview[]
 }
 
+export interface NoContactsRow {
+  rowIdx: number
+  parent: string
+  child: string
+}
+
+export interface SyncNoContacts {
+  ok: false
+  reason: "no_contacts"
+  rows: NoContactsRow[]
+}
+
 export interface SyncBranchNotFound {
   ok: false
   reason: "branch_not_found"
@@ -223,12 +235,30 @@ export interface SyncOptions {
 
 export async function syncLeads(
   opts: SyncOptions,
-): Promise<SyncReport | SyncBlocked | SyncEmpty | SyncBranchNotFound> {
+): Promise<SyncReport | SyncBlocked | SyncEmpty | SyncBranchNotFound | SyncNoContacts> {
   const parsedLeads = loadLeadsFile(opts.leadsBuffer)
   const leads = parsedLeads.rows
   if (leads.length === 0) {
     return { ok: false, reason: "empty_leads", detectedHeaders: parsedLeads.headers }
   }
+
+  // Слой валидации контактов: у каждой строки должен быть телефон ИЛИ соцсети.
+  // Без обоих клиент не находится поиском, не матчится по телефону и при
+  // повторном импорте плодит дубли (телефон — ключ группировки, пустой ключ =
+  // «каждая строка — отдельный клиент»). Блокируем импорт целиком — владелец
+  // исправляет таблицу и загружает снова. Этап 1 отсеивает такие строки в
+  // сырой выгрузке, но промежуточный файл могли собрать/править руками —
+  // поэтому проверяем и здесь. Телефон уже нормализован (normPhone): мусорный
+  // номер эквивалентен пустому.
+  const noContacts = leads.filter((r) => !r.phone && !r.socials.trim())
+  if (noContacts.length > 0) {
+    return {
+      ok: false,
+      reason: "no_contacts",
+      rows: noContacts.map((r) => ({ rowIdx: r.rowIdx, parent: r.parent, child: r.child })),
+    }
+  }
+
   const reviewBlocked = leads.filter((r) => r.needsReview)
   if (reviewBlocked.length > 0) {
     return {

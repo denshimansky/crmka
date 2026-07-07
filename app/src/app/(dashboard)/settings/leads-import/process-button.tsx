@@ -39,6 +39,7 @@ interface ImportStats {
   surnameChanged: number
   parentFromContact: number
   needsReview: number
+  noContacts: number
   missingBranch: number
   byStatus: Record<string, number>
 }
@@ -208,6 +209,13 @@ export function ProcessLeadsButton() {
                   {success.parentFromContact > 0 && ` ФИО из «Контактного лица» целиком: ${success.parentFromContact}.`}
                   {success.missingBranch > 0 && ` Без филиала: ${success.missingBranch}.`}
                 </div>
+                {(success.noContacts ?? 0) > 0 && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-200">
+                    <span className="font-medium">Без телефона и соцсетей: {success.noContacts}.</span>{" "}
+                    Эти строки помечены «Проверить = да» — заполните телефон или соцсети
+                    (или удалите строку) при вычитке, иначе Этап 2 файл не примет.
+                  </div>
+                )}
                 <div className="text-xs text-muted-foreground">
                   По статусам: {Object.entries(success.byStatus)
                     .filter(([, n]) => n > 0)

@@ -27,6 +27,12 @@ interface BranchNotFound {
   count: number
 }
 
+interface NoContactsRow {
+  rowIdx: number
+  parent: string
+  child: string
+}
+
 interface SyncReport {
   leadsParsed: number
   moneyParsed: number
@@ -52,12 +58,13 @@ export function SyncBalanceButton() {
   const [detectedHeaders, setDetectedHeaders] = useState<string[] | null>(null)
   const [needsReview, setNeedsReview] = useState<NeedsReview[] | null>(null)
   const [branchNotFound, setBranchNotFound] = useState<BranchNotFound[] | null>(null)
+  const [noContacts, setNoContacts] = useState<NoContactsRow[] | null>(null)
   const [report, setReport] = useState<SyncReport | null>(null)
 
   function reset() {
     setLeadsFile(null); setMoneyFile(null)
     setError(null); setDetectedHeaders(null); setNeedsReview(null)
-    setBranchNotFound(null); setReport(null)
+    setBranchNotFound(null); setNoContacts(null); setReport(null)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -66,7 +73,7 @@ export function SyncBalanceButton() {
       setError("Выберите файл «Список лидов — для импорта.xlsx»"); return
     }
     setLoading(true); setError(null); setDetectedHeaders(null); setNeedsReview(null)
-    setBranchNotFound(null); setReport(null)
+    setBranchNotFound(null); setNoContacts(null); setReport(null)
 
     try {
       const fd = new FormData()
@@ -76,6 +83,11 @@ export function SyncBalanceButton() {
 
       if (res.status === 422) {
         const data = await res.json()
+        if (Array.isArray(data.noContacts)) {
+          setNoContacts(data.noContacts)
+          setError(data.error ?? "Есть строки без телефона и соцсетей")
+          return
+        }
         if (Array.isArray(data.branchNotFound)) {
           setBranchNotFound(data.branchNotFound)
           setError(data.error ?? "Есть филиалы, которых нет в CRM")
@@ -151,6 +163,26 @@ export function SyncBalanceButton() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {noContacts && noContacts.length > 0 && (
+              <div className="space-y-2 max-h-64 overflow-y-auto rounded-md border bg-muted/30 p-3 text-sm">
+                <div className="font-medium">Без телефона и соцсетей: {noContacts.length}</div>
+                <div className="text-xs text-muted-foreground">
+                  Заполните в файле телефон или соцсети у этих строк (или удалите их) и загрузите снова.
+                </div>
+                <ul className="space-y-1">
+                  {noContacts.slice(0, 50).map((r, i) => (
+                    <li key={i} className="text-xs">
+                      Строка {r.rowIdx}: <span className="font-medium">{r.parent || "(без имени)"}</span>
+                      {" — "}«{r.child}»
+                    </li>
+                  ))}
+                  {noContacts.length > 50 && (
+                    <li className="text-xs text-muted-foreground">… и ещё {noContacts.length - 50}</li>
+                  )}
+                </ul>
               </div>
             )}
 
