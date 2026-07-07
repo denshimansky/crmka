@@ -111,6 +111,13 @@ export async function GET(req: NextRequest) {
       tenantId,
       deletedAt: null,
       firstPaymentDate: { gte: dateFrom, lte: dateTo },
+      // Баг #53: «продажа» — только клиент, прошедший воронку в CRM
+      // (becameLeadAt ставит триггер БД при входе в статус «Новый»).
+      // Импортированные сразу активными (becameLeadAt=NULL) — старожилы
+      // центра: их первая оплата после импорта базы — обычное продление,
+      // а не конверсия, и все такие «продажи» падали на админа, который
+      // проводил оплаты (Dream: 17 из 24 «продаж» июля были фантомными).
+      becameLeadAt: { not: null },
     },
     select: { id: true },
   })
