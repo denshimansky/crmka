@@ -149,7 +149,7 @@ export default function PlansPage() {
           <DialogHeader><DialogTitle>{editId ? "Редактировать тариф" : "Новый тариф"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2"><Label>Название *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Стандарт" /></div>
-            <div className="space-y-2"><Label>Цена за филиал (₽/мес) *</Label><Input type="number" min={0} value={form.pricePerBranch} onChange={(e) => setForm({ ...form, pricePerBranch: e.target.value })} placeholder="5000" /></div>
+            <div className="space-y-2"><Label>Цена за филиал (₽/мес) *</Label><Input type="number" step="0.01" min={0} value={form.pricePerBranch} onChange={(e) => setForm({ ...form, pricePerBranch: e.target.value })} placeholder="5000" /></div>
             <div className="space-y-2"><Label>Описание</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="5 000 ₽/мес за филиал" /></div>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>

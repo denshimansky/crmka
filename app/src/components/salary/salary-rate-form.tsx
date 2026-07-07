@@ -99,6 +99,7 @@ export function SalaryRateForm({ value, onChange }: SalaryRateFormProps) {
           <Label>Ставка за ученика, ₽</Label>
           <Input
             type="number"
+            step="0.01"
             min={0}
             value={numInput(value.ratePerStudent)}
             onChange={(e) => patch({ ratePerStudent: parseNum(e.target.value) })}
@@ -111,6 +112,7 @@ export function SalaryRateForm({ value, onChange }: SalaryRateFormProps) {
           <Label>Ставка за занятие, ₽</Label>
           <Input
             type="number"
+            step="0.01"
             min={0}
             value={numInput(value.ratePerLesson)}
             onChange={(e) => patch({ ratePerLesson: parseNum(e.target.value) })}
@@ -123,6 +125,7 @@ export function SalaryRateForm({ value, onChange }: SalaryRateFormProps) {
           <Label>Фикс за выход, ₽</Label>
           <Input
             type="number"
+            step="0.01"
             min={0}
             value={numInput(value.fixedPerShift)}
             onChange={(e) => patch({ fixedPerShift: parseNum(e.target.value) })}
@@ -182,6 +185,7 @@ export function SalaryRateForm({ value, onChange }: SalaryRateFormProps) {
                   <span className="text-xs text-muted-foreground">учеников →</span>
                   <Input
                     type="number"
+                    step="0.01"
                     min={0}
                     value={b.ratePerLesson}
                     onChange={(e) =>

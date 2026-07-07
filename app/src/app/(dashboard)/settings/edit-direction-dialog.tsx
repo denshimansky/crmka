@@ -118,7 +118,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label>Стоимость занятия, ₽ *</Label>
-                <Input type="number" min="0" value={lessonPrice} onChange={(e) => setLessonPrice(e.target.value)} placeholder="400" />
+                <Input type="number" step="0.01" min="0" value={lessonPrice} onChange={(e) => setLessonPrice(e.target.value)} placeholder="400" />
               </div>
               <div>
                 <Label>Длительность, мин</Label>
@@ -134,7 +134,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
               {!trialFree && (
                 <div>
                   <Label>Стоимость пробного, ₽</Label>
-                  <Input type="number" min="0" value={trialPrice} onChange={(e) => setTrialPrice(e.target.value)} placeholder="500" />
+                  <Input type="number" step="0.01" min="0" value={trialPrice} onChange={(e) => setTrialPrice(e.target.value)} placeholder="500" />
                 </div>
               )}
             </div>
@@ -143,6 +143,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
               <Label>Стоимость разового посещения, ₽</Label>
               <Input
                 type="number"
+                step="0.01"
                 min="0"
                 value={singleVisitPrice}
                 onChange={(e) => setSingleVisitPrice(e.target.value)}
