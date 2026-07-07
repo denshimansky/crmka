@@ -7,8 +7,9 @@ import { previewBulkRenew, applyBulkRenew } from "@/lib/subscriptions/bulk-renew
 // POST /api/subscriptions/[id]/renew — точечное продление одного абонемента
 // на следующий период. Используется из карточки клиента (кнопка «+ Абонемент»).
 //
-// Параметры (group, direction, ward, price) копируются из исходного абонемента;
-// меняется только период (по умолчанию — следующий календарный месяц).
+// Параметры (group, direction, ward) копируются из исходного абонемента, цена —
+// актуальный прайс направления (см. bulk-renew.ts); период — следующий
+// календарный месяц.
 //
 // Если у клиента нет действующего абонемента (источника), эндпойнт возвращает 404 —
 // в этом случае нужно заводить заявку для нового направления/группы.
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // если они есть; иначе — следующий после today.
   const baseYear = source.periodYear ?? new Date().getFullYear()
   const baseMonth = source.periodMonth ?? new Date().getMonth() + 1
-  const nextMonthIdx = baseMonth // 1..12 → следующий 2..13
+  const nextMonthIdx = baseMonth + 1 // 1..12 → следующий 2..13
   const targetYear = nextMonthIdx > 12 ? baseYear + 1 : baseYear
   const targetMonth = nextMonthIdx > 12 ? 1 : nextMonthIdx
 

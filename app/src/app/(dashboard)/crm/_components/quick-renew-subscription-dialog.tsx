@@ -84,9 +84,20 @@ export function QuickRenewSubscriptionDialog({
     setError(null)
     try {
       const res = await fetch(`/api/subscriptions/${selectedId}/renew`, { method: "POST" })
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
         setError(data.error || "Не удалось продлить абонемент")
+        return
+      }
+      // 201 с created:0 — абонемент пропущен (уже продлён / нет расписания
+      // на период). Без этой проверки диалог закрывался молча, как будто
+      // продление прошло.
+      if (data.created === 0) {
+        setError(
+          data.skipped > 0
+            ? "Абонемент не создан: на следующий период он уже выписан или у группы нет расписания."
+            : "Абонемент не создан. Попробуйте выписать вручную через вкладку «Абонементы».",
+        )
         return
       }
       setOpen(false)
@@ -173,7 +184,7 @@ export function QuickRenewSubscriptionDialog({
               <div className="text-xs text-muted-foreground">Будет создан pending-абонемент на</div>
               <div className="font-medium">{nextPeriodLabel(selected)}</div>
               <div className="mt-1 text-xs text-muted-foreground">
-                Цена занятия зафиксирована: {fmtMoney(selected.lessonPrice)}. Количество занятий —
+                Цена занятия — по текущему прайсу направления. Количество занятий —
                 по расписанию группы. Скидки пересчитаются автоматически.
               </div>
             </div>
