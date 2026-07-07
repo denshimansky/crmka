@@ -20,6 +20,9 @@ const createSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}$/, "Время формата HH:MM").optional(),
   durationMinutes: z.number().int().min(15).max(480).optional(),
   comment: z.string().optional(),
+  // Перенос: старое scheduled-пробное отменяется в одной транзакции с созданием
+  // нового (см. createTrialLessonForClient) — нет окна «отменили, но не создали».
+  rescheduleOfTrialLessonId: z.string().uuid().optional(),
 })
 
 // GET /api/trial-lessons?clientId=...&status=scheduled
@@ -115,12 +118,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const { applicationId, ...trialInput } = parsed.data
+  const { applicationId, rescheduleOfTrialLessonId, ...trialInput } = parsed.data
   const result = await createTrialLessonForClient(
     session.user.tenantId,
     session.user.employeeId ?? null,
     trialInput,
-    { applicationId },
+    { applicationId, rescheduleOfTrialLessonId },
   )
 
   if (!result.ok) {

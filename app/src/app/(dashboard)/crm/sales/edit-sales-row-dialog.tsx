@@ -15,6 +15,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { Calendar } from "@/components/ui/calendar"
+import { useRoleNames } from "@/components/role-names-provider"
+import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 import type { SalesRow, SalesTabKey } from "./sales-table"
 
 interface BranchOption {
@@ -35,6 +37,19 @@ interface EmployeeOption {
   id: string
   firstName: string | null
   lastName: string | null
+}
+interface InstructorOption {
+  id: string
+  firstName: string | null
+  lastName: string | null
+  role: string
+  isActive: boolean
+  employeeBranches?: { branchId: string }[]
+}
+interface RoomOption {
+  id: string
+  name: string
+  branchId: string
 }
 
 // Какие поля пробного редактируемы (только на вкладке trial). На trial_done /
@@ -62,6 +77,7 @@ export function EditSalesRowDialog({
   onOpenChange: (v: boolean) => void
 }) {
   const router = useRouter()
+  const roleNames = useRoleNames()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -85,6 +101,8 @@ export function EditSalesRowDialog({
   const [branches, setBranches] = useState<BranchOption[]>([])
   const [directions, setDirections] = useState<DirectionOption[]>([])
   const [groups, setGroups] = useState<GroupOption[]>([])
+  const [instructorsList, setInstructorsList] = useState<InstructorOption[]>([])
+  const [roomsList, setRoomsList] = useState<RoomOption[]>([])
   const [refLoaded, setRefLoaded] = useState(false)
 
   // Текущие выбранные значения трёх селектов выводим из row по name (server-rendered),
@@ -93,6 +111,11 @@ export function EditSalesRowDialog({
   const [directionId, setDirectionId] = useState<string>("")
   const [groupId, setGroupId] = useState<string>("")
   const [scheduledDate, setScheduledDate] = useState<string>(isoToDate(row.scheduledDate))
+  // Поля индивидуального пробного (без группы): время/педагог/кабинет
+  // редактируются напрямую — раньше при пересоздании молча копировались старые.
+  const [trialStartTime, setTrialStartTime] = useState<string>(row.startTime || "")
+  const [trialInstructorId, setTrialInstructorId] = useState<string>(row.trialInstructorId || "")
+  const [trialRoomId, setTrialRoomId] = useState<string>(row.trialRoomId || "")
   // Список доступных дат пробного — реальные занятия выбранной группы.
   // null = ещё не загружены / нет группы; пустой массив = группа выбрана, занятий нет.
   const [groupLessonDates, setGroupLessonDates] = useState<string[] | null>(null)
@@ -102,15 +125,25 @@ export function EditSalesRowDialog({
     let cancelled = false
     async function load() {
       try {
-        const [br, dr, gr] = await Promise.all([
+        const [br, dr, gr, emp, rm] = await Promise.all([
           fetch("/api/branches"),
           fetch("/api/directions"),
           fetch("/api/groups"),
+          fetch("/api/employees"),
+          fetch("/api/rooms"),
         ])
         if (cancelled) return
         if (br.ok) setBranches(await br.json())
         if (dr.ok) setDirections(await dr.json())
         if (gr.ok) setGroups(await gr.json())
+        if (emp.ok) {
+          const all: InstructorOption[] = await emp.json()
+          // Только действующие: сервис создания пробного отклоняет isActive=false.
+          setInstructorsList(
+            all.filter((e) => e.isActive && ["instructor", "owner", "manager"].includes(e.role)),
+          )
+        }
+        if (rm.ok) setRoomsList(await rm.json())
         setRefLoaded(true)
       } catch {
         setError("Не удалось загрузить справочники")
@@ -195,6 +228,12 @@ export function EditSalesRowDialog({
       })),
     [employees],
   )
+
+  // Поля «Педагог/Кабинет/Время» показываем только для индивидуального пробного.
+  // До загрузки справочников ориентируемся на признак строки (instructorId есть
+  // только у индивидуальных) — иначе у групповых поля мигают, пока groupId не
+  // сопоставился по имени.
+  const showIndividualTrialFields = refLoaded ? !groupId : !!row.trialInstructorId
 
   const selectedBranchName = branches.find((b) => b.id === branchId)?.name ?? row.branchName ?? ""
   const selectedDirectionName = directions.find((d) => d.id === directionId)?.name ?? row.directionName ?? ""
@@ -301,66 +340,68 @@ export function EditSalesRowDialog({
       }
     }
 
-    // 4. Пробное — если меняются «дата/филиал/направление/группа», создаём новую
-    // запись; старую отменяем, только если она ещё не отмечена (scheduled).
+    // 4. Пробное — если меняются «дата/время/педагог/кабинет/направление/группа»
+    // (для группового — и филиал), пересоздаём запись. Для scheduled-пробного
+    // отмена старого и создание нового идут ОДНОЙ транзакцией на сервере
+    // (rescheduleOfTrialLessonId) — при любой ошибке старое остаётся на месте.
     if (trialEditable && showsTrialFields) {
+      const individualChanged =
+        !groupId &&
+        (trialStartTime !== (row.startTime || "") ||
+          trialInstructorId !== (row.trialInstructorId || "") ||
+          trialRoomId !== (row.trialRoomId || ""))
       const trialChanged =
         scheduledDate !== isoToDate(row.scheduledDate) ||
-        (branchId && selectedBranchName !== row.branchName) ||
         (directionId && selectedDirectionName !== row.directionName) ||
-        (groupId && selectedGroupName !== row.groupOrTimeLabel)
+        (groupId
+          ? selectedGroupName !== row.groupOrTimeLabel ||
+            (branchId && selectedBranchName !== row.branchName)
+          : individualChanged)
       if (trialChanged) {
-        // Без группы пересоздаём индивидуальное пробное с прежними
-        // педагогом/кабинетом/временем. Если их нет (например, группа была
-        // переименована и не сопоставилась по имени) — отказ ДО отмены старого,
-        // иначе пробное будет отменено, а новое не создастся.
+        // Без группы пересоздаём индивидуальное пробное со значениями из полей
+        // «Время/Педагог/Кабинет» (предзаполнены текущими).
         const individualPayload = !groupId
           ? {
               directionId: directionId || row.trialDirectionId || undefined,
-              instructorId: row.trialInstructorId ?? undefined,
-              roomId: row.trialRoomId ?? undefined,
-              startTime: row.startTime ?? undefined,
+              instructorId: trialInstructorId || undefined,
+              roomId: trialRoomId || undefined,
+              startTime: trialStartTime || undefined,
               durationMinutes: row.trialDurationMinutes ?? undefined,
             }
           : null
+        if (individualPayload && !individualPayload.directionId) {
+          setError("Не удалось определить направление пробного — выберите направление или группу.")
+          setSubmitting(false)
+          return
+        }
         if (
           individualPayload &&
-          (!individualPayload.directionId ||
-            !individualPayload.instructorId ||
+          (!individualPayload.instructorId ||
             !individualPayload.roomId ||
             !individualPayload.startTime)
         ) {
           setError(
-            "Выберите группу для нового пробного: пересоздать запись без группы не из чего (нет педагога/кабинета/времени старого пробного)."
+            `Заполните время, поле «${roleNames.instructor}» и кабинет индивидуального пробного — или выберите группу.`
           )
           setSubmitting(false)
           return
         }
-        // Отменяем только не отмеченное (scheduled) пробное. Если строка
-        // представляет неявку (no_show) — её не трогаем: «не пришёл» должен
-        // остаться в истории и в отчёте, просто создаём новое пробное.
-        if (row.trialLessonId && row.trialStatus === "scheduled") {
-          const cancel = await jsonFetch(`/api/trial-lessons/${row.trialLessonId}`, "PATCH", {
-            status: "cancelled",
-          })
-          if (!cancel.ok) {
-            setError("Не удалось отменить старое пробное: " + cancel.error)
-            setSubmitting(false)
-            return
-          }
-        }
+        // scheduled-пробное переносим атомарно; неявку (no_show) не трогаем —
+        // «не пришёл» остаётся в истории и в отчёте, просто создаём новое пробное.
+        const rescheduleId =
+          row.trialLessonId && row.trialStatus === "scheduled" ? row.trialLessonId : undefined
         const create = await jsonFetch(`/api/trial-lessons`, "POST", {
           clientId: row.clientId,
           wardId: row.ward.id,
           applicationId: row.applicationId,
           ...(groupId ? { groupId } : individualPayload),
           scheduledDate,
+          rescheduleOfTrialLessonId: rescheduleId,
         })
         if (!create.ok) {
           setError(
-            row.trialStatus === "scheduled"
-              ? "Старое пробное отменили, новое создать не удалось: " + create.error
-              : "Не удалось создать новое пробное: " + create.error
+            (rescheduleId ? "Не удалось перенести пробное: " : "Не удалось создать новое пробное: ") +
+              create.error
           )
           setSubmitting(false)
           return
@@ -431,6 +472,9 @@ export function EditSalesRowDialog({
                   if (v) {
                     setBranchId(v)
                     setGroupId("")
+                    // Кабинет принадлежит филиалу — при смене филиала сбрасываем,
+                    // иначе пробное уедет в кабинет (и скоуп) старого филиала.
+                    setTrialRoomId("")
                   }
                 }}
                 disabled={showsTrialFields && !trialEditable}
@@ -485,22 +529,96 @@ export function EditSalesRowDialog({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
-                <Label>Дата пробного {!trialEditable ? "(только просмотр)" : ""}</Label>
-                {trialEditable && groupId ? (
-                  <Calendar
-                    value={scheduledDate}
-                    onChange={setScheduledDate}
-                    availableDates={groupLessonDates ? new Set(groupLessonDates) : undefined}
-                    emptyHint="Сначала сгенерируйте расписание для этой группы."
-                  />
-                ) : (
-                  <Input
-                    type="date"
-                    value={scheduledDate}
-                    onChange={(e) => setScheduledDate(e.target.value)}
-                    disabled={!trialEditable}
-                  />
+              {/* Индивидуальное пробное (группа не выбрана): время/педагог/кабинет
+                  редактируются напрямую. Для группового — время задаёт занятие группы. */}
+              {showIndividualTrialFields && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>{roleNames.instructor} {!trialEditable ? "(только просмотр)" : ""}</Label>
+                    <Select
+                      value={trialInstructorId}
+                      onValueChange={(v) => v && setTrialInstructorId(v)}
+                      disabled={!trialEditable}
+                    >
+                      <SelectTrigger className="w-full">
+                        {(() => {
+                          const sel = instructorsList.find((e) => e.id === trialInstructorId)
+                          if (!sel) return <span className="text-muted-foreground">Выберите из списка</span>
+                          return [sel.lastName, sel.firstName].filter(Boolean).join(" ") || "Без имени"
+                        })()}
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(() => {
+                          const filtered = filterEmployeesByBranch(instructorsList, branchId || null)
+                          const selected = instructorsList.find((x) => x.id === trialInstructorId)
+                          const showOutOfBranch =
+                            selected && !isEmployeeAvailableInBranch(selected, branchId || null)
+                          const visible = showOutOfBranch
+                            ? [selected!, ...filtered.filter((x) => x.id !== selected!.id)]
+                            : filtered
+                          return visible.map((e) => (
+                            <SelectItem key={e.id} value={e.id}>
+                              {[e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"}
+                            </SelectItem>
+                          ))
+                        })()}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Кабинет {!trialEditable ? "(только просмотр)" : ""}</Label>
+                    <Select
+                      value={trialRoomId}
+                      onValueChange={(v) => v && setTrialRoomId(v)}
+                      disabled={!trialEditable || !branchId}
+                    >
+                      <SelectTrigger className="w-full">
+                        {roomsList.find((r) => r.id === trialRoomId)?.name || (
+                          <span className="text-muted-foreground">
+                            {branchId ? "Выберите кабинет" : "Сначала выберите филиал"}
+                          </span>
+                        )}
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roomsList
+                          .filter((r) => r.branchId === branchId)
+                          .map((r) => (
+                            <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+              <div className={showIndividualTrialFields ? "grid grid-cols-2 gap-2" : ""}>
+                <div className="space-y-1.5">
+                  <Label>Дата пробного {!trialEditable ? "(только просмотр)" : ""}</Label>
+                  {trialEditable && groupId ? (
+                    <Calendar
+                      value={scheduledDate}
+                      onChange={setScheduledDate}
+                      availableDates={groupLessonDates ? new Set(groupLessonDates) : undefined}
+                      emptyHint="Сначала сгенерируйте расписание для этой группы."
+                    />
+                  ) : (
+                    <Input
+                      type="date"
+                      value={scheduledDate}
+                      onChange={(e) => setScheduledDate(e.target.value)}
+                      disabled={!trialEditable}
+                    />
+                  )}
+                </div>
+                {showIndividualTrialFields && (
+                  <div className="space-y-1.5">
+                    <Label>Время {!trialEditable ? "(только просмотр)" : ""}</Label>
+                    <Input
+                      type="time"
+                      value={trialStartTime}
+                      onChange={(e) => setTrialStartTime(e.target.value)}
+                      disabled={!trialEditable}
+                    />
+                  </div>
                 )}
               </div>
             </>

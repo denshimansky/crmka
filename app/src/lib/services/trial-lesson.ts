@@ -22,6 +22,13 @@ export type CreateTrialLessonResult =
 
 type CreateTrialLessonOptions = {
   applicationId?: string
+  /**
+   * Перенос: id старого scheduled-пробного, которое нужно отменить В ТОЙ ЖЕ
+   * транзакции, что и создание нового. Убирает окно «старое отменили — новое
+   * не создалось» (клиентский cancel→create терял пробное при ошибке создания).
+   * Комментарий/подтверждение/флаг оплаты педагогу переносятся со старого.
+   */
+  rescheduleOfTrialLessonId?: string
 }
 
 export async function createTrialLessonForClient(
@@ -46,6 +53,36 @@ export async function createTrialLessonForClient(
     select: { id: true },
   })
   if (!ward) return { ok: false, error: "Подопечный не найден", status: 404 }
+
+  // Перенос: старое пробное проверяем ДО каких-либо изменений — оно должно
+  // существовать и быть ещё не отмеченным (страница могла устареть).
+  let rescheduleOld: {
+    id: string
+    comment: string | null
+    confirmed: boolean
+    instructorPayEnabled: boolean
+  } | null = null
+  if (options.rescheduleOfTrialLessonId) {
+    const old = await db.trialLesson.findFirst({
+      where: { id: options.rescheduleOfTrialLessonId, tenantId, clientId: input.clientId },
+      select: {
+        id: true,
+        status: true,
+        comment: true,
+        confirmed: true,
+        instructorPayEnabled: true,
+      },
+    })
+    if (!old) return { ok: false, error: "Пробное для переноса не найдено", status: 404 }
+    if (old.status !== "scheduled") {
+      return {
+        ok: false,
+        error: "Это пробное уже отмечено или отменено — обновите страницу.",
+        status: 409,
+      }
+    }
+    rescheduleOld = old
+  }
 
   const date = new Date(input.scheduledDate)
 
@@ -82,6 +119,7 @@ export async function createTrialLessonForClient(
         groupId: input.groupId,
         scheduledDate: date,
         status: { in: ["scheduled", "attended", "no_show"] },
+        ...(rescheduleOld ? { id: { not: rescheduleOld.id } } : {}),
       },
     })
     if (existingTrial) {
@@ -149,6 +187,7 @@ export async function createTrialLessonForClient(
         scheduledDate: date,
         startTime: input.startTime,
         status: { in: ["scheduled", "attended", "no_show"] },
+        ...(rescheduleOld ? { id: { not: rescheduleOld.id } } : {}),
       },
     })
     if (existingTrial) {
@@ -219,7 +258,12 @@ export async function createTrialLessonForClient(
   // не блокируют.
   if (targetApplicationId) {
     const activeTrial = await db.trialLesson.findFirst({
-      where: { tenantId, applicationId: targetApplicationId, status: "scheduled" },
+      where: {
+        tenantId,
+        applicationId: targetApplicationId,
+        status: "scheduled",
+        ...(rescheduleOld ? { id: { not: rescheduleOld.id } } : {}),
+      },
       select: { scheduledDate: true },
     })
     if (activeTrial) {
@@ -234,6 +278,30 @@ export async function createTrialLessonForClient(
   }
 
   const trial = await db.$transaction(async (tx) => {
+    // Перенос: отменяем старое пробное в этой же транзакции — если создание
+    // ниже упадёт, откатится и отмена. Открытую задачу-напоминание закрываем
+    // (для нового пробного создастся своя).
+    if (rescheduleOld) {
+      await tx.trialLesson.update({
+        where: { id: rescheduleOld.id },
+        data: { status: "cancelled" },
+      })
+      await tx.task.updateMany({
+        where: {
+          tenantId,
+          clientId: input.clientId,
+          autoTrigger: "trial_reminder",
+          status: "pending",
+          deletedAt: null,
+        },
+        data: {
+          status: "completed",
+          completedAt: new Date(),
+          completedBy: userEmployeeId ?? undefined,
+        },
+      })
+    }
+
     const created = await tx.trialLesson.create({
       data: {
         tenantId,
@@ -248,17 +316,26 @@ export async function createTrialLessonForClient(
         startTime: storedStartTime,
         durationMinutes: storedDuration,
         scheduledDate: date,
-        instructorPayEnabled: defaultInstructorPay,
-        comment: input.comment,
+        // При переносе сохраняем ручные отметки старого пробного.
+        instructorPayEnabled: rescheduleOld
+          ? rescheduleOld.instructorPayEnabled
+          : defaultInstructorPay,
+        confirmed: rescheduleOld?.confirmed ?? false,
+        comment: input.comment ?? rescheduleOld?.comment ?? undefined,
         createdBy: userEmployeeId ?? undefined,
       },
     })
 
     // Заявку переводим на этап «Пробное», она остаётся активной (воронка по заявке).
+    // «Ожидаем оплату» не откатываем — заявку уже двинули дальше вручную
+    // (тот же принцип, что при отмене пробного в PATCH /api/trial-lessons/[id]).
     // Зеркало Ward.salesStage пересчитаем как максимум по активным заявкам.
     if (targetApplicationId) {
-      await tx.application.update({
-        where: { id: targetApplicationId },
+      await tx.application.updateMany({
+        where: {
+          id: targetApplicationId,
+          stage: { in: ["application", "trial_scheduled", "trial_attended"] },
+        },
         data: { stage: "trial_scheduled" },
       })
     }

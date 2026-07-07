@@ -17,6 +17,7 @@ import type { ScheduleView } from "./schedule-week-nav"
 import { BRANCH_ALL_VALUE, useBranchFilter } from "@/hooks/use-branch-filter"
 import { useRoleNames } from "@/components/role-names-provider"
 import { MonthCalendarView } from "./month-calendar-view"
+import { TrialDetailsDialog, type TrialCardInfo } from "./trial-details-dialog"
 
 interface Room {
   id: string
@@ -40,8 +41,9 @@ interface LessonData {
   startTime: string
   durationMinutes: number
   instructorId: string
-  href?: string // если задан — переопределяет ссылку (например, для индивидуальных пробных)
   isTrial?: boolean
+  /** Индивидуальное пробное: клик открывает диалог деталей вместо карточки занятия. */
+  trial?: TrialCardInfo
   /** На занятии назначена замена — instructor содержит замещающего педагога. */
   isSubstitute?: boolean
   group: {
@@ -92,6 +94,8 @@ interface ScheduleFiltersProps {
   // Объединённый диапазон часов работы филиалов (для вида «По неделе»)
   weekHourStart: number
   weekHourEnd: number
+  /** Роль позволяет переносить пробные из диалога (owner/manager/admin). */
+  canRescheduleTrials: boolean
 }
 
 function wardLabel(w: WardOption): string {
@@ -126,6 +130,7 @@ export function ScheduleFilterableGrid({
   view,
   weekHourStart,
   weekHourEnd,
+  canRescheduleTrials,
 }: ScheduleFiltersProps) {
   const roleNames = useRoleNames()
   const router = useRouter()
@@ -424,6 +429,7 @@ export function ScheduleFilterableGrid({
           formatDateShort={formatDateShort}
           hourStart={weekHourStart}
           hourEnd={weekHourEnd}
+          canRescheduleTrials={canRescheduleTrials}
         />
       ) : (
         <MonthCalendarView
@@ -432,6 +438,7 @@ export function ScheduleFilterableGrid({
           weekdayNames={dayNames}
           directionColorMap={directionColorMap}
           todayKey={new Date().toISOString().slice(0, 10)}
+          canRescheduleTrials={canRescheduleTrials}
         />
       )}
     </>
@@ -463,6 +470,7 @@ interface WeekRoomsViewProps {
   formatDateShort: (dateStr: string) => string
   hourStart: number
   hourEnd: number
+  canRescheduleTrials: boolean
 }
 
 function WeekRoomsView({
@@ -477,6 +485,7 @@ function WeekRoomsView({
   formatDateShort,
   hourStart,
   hourEnd,
+  canRescheduleTrials,
 }: WeekRoomsViewProps) {
   // Если занятие начинается до/после рабочих часов филиалов — расширяем сетку,
   // чтобы оно не пропало из виду (например, лид-занятие в 7:30 при филиале 8–21).
@@ -703,53 +712,68 @@ function WeekRoomsView({
                   const instructorLabel = lesson.isSubstitute
                     ? `${instructorName} (зам.)`
                     : instructorName
-                  return (
-                    <Link
-                      key={lesson.id}
-                      href={lesson.href || `/schedule/lessons/${lesson.id}`}
-                      className="absolute left-0.5 right-0.5 z-10"
-                      style={{ top, height }}
+                  const card = (
+                    <Card
+                      className={`flex h-full flex-col justify-start gap-0.5 overflow-hidden border p-1.5 text-[11px] leading-tight ${colorClass} ${occupancy.className} cursor-pointer hover:opacity-80`}
+                      title={`${lesson.startTime} · ${occupancy.label}`}
                     >
-                      <Card
-                        className={`flex h-full flex-col justify-start gap-0.5 overflow-hidden border p-1.5 text-[11px] leading-tight ${colorClass} ${occupancy.className} cursor-pointer hover:opacity-80`}
-                        title={`${lesson.startTime} · ${occupancy.label}`}
-                      >
-                        <div className="flex items-center justify-between gap-1 font-medium truncate">
-                          <span className="truncate">{lesson.group.name}</span>
-                          {lesson.isTrial && (
-                            <Badge
-                              variant="outline"
-                              className="h-3.5 px-1 text-[9px] border-blue-300 text-blue-700 dark:text-blue-400"
-                            >
-                              проб
+                      <div className="flex items-center justify-between gap-1 font-medium truncate">
+                        <span className="truncate">{lesson.group.name}</span>
+                        {lesson.isTrial && (
+                          <Badge
+                            variant="outline"
+                            className="h-3.5 px-1 text-[9px] border-blue-300 text-blue-700 dark:text-blue-400"
+                          >
+                            проб
+                          </Badge>
+                        )}
+                      </div>
+                      {height >= 36 && (
+                        <div
+                          className={`truncate ${
+                            lesson.isSubstitute
+                              ? "font-medium text-orange-700 dark:text-orange-300"
+                              : "opacity-70"
+                          }`}
+                          title={lesson.isSubstitute ? "Замена" : undefined}
+                        >
+                          {instructorLabel}
+                        </div>
+                      )}
+                      {height >= 52 && (
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">
+                            {enrolled}/{max}
+                          </span>
+                          {max > 0 && enrolled / max > 0.9 && (
+                            <Badge variant="destructive" className="h-3.5 px-1 text-[9px]">
+                              !
                             </Badge>
                           )}
                         </div>
-                        {height >= 36 && (
-                          <div
-                            className={`truncate ${
-                              lesson.isSubstitute
-                                ? "font-medium text-orange-700 dark:text-orange-300"
-                                : "opacity-70"
-                            }`}
-                            title={lesson.isSubstitute ? "Замена" : undefined}
-                          >
-                            {instructorLabel}
-                          </div>
-                        )}
-                        {height >= 52 && (
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold">
-                              {enrolled}/{max}
-                            </span>
-                            {max > 0 && enrolled / max > 0.9 && (
-                              <Badge variant="destructive" className="h-3.5 px-1 text-[9px]">
-                                !
-                              </Badge>
-                            )}
-                          </div>
-                        )}
-                      </Card>
+                      )}
+                    </Card>
+                  )
+                  // Индивидуальное пробное: диалог деталей с переносом
+                  // (сущности занятия у него нет — открывать нечего).
+                  return lesson.trial ? (
+                    <TrialDetailsDialog
+                      key={lesson.id}
+                      trial={lesson.trial}
+                      canReschedule={canRescheduleTrials}
+                      triggerClassName="absolute left-0.5 right-0.5 z-10 block"
+                      triggerStyle={{ top, height }}
+                    >
+                      {card}
+                    </TrialDetailsDialog>
+                  ) : (
+                    <Link
+                      key={lesson.id}
+                      href={`/schedule/lessons/${lesson.id}`}
+                      className="absolute left-0.5 right-0.5 z-10"
+                      style={{ top, height }}
+                    >
+                      {card}
                     </Link>
                   )
                 })}

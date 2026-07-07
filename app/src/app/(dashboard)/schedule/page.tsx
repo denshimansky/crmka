@@ -302,11 +302,13 @@ export default async function SchedulePage({
       startTime: true,
       durationMinutes: true,
       clientId: true,
+      wardId: true,
+      applicationId: true,
       client: { select: { firstName: true, lastName: true } },
       ward: { select: { firstName: true, lastName: true } },
       direction: { select: { id: true, name: true } },
       instructor: { select: { id: true, firstName: true, lastName: true } },
-      room: { select: { id: true, name: true } },
+      room: { select: { id: true, name: true, branchId: true } },
     },
     orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
   })
@@ -422,7 +424,7 @@ export default async function SchedulePage({
 
   // Индивидуальные пробные — отдаём в той же форме, что и обычные занятия.
   // Группа синтетическая: имя из подопечного, 1 место занято.
-  // Клик ведёт в карточку лида.
+  // Клик открывает диалог деталей пробного (TrialDetailsDialog) с переносом.
   const trialDirectionFallback =
     directions[0] ?? { id: "trial-fallback", name: "—" }
   const synthRoom = { id: "trial-no-room", name: "—" }
@@ -441,8 +443,26 @@ export default async function SchedulePage({
       startTime: t.startTime || "—",
       durationMinutes: t.durationMinutes ?? 60,
       instructorId: instructor.id,
-      href: `/crm/clients/${t.clientId}`,
       isTrial: true as const,
+      trial: {
+        id: t.id,
+        clientId: t.clientId,
+        wardId: t.wardId,
+        applicationId: t.applicationId,
+        clientName,
+        wardName,
+        date: t.scheduledDate.toISOString().slice(0, 10),
+        startTime: t.startTime,
+        durationMinutes: t.durationMinutes,
+        directionId: t.direction?.id ?? null,
+        directionName: direction.name,
+        instructorId: t.instructor?.id ?? null,
+        instructorName:
+          [instructor.lastName, instructor.firstName].filter(Boolean).join(" ") || "—",
+        roomId: t.room?.id ?? null,
+        roomName: room.name,
+        branchId: t.room?.branchId ?? null,
+      },
       group: {
         name: `Пробное: ${wardName || clientName}`,
         directionId: direction.id,
@@ -533,6 +553,7 @@ export default async function SchedulePage({
         view={view}
         weekHourStart={weekHourStart}
         weekHourEnd={weekHourEnd}
+        canRescheduleTrials={["owner", "manager", "admin"].includes(session.user.role)}
       />
       {!hasLessons && (
         <p className="py-2 text-center text-sm text-muted-foreground">

@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
+import { TrialDetailsDialog, type TrialCardInfo } from "./trial-details-dialog"
 
 interface LessonItem {
   id: string
@@ -12,7 +13,8 @@ interface LessonItem {
     directionId: string
   }
   isTrial?: boolean
-  href?: string
+  /** Индивидуальное пробное: клик открывает диалог деталей вместо карточки занятия. */
+  trial?: TrialCardInfo
 }
 
 interface MonthCalendarViewProps {
@@ -21,6 +23,7 @@ interface MonthCalendarViewProps {
   weekdayNames: string[]
   directionColorMap: Record<string, string>
   todayKey: string
+  canRescheduleTrials: boolean
 }
 
 export function MonthCalendarView({
@@ -29,6 +32,7 @@ export function MonthCalendarView({
   weekdayNames,
   directionColorMap,
   todayKey,
+  canRescheduleTrials,
 }: MonthCalendarViewProps) {
   // Группируем уроки по дате
   const byDate = new Map<string, LessonItem[]>()
@@ -79,13 +83,9 @@ export function MonthCalendarView({
               <div className="flex-1 space-y-0.5">
                 {dayLessons.map((lesson) => {
                   const colorClass = directionColorMap[lesson.group.directionId] || ""
-                  return (
-                    <Link
-                      key={lesson.id}
-                      href={lesson.href || `/schedule/lessons/${lesson.id}`}
-                      className={`flex items-center gap-1 truncate rounded border-l-2 px-1 py-0.5 text-[10px] leading-tight ${colorClass} hover:opacity-80`}
-                      title={`${lesson.startTime} · ${lesson.group.name}`}
-                    >
+                  const rowClassName = `flex w-full items-center gap-1 truncate rounded border-l-2 px-1 py-0.5 text-[10px] leading-tight ${colorClass} hover:opacity-80`
+                  const content = (
+                    <>
                       <span className="font-mono">{lesson.startTime}</span>
                       <span className="truncate">{lesson.group.name}</span>
                       {lesson.isTrial && (
@@ -96,6 +96,28 @@ export function MonthCalendarView({
                           проб
                         </Badge>
                       )}
+                    </>
+                  )
+                  // Индивидуальное пробное: диалог деталей с переносом
+                  // (сущности занятия у него нет — открывать нечего).
+                  return lesson.trial ? (
+                    <TrialDetailsDialog
+                      key={lesson.id}
+                      trial={lesson.trial}
+                      canReschedule={canRescheduleTrials}
+                      triggerClassName={rowClassName}
+                      triggerTitle={`${lesson.startTime} · ${lesson.group.name}`}
+                    >
+                      {content}
+                    </TrialDetailsDialog>
+                  ) : (
+                    <Link
+                      key={lesson.id}
+                      href={`/schedule/lessons/${lesson.id}`}
+                      className={rowClassName}
+                      title={`${lesson.startTime} · ${lesson.group.name}`}
+                    >
+                      {content}
                     </Link>
                   )
                 })}
