@@ -90,15 +90,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Нельзя вернуть активного клиента в воронку лидов" }, { status: 400 })
   }
 
-  // Возврат из Архив/ЧС — только владелец
+  // Возврат из Архив/ЧС — только владелец или управляющий
   if (
     data.funnelStatus &&
     data.funnelStatus !== existing.funnelStatus &&
     (existing.funnelStatus === "archived" || existing.funnelStatus === "blacklisted") &&
-    session.user.role !== "owner"
+    session.user.role !== "owner" &&
+    session.user.role !== "manager"
   ) {
     return NextResponse.json(
-      { error: "Только владелец может вернуть клиента из архива или чёрного списка" },
+      { error: "Только владелец или управляющий может вернуть клиента из архива или чёрного списка" },
       { status: 403 },
     )
   }

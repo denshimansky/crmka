@@ -25,7 +25,7 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Pencil, X, Ban, CalendarDays, Undo2, CalendarPlus } from "lucide-react"
+import { Plus, Pencil, Ban, CalendarDays, Undo2, CalendarPlus } from "lucide-react"
 import { AddWardForm } from "./add-ward-form"
 import { AttendanceTab } from "./attendance-tab"
 import { PayFromBalanceDialog } from "./pay-from-balance-dialog"
@@ -292,202 +292,6 @@ function EditSubscriptionDialog({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ===== Close Subscription Dialog =====
-
-interface ClosePreview {
-  totalLessons: number
-  attendedLessons: number
-  remainingLessons: number
-  lessonPrice: number
-  paidToSubscription: number
-  usedAmount: number
-  balanceDelta: number
-  canClose: boolean
-}
-
-function CloseSubscriptionDialog({
-  subscription,
-  onSuccess,
-}: {
-  subscription: Subscription
-  onSuccess: () => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [loadingPreview, setLoadingPreview] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [preview, setPreview] = useState<ClosePreview | null>(null)
-
-  async function loadPreview() {
-    setLoadingPreview(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/subscriptions/${subscription.id}/refund`)
-      if (res.ok) {
-        const data: ClosePreview = await res.json()
-        setPreview(data)
-        if (!data.canClose) {
-          setError("Закрытие невозможно: абонемент уже закрыт или отчислён")
-        }
-      } else {
-        const data = await res.json().catch(() => ({}))
-        setError(data.error || "Ошибка загрузки данных")
-      }
-    } catch {
-      setError("Ошибка сети")
-    } finally {
-      setLoadingPreview(false)
-    }
-  }
-
-  function handleOpen(v: boolean) {
-    setOpen(v)
-    if (v) {
-      loadPreview()
-    } else {
-      setPreview(null)
-      setError(null)
-    }
-  }
-
-  async function handleClose() {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "closed" }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        setError(data.error || "Ошибка при закрытии")
-        return
-      }
-      const data = await res.json().catch(() => ({}))
-      if (data?._templateDiscountWarning?.message) {
-        alert(data._templateDiscountWarning.message)
-      }
-      setOpen(false)
-      onSuccess()
-    } catch {
-      setError("Ошибка сети")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogTrigger
-        render={
-          <Button variant="ghost" size="icon" className="size-7" title="Закрыть">
-            <X className="size-3.5 text-muted-foreground" />
-          </Button>
-        }
-      />
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Закрыть абонемент</DialogTitle>
-        </DialogHeader>
-
-        {loadingPreview ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">Расчёт…</p>
-        ) : error && !preview?.canClose ? (
-          <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
-        ) : preview ? (
-          <div className="space-y-4">
-            {error && (
-              <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </div>
-            )}
-
-            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Направление:</span>
-                <span className="font-medium">{subscription.direction.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Группа:</span>
-                <span>{subscription.group.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Период:</span>
-                <span>{formatSubPeriod(subscription)}</span>
-              </div>
-            </div>
-
-            <div className="rounded-md border border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950/30 p-3 text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Всего занятий:</span>
-                <span>{preview.totalLessons}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Посещено:</span>
-                <span>{preview.attendedLessons}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Остаток занятий:</span>
-                <span className="font-medium">{preview.remainingLessons}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Оплачено в счёт абонемента:</span>
-                <span>{formatMoney(preview.paidToSubscription)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Отработано (стоимость):</span>
-                <span>{formatMoney(preview.usedAmount)}</span>
-              </div>
-              <hr className="my-1 border-orange-200 dark:border-orange-800" />
-              <div className="flex justify-between font-bold text-base">
-                <span>{preview.balanceDelta >= 0 ? "На баланс родителя:" : "В долг родителя:"}</span>
-                <span className={preview.balanceDelta >= 0 ? "text-green-700" : "text-red-600"}>
-                  {preview.balanceDelta >= 0
-                    ? `+${formatMoney(preview.balanceDelta)}`
-                    : `−${formatMoney(Math.abs(preview.balanceDelta))}`}
-                </span>
-              </div>
-            </div>
-
-            <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200 space-y-1.5">
-              <p>
-                Используйте, когда период абонемента отходил штатно — все занятия проведены.
-                Абонемент помечается как <b>завершённый</b>, ребёнок <b>остаётся в группе</b> и
-                покупает следующий абонемент.
-              </p>
-              <p className="text-xs">
-                {preview.balanceDelta > 0
-                  ? "Остаток возвращается на баланс родителя — он сможет потратить его на следующий абонемент."
-                  : preview.balanceDelta < 0
-                    ? "По отработанным занятиям клиент не доплатил — долг перейдёт на баланс родителя, клиент попадёт в список должников."
-                    : "Оплата и отработка сошлись — баланс клиента не изменится."}
-              </p>
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>
-                Отмена
-              </Button>
-              <Button onClick={handleClose} disabled={loading || !preview.canClose}>
-                {loading
-                  ? "Закрытие…"
-                  : preview.balanceDelta > 0
-                    ? `Закрыть и вернуть ${formatMoney(preview.balanceDelta)}`
-                    : preview.balanceDelta < 0
-                      ? `Закрыть с долгом ${formatMoney(Math.abs(preview.balanceDelta))}`
-                      : "Закрыть абонемент"}
-              </Button>
-            </DialogFooter>
-          </div>
-        ) : null}
       </DialogContent>
     </Dialog>
   )
@@ -1151,7 +955,6 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                           {s.type === "package" && (
                             <ExtendPackageDialog subscription={s} onSuccess={handleSubUpdated} />
                           )}
-                          <CloseSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                           <WithdrawSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                         </div>
                       )}
@@ -1783,7 +1586,7 @@ function AddSubscriptionDialog({
                 </p>
               ))}
               <p className="mt-1.5 text-xs text-blue-600 dark:text-blue-300">
-                Закройте предыдущий абонемент кнопкой ✕ — остаток вернётся на баланс родителя.
+                При закрытии предыдущего абонемента остаток вернётся на баланс родителя.
               </p>
             </div>
           )}
