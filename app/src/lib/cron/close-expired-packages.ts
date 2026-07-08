@@ -1,5 +1,7 @@
 import { db } from "@/lib/db"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
+import { nextDayUtc } from "@/lib/subscriptions/last-paid-lesson-date"
 
 /**
  * Закрывает все пакетные абонементы, у которых истёк срок (expiresAt < today).
@@ -26,7 +28,7 @@ export async function closeExpiredPackages(now: Date = new Date()) {
       expiresAt: { lt: today },
       deletedAt: null,
     },
-    select: { id: true, clientId: true, tenantId: true },
+    select: { id: true, clientId: true, tenantId: true, groupId: true, wardId: true, expiresAt: true },
   })
   if (candidates.length === 0) return { closed: 0 }
 
@@ -34,6 +36,28 @@ export async function closeExpiredPackages(now: Date = new Date()) {
     where: { id: { in: candidates.map((c) => c.id) } },
     data: { status: "closed", endDate: today },
   })
+
+  // Ребёнок с истёкшим пакетом не должен висеть в будущем расписании:
+  // деактивируем зачисление, если живых (pending/active) абонементов в группе
+  // не осталось — guard внутри хелпера. Граница состава — expiresAt + 1
+  // (пакет действовал по expiresAt включительно), а НЕ «последнее платное
+  // занятие + 1»: иначе хвостовые «Не был»/«Уваж.» действовавшего пакета
+  // удалялись бы чисткой, а пакет без единого платного визита стирал бы
+  // ребёнка из всех прошлых составов (withdrawnAt=enrolledAt). Ручное
+  // продление пакета (expiresAt, closed→active) симметрично реактивирует
+  // зачисление (PATCH /subscriptions/[id]).
+  for (const c of candidates) {
+    await db.$transaction((tx) =>
+      deactivateGroupEnrollmentOnWithdrawal(tx, {
+        tenantId: c.tenantId,
+        groupId: c.groupId,
+        clientId: c.clientId,
+        wardId: c.wardId,
+        excludeSubscriptionId: c.id,
+        scheduledBoundary: nextDayUtc(c.expiresAt ?? today),
+      }),
+    )
+  }
 
   // Пересчёт шаблонных скидок — по каждому затронутому клиенту, в своей
   // мини-транзакции. Один клиент может фигурировать дважды → дедупликация.

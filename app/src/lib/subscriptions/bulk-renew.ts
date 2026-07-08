@@ -11,6 +11,12 @@
 // явно подтвердил, что массовая выписка нужна именно для них; package идут
 // другим механизмом (по сроку годности).
 //
+// Источники продления: активные + ЗАКРЫТЫЕ ЗА ПРОШЛЫЙ МЕСЯЦ (относительно
+// начала диапазона). Автозакрытие отработанных абонементов идёт ежедневно с
+// 1-го числа, поэтому при выписке после 1-го добросовестные клиенты (месяц
+// отхожен и оплачен → closed) без этого выпадали бы из продления. Отчисленные
+// (withdrawn) не продлеваются никогда — ребёнок ушёл.
+//
 // Дубли: для (clientId, wardId, directionId, groupId) пропускаем, если уже
 // есть pending/active с пересечением запрашиваемого периода.
 
@@ -18,6 +24,7 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { countLessonsForGroup } from "@/lib/schedule/count-lessons"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
 
 export interface BulkRenewInput {
   tenantId: string
@@ -93,14 +100,41 @@ function ymd(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-async function loadActiveSources(opts: BulkRenewInput): Promise<SourceRow[]> {
+/**
+ * Месяц, предшествующий началу диапазона выписки (1-based). Локальные геттеры —
+ * как при выводе periodYear/periodMonth нового абонемента в applyBulkRenew,
+ * чтобы «прошлый месяц» и период выписки считались одинаково.
+ */
+export function prevMonthOfRange(rangeStart: Date): { year: number; month: number } {
+  const y = rangeStart.getFullYear()
+  const m = rangeStart.getMonth() + 1 // 1..12
+  return m === 1 ? { year: y - 1, month: 12 } : { year: y, month: m - 1 }
+}
+
+async function loadSources(opts: BulkRenewInput): Promise<SourceRow[]> {
+  const prev = prevMonthOfRange(opts.rangeStart)
   const where: Prisma.SubscriptionWhereInput = {
     tenantId: opts.tenantId,
     deletedAt: null,
-    status: "active",
     type: "calendar",
     // Не продлеваем абонементы с запланированным отчислением — ребёнок уходит.
     scheduledWithdrawalDate: null,
+    // Ушедшим не выписываем: архив/ЧС (симметрично guard'у точечного
+    // /api/subscriptions/[id]/renew) и soft-deleted клиенты (удаление клиента
+    // не помечает его абонементы deletedAt).
+    client: { deletedAt: null, funnelStatus: { notIn: ["archived", "blacklisted"] } },
+    // Источники: живые + штатно закрытые за прошлый месяц (иначе автозакрытие,
+    // идущее ежедневно с 1-го числа, выкидывало бы из продления клиентов с
+    // полностью отхоженным и оплаченным месяцем). closed без periodYear/Month
+    // (легаси) не берём — месяц неизвестен. withdrawn (отчисленные) — никогда.
+    // Для точечного продления (subscriptionId) диапазон = следующий месяц
+    // источника, т.е. closed-источник по построению «за прошлый месяц»; от
+    // продления древних closed-источников в давно прошедшие месяцы защищает
+    // guard «целевой месяц не в прошлом» в самом renew-роуте.
+    OR: [
+      { status: "active" },
+      { status: "closed", periodYear: prev.year, periodMonth: prev.month },
+    ],
   }
   if (opts.directionId) where.directionId = opts.directionId
   if (opts.branchId) where.group = { branchId: opts.branchId }
@@ -120,10 +154,13 @@ async function loadActiveSources(opts: BulkRenewInput): Promise<SourceRow[]> {
       group: { select: { id: true, name: true, branchId: true, branch: { select: { name: true } } } },
       startDate: true,
     },
-    orderBy: { startDate: "desc" },
+    // status asc — тайбрейк при равном startDate: порядок enum в БД
+    // (pending, active, closed, withdrawn) ставит active раньше closed.
+    orderBy: [{ startDate: "desc" }, { status: "asc" }],
   })
 
-  // На случай нескольких активных строк с одним ключом — оставляем самую свежую.
+  // На случай нескольких строк с одним ключом (в т.ч. active + closed одного
+  // месяца) — оставляем самую свежую, при равном старте предпочитая active.
   const keyToRow = new Map<string, SourceRow>()
   for (const r of rows) {
     const k = `${r.clientId}|${r.wardId ?? ""}|${r.directionId}|${r.groupId}`
@@ -166,7 +203,10 @@ function calendarEndDayNum(e: {
   return monthEndDayNum(e.startDate.getUTCFullYear(), e.startDate.getUTCMonth() + 1)
 }
 
+type Tx = Prisma.TransactionClient | typeof db
+
 async function loadCollisions(
+  client: Tx,
   tenantId: string,
   rangeStart: Date,
   rangeEnd: Date,
@@ -174,16 +214,19 @@ async function loadCollisions(
 ): Promise<Set<string>> {
   if (keys.length === 0) return new Set()
 
-  // Кандидаты: pending/active календарные абонементы, чей старт не позже конца
-  // диапазона (необходимое условие пересечения). Конец периода вычисляем в JS —
-  // в т.ч. для строк с пустым endDate (см. calendarEndDayNum). Так корректно
-  // отсекаем только реально пересекающиеся периоды и не считаем «бессрочным»
-  // календарный абонемент без endDate.
-  const existing = await db.subscription.findMany({
+  // Кандидаты: календарные абонементы ЛЮБОГО статуса (кроме удалённых), чей
+  // старт не позже конца диапазона (необходимое условие пересечения). Статусы
+  // closed/withdrawn тоже блокируют ключ: иначе повторный прогон выписки за
+  // период, который автозакрытие уже закрыло, создал бы полные дубли, а
+  // отчисленный в целевом месяце ребёнок «воскрешался» бы от closed-источника
+  // прошлого месяца. Штатную позднюю выписку это не трогает: закрытый прошлый
+  // месяц заканчивается до rangeStart и диапазон не пересекает. Конец периода
+  // вычисляем в JS — в т.ч. для строк с пустым endDate (см. calendarEndDayNum),
+  // чтобы не считать «бессрочным» календарный абонемент без endDate.
+  const existing = await client.subscription.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      status: { in: ["pending", "active"] },
       type: "calendar",
       startDate: { lte: rangeEnd },
     },
@@ -212,8 +255,9 @@ async function loadCollisions(
 }
 
 export async function previewBulkRenew(opts: BulkRenewInput): Promise<BulkRenewPreview> {
-  const sources = await loadActiveSources(opts)
+  const sources = await loadSources(opts)
   const collisionSet = await loadCollisions(
+    db,
     opts.tenantId,
     opts.rangeStart,
     opts.rangeEnd,
@@ -321,12 +365,30 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
   const comment = `Массовая выписка на период ${preview.rangeStart} – ${preview.rangeEnd}`
 
   let created = 0
+  let skippedInTx = 0
   let totalIssuedAmount = new Prisma.Decimal(0)
 
   await db.$transaction(async (tx) => {
+    // Гонка параллельных запусков (второй таб, двойной submit, ретрай по
+    // таймауту): advisory-лок на тенанта держится до конца транзакции, а
+    // коллизии перепроверяются уже ПОД локом — конкурент дождётся COMMIT и
+    // увидит созданные pending как коллизии (unique-констрейнта на период нет).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${"bulk-renew:" + opts.tenantId}, 0))`
+    const freshCollisions = await loadCollisions(
+      tx,
+      opts.tenantId,
+      opts.rangeStart,
+      opts.rangeEnd,
+      preview.toCreate,
+    )
+    const toCreate = preview.toCreate.filter(
+      (c) => !freshCollisions.has(`${c.clientId}|${c.wardId ?? ""}|${c.directionId}|${c.groupId}`),
+    )
+    skippedInTx = preview.toCreate.length - toCreate.length
+
     const createdSubs: { subId: string; clientId: string }[] = []
 
-    for (const c of preview.toCreate) {
+    for (const c of toCreate) {
       const lessonPrice = new Prisma.Decimal(c.lessonPrice)
       const totalAmount = lessonPrice.mul(c.totalLessons)
       const finalAmount = totalAmount // discountAmount = 0 в массовой выписке
@@ -364,6 +426,38 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
           totalSubscriptionsCount: { increment: 1 },
         },
       })
+      // Живое зачисление в группе: у ребёнка, чей прошлый абонемент закрыт
+      // (а зачисление деактивировано кроном автозакрытия), выписка возвращает
+      // его в состав с сохранением истории. Для продолжающегося — no-op.
+      // Строго ДО recalcClientDiscounts (см. ensure-enrollment.ts).
+      //
+      // Исключение — переведённый в другую группу: перевод деактивирует
+      // зачисление старой группы, но НЕ переносит абонемент (groupId источника
+      // остаётся старым). Реактивация посадила бы ребёнка в состав двух групп
+      // сразу. Признак — живое зачисление в другой группе того же направления;
+      // абонемент при этом выписываем как раньше (модельный пробел переноса
+      // абонементов при переводе — отдельная задача).
+      const transferredElsewhere = await tx.groupEnrollment.findFirst({
+        where: {
+          tenantId: opts.tenantId,
+          clientId: c.clientId,
+          wardId: c.wardId,
+          isActive: true,
+          deletedAt: null,
+          groupId: { not: c.groupId },
+          group: { directionId: c.directionId },
+        },
+        select: { id: true },
+      })
+      if (!transferredElsewhere) {
+        await ensureEnrollmentForSubscription(tx, {
+          tenantId: opts.tenantId,
+          groupId: c.groupId,
+          clientId: c.clientId,
+          wardId: c.wardId,
+          startDate: opts.rangeStart,
+        })
+      }
       created++
       totalIssuedAmount = totalIssuedAmount.add(finalAmount)
     }
@@ -413,7 +507,7 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
           rangeStart: preview.rangeStart,
           rangeEnd: preview.rangeEnd,
           created,
-          skipped: preview.skipped.length,
+          skipped: preview.skipped.length + skippedInTx,
           totalIssuedAmount: totalIssuedAmount.toNumber(),
           branchId: opts.branchId ?? null,
           directionId: opts.directionId ?? null,
@@ -424,7 +518,7 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
 
   return {
     created,
-    skipped: preview.skipped.length,
+    skipped: preview.skipped.length + skippedInTx,
     totalIssuedAmount: totalIssuedAmount.toNumber(),
   }
 }

@@ -45,6 +45,16 @@ export async function POST(req: NextRequest) {
   if (rangeStart > rangeEnd) {
     return NextResponse.json({ error: "Начало периода позже конца" }, { status: 400 })
   }
+  // Зеркалит guard основного роута: выписка задним числом недоступна.
+  const currentMonthStart = new Date()
+  currentMonthStart.setDate(1)
+  currentMonthStart.setHours(0, 0, 0, 0)
+  if (rangeEnd < currentMonthStart) {
+    return NextResponse.json(
+      { error: "Период выписки уже прошёл — выписка задним числом недоступна" },
+      { status: 400 },
+    )
+  }
 
   try {
     const preview = await previewBulkRenew({

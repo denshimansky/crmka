@@ -11,8 +11,11 @@ import { previewBulkRenew, applyBulkRenew } from "@/lib/subscriptions/bulk-renew
 // актуальный прайс направления (см. bulk-renew.ts); период — следующий
 // календарный месяц.
 //
-// Если у клиента нет действующего абонемента (источника), эндпойнт возвращает 404 —
-// в этом случае нужно заводить заявку для нового направления/группы.
+// Источник — действующий ИЛИ штатно закрытый абонемент (автозакрытие идёт
+// ежедневно с 1-го числа: полностью отхоженный и оплаченный месяц уже closed,
+// но продление с него легитимно). Отчисленный (withdrawn) не продлевается —
+// ребёнок ушёл. Если источника нет, эндпойнт возвращает 404 — в этом случае
+// нужно заводить заявку для нового направления/группы.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -21,7 +24,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const tenantId = session.user.tenantId
 
   const source = await db.subscription.findFirst({
-    where: { id, tenantId, deletedAt: null, type: "calendar", status: "active" },
+    where: {
+      id,
+      tenantId,
+      deletedAt: null,
+      type: "calendar",
+      status: { in: ["active", "closed"] },
+      // Симметрично массовой выписке: удалённому клиенту не продлеваем
+      // (удаление клиента не помечает его абонементы deletedAt).
+      client: { deletedAt: null },
+    },
     select: {
       id: true,
       clientId: true,
@@ -32,7 +44,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!source) {
     return NextResponse.json(
-      { error: "Действующий календарный абонемент не найден. Заведите заявку для нового направления/группы." },
+      { error: "Календарный абонемент для продления не найден (отчисленные не продлеваются). Заведите заявку для нового направления/группы." },
       { status: 404 },
     )
   }
@@ -54,8 +66,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const targetYear = nextMonthIdx > 12 ? baseYear + 1 : baseYear
   const targetMonth = nextMonthIdx > 12 ? 1 : nextMonthIdx
 
-  const rangeStart = new Date(Date.UTC(targetYear, targetMonth - 1, 1))
-  const rangeEnd = new Date(Date.UTC(targetYear, targetMonth, 0))
+  // Целевой месяц не в прошлом: у closed-источника ограничение «за прошлый
+  // месяц» в loadSources для точечного продления тавтологично (диапазон
+  // строится от периода самого источника), поэтому древний closed без этого
+  // guard'а молча выписал бы абонемент на давно прошедший месяц (полный долг +
+  // ретро-возврат ребёнка в старые составы). Заодно закрывает и «застрявший»
+  // active старого месяца. Легитимные случаи проходят: active текущего →
+  // следующий месяц; closed прошлого → текущий.
+  const nowLocal = new Date()
+  if (targetYear * 100 + targetMonth < nowLocal.getFullYear() * 100 + (nowLocal.getMonth() + 1)) {
+    return NextResponse.json(
+      { error: "Период продления уже прошёл — продлить можно действующий или закрытый за прошлый месяц абонемент." },
+      { status: 409 },
+    )
+  }
+
+  // Локальная полночь — контракт bulk-renew (как parseDay в массовом роуте):
+  // prevMonthOfRange/periodYear/periodMonth читают локальные геттеры, UTC-даты
+  // на TZ западнее UTC смещали бы месяц источника и период абонемента.
+  const rangeStart = new Date(targetYear, targetMonth - 1, 1)
+  const rangeEnd = new Date(targetYear, targetMonth, 0)
 
   const body = (await req.json().catch(() => ({}))) as { dryRun?: boolean }
 

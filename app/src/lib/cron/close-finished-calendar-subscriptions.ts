@@ -1,5 +1,6 @@
 import { db } from "@/lib/db"
 import { NON_CONSUMING_CODES } from "@/lib/subscriptions/consumed-lessons"
+import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 
 /**
  * Авто-закрытие отработанных календарных абонементов.
@@ -22,8 +23,13 @@ import { NON_CONSUMING_CODES } from "@/lib/subscriptions/consumed-lessons"
  *
  * При закрытии:
  *   - status='closed', endDate = последний день периода абонемента.
- *   - GroupEnrollment НЕ трогаем — ребёнок остаётся в группе и продолжит
- *     ходить по следующему абонементу.
+ *   - GroupEnrollment: если у ребёнка не осталось другого живого
+ *     (pending/active) абонемента в этой группе — зачисление деактивируется
+ *     (deactivateGroupEnrollmentOnWithdrawal): не продлённый ребёнок не висит
+ *     в будущем расписании. Продолжающего (следующий месяц уже выписан) guard
+ *     хелпера не тронет. Поздняя выписка ПОСЛЕ закрытия тоже работает: её
+ *     источники включают закрытые за прошлый месяц (bulk-renew.ts), а создание
+ *     абонемента реактивирует зачисление (ensure-enrollment.ts).
  *   - Балансы и шаблонные скидки НЕ пересчитываем — балaнс уже 0, скидки
  *     за 2 ребёнка/направление чувствительны к статусу абонемента и могут
  *     поломаться (см. /api/cron/check-inactive-clients).
@@ -57,6 +63,7 @@ export async function closeFinishedCalendarSubscriptions(now: Date = new Date())
       tenantId: true,
       clientId: true,
       wardId: true,
+      groupId: true,
       periodYear: true,
       periodMonth: true,
       totalLessons: true,
@@ -64,7 +71,7 @@ export async function closeFinishedCalendarSubscriptions(now: Date = new Date())
   })
 
   if (candidates.length === 0) {
-    return { closed: 0, skipped: 0 }
+    return { closed: 0, skipped: 0, enrollmentsDeactivated: 0 }
   }
 
   // По каждому считаем израсходованные занятия через groupBy: посещения со
@@ -97,7 +104,7 @@ export async function closeFinishedCalendarSubscriptions(now: Date = new Date())
   })
 
   if (toClose.length === 0) {
-    return { closed: 0, skipped: candidates.length }
+    return { closed: 0, skipped: candidates.length, enrollmentsDeactivated: 0 }
   }
 
   // Группируем по (year, month), чтобы за один updateMany закрыть все
@@ -138,5 +145,43 @@ export async function closeFinishedCalendarSubscriptions(now: Date = new Date())
     }
   }
 
-  return { closed: closedCount, skipped: candidates.length - closedCount }
+  // Не продлённый ребёнок не должен висеть в будущем расписании: деактивируем
+  // зачисление, если живых (pending/active) абонементов в группе не осталось —
+  // guard внутри хелпера. Каждый — в своей мини-транзакции (деактивация +
+  // чистка висящих пустых отметок атомарны). Только реально закрытые
+  // (byPeriod пропускает строки без periodYear/periodMonth).
+  //
+  // Граница состава — КОНЕЦ ПЕРИОДА + 1 (1-е число следующего месяца), а не
+  // «последнее платное занятие + 1» (semantics отчисления): месяц штатно
+  // отработан, ребёнок легитимно был в составе до конца периода. Иначе
+  // финальные «Уваж. пропуск»/«Перерасчёт» (расходуют занятие без списания —
+  // именно они делают месяц закрываемым) удалялись бы чисткой хвоста, а у
+  // абонемента со 100% скидкой (ни одной платной отметки) withdrawnAt падал
+  // бы в enrolledAt — ребёнок исчезал бы из состава ВСЕХ прошлых занятий.
+  let enrollmentsDeactivated = 0
+  for (const sub of toClose) {
+    if (sub.periodYear == null || sub.periodMonth == null) continue
+    // periodMonth 1-based: monthIndex = periodMonth указывает на следующий
+    // месяц, день 1 = endDate периода + 1 день.
+    const periodEndNext = new Date(Date.UTC(sub.periodYear, sub.periodMonth, 1))
+    const n = await db.$transaction((tx) =>
+      deactivateGroupEnrollmentOnWithdrawal(tx, {
+        tenantId: sub.tenantId,
+        groupId: sub.groupId,
+        clientId: sub.clientId,
+        wardId: sub.wardId,
+        excludeSubscriptionId: sub.id,
+        scheduledBoundary: periodEndNext,
+      }),
+    )
+    if (n > 0) {
+      enrollmentsDeactivated += n
+      console.info(
+        `[cron:close-finished-calendar] deactivated enrollment (no live subscription left) for subscription ${sub.id}`,
+        { tenantId: sub.tenantId, clientId: sub.clientId, wardId: sub.wardId, groupId: sub.groupId },
+      )
+    }
+  }
+
+  return { closed: closedCount, skipped: candidates.length - closedCount, enrollmentsDeactivated }
 }

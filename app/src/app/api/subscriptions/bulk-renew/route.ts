@@ -45,6 +45,17 @@ export async function POST(req: NextRequest) {
   if (rangeStart > rangeEnd) {
     return NextResponse.json({ error: "Начало периода позже конца" }, { status: 400 })
   }
+  // Выписка в прошлое запрещена: повторный прогон за прошедший месяц создал бы
+  // абонементы задним числом (closed прошлого месяца — источники продления).
+  const currentMonthStart = new Date()
+  currentMonthStart.setDate(1)
+  currentMonthStart.setHours(0, 0, 0, 0)
+  if (rangeEnd < currentMonthStart) {
+    return NextResponse.json(
+      { error: "Период выписки уже прошёл — выписка задним числом недоступна" },
+      { status: 400 },
+    )
+  }
 
   try {
     const result = await applyBulkRenew({

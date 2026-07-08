@@ -116,7 +116,7 @@ export function QuickRenewSubscriptionDialog({
           <Button
             variant="outline"
             disabled={disabled}
-            title={disabled ? "Нет действующих абонементов. Заведите заявку для нового направления." : undefined}
+            title={disabled ? "Нет действующих или недавно закрытых абонементов. Заведите заявку для нового направления." : undefined}
           />
         }
       >
@@ -127,8 +127,9 @@ export function QuickRenewSubscriptionDialog({
         <DialogHeader>
           <DialogTitle>Продление абонемента</DialogTitle>
           <DialogDescription>
-            Параметры (группа, направление, цена) копируются из текущего абонемента.
-            Для другого направления/группы — создайте Заявку.
+            Параметры (группа, направление, цена) копируются из текущего или
+            закрытого за прошлый месяц абонемента. Для другого направления/группы —
+            создайте Заявку.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">

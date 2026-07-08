@@ -12,6 +12,7 @@ import {
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
+import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
 import { prorateScheduledWithdrawal } from "@/lib/subscriptions/prorate-scheduled-withdrawal"
 import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate, subscriptionPeriodEnd, type WithdrawalMode } from "@/lib/subscriptions/last-paid-lesson-date"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
@@ -403,11 +404,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     }
 
-    // «Закрыть» = closed → штатное завершение, период истёк, занятия отработаны:
+    // «Закрыть» = closed → штатное завершение, период истёк, занятия отработаны
+    // (кнопки в UI больше нет — путь для программных вызовов; основное закрытие
+    // делает cron close-finished-calendar-subscriptions):
     //   1) посчитать дельту (paidToSub − usedAmount): переплата → +balance клиента,
     //      долг → −balance (клиент попадёт в должников),
-    //   2) НЕ деактивировать GroupEnrollment (ребёнок остаётся в группе — он
-    //      просто покупает следующий абонемент),
+    //   2) деактивировать GroupEnrollment, если у ребёнка не осталось другого
+    //      живого (pending/active) абонемента в этой группе (guard хелпера) —
+    //      как в cron, с границей состава «конец периода + 1» (месяц штатно
+    //      отработан — ребёнок в составе до конца периода; НЕ семантика
+    //      отчисления «последнее платное + 1»); продлённого ребёнка это не
+    //      трогает, а поздняя выписка вернёт ребёнка в состав (источники
+    //      включают закрытые за прошлый месяц, создание абонемента
+    //      реактивирует зачисление с сохранением истории),
     //   3) обнулить subscription.balance, проставить endDate = последний день периода.
     if (data.status === "closed" && existing.status !== "closed" && existing.status !== "withdrawn") {
       // Нетто-оплачено и вычет прошлых сверок — см. ветку withdrawn выше.
@@ -453,6 +462,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       } else {
         updateData.endDate = new Date()
       }
+      // Деактивация зачисления (пункт 2) — ПОСЛЕ tx.subscription.update, чтобы
+      // reprice внутри чистки пустых отметок видел абонемент уже closed.
     }
 
     if (data.status) {
@@ -486,6 +497,36 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (existing.status === "closed" && parsed > new Date()) {
         updateData.status = "active"
         updateData.endDate = null
+        // Симметрия с деактивацией зачисления при закрытии: вернуть ребёнка в
+        // состав группы. startDate = сегодня; хелпер сам различает случаи:
+        // пакет закрыт недавно (withdrawnAt свежий) → продолжение, история
+        // enrolledAt сохраняется (ребёнок виден в прошлых составах, короткий
+        // гэп — приемлемая цена); закрыт давно → возврат, зачисление от
+        // сегодня (в занятиях долгого гэпа не всплывает). Для живого — no-op.
+        const now = new Date()
+        const reEnrollDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+        await ensureEnrollmentForSubscription(tx, {
+          tenantId: session.user.tenantId,
+          groupId: existing.groupId,
+          clientId: existing.clientId,
+          wardId: existing.wardId,
+          startDate: reEnrollDate,
+        })
+        // ensure ставит вернувшемуся «Ожидаем оплату»; оплаченному пакету
+        // бейдж не положен — снимаем по факту денег (зеркалит activateSubscription).
+        const paidToPackage = await netPaidToSubscription(tx, session.user.tenantId, id)
+        if (paidToPackage.gte(existing.finalAmount)) {
+          await tx.groupEnrollment.updateMany({
+            where: {
+              tenantId: session.user.tenantId,
+              groupId: existing.groupId,
+              clientId: existing.clientId,
+              wardId: existing.wardId,
+              isActive: true,
+            },
+            data: { paymentStatus: "active" },
+          })
+        }
       }
     }
 
@@ -498,6 +539,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         group: { select: { id: true, name: true } },
       },
     })
+
+    // Закрытие (пункт 2 ветки closed): не продлённый ребёнок не должен висеть
+    // в будущем расписании. После update — reprice в чистке видит closed и
+    // пропускает. Граница состава = конец периода + 1 (endDate вычислен в
+    // ветке closed выше).
+    if (data.status === "closed" && existing.status !== "closed" && existing.status !== "withdrawn") {
+      await deactivateGroupEnrollmentOnWithdrawal(tx, {
+        tenantId: session.user.tenantId,
+        groupId: existing.groupId,
+        clientId: existing.clientId,
+        wardId: existing.wardId,
+        excludeSubscriptionId: id,
+        scheduledBoundary: nextDayUtc(updateData.endDate as Date),
+      })
+    }
 
     // Отчисление последнего активного абонемента → клиент «Выбывший».
     // ПОСЛЕ update: текущий абонемент уже withdrawn и не попадёт в счётчик

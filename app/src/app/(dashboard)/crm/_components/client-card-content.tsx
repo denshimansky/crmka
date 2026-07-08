@@ -145,6 +145,58 @@ export async function ClientCardContent({
     orderBy: [{ startDate: "asc" }, { createdAt: "asc" }],
   })
 
+  // Источники для диалога «Абонемент» (точечное продление): активные ПЛЮС
+  // закрытые за прошлый/текущий месяц — автозакрытие отработанных идёт
+  // ежедневно, и у клиента, выписываемого после 1-го числа, прошлый месяц уже
+  // closed; продление с него легитимно (renew-роут не даст выписать в прошлое).
+  // Отдельный запрос, чтобы не трогать activeSubscriptions (бейджи, вкладка).
+  const prevYear = currentMonth === 1 ? currentYear - 1 : currentYear
+  const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1
+  const renewableClosedSubs = await db.subscription.findMany({
+    where: {
+      clientId: client.id,
+      tenantId,
+      deletedAt: null,
+      withdrawalDate: null,
+      scheduledWithdrawalDate: null,
+      type: "calendar",
+      status: "closed",
+      OR: [
+        { periodYear: currentYear, periodMonth: currentMonth },
+        { periodYear: prevYear, periodMonth: prevMonth },
+      ],
+    },
+    include: {
+      ward: { select: { firstName: true, lastName: true } },
+      direction: { select: { name: true } },
+      group: { select: { name: true, branch: { select: { name: true } } } },
+    },
+    orderBy: [{ startDate: "desc" }],
+  })
+  // Дедуп по (подопечный, направление, группа) с приоритетом активных —
+  // зеркалит loadSources в bulk-renew.
+  const renewSourceByKey = new Map<
+    string,
+    {
+      id: string
+      wardId: string | null
+      ward: { firstName: string; lastName: string | null } | null
+      direction: { name: string }
+      group: { name: string; branch: { name: string } | null }
+      lessonPrice: unknown
+      periodYear: number | null
+      periodMonth: number | null
+    }
+  >()
+  for (const s of [
+    ...activeSubscriptions.filter((s) => s.type === "calendar"),
+    ...renewableClosedSubs,
+  ]) {
+    const k = `${s.wardId ?? ""}|${s.directionId}|${s.groupId}`
+    if (!renewSourceByKey.has(k)) renewSourceByKey.set(k, s)
+  }
+  const renewSources = [...renewSourceByKey.values()]
+
   // Счета компании для диалога «Оплата» (только активные, в scope филиалов).
   const accounts = await db.financialAccount.findMany({
     where: {
@@ -380,11 +432,11 @@ export async function ClientCardContent({
       <div className="flex flex-wrap items-center gap-2">
         {client.funnelStatus !== "archived" && client.funnelStatus !== "blacklisted" && (
           <>
-            {/* «+ Абонемент» — продление текущего активного абонемента на следующий период.
+            {/* «+ Абонемент» — продление текущего активного ИЛИ закрытого за
+                прошлый/текущий месяц абонемента на следующий период.
                 Для нового направления/группы — кнопка «+ Заявка». */}
             <QuickRenewSubscriptionDialog
-              subscriptions={activeSubscriptions
-                .filter((s) => s.type === "calendar")
+              subscriptions={renewSources
                 .map((s) => ({
                   id: s.id,
                   directionName: s.direction.name,
