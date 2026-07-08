@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { db } from "@/lib/db"
 import { buildNavMap, buildBaseContext, buildDynamicSlice } from "@/lib/ai-context"
 
 const DAILY_LIMIT = 50
@@ -8,9 +9,10 @@ const DAILY_LIMIT = 50
 /**
  * POST /api/ai/chat
  * AI-ассистент CRM. Собирает контекст из БД и отвечает через выбранного провайдера.
- * Провайдер выбирается env AI_PROVIDER: "anthropic" (по умолчанию, Claude Opus 4.8
- * через Messages API) или "openai" (gpt-5.4-mini через Chat Completions). Модель и
- * base URL каждого провайдера переопределяются через env (см. ниже).
+ * Провайдер выбирается env AI_PROVIDER: "anthropic" (по умолчанию, Messages API)
+ * или "openai" (Chat Completions). Модель и base URL каждого провайдера
+ * переопределяются через env (см. ниже). Каждый диалог пишется в ai_chat_logs —
+ * аудит качества ответов и пополнение FAQ базы знаний (ai-context.ts).
  */
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -89,6 +91,20 @@ export async function POST(req: NextRequest) {
 - Постоянные расходы автораспределяются пропорционально выручке по направлениям.
 - Цена занятия задаётся на НАПРАВЛЕНИИ (Настройки → вкладка «Организация» → «Направления» → карандаш у направления → поле «Стоимость занятия»). У группы своей цены НЕТ. В абонементе цена фиксируется на момент выписки: уже выписанные абонементы при смене цены направления не меняются, а все новые абонементы и продления (массовые и поштучные) берут актуальный прайс направления.
 
+ПРИМЕРЫ ОТВЕТОВ — образец стиля и формата. Факты ВСЕГДА бери из карты навигации и блоков данных, а не из примеров:
+
+Вопрос: «Где поменять цену занятия?»
+Ответ: «Откройте «Настройки» в левом меню, вкладка «Организация», плитка «Направления». Нажмите карандаш у нужного направления и поменяйте поле «Стоимость занятия». Уже выписанные абонементы останутся по старой цене, а все новые абонементы и продления возьмут новую.»
+
+Вопрос: «Как перевести клиента обратно в лиды?»
+Ответ: «Никак — это ограничение системы: после первой оплаты лид навсегда становится клиентом, обратного перехода нет. Работайте с таким клиентом через статусы воронки в его карточке.»
+
+Вопрос: «Сколько должна Иванова?» (в блоке данных найдены две клиентки: Иванова Мария и Иванова Анна)
+Ответ: «Нашлись две клиентки с фамилией Иванова: Мария и Анна. Про кого именно рассказать?»
+
+Вопрос: «Какая выручка в этом месяце?» (пример: в блоке данных выручка 1 234 567 ₽, расходы 890 000 ₽)
+Ответ: «Выручка за текущий месяц — 1 234 567 ₽, расходы — 890 000 ₽, прибыль — 344 567 ₽.»
+
 ${navMap}`
 
     const dynamicPrompt = `Роль пользователя: ${role === "owner" ? "владелец" : role === "manager" ? "управляющий" : role}
@@ -102,10 +118,18 @@ ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
     const history = (body.history || []).slice(-6)
     let reply: string
 
+    // Модель каждого провайдера переопределяется через env. Дефолт Anthropic —
+    // Opus 4.8 (Haiku 4.5 галлюцинировал на «как сделать X»); на боевом msk1
+    // с 08.07.2026 через ANTHROPIC_MODEL задан claude-haiku-4-5 (экономия 5×),
+    // галлюцинации компенсируются FAQ в ai-context.ts и примерами в промпте.
+    // Промежуточный вариант — claude-sonnet-4-6 (в 1.7 раза дешевле Opus).
+    // OpenAI: gpt-5.4-mini — оптимум цена/качество (OPENAI_MODEL: gpt-5.4-nano
+    // дешевле, gpt-5.5 премиум).
+    const model = provider === "openai"
+      ? process.env.OPENAI_MODEL || "gpt-5.4-mini"
+      : process.env.ANTHROPIC_MODEL || "claude-opus-4-8"
+
     if (provider === "openai") {
-      // gpt-5.4-mini — оптимум цена/качество. Переопределяется через OPENAI_MODEL
-      // (gpt-5.4-nano дешевле, gpt-5.5 премиум).
-      const model = process.env.OPENAI_MODEL || "gpt-5.4-mini"
       // База OpenAI API (с /v1, как у официального SDK). По умолчанию api.openai.com.
       // Для заблокированного хоста — OPENAI_BASE_URL на релей (напр. .../oai/v1).
       const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "")
@@ -143,12 +167,8 @@ ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
       const data = await response.json()
       reply = data.choices?.[0]?.message?.content?.trim() || "Нет ответа"
     } else {
-      // Anthropic Claude Opus 4.8 (Messages API) — топовый тир: Haiku 4.5
-      // галлюцинировал на вопросах «как сделать X» (выдумывал несуществующие
-      // разделы). Цена компенсируется prompt cache на статической части
-      // системного промпта. Переопределяется через ANTHROPIC_MODEL
-      // (например claude-sonnet-4-6 — в 1.7 раза дешевле).
-      const model = process.env.ANTHROPIC_MODEL || "claude-opus-4-8"
+      // Anthropic Messages API. Цена входа компенсируется prompt cache на
+      // статической части системного промпта (cache_control ниже).
       // База Anthropic API (без /v1, как у официального SDK — путь добавляем сами).
       // Для заблокированного хоста — ANTHROPIC_BASE_URL на релей (напр. .../anthropic).
       const baseUrl = (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "")
@@ -188,6 +208,17 @@ ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
 
       const data = await response.json()
       reply = data.content?.[0]?.text?.trim() || "Нет ответа"
+    }
+
+    // Лог диалога — сырьё для аудита качества ответов и пополнения FAQ
+    // в ai-context.ts (выборка через SQL, UI нет). Сбой записи не должен
+    // ломать ответ пользователю.
+    try {
+      await db.aiChatLog.create({
+        data: { tenantId, userName, userRole: role, provider, model, message, reply },
+      })
+    } catch (logErr) {
+      console.error("[ai/chat] Log write error:", logErr)
     }
 
     return NextResponse.json({

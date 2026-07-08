@@ -158,6 +158,7 @@ model Organization {
   packageTemplates          PackageTemplate[]
   withdrawalReasons         WithdrawalReason[]
   lessonStudentNotes        LessonStudentNote[]
+  aiChatLogs                AiChatLog[]
 
   @@map("organizations")
 }
@@ -1168,6 +1169,28 @@ model AuditLog {
   @@index([tenantId, entityType, entityId])
   @@index([tenantId, createdAt])
   @@map("audit_logs")
+}
+
+// === ЛОГ AI-АССИСТЕНТА ===
+
+// Диалоги AI-помощника (/api/ai/chat): вопрос/ответ + модель. Сырьё для аудита
+// качества ответов и пополнения FAQ базы знаний (ai-context.ts). Пишется
+// fire-and-forget, UI нет — выборка через SQL.
+model AiChatLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userName  String?  @map("user_name")
+  userRole  String?  @map("user_role")
+  provider  String
+  model     String
+  message   String
+  reply     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@map("ai_chat_logs")
 }
 
 // === СПРАВОЧНИК КАНАЛОВ ПРИВЛЕЧЕНИЯ ===
