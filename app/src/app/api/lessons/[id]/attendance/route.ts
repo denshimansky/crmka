@@ -9,6 +9,7 @@ import { calcRefund } from "@/lib/balance/calc-refund"
 import { resolveRate } from "@/lib/salary/resolve-rate"
 import { calcPay } from "@/lib/salary/calc-pay"
 import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
+import { reallocateLessonPay, lessonPaySnapshot } from "@/lib/salary/reallocate-lesson-pay"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { effectiveLessonPrice } from "@/lib/discounts/effective-price"
 import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
@@ -261,6 +262,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // === Вся бизнес-логика в транзакции ===
   const attendance = await db.$transaction(async (tx) => {
+    // Снимок ЗП занятия до мутаций — для net-компенсации при реаллокации
+    // (схемы per_lesson/floating пересчитываются целиком в конце транзакции).
+    const paySumBefore = await lessonPaySnapshot(tx, tenantId, lessonId)
+
     // Ф8: Отмена отработки. «Не был» на L2-виртуальной отработке = отработка
     // не состоялась. Возвращаем оба занятия к «не отмечено»: удаляем запись
     // `makeup_scheduled` на L1 и (если уже была) реальную отметку на L2.
@@ -296,7 +301,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             })
           }
         }
-        if (Number(existingOnL2.instructorPayAmount) > 0) {
+        await tx.attendance.delete({ where: { id: existingOnL2.id } })
+        // Схемы per_lesson/floating: ставка могла висеть на удалённой отметке —
+        // пересчитываем раскладку занятия (net-компенсация внутри). Для
+        // остальных схем — прежний прямой откат ЗП удалённой отметки.
+        const realloc = await reallocateLessonPay(tx, {
+          tenantId,
+          lessonId,
+          paySumBefore,
+          createdBy: employeeId,
+        })
+        if (!realloc.handled && Number(existingOnL2.instructorPayAmount) > 0) {
           const effInstructorId = lesson.substituteInstructorId || lesson.instructorId
           if (effInstructorId) {
             await maybeRollbackPaidSalary(tx, {
@@ -309,7 +324,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             })
           }
         }
-        await tx.attendance.delete({ where: { id: existingOnL2.id } })
         if (existingOnL2.subscriptionId) {
           // Скидки v2 + расход слотов: выравниваем finalAmount/balance после
           // отката. Строго ПОСЛЕ delete (иначе пересчёт видит удаляемую строку)
@@ -714,6 +728,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
+    // Схемы per_lesson/floating: раскладка ЗП зависит от итогового состава
+    // занятия, а не от порядка отметок — пересчитываем целиком (внутри же
+    // net-компенсация, если начисление уменьшилось после выплаты ЗП).
+    await reallocateLessonPay(tx, { tenantId, lessonId, paySumBefore, createdBy: employeeId })
+
     return att
   })
 
@@ -906,6 +925,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   // === Вся bulk-логика в одной транзакции ===
   const results = await db.$transaction(async (tx) => {
+    // Снимок ЗП занятия до мутаций — для реаллокации per_lesson/floating в конце.
+    const paySumBefore = await lessonPaySnapshot(tx, tenantId, lessonId)
+
     const atts = []
 
     for (const enrollment of enrollments) {
@@ -1097,6 +1119,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       await repriceSubscription(tx, { tenantId, subscriptionId: sid, createdBy: employeeId })
     }
 
+    // Схемы per_lesson/floating: раскладка ЗП зависит от итогового состава —
+    // пересчитываем целиком после массовой отметки.
+    await reallocateLessonPay(tx, { tenantId, lessonId, paySumBefore, createdBy: employeeId })
+
     return atts
   })
 
@@ -1244,6 +1270,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   // как «Не отмечен», смысла оставлять заглушку нет → удаляем по умолчанию.
 
   await db.$transaction(async (tx) => {
+    // Снимок ЗП занятия до мутаций — для реаллокации per_lesson/floating ниже.
+    const paySumBefore = await lessonPaySnapshot(tx, tenantId, lessonId)
+
     // Откат отработки. balance не трогаем — он отражает «долг к оплате»,
     // отработка увеличивает только chargedAmount.
     if (existing.subscriptionId && Number(existing.chargeAmount) > 0) {
@@ -1291,20 +1320,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       }
     }
 
-    // Ф-аудит: если педагогу уже выплатили ЗП за этот период, компенсируем
-    // удаление через SalaryAdjustment, иначе у него «висит» переплата.
-    if (Number(existing.instructorPayAmount) > 0) {
-      const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
-      await maybeRollbackPaidSalary(tx, {
-        tenantId,
-        employeeId: effectiveInstructorId,
-        lessonDate: new Date(lesson.date),
-        amount: existing.instructorPayAmount,
-        createdBy: employeeId,
-        comment: `Удалена отметка от ${new Date(lesson.date).toLocaleDateString("ru-RU")}`,
-      })
-    }
-
     if (shouldDelete) {
       await tx.attendance.delete({ where: { id: existing.id } })
     } else {
@@ -1327,6 +1342,29 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
           markedBy: null,
           markedAt: null,
         },
+      })
+    }
+
+    // Схемы per_lesson/floating: удалённая отметка могла нести ставку занятия —
+    // пересчитываем раскладку целиком (net-компенсация выплаченного внутри).
+    // Для остальных схем — прежний прямой откат ЗП удалённой отметки.
+    const realloc = await reallocateLessonPay(tx, {
+      tenantId,
+      lessonId,
+      paySumBefore,
+      createdBy: employeeId,
+    })
+    if (!realloc.handled && Number(existing.instructorPayAmount) > 0) {
+      // Ф-аудит: если педагогу уже выплатили ЗП за этот период, компенсируем
+      // удаление через SalaryAdjustment, иначе у него «висит» переплата.
+      const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
+      await maybeRollbackPaidSalary(tx, {
+        tenantId,
+        employeeId: effectiveInstructorId,
+        lessonDate: new Date(lesson.date),
+        amount: existing.instructorPayAmount,
+        createdBy: employeeId,
+        comment: `Удалена отметка от ${new Date(lesson.date).toLocaleDateString("ru-RU")}`,
       })
     }
 
