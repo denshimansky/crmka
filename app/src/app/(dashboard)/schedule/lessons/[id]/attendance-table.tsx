@@ -846,6 +846,8 @@ export function AttendanceTable({
           ) : (
             <Select
               value={student.attendance?.attendanceTypeId || "__unmarked__"}
+              // Роль «только чтение» не отмечает (API тоже блокирует)
+              disabled={currentUserRole === "readonly"}
               onValueChange={(val) => {
                 if (!val) return
                 if (val === "__unmarked__") {

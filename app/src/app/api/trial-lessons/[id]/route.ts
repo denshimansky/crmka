@@ -69,6 +69,11 @@ export async function PATCH(
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  // Роль «только чтение» не отмечает (UI это уже скрывает; защищаем API).
+  if ((session.user as any).role === "readonly") {
+    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 })
+  }
+
   const { id } = await params
   const body = await req.json()
   const parsed = updateSchema.safeParse(body)

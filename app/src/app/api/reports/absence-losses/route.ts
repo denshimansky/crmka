@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext } from "@/lib/report-helpers"
+import { NON_CONSUMING_CODES } from "@/lib/subscriptions/consumed-lessons"
 
 /** 5.14. Отсутствие учеников / потери выручки */
 export async function GET(req: NextRequest) {
@@ -27,21 +28,35 @@ export async function GET(req: NextRequest) {
       chargeAmount: true,
       clientId: true,
       attendanceType: {
-        select: { code: true, chargesSubscription: true },
+        select: { code: true, chargesSubscription: true, partOfFact: true },
       },
       client: { select: { firstName: true, lastName: true } },
-      subscription: { select: { direction: { select: { name: true } }, lessonPrice: true, discountPerLesson: true } },
+      subscription: { select: { type: true, direction: { select: { name: true } }, lessonPrice: true, discountPerLesson: true } },
     },
   })
 
-  // Recalculations = no charge (chargesSubscription false) — lost revenue
+  // Потери выручки = финальные несписывающие отметки (спека 5.14 «посещения без
+  // списания»): Перерасчёт, Уваж. пропуск и кастомные несписывающие типы.
+  // Промежуточные/технические статусы (Не был, отработки) — не потеря: списание
+  // ещё впереди или происходит на реальной отработке. Раньше считался только
+  // код "recalculation" — кастомные типы и УП выпадали из отчёта.
+  // У пакетных абонементов несписывающая отметка занятие НЕ сжигает (см.
+  // consumed-lessons.ts) — слот остаётся клиенту, выручка не потеряна.
   const recalculations = attendances.filter(
-    (a) => !a.attendanceType.chargesSubscription && a.attendanceType.code === "recalculation"
+    (a) =>
+      !a.attendanceType.chargesSubscription &&
+      !NON_CONSUMING_CODES.includes(a.attendanceType.code) &&
+      a.subscription?.type !== "package"
   )
 
-  // Absences with charge (absent but charged)
+  // «Со списанием при отсутствии»: тип списывает (chargesSubscription), но факта
+  // посещения нет (partOfFact=false) — Прогул и кастомные списывающие пропуски.
+  // Раньше считался только код "absent".
   const absencesCharged = attendances.filter(
-    (a) => a.attendanceType.code === "absent" && Number(a.chargeAmount) > 0
+    (a) =>
+      a.attendanceType.chargesSubscription &&
+      !a.attendanceType.partOfFact &&
+      Number(a.chargeAmount) > 0
   )
 
   // Group by client

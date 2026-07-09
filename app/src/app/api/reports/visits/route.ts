@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     where: attWhere,
     select: {
       id: true,
-      attendanceType: { select: { code: true, name: true } },
+      attendanceType: { select: { code: true, name: true, partOfFact: true } },
       lesson: {
         select: {
           group: {
@@ -73,8 +73,21 @@ export async function GET(req: NextRequest) {
     byBranch[br][code] = (byBranch[br][code] || 0) + 1
   }
 
-  const presentCount = byType["present"]?.count || 0
-  const absentCount = byType["absent"]?.count || 0
+  // «Присутствовал» — по флагу типа (partOfFact), а не по коду "present", чтобы
+  // кастомные «присутственные» типы попадали в посещаемость. Маркер «Отработка»
+  // (makeup) не считаем: реальная отработка уже учтена как present в той группе,
+  // где ребёнок отрабатывал.
+  const presentCount = attendances.filter(
+    (a) => a.attendanceType.partOfFact && a.attendanceType.code !== "makeup"
+  ).length
+  // «Отсутствовал» — нет факта посещения, кроме технических статусов: у
+  // «Назначена отработка» пропуск закроется отработкой, «Перерасчёт» — снятое
+  // с оплаты занятие, не пропуск (как на странице отчёта, баг #10).
+  const absentCount = attendances.filter(
+    (a) =>
+      !a.attendanceType.partOfFact &&
+      !["makeup_scheduled", "recalculation"].includes(a.attendanceType.code)
+  ).length
 
   return NextResponse.json({
     data: {

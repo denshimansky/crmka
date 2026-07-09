@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   const { dateFrom, dateTo } = dateRange
   const instructorId = searchParams.get("instructorId")
 
-  // Lessons with at least 1 present attendance
+  // Занятия, где отмечен хотя бы 1 ученик с фактическим посещением (6.3)
   const lessonWhere: any = {
     tenantId,
     date: { gte: dateFrom, lte: dateTo },
@@ -35,13 +35,17 @@ export async function GET(req: NextRequest) {
       instructor: { select: { firstName: true, lastName: true } },
       substituteInstructor: { select: { firstName: true, lastName: true } },
       attendances: {
-        where: { attendanceType: { code: "present" } },
+        // Факт посещения — по флагу типа (partOfFact), а не по коду "present":
+        // кастомные «присутственные» типы тоже дают педагогу час. Маркер
+        // «Отработка» (makeup) — не сам факт, а ссылка на реальную отработку
+        // (present в другой группе), иначе час задвоится.
+        where: { attendanceType: { partOfFact: true, code: { not: "makeup" } } },
         select: { id: true },
       },
     },
   })
 
-  // Only lessons with at least 1 present student
+  // Только занятия, где есть хотя бы один фактически пришедший ученик
   const filledLessons = lessons.filter((l) => l.attendances.length > 0)
 
   // Group by effective instructor (substitute when present) then by day

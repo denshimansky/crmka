@@ -25,7 +25,11 @@ export async function GET(req: NextRequest) {
       instructor: { select: { firstName: true, lastName: true } },
       substituteInstructor: { select: { firstName: true, lastName: true } },
       attendances: {
-        where: { attendanceType: { code: "present" } },
+        // Факт посещения — по флагу типа (partOfFact), а не по коду "present":
+        // кастомные «присутственные» типы тоже дают педагогу час (иначе ЗП
+        // начисляется, а часы — нет, и ставка завышается). Маркер «Отработка»
+        // (makeup) — не сам факт, а ссылка на реальную отработку в другой группе.
+        where: { attendanceType: { partOfFact: true, code: { not: "makeup" } } },
         select: { id: true },
       },
     },

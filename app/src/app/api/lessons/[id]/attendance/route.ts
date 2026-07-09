@@ -66,6 +66,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // ADM-04: инструктор — только свои занятия (включая substitute); admin/manager
   // с ограниченным scope — только в своих филиалах.
   const role = (session.user as any).role
+  // Роль «только чтение» не отмечает (UI это уже скрывает; защищаем API).
+  if (role === "readonly") {
+    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 })
+  }
   const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
   const scope = branchScopeFromSession(allowedBranchIds)
   if (role === "instructor") {
@@ -774,6 +778,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   const role = (session.user as any).role
+  // Роль «только чтение» не отмечает (UI это уже скрывает; защищаем API).
+  if (role === "readonly") {
+    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 })
+  }
 
   const lesson = await db.lesson.findFirst({
     where: { id: lessonId, tenantId },
@@ -1128,6 +1136,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const tenantId = (session.user as any).tenantId
   const employeeId = (session.user as any).employeeId
   const role = (session.user as any).role
+  // Роль «только чтение» не отмечает (UI это уже скрывает; защищаем API).
+  if (role === "readonly") {
+    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 })
+  }
 
   const body = await req.json()
   const parsed = deleteSchema.safeParse(body)
@@ -1363,6 +1375,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const tenantId = (session.user as any).tenantId
   const employeeId = (session.user as any).employeeId
   const role = (session.user as any).role
+  // Роль «только чтение» не отмечает (UI это уже скрывает; защищаем API).
+  if (role === "readonly") {
+    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 })
+  }
 
   const body = await req.json()
   const parsed = patchSchema.safeParse(body)

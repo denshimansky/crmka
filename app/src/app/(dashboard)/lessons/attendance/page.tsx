@@ -200,21 +200,36 @@ export default async function LessonsAttendancePage({
     : groups.map((g) => g.id)
 
   // === Типы посещений для dropdown отметки ===
-  const attendanceTypes = await db.attendanceType.findMany({
-    where: {
-      OR: [{ tenantId }, { tenantId: null }],
-      isActive: true,
-      availableToAdmin: true,
-    },
-    select: { id: true, code: true, name: true, sortOrder: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-  })
-  // Для быстрой отметки исключаем makeup_scheduled (требует выбора целевого
-  // занятия) и makeup (создаётся системой при отработке). Оператор может
-  // выставить их из карточки занятия.
-  const QUICK_MARK_CODES = ["present", "no_show", "excused", "absent", "recalculation"]
+  // Список фильтруем как в карточке занятия и реестре пропусков (не по белому
+  // списку системных кодов — он прятал кастомные типы организации):
+  // — «Назначена отработка» / «Отработка» требуют выбора целевого занятия —
+  //   их ставят из карточки занятия;
+  // — педагог видит availableToInstructor, админ — availableToAdmin, владелец/
+  //   управляющий — всё, «только чтение» не отмечает.
+  const role = session.user.role
+  const attendanceTypes = role !== "readonly"
+    ? await db.attendanceType.findMany({
+        where: {
+          OR: [{ tenantId }, { tenantId: null }],
+          isActive: true,
+        },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          availableToInstructor: true,
+          availableToAdmin: true,
+        },
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      })
+    : []
   const typeOptions: AttendanceTypeOption[] = attendanceTypes
-    .filter((t) => QUICK_MARK_CODES.includes(t.code))
+    .filter((t) => {
+      if (t.code === "makeup_scheduled" || t.code === "makeup") return false
+      if (role === "instructor") return t.availableToInstructor
+      if (role === "admin") return t.availableToAdmin
+      return true
+    })
     .map((t) => ({ id: t.id, code: t.code, name: t.name }))
 
   // === Lessons за месяц по выбранным группам ===
@@ -532,6 +547,7 @@ export default async function LessonsAttendancePage({
           groups: groupOptions,
         }}
         typeOptions={typeOptions}
+        canMarkTrials={role !== "readonly"}
       />
     </div>
   )

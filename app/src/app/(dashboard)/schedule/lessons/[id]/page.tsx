@@ -189,7 +189,8 @@ export default async function LessonCardPage({
       OR: [{ tenantId: null }, { tenantId }],
       isActive: true,
     },
-    orderBy: { sortOrder: "asc" },
+    // name — tie-break: кастомные типы создаются с одинаковым sortOrder=100
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   })
 
   // Get absence reasons

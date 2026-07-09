@@ -76,12 +76,15 @@ export async function GET(req: NextRequest) {
   })
   const activatedClientIds = new Set(attendances.map((a) => a.clientId))
 
-  // Last visit per client
+  // Последний визит клиента — по флагу типа (partOfFact), а не по коду
+  // "present": кастомные «присутственные» типы тоже визит. Маркер «Отработка»
+  // (makeup) не считаем — он висит на дате пропущенного занятия, реальная
+  // отработка учтена как present в той группе, где ребёнок отрабатывал.
   const lastVisits = await db.attendance.findMany({
     where: {
       tenantId,
       clientId: { in: clientIds },
-      attendanceType: { code: "present" },
+      attendanceType: { partOfFact: true, code: { not: "makeup" } },
     },
     select: { clientId: true, lesson: { select: { date: true } } },
     orderBy: { lesson: { date: "desc" } },

@@ -160,7 +160,8 @@ export default async function LessonsAbsencesPage({
   const attendanceTypesRaw = canEdit
     ? await db.attendanceType.findMany({
         where: { OR: [{ tenantId: null }, { tenantId }], isActive: true },
-        orderBy: { sortOrder: "asc" },
+        // name — tie-break: кастомные типы создаются с одинаковым sortOrder=100
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
         select: {
           id: true,
           name: true,

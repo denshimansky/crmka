@@ -49,6 +49,9 @@ interface AttendanceGridProps {
     groups: { id: string; name: string; branchId: string; directionId: string; instructorId: string }[]
   }
   typeOptions: AttendanceTypeOption[]
+  // Пробные отмечаются другим эндпоинтом и не зависят от списка типов,
+  // поэтому «только чтение» блокируется отдельным флагом
+  canMarkTrials: boolean
 }
 
 // Стили ячейки по коду статуса
@@ -82,6 +85,10 @@ function cellClassName(cell: AttendanceCellData | null): string {
     case "makeup_scheduled":
       return "bg-purple-200 hover:bg-purple-300 text-purple-900"
     default:
+      if (cell.attendanceTypeCode) {
+        // Кастомный тип организации
+        return "bg-indigo-200 hover:bg-indigo-300 text-indigo-900"
+      }
       // Есть занятие, но статус не выставлен (план)
       return "bg-yellow-100 hover:bg-yellow-200"
   }
@@ -107,7 +114,14 @@ function cellShort(cell: AttendanceCellData | null): string {
     case "recalculation": return "Р"
     case "makeup": return "О"
     case "makeup_scheduled": return "↻"
-    default: return ""
+    // Кастомный тип — два первых символа названия (полное имя в title ячейки).
+    // Двухбуквенное сокращение не сталкивается с системными «О»/«П»/«Б»/«Р»;
+    // спред по code points не режет эмодзи на суррогатные половины.
+    default: {
+      const chars = [...(cell.attendanceTypeName ?? "")].filter((c) => c.trim())
+      if (chars.length === 0) return ""
+      return chars[0].toUpperCase() + (chars[1]?.toLowerCase() ?? "")
+    }
   }
 }
 
@@ -136,6 +150,7 @@ export function AttendanceGrid({
   groupId,
   filterOptions,
   typeOptions,
+  canMarkTrials,
 }: AttendanceGridProps) {
   const roleNames = useRoleNames()
   const router = useRouter()
@@ -469,7 +484,7 @@ export function AttendanceGrid({
                       >
                         <DropdownMenu>
                           <DropdownMenuTrigger
-                            disabled={isMarking || (!cell.isTrial && noTypesAvailable)}
+                            disabled={isMarking || (cell.isTrial ? !canMarkTrials : noTypesAvailable)}
                             className={`flex h-7 w-full items-center justify-center text-xs font-medium transition-colors ${cellClassName(cell)} ${isMarking ? "opacity-50" : ""}`}
                             title={
                               cell.isTrial
