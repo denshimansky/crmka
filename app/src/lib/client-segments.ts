@@ -1,8 +1,8 @@
 // ADM-04, сегментная видимость клиентов для админа.
 //
 // Правила (от продукта):
-//   - Лид (funnelStatus=new, нет оплат)      → Client.branchId IN scope OR IS NULL
-//   - Активный (clientStatus=active)         → активный абонемент в scope
+//   - Лид (funnelStatus до первой оплаты)    → Client.branchId IN scope OR IS NULL
+//   - Живой абонемент (pending/active)       → группа абонемента в scope
 //   - Выбывший (clientStatus=churned)        → Client.lastBranchId IN scope
 //   - Потенциал (funnelStatus=potential)     → последняя заявка в scope; нет заявок → видят все
 //   - Архив (clientStatus=archived)          → lastBranchId IN scope OR IS NULL
@@ -40,19 +40,22 @@ export function scopeClientByBranch(
   // но семантика сохранена для будущей deny-политики.
   return {
     OR: [
-      // 1. Лид: funnelStatus в LEAD-наборе И totalSubscriptionsCount=0,
-      //    видимость по Client.branchId (NULL → видят все).
+      // 1. Лид: funnelStatus в LEAD-наборе, видимость по Client.branchId
+      //    (NULL → видят все). Требования totalSubscriptionsCount=0 нет
+      //    сознательно: лиду на этапе «ожидаем оплату» уже могли выписать
+      //    pending-абонемент — он должен остаться видимым админу филиала.
       {
         funnelStatus: { in: LEAD_FUNNEL_STATUSES as unknown as Prisma.EnumFunnelStatusFilter["in"] },
-        totalSubscriptionsCount: 0,
         OR: [{ branchId: branchIn }, { branchId: null }],
       },
-      // 2. Активный: есть активный абонемент в одном из scope-филиалов.
+      // 2. Живой абонемент: pending или active в группе scope-филиала.
+      //    pending включён, потому что «выписан, ждём оплату» — рабочий набор
+      //    админа; условия по clientStatus нет — клиент с живым абонементом
+      //    в филиале виден его админу при любом статусе.
       {
-        clientStatus: "active",
         subscriptions: {
           some: {
-            status: "active",
+            status: { in: ["pending", "active"] },
             deletedAt: null,
             group: { branchId: branchIn },
           },

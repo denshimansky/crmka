@@ -220,7 +220,7 @@ describe("scopeClientByBranch (сегментная видимость)", () => 
     const scope = branchScopeFromSession([BR_A])
     const result = scopeClientByBranch(scope) as { OR: object[] }
     // 1. Лид + branchId(IN OR NULL)
-    // 2. Активный + subscriptions.some
+    // 2. Живой абонемент (pending/active) + subscriptions.some
     // 3. Выбывший + lastBranchId
     // 4. Потенциал + applications
     // 5. Архив + lastBranchId(IN OR NULL)
@@ -241,12 +241,36 @@ describe("scopeClientByBranch (сегментная видимость)", () => 
   it("сегмент «лид» — branchId IN OR IS NULL", () => {
     const scope = branchScopeFromSession([BR_A])
     const result = scopeClientByBranch(scope) as { OR: any[] }
-    const lead = result.OR.find((c) => c.totalSubscriptionsCount === 0)
+    const lead = result.OR.find((c) => c.funnelStatus?.in)
     assert.ok(lead)
     assert.ok(lead.OR)
     assert.equal(lead.OR.length, 2)
     // Один из вариантов — branchId IS NULL.
     assert.ok(lead.OR.some((b: any) => b.branchId === null))
+  })
+
+  // Регрессия: лид с выписанным (pending) абонементом пропадал у филиального
+  // админа — правило «лид» требовало totalSubscriptionsCount=0, а правило
+  // «активный» — строго active-абонемент. Клиенты на «Ожидаем оплату»
+  // с выписанным абонементом были невидимы даже админу своего филиала.
+  it("сегмент «лид» — не требует totalSubscriptionsCount=0", () => {
+    const scope = branchScopeFromSession([BR_A])
+    const result = scopeClientByBranch(scope) as { OR: any[] }
+    const lead = result.OR.find((c) => c.funnelStatus?.in)
+    assert.ok(lead)
+    assert.equal("totalSubscriptionsCount" in lead, false)
+  })
+
+  it("сегмент «живой абонемент» — pending и active, без условия clientStatus", () => {
+    const scope = branchScopeFromSession([BR_A])
+    const result = scopeClientByBranch(scope) as { OR: any[] }
+    const withSub = result.OR.find((c) => c.subscriptions)
+    assert.ok(withSub)
+    assert.deepEqual(withSub.subscriptions.some.status, {
+      in: ["pending", "active"],
+    })
+    assert.deepEqual(withSub.subscriptions.some.group, { branchId: { in: [BR_A] } })
+    assert.equal("clientStatus" in withSub, false)
   })
 
   it("сегмент «архив» — lastBranchId IN OR IS NULL (видят все, если NULL)", () => {
