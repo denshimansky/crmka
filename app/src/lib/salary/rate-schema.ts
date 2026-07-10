@@ -41,8 +41,22 @@ export function validateForScheme(data: RateInput): string | null {
     case "percent_of_payments":
       if (!data.percentOfPayments || data.percentOfPayments <= 0) return "Укажите процент списания"
       return null
-    case "floating_by_students":
+    case "floating_by_students": {
       if (!data.brackets || data.brackets.length === 0) return "Добавьте хотя бы одну строку матрицы"
+      const mins = data.brackets.map((b) => b.minStudents)
+      if (new Set(mins).size !== mins.length) {
+        return "В матрице два порога с одинаковым количеством детей — уберите дубль"
+      }
+      // Матрица обязана покрывать все количества от 1: иначе занятия с числом
+      // детей ниже минимального порога молча дают педагогу 0₽ (решение
+      // владельца 10.07.2026). Если за такие занятия платить не нужно —
+      // владелец явно указывает ставку 0.
+      const minThreshold = Math.min(...mins)
+      if (minThreshold > 1) {
+        const gap = minThreshold === 2 ? "1 ребёнка" : `1–${minThreshold - 1} детей`
+        return `Не заполнена ставка для ${gap}. Матрица должна начинаться с 1 ребёнка — если за такие занятия платить не нужно, укажите ставку 0`
+      }
       return null
+    }
   }
 }

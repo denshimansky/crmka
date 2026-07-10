@@ -15,11 +15,13 @@ type DB = PrismaClient | Prisma.TransactionClient
 //
 // Решение: после ЛЮБОЙ мутации отметок занятия пересчитать раскладку целиком —
 // начисление должно быть функцией итогового состава, а не порядка кликов:
-//   - n — число уникальных учеников (client+ward) с фактическим посещением
-//     (partOfFact) и включённой оплатой; дубли отметок не завышают порог;
-//   - ставка: per_lesson — ratePerLesson, если есть хоть одна оплачиваемая
-//     отметка (в т.ч. «Прогул» с оплатой за прогул); floating — брекет по n
-//     (нет фактических посещений → 0: схема платит за пришедших);
+//   - n — число уникальных учеников (client+ward) с отметкой, за которую
+//     педагогу начисляется (галочка «Оплата инструктору» на отметке; её дефолт —
+//     колонка «Начисление педагогу» вида посещения). «Был» и оплачиваемый
+//     «Прогул» считаются, «Не был»/«Уваж. пропуск»/«Перерасчёт» — нет
+//     (решение владельца, 10.07.2026). Дубли отметок не завышают порог;
+//   - ставка: per_lesson — ratePerLesson при хотя бы одной оплачиваемой
+//     отметке; floating — брекет по n (нет оплачиваемых → 0);
 //   - вся ставка на одной отметке-«носителе» (первой по времени отметки) —
 //     как и раньше, чтобы сумма занятия не множилась на учеников;
 //   - если суммарное начисление занятия уменьшилось, а ЗП за период уже
@@ -36,8 +38,8 @@ export interface PayTargetAttendance {
   id: string
   clientId: string
   wardId: string | null
+  /** «Оплата инструктору» на отметке (дефолт — «Начисление педагогу» типа). */
   payEnabled: boolean
-  partOfFact: boolean
   /** Пробная отметка: контекст расчёта (порог/носитель), но не цель апдейта. */
   isTrial: boolean
   /** Текущее начисление — у пробных определяет «ставка уже занята». */
@@ -72,28 +74,30 @@ export function computePayTargets(
   const trialCarrierExists = atts.some(
     (a) => a.isTrial && a.payEnabled && a.payAmount.gt(0),
   )
-  const byTime = [...regular].sort((a, b) => a.at.getTime() - b.at.getTime())
+  if (trialCarrierExists) return targets
+
+  const carrier = [...regular]
+    .sort((a, b) => a.at.getTime() - b.at.getTime())
+    .find((a) => a.payEnabled)
+  if (!carrier) return targets
 
   if (rate.scheme === "per_lesson") {
-    if (trialCarrierExists) return targets
-    const carrier = byTime.find((a) => a.payEnabled)
-    if (carrier && rate.ratePerLesson && rate.ratePerLesson.gt(0)) {
+    if (rate.ratePerLesson && rate.ratePerLesson.gt(0)) {
       targets.set(carrier.id, rate.ratePerLesson)
     }
     return targets
   }
 
-  // floating_by_students: порог — по всем отметкам, включая пробные (пробный
-  // ребёнок сидел на занятии и двигал брекет и в старой логике calcPay).
-  const factAtts = atts.filter((a) => a.payEnabled && a.partOfFact)
-  const uniqueStudents = new Set(factAtts.map((a) => `${a.clientId}:${a.wardId ?? ""}`))
+  // floating_by_students: порог — уникальные ученики с оплачиваемой отметкой,
+  // включая пробных (пробный ребёнок сидел на занятии и двигал брекет и в
+  // старой логике calcPay).
+  const payableAtts = atts.filter((a) => a.payEnabled)
+  const uniqueStudents = new Set(payableAtts.map((a) => `${a.clientId}:${a.wardId ?? ""}`))
   const n = uniqueStudents.size
   const bracket = [...rate.brackets]
     .filter((b) => b.minStudents <= n)
     .sort((a, b) => b.minStudents - a.minStudents)[0]
-  if (trialCarrierExists) return targets
-  const carrier = byTime.find((a) => a.payEnabled && a.partOfFact)
-  if (carrier && bracket && bracket.ratePerLesson.gt(0)) {
+  if (bracket && bracket.ratePerLesson.gt(0)) {
     targets.set(carrier.id, bracket.ratePerLesson)
   }
   return targets
@@ -171,7 +175,6 @@ export async function reallocateLessonPay(
       instructorPayAmount: true,
       markedAt: true,
       createdAt: true,
-      attendanceType: { select: { partOfFact: true } },
     },
   })
 
@@ -182,7 +185,6 @@ export async function reallocateLessonPay(
       clientId: a.clientId,
       wardId: a.wardId,
       payEnabled: a.instructorPayEnabled,
-      partOfFact: a.attendanceType.partOfFact,
       isTrial: a.isTrial,
       payAmount: a.instructorPayAmount,
       at: a.markedAt ?? a.createdAt,

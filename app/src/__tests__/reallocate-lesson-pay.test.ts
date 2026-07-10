@@ -4,6 +4,9 @@
  * перемечен — занятие 0 при полном составе; дубль отметки клиента ломал порог).
  *
  * computePayTargets — чистая функция: раскладка ЗП по итоговому составу.
+ * Критерий участия — «Оплата инструктору» на отметке (дефолт — колонка
+ * «Начисление педагогу» вида посещения; решение владельца 10.07.2026):
+ * «Был» и оплачиваемый «Прогул» двигают порог, «Не был»/«Уваж. пропуск» — нет.
  * Пробные отметки (isTrial) — контекст: двигают порог floating и «занимают»
  * ставку занятия своим начислением, но в целевую раскладку не входят.
  */
@@ -35,7 +38,6 @@ function att(over: Partial<PayTargetAttendance> = {}): PayTargetAttendance {
     clientId: `client-${seq}`,
     wardId: null,
     payEnabled: true,
-    partOfFact: true,
     isTrial: false,
     payAmount: D(0),
     at: new Date(2026, 6, 6, 12, 0, seq),
@@ -50,7 +52,7 @@ function total(targets: Map<string, Prisma.Decimal>): number {
 }
 
 describe("computePayTargets: floating_by_students", () => {
-  it("брекет по итоговому числу пришедших, вся ставка на первой факт-отметке", () => {
+  it("брекет по итоговому числу оплачиваемых, вся ставка на первой отметке", () => {
     const a1 = att()
     const a2 = att()
     const a3 = att()
@@ -87,16 +89,25 @@ describe("computePayTargets: floating_by_students", () => {
     assert.equal(total(targets), 360)
   })
 
-  it("прогулы/пропуски (не факт) не двигают порог и не несут ставку", () => {
-    const absent = att({ partOfFact: false }) // «Прогул» с оплатой за прогул
+  it("оплачиваемый «Прогул» двигает порог (галочка «Начисление педагогу»)", () => {
+    const absent = att() // «Прогул» с начислением: payEnabled=true
     const a2 = att()
     const a3 = att()
     const targets = computePayTargets(FLOATING, [absent, a2, a3])
-    assert.equal(total(targets), 0, "фактических 2 — порог «3» не достигнут")
-    assert.equal(Number(targets.get(absent.id)), 0)
+    assert.equal(total(targets), 360, "3 оплачиваемых — брекет «3»")
+    assert.equal(Number(targets.get(absent.id)), 360, "носитель — первая оплачиваемая")
   })
 
-  it("выключенная оплата (payEnabled=false) исключает отметку", () => {
+  it("«Не был»/«Уваж. пропуск» (без начисления) не двигают порог и не несут ставку", () => {
+    const noShow = att({ payEnabled: false })
+    const a2 = att()
+    const a3 = att()
+    const targets = computePayTargets(FLOATING, [noShow, a2, a3])
+    assert.equal(total(targets), 0, "оплачиваемых 2 — порог «3» не достигнут")
+    assert.equal(Number(targets.get(noShow.id)), 0)
+  })
+
+  it("выключенная вручную оплата исключает отметку", () => {
     const off = att({ payEnabled: false })
     const a2 = att()
     const a3 = att()
@@ -106,12 +117,12 @@ describe("computePayTargets: floating_by_students", () => {
     assert.equal(Number(targets.get(off.id)), 0)
   })
 
-  it("нет фактических посещений → 0", () => {
-    const targets = computePayTargets(FLOATING, [att({ partOfFact: false })])
+  it("нет оплачиваемых отметок → 0", () => {
+    const targets = computePayTargets(FLOATING, [att({ payEnabled: false })])
     assert.equal(total(targets), 0)
   })
 
-  it("оплачиваемый пробный двигает порог (как в calcPay), но не входит в цели", () => {
+  it("оплачиваемый пробный двигает порог, но не входит в цели", () => {
     const trial = att({ isTrial: true }) // пришедший пробный, payAmount=0
     const a2 = att()
     const a3 = att()
@@ -126,7 +137,7 @@ describe("computePayTargets: floating_by_students", () => {
     const a2 = att()
     const a3 = att()
     const targets = computePayTargets(FLOATING, [trial, a2, a3])
-    assert.equal(total(targets), 0, "фактических оплачиваемых 2 — порога «3» нет")
+    assert.equal(total(targets), 0, "оплачиваемых 2 — порога «3» нет")
   })
 
   it("пробный с начисленной ставкой — носитель занятия: обычным 0 (нет 2× ставки)", () => {
@@ -148,7 +159,7 @@ describe("computePayTargets: per_lesson", () => {
   })
 
   it("оплачиваемый прогул несёт ставку (занятие состоялось для педагога)", () => {
-    const absent = att({ partOfFact: false })
+    const absent = att()
     const targets = computePayTargets(PER_LESSON, [absent])
     assert.equal(Number(targets.get(absent.id)), 700)
   })
