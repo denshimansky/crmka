@@ -30,6 +30,7 @@ export const PERMISSIONS = [
   { key: "finance.salary", label: "Зарплатная ведомость и выплаты всех", group: "Финансы" },
   { key: "salary.own", label: "Просмотр своей зарплаты", group: "Финансы" },
   { key: "finance.refund", label: "Возвраты средств", group: "Финансы" },
+  { key: "payments.delete", label: "Удаление оплат", group: "Финансы" },
 
   // Абонементы
   { key: "subscriptions.view", label: "Просмотр абонементов", group: "Абонементы" },
@@ -68,8 +69,10 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
   owner: { ...ALL_TRUE },
   manager: {
     ...ALL_TRUE,
-    // Управляющий по умолчанию может всё, кроме удаления клиентов
+    // Управляющий по умолчанию может всё, кроме удаления клиентов и оплат.
+    // Удаление оплат — деньги: владелец включает явно через матрицу прав.
     "clients.delete": false,
+    "payments.delete": false,
   },
   admin: {
     ...ALL_FALSE,

@@ -12,7 +12,9 @@ import Link from "next/link"
 import { AddPaymentDialog } from "./add-payment-dialog"
 import { RefundPaymentDialog } from "./refund-payment-dialog"
 import { EditPaymentDialog } from "./edit-payment-dialog"
+import { DeletePaymentDialog } from "./delete-payment-dialog"
 import { PageHelp } from "@/components/page-help"
+import { hasPermission, type RolePermissions } from "@/lib/permissions"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
@@ -125,6 +127,17 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
   // Редактировать оплаты могут только владелец и управляющий — на случай
   // ошибки администратора.
   const canEdit = session.user.role === "owner" || session.user.role === "manager"
+  // Удаление оплат — отдельное право: владелец всегда, управляющему включается
+  // в матрице прав (Настройки → Права ролей).
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { rolePermissions: true },
+  })
+  const canDelete = hasPermission(
+    session.user.role,
+    "payments.delete",
+    (org?.rolePermissions as RolePermissions | null) ?? null,
+  )
   const accountOptions = accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))
 
   return (
@@ -186,7 +199,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
                 <TableHead className="text-right">Сумма</TableHead>
                 <TableHead>Способ</TableHead>
                 <TableHead>Счёт</TableHead>
-                {canEdit && <TableHead className="w-10" />}
+                {(canEdit || canDelete) && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -225,20 +238,35 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
                       <Badge variant="outline">{METHOD_LABELS[p.method] || p.method}</Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{p.account.name}</TableCell>
-                    {canEdit && (
+                    {(canEdit || canDelete) && (
                       <TableCell className="p-1">
                         {!isRefund && (
-                          <EditPaymentDialog
-                            payment={{
-                              id: p.id,
-                              amount: Number(p.amount),
-                              method: p.method,
-                              date: p.date.toISOString(),
-                              accountId: p.account.id,
-                              comment: p.comment,
-                            }}
-                            accounts={accountOptions}
-                          />
+                          <div className="flex items-center gap-0.5">
+                            {canEdit && (
+                              <EditPaymentDialog
+                                payment={{
+                                  id: p.id,
+                                  amount: Number(p.amount),
+                                  method: p.method,
+                                  date: p.date.toISOString(),
+                                  accountId: p.account.id,
+                                  comment: p.comment,
+                                }}
+                                accounts={accountOptions}
+                              />
+                            )}
+                            {canDelete && (
+                              <DeletePaymentDialog
+                                payment={{
+                                  id: p.id,
+                                  amount: amt,
+                                  date: p.date.toISOString(),
+                                  clientName: p.client ? clientName : null,
+                                  accountName: p.account.name,
+                                }}
+                              />
+                            )}
+                          </div>
                         )}
                       </TableCell>
                     )}
