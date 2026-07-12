@@ -2,6 +2,7 @@ import { db } from "@/lib/db"
 import { Prisma, type TrialLesson } from "@prisma/client"
 import { getRoleNames } from "@/lib/role-names"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
+import { findRoomOccupant, roomOccupiedMessage } from "@/lib/schedule/room-conflict"
 
 export type CreateTrialLessonInput = {
   clientId: string
@@ -172,10 +173,25 @@ export async function createTrialLessonForClient(
 
     const room = await db.room.findFirst({
       where: { id: input.roomId, tenantId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, name: true },
     })
     if (!room) return { ok: false, error: "Кабинет не найден", status: 404 }
     storedRoomId = input.roomId
+
+    // Баг #61: кабинет в этот слот должен быть свободен (одна группа ИЛИ одно
+    // индивидуальное пробное). Переносимое пробное (rescheduleOld) исключаем —
+    // оно отменится в той же транзакции, что создаст новое.
+    const occupant = await findRoomOccupant(db, {
+      tenantId,
+      roomId: input.roomId,
+      date,
+      startTime: input.startTime,
+      durationMinutes: input.durationMinutes ?? direction.lessonDuration ?? 60,
+      excludeTrialLessonId: rescheduleOld?.id,
+    })
+    if (occupant) {
+      return { ok: false, error: roomOccupiedMessage(room.name, occupant), status: 409 }
+    }
 
     // Аналогично групповому: блокируем все активные (не cancelled) пробные.
     const existingTrial = await db.trialLesson.findFirst({

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { getRoleNames } from "@/lib/role-names"
+import { findRoomOccupant, roomOccupiedMessage } from "@/lib/schedule/room-conflict"
 import { z } from "zod"
 
 const createSchema = z.object({
@@ -64,6 +65,22 @@ export async function POST(req: NextRequest) {
   const dateObj = new Date(data.date)
   if (isNaN(dateObj.getTime())) {
     return NextResponse.json({ error: "Некорректная дата" }, { status: 400 })
+  }
+
+  // Баг #61: кабинет в этот слот должен быть свободен (одна группа ИЛИ одно
+  // индивидуальное пробное) — иначе 409 с указанием, кто занял.
+  const occupant = await findRoomOccupant(db, {
+    tenantId,
+    roomId: data.roomId,
+    date: dateObj,
+    startTime: data.startTime,
+    durationMinutes: data.durationMinutes,
+  })
+  if (occupant) {
+    return NextResponse.json(
+      { error: roomOccupiedMessage(room.name, occupant) },
+      { status: 409 },
+    )
   }
 
   // Транзакция: техническая Group + Lesson.

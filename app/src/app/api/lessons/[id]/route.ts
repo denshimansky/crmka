@@ -11,6 +11,7 @@ import { logAudit } from "@/lib/audit"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
 import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
+import { findRoomOccupant, roomOccupiedMessage } from "@/lib/schedule/room-conflict"
 import {
   branchScopeFromSession,
   canAccessBranch,
@@ -423,6 +424,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             roomName: c.group.room?.name || null,
           })),
         },
+        { status: 409 },
+      )
+    }
+
+    // Баг #61: кабинет может быть занят и индивидуальным пробным (занятия
+    // выше уже проверены — сюда доходят только конфликты с пробными).
+    const occupant = await findRoomOccupant(db, {
+      tenantId,
+      roomId: existing.group.roomId,
+      date: newDate,
+      startTime: newStartTime,
+      durationMinutes: newDurationMinutes,
+      excludeLessonId: id,
+    })
+    if (occupant) {
+      return NextResponse.json(
+        { error: `Конфликт: ${roomOccupiedMessage(existing.group.room?.name || null, occupant)}` },
         { status: 409 },
       )
     }
