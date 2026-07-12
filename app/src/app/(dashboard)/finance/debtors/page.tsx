@@ -9,6 +9,7 @@ import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { EditableDateCell, EditableTextCell } from "../../crm/_components/editable-cell"
 
 function formatMoney(amount: number): string {
@@ -311,7 +312,7 @@ export default async function DebtorsPage({
           </CardContent>
         </Card>
       ) : (
-        <div className="rounded-md border">
+        <StickyHScroll className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -401,7 +402,7 @@ export default async function DebtorsPage({
               ))}
             </TableBody>
           </Table>
-        </div>
+        </StickyHScroll>
       )}
     </div>
   )
