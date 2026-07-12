@@ -27,6 +27,7 @@ export interface AttendanceTypeOption {
 
 export interface AttendanceCellData {
   lessonId: string
+  startTime: string // «ЧЧ:ММ» — различает занятия, когда их в один день несколько
   attendanceId: string | null
   attendanceTypeCode: string | null
   attendanceTypeName: string | null
@@ -49,7 +50,9 @@ export interface AttendanceRow {
   groupName: string
   instructorLabel: string
   planCount: number
-  cells: (AttendanceCellData | null)[] // длина = daysInMonth, null если нет занятия
+  // Длина = daysInMonth. Элемент — занятия дня (обычно 0–1, но при переносе на
+  // день другого занятия группы бывает 2+ — каждое отмечается отдельно).
+  cells: AttendanceCellData[][]
   isTrial?: boolean // строка пробного ученика (лид на пробном в группе)
 }
 
@@ -246,6 +249,7 @@ export default async function LessonsAttendancePage({
         select: {
           id: true,
           date: true,
+          startTime: true,
           rescheduledFromDate: true,
           groupId: true,
           attendances: {
@@ -263,22 +267,33 @@ export default async function LessonsAttendancePage({
 
   // Группируем lessons по groupId+day (день — по фактической дате занятия).
   // rescheduledFromDate тянем, чтобы граница состава для перенесённого занятия
-  // считалась по исходной дате (см. ниже isEnrolledOnLesson).
+  // считалась по исходной дате (см. ниже isEnrolledOnLesson). В один день у группы
+  // бывает НЕСКОЛЬКО занятий (перенос на день другого занятия) — храним все,
+  // в ячейке дня каждое отмечается отдельно.
   const lessonsByGroupDay = new Map<
     string,
-    { lessonId: string; rescheduledFromDate: Date | null; attendances: typeof lessons[number]["attendances"] }
+    {
+      lessonId: string
+      startTime: string
+      rescheduledFromDate: Date | null
+      attendances: typeof lessons[number]["attendances"]
+    }[]
   >()
   for (const l of lessons) {
     const day = l.date.getUTCDate()
     const key = `${l.groupId}|${day}`
-    // Если в один день у группы вдруг два занятия — берём первое.
-    if (!lessonsByGroupDay.has(key)) {
-      lessonsByGroupDay.set(key, {
-        lessonId: l.id,
-        rescheduledFromDate: l.rescheduledFromDate,
-        attendances: l.attendances,
-      })
+    const entry = {
+      lessonId: l.id,
+      startTime: l.startTime,
+      rescheduledFromDate: l.rescheduledFromDate,
+      attendances: l.attendances,
     }
+    const list = lessonsByGroupDay.get(key)
+    if (list) list.push(entry)
+    else lessonsByGroupDay.set(key, [entry])
+  }
+  for (const list of lessonsByGroupDay.values()) {
+    list.sort((a, b) => a.startTime.localeCompare(b.startTime))
   }
 
   // === Зачисления (дата = граница состава) ===
@@ -383,37 +398,36 @@ export default async function LessonsAttendancePage({
 
     const birthDate = ward?.birthDate ? ward.birthDate.toISOString().slice(0, 10) : null
 
-    const cells: (AttendanceCellData | null)[] = []
+    const cells: AttendanceCellData[][] = []
     let planCount = 0
     for (let day = 1; day <= daysInMonth; day++) {
-      const lessonInfo = lessonsByGroupDay.get(`${e.groupId}|${day}`)
-      // Граница состава: для перенесённого занятия — по исходной дате
-      // (rescheduledFromDate), иначе по календарному дню ячейки. Так перенос на
-      // более поздний день не показывает «плановым» ученика, начавшего позже.
-      // enrolledAt/withdrawnAt — @db.Date (полночь UTC), как и эта дата, поэтому
-      // день зачисления входит, а день withdrawnAt — нет (баг #8: зачисленный
-      // в середине месяца не показывается с 1-го).
-      const rosterDate = lessonInfo?.rescheduledFromDate ?? new Date(Date.UTC(year, month - 1, day))
-      if (!isEnrolledOnLesson(e, rosterDate)) {
-        cells.push(null)
-        continue
+      const dayLessons = lessonsByGroupDay.get(`${e.groupId}|${day}`) ?? []
+      const dayCells: AttendanceCellData[] = []
+      for (const lessonInfo of dayLessons) {
+        // Граница состава: для перенесённого занятия — по исходной дате
+        // (rescheduledFromDate), иначе по календарному дню ячейки. Так перенос на
+        // более поздний день не показывает «плановым» ученика, начавшего позже.
+        // enrolledAt/withdrawnAt — @db.Date (полночь UTC), как и эта дата, поэтому
+        // день зачисления входит, а день withdrawnAt — нет (баг #8: зачисленный
+        // в середине месяца не показывается с 1-го). Проверяем ПО КАЖДОМУ занятию:
+        // у перенесённого и обычного занятия одного дня границы разные.
+        const rosterDate = lessonInfo.rescheduledFromDate ?? new Date(Date.UTC(year, month - 1, day))
+        if (!isEnrolledOnLesson(e, rosterDate)) continue
+        planCount++
+        const att = lessonInfo.attendances.find((a) => {
+          if (a.clientId !== e.clientId) return false
+          return (a.wardId || null) === (e.wardId || null)
+        })
+        dayCells.push({
+          lessonId: lessonInfo.lessonId,
+          startTime: lessonInfo.startTime,
+          attendanceId: att?.id ?? null,
+          attendanceTypeCode: att && !att.isPending ? att.attendanceType.code : null,
+          attendanceTypeName: att && !att.isPending ? att.attendanceType.name : null,
+          isPending: !!att?.isPending,
+        })
       }
-      if (!lessonInfo) {
-        cells.push(null)
-        continue
-      }
-      planCount++
-      const att = lessonInfo.attendances.find((a) => {
-        if (a.clientId !== e.clientId) return false
-        return (a.wardId || null) === (e.wardId || null)
-      })
-      cells.push({
-        lessonId: lessonInfo.lessonId,
-        attendanceId: att?.id ?? null,
-        attendanceTypeCode: att && !att.isPending ? att.attendanceType.code : null,
-        attendanceTypeName: att && !att.isPending ? att.attendanceType.name : null,
-        isPending: !!att?.isPending,
-      })
+      cells.push(dayCells)
     }
 
     rows.push({
@@ -484,13 +498,14 @@ export default async function LessonsAttendancePage({
         groupName: g.name,
         instructorLabel: instructorShortName(g.instructor),
         planCount: 0,
-        cells: Array.from({ length: daysInMonth }, () => null),
+        cells: Array.from({ length: daysInMonth }, (): AttendanceCellData[] => []),
         isTrial: true,
       }
       trialRowByKey.set(key, row)
     }
-    row.cells[day - 1] = {
+    row.cells[day - 1].push({
       lessonId: l.id,
+      startTime: l.startTime,
       attendanceId: null,
       attendanceTypeCode: null,
       attendanceTypeName: null,
@@ -498,7 +513,7 @@ export default async function LessonsAttendancePage({
       isTrial: true,
       trialId: t.id,
       trialStatus: t.status as "scheduled" | "attended" | "no_show",
-    }
+    })
     row.planCount++
   }
   rows.push(...trialRowByKey.values())

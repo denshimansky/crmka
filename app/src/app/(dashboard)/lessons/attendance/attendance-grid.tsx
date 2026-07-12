@@ -464,98 +464,112 @@ export function AttendanceGrid({
                     {row.instructorLabel}
                   </td>
                   <td className="px-2 py-1.5 text-center">{row.planCount}</td>
-                  {row.cells.map((cell, idx) => {
-                    const cellKey = `${row.key}-${idx}`
-                    if (!cell) {
+                  {row.cells.map((dayCells, idx) => {
+                    const dayKey = `${row.key}-${idx}`
+                    if (dayCells.length === 0) {
                       return (
                         <td
-                          key={cellKey}
+                          key={dayKey}
                           className="border-l bg-muted/40 px-0 py-0"
                           style={{ width: 28, minWidth: 28 }}
                         />
                       )
                     }
-                    const isMarking = marking === cellKey
                     return (
                       <td
-                        key={cellKey}
+                        key={dayKey}
                         className="border-l p-0"
-                        style={{ width: 28, minWidth: 28 }}
+                        // height: 1px — трюк для таблиц: даёт ячейке «заданную» высоту,
+                        // чтобы h-full у внутреннего flex-столбца растянулся на всю
+                        // фактическую высоту строки (строка растёт, когда в каком-то
+                        // дне 2+ занятия).
+                        style={{ width: 28, minWidth: 28, height: 1 }}
                       >
-                        <DropdownMenu>
-                          <DropdownMenuTrigger
-                            disabled={isMarking || (cell.isTrial ? !canMarkTrials : noTypesAvailable)}
-                            className={`flex h-7 w-full items-center justify-center text-xs font-medium transition-colors ${cellClassName(cell)} ${isMarking ? "opacity-50" : ""}`}
-                            title={
-                              cell.isTrial
-                                ? cell.trialStatus === "attended"
-                                  ? "Пробное — пришёл"
-                                  : cell.trialStatus === "no_show"
-                                    ? "Пробное — не пришёл"
-                                    : "Пробное — запланировано"
-                                : cell.attendanceTypeName || (cell.isPending ? "Ожидание отметки" : "Не отмечен")
-                            }
-                          >
-                            {cellShort(cell)}
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent className="min-w-[180px]">
-                            {cell.isTrial ? (
-                              <>
-                                <DropdownMenuItem
-                                  disabled={cell.trialStatus === "scheduled"}
-                                  onClick={() => markTrial(cellKey, cell.trialId!, "scheduled")}
-                                  className="text-muted-foreground"
-                                >
-                                  Не отмечен
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => markTrial(cellKey, cell.trialId!, "attended")}>
-                                  Был (пробное)
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => markTrial(cellKey, cell.trialId!, "no_show")}>
-                                  Не пришёл
-                                </DropdownMenuItem>
-                              </>
-                            ) : (
-                              <>
-                                <DropdownMenuItem
-                                  disabled={!cell.attendanceId}
-                                  onClick={() =>
-                                    markCell(
-                                      cellKey,
-                                      cell.lessonId,
-                                      row.clientId,
-                                      row.wardId,
-                                      null,
-                                      cell.attendanceId,
-                                    )
+                        <div className="flex h-full min-h-7 flex-col divide-y divide-border">
+                          {dayCells.map((cell) => {
+                            const cellKey = `${dayKey}-${cell.trialId ?? cell.lessonId}`
+                            const isMarking = marking === cellKey
+                            const baseTitle = cell.isTrial
+                              ? cell.trialStatus === "attended"
+                                ? "Пробное — пришёл"
+                                : cell.trialStatus === "no_show"
+                                  ? "Пробное — не пришёл"
+                                  : "Пробное — запланировано"
+                              : cell.attendanceTypeName || (cell.isPending ? "Ожидание отметки" : "Не отмечен")
+                            return (
+                              <DropdownMenu key={cellKey}>
+                                <DropdownMenuTrigger
+                                  disabled={isMarking || (cell.isTrial ? !canMarkTrials : noTypesAvailable)}
+                                  className={`flex min-h-7 w-full flex-1 items-center justify-center text-xs font-medium transition-colors ${cellClassName(cell)} ${isMarking ? "opacity-50" : ""}`}
+                                  title={
+                                    // Когда занятий в дне несколько — префикс времени,
+                                    // иначе сокращения в стопке не различить
+                                    dayCells.length > 1 ? `${cell.startTime} — ${baseTitle}` : baseTitle
                                   }
-                                  className="text-muted-foreground"
                                 >
-                                  Не отмечен
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                {typeOptions.map((t) => (
-                                  <DropdownMenuItem
-                                    key={t.id}
-                                    onClick={() =>
-                                      markCell(
-                                        cellKey,
-                                        cell.lessonId,
-                                        row.clientId,
-                                        row.wardId,
-                                        t.id,
-                                        cell.attendanceId,
-                                      )
-                                    }
-                                  >
-                                    {t.name}
-                                  </DropdownMenuItem>
-                                ))}
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                                  {cellShort(cell)}
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent className="min-w-[180px]">
+                                  {cell.isTrial ? (
+                                    <>
+                                      <DropdownMenuItem
+                                        disabled={cell.trialStatus === "scheduled"}
+                                        onClick={() => markTrial(cellKey, cell.trialId!, "scheduled")}
+                                        className="text-muted-foreground"
+                                      >
+                                        Не отмечен
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem onClick={() => markTrial(cellKey, cell.trialId!, "attended")}>
+                                        Был (пробное)
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => markTrial(cellKey, cell.trialId!, "no_show")}>
+                                        Не пришёл
+                                      </DropdownMenuItem>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <DropdownMenuItem
+                                        disabled={!cell.attendanceId}
+                                        onClick={() =>
+                                          markCell(
+                                            cellKey,
+                                            cell.lessonId,
+                                            row.clientId,
+                                            row.wardId,
+                                            null,
+                                            cell.attendanceId,
+                                          )
+                                        }
+                                        className="text-muted-foreground"
+                                      >
+                                        Не отмечен
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      {typeOptions.map((t) => (
+                                        <DropdownMenuItem
+                                          key={t.id}
+                                          onClick={() =>
+                                            markCell(
+                                              cellKey,
+                                              cell.lessonId,
+                                              row.clientId,
+                                              row.wardId,
+                                              t.id,
+                                              cell.attendanceId,
+                                            )
+                                          }
+                                        >
+                                          {t.name}
+                                        </DropdownMenuItem>
+                                      ))}
+                                    </>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )
+                          })}
+                        </div>
                       </td>
                     )
                   })}
