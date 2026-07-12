@@ -26,6 +26,9 @@ interface BarState {
  * скроллбар контейнера shadcn-таблицы (div[data-slot=table-container]) прячем,
  * а через портал в body рисуем fixed-полосу с собственным всегда видимым
  * ползунком (drag + клик по треку), синхронизированным с таблицей.
+ *
+ * Для не-shadcn скроллеров (сырой <div className="overflow-x-auto"> с таблицей
+ * или гридом) пометьте прокручиваемый контейнер атрибутом data-sticky-scroller.
  */
 export function StickyHScroll({
   className,
@@ -80,7 +83,9 @@ export function StickyHScroll({
   useEffect(() => {
     const wrap = wrapRef.current
     if (!wrap) return
-    const scroller = wrap.querySelector<HTMLElement>('[data-slot="table-container"]')
+    const scroller = wrap.querySelector<HTMLElement>(
+      '[data-slot="table-container"], [data-sticky-scroller]',
+    )
     scrollerRef.current = scroller
     if (!scroller) return
 
@@ -137,6 +142,7 @@ export function StickyHScroll({
       ref={wrapRef}
       className={cn(
         "[&_[data-slot=table-container]]:[scrollbar-width:none] [&_[data-slot=table-container]::-webkit-scrollbar]:hidden",
+        "[&_[data-sticky-scroller]]:[scrollbar-width:none] [&_[data-sticky-scroller]::-webkit-scrollbar]:hidden",
         className,
       )}
     >
@@ -152,7 +158,7 @@ export function StickyHScroll({
               height: BAR_HEIGHT,
               zIndex: 40,
             }}
-            className="border-t bg-muted/70 backdrop-blur-sm"
+            className="border-t bg-muted/70 backdrop-blur-sm print:hidden"
             onPointerDown={onTrackPointerDown}
           >
             <div

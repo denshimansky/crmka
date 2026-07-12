@@ -298,17 +298,30 @@ export default async function LessonsAttendancePage({
   }
 
   // === Зачисления (дата = граница состава) ===
-  // Активные + отчисленные/переведённые позже начала периода (withdrawnAt > dateFrom),
+  // Активные + отчисленные/переведённые позже начала периода (withdrawnAt > rosterFrom),
   // чтобы выбывший в середине месяца показывался в ячейках ДО даты отчисления, а
   // после — пусто (граница применяется по дням ниже). isActive=false всегда с withdrawnAt.
+  //
+  // Окно выборки шире месяца, если есть занятия, перенесённые через его границу:
+  // их состав судится по исходной дате (rescheduledFromDate), и ученик, отчисленный
+  // к 1-му числу (или зачисленный после конца месяца), обязан попасть в выборку —
+  // иначе его строка с этим занятием пропадает из сетки, хотя карточка занятия
+  // его показывает. Лишние строки без единой ячейки отсекаются ниже.
+  let rosterFrom = dateFrom
+  let rosterTo: Date = dateTo
+  for (const l of lessons) {
+    const d = l.rescheduledFromDate ?? l.date
+    if (d < rosterFrom) rosterFrom = d
+    if (d > rosterTo) rosterTo = d
+  }
   const enrollments = effectiveGroupIds.length > 0
     ? await db.groupEnrollment.findMany({
         where: {
           tenantId,
           deletedAt: null,
           groupId: { in: effectiveGroupIds },
-          enrolledAt: { lte: dateTo },
-          ...rosterWhereOnDate(dateFrom),
+          enrolledAt: { lte: rosterTo },
+          ...rosterWhereOnDate(rosterFrom),
         },
         select: {
           id: true,
@@ -431,8 +444,17 @@ export default async function LessonsAttendancePage({
       cells.push(dayCells)
     }
 
+    // Зачисление, попавшее только из-за расширенного окна (ради перенесённых
+    // через границу месяца занятий), без единой ячейки не показываем — иначе
+    // в сетке появятся пустые строки давно отчисленных.
+    const inMonthBounds =
+      e.enrolledAt <= dateTo && (!e.withdrawnAt || e.withdrawnAt > dateFrom)
+    if (!inMonthBounds && planCount === 0) continue
+
     rows.push({
-      key: `${e.clientId}|${e.wardId || ""}|${e.groupId}`,
+      // e.id в ключе: у одной тройки (клиент, подопечный, группа) бывает два
+      // зачисления (отчислили и снова зачислили) — без id ключи строк совпадут.
+      key: `${e.clientId}|${e.wardId || ""}|${e.groupId}|${e.id}`,
       clientId: e.clientId,
       wardId: e.wardId,
       contragentLabel,
@@ -516,6 +538,14 @@ export default async function LessonsAttendancePage({
       trialStatus: t.status as "scheduled" | "attended" | "no_show",
     })
     row.planCount++
+  }
+  // Стопка пробных в ячейке дня — в том же порядке, что у обычных строк (по
+  // времени начала): запрос trialLessons идёт без orderBy, порядок выдачи БД
+  // нестабилен, а позиция саб-ячейки должна совпадать со строками учеников.
+  for (const row of trialRowByKey.values()) {
+    for (const dayCells of row.cells) {
+      if (dayCells.length > 1) dayCells.sort((a, b) => a.startTime.localeCompare(b.startTime))
+    }
   }
   rows.push(...trialRowByKey.values())
 

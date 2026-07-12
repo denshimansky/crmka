@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ReportShell, ReportStatus, useReportData } from "@/components/report-scaffold"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 interface Row {
   managerId: string
@@ -58,10 +59,11 @@ export default function SalesByChannelReportPage() {
       actions={toggle}
     >
       <Card>
-        <CardContent className="overflow-x-auto p-0">
+        <CardContent className="p-0">
           <ReportStatus loading={loading} error={error} empty={data.length === 0} />
           {!loading && !error && data.length > 0 && (
-            <Table>
+            <StickyHScroll>
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="whitespace-nowrap">Менеджер</TableHead>
@@ -98,7 +100,8 @@ export default function SalesByChannelReportPage() {
                   <TableCell className="text-right tabular-nums">{grandTotal}</TableCell>
                 </TableRow>
               </TableBody>
-            </Table>
+              </Table>
+            </StickyHScroll>
           )}
         </CardContent>
       </Card>

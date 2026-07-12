@@ -16,6 +16,7 @@ import {
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { ReportExport } from "@/components/report-export"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " \u20BD"
@@ -336,7 +337,7 @@ export default async function PnlDirectionsPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-md border">
+            <StickyHScroll className="rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -415,7 +416,7 @@ export default async function PnlDirectionsPage({
                   </TableRow>
                 </TableBody>
               </Table>
-            </div>
+            </StickyHScroll>
           </CardContent>
         </Card>
       )}

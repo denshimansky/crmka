@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select"
 import { Plus, Trash2, ArrowLeft, Sparkles } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 interface AccountOption {
   id: string
@@ -361,7 +362,7 @@ export default function NewSalaryPaymentPage() {
               <p className="text-sm">Нажмите «Заполнить начисления», чтобы подтянуть данные.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <StickyHScroll>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -433,7 +434,7 @@ export default function NewSalaryPaymentPage() {
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </StickyHScroll>
           )}
 
           {/* Добавить ещё строку */}

@@ -13,6 +13,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { X, Filter, Baby } from "lucide-react"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import type { ScheduleView } from "./schedule-week-nav"
 import { BRANCH_ALL_VALUE, useBranchFilter } from "@/hooks/use-branch-filter"
 import { useRoleNames } from "@/components/role-names-provider"
@@ -555,6 +556,7 @@ function WeekRoomsView({
     : `${HEADER_DAY_H}px ${HEADER_ROOM_H}px`
 
   return (
+    <StickyHScroll>
     <div className="flex border-l border-t bg-background">
       {/* Левая фиксированная колонка времени — физически вне горизонтального скролла. */}
       <div className="flex-none border-r" style={{ width: 60 }}>
@@ -575,7 +577,7 @@ function WeekRoomsView({
       </div>
 
       {/* Правая прокручиваемая сетка: дни × кабинеты с карточками занятий. */}
-      <div className="flex-1 overflow-x-auto">
+      <div className="flex-1 overflow-x-auto" data-sticky-scroller="">
         <div
           className="grid bg-background"
           style={{
@@ -785,5 +787,6 @@ function WeekRoomsView({
         </div>
       </div>
     </div>
+    </StickyHScroll>
   )
 }

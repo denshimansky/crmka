@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { RefreshCw, Loader2 } from "lucide-react"
 import { useRoleNames } from "@/components/role-names-provider"
 import type { AbsenceGroupRow, AbsenceDetail, EditableAttendanceType } from "./page"
@@ -356,7 +357,7 @@ export function AbsencesView({
 
       {/* Таблица */}
       {rows.length > 0 && (
-        <div className="rounded-md border">
+        <StickyHScroll className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -474,7 +475,7 @@ export function AbsencesView({
               )}
             </TableBody>
           </Table>
-        </div>
+        </StickyHScroll>
       )}
 
       {rows.length > 0 && (

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { ReportExport } from "@/components/report-export"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { EditableTextCell } from "../../../crm/_components/editable-cell"
 import Link from "next/link"
 
@@ -120,7 +121,7 @@ export function UpsellTabs({
             </CardContent>
           </Card>
         ) : (
-          <div className="rounded-md border">
+          <StickyHScroll className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -157,7 +158,7 @@ export function UpsellTabs({
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </StickyHScroll>
         )}
       </TabsContent>
 
@@ -192,7 +193,7 @@ export function UpsellTabs({
             </CardContent>
           </Card>
         ) : (
-          <div className="rounded-md border">
+          <StickyHScroll className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -235,7 +236,7 @@ export function UpsellTabs({
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </StickyHScroll>
         )}
       </TabsContent>
 
@@ -269,7 +270,7 @@ export function UpsellTabs({
             </CardContent>
           </Card>
         ) : (
-          <div className="rounded-md border">
+          <StickyHScroll className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -312,7 +313,7 @@ export function UpsellTabs({
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </StickyHScroll>
         )}
       </TabsContent>
     </Tabs>

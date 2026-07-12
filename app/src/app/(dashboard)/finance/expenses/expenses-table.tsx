@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { EditExpenseDialog } from "./edit-expense-dialog"
 
 type RecognitionMode = "by_payment_date" | "single_period" | "amortized" | "not_in_pnl"
@@ -84,7 +85,7 @@ export function ExpensesTable({
 
   return (
     <>
-      <div className="rounded-md border">
+      <StickyHScroll className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -142,7 +143,7 @@ export function ExpensesTable({
             ))}
           </TableBody>
         </Table>
-      </div>
+      </StickyHScroll>
 
       {editingExpense && (
         <EditExpenseDialog

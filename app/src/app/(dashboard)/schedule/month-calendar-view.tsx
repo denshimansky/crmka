@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { TrialDetailsDialog, type TrialCardInfo } from "./trial-details-dialog"
 
 interface LessonItem {
@@ -47,7 +48,8 @@ export function MonthCalendarView({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <StickyHScroll>
+    <div className="overflow-x-auto" data-sticky-scroller="">
       <div className="grid min-w-[900px] grid-cols-7 gap-px bg-border">
         {weekdayNames.map((n) => (
           <div
@@ -127,5 +129,6 @@ export function MonthCalendarView({
         })}
       </div>
     </div>
+    </StickyHScroll>
   )
 }

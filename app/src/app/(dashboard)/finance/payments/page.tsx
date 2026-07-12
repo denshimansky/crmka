@@ -14,6 +14,7 @@ import { RefundPaymentDialog } from "./refund-payment-dialog"
 import { EditPaymentDialog } from "./edit-payment-dialog"
 import { DeletePaymentDialog } from "./delete-payment-dialog"
 import { PageHelp } from "@/components/page-help"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
 
 function formatMoney(amount: number): string {
@@ -189,7 +190,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
           </CardContent>
         </Card>
       ) : (
-        <div className="rounded-md border">
+        <StickyHScroll className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -275,7 +276,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
               })}
             </TableBody>
           </Table>
-        </div>
+        </StickyHScroll>
       )}
     </div>
   )

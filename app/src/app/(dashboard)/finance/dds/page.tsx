@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ArrowDownCircle, ArrowUpCircle, Wallet, ArrowRightLeft } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 function formatMoney(amount: number): string {
   const sign = amount < 0 ? "−" : amount > 0 ? "+" : ""
@@ -490,7 +491,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
               <p className="text-sm">Нет движений за выбранный период{accountFilter || kindFilter ? " (с учётом фильтров)" : ""}</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <StickyHScroll>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -535,7 +536,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </StickyHScroll>
           )}
         </CardContent>
       </Card>

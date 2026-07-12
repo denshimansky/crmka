@@ -13,6 +13,7 @@ import {
   type PermissionKey,
 } from "@/lib/permissions"
 import { getRoleDisplayName } from "@/lib/roles"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { Loader2, RotateCcw, Save, ShieldCheck } from "lucide-react"
 
 type Props = {
@@ -181,8 +182,9 @@ export function RolePermissionsMatrix({ isOwner, roleDisplayNames }: Props) {
       {/* Matrix */}
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm [&_td]:border [&_th]:border [&_td]:border-border [&_th]:border-border">
+          <StickyHScroll>
+            <div className="overflow-x-auto" data-sticky-scroller="">
+              <table className="w-full border-collapse text-sm [&_td]:border [&_th]:border [&_td]:border-border [&_th]:border-border">
               <thead>
                 <tr className="bg-muted/50">
                   <th className="p-3 text-left font-medium min-w-[250px]">
@@ -247,8 +249,9 @@ export function RolePermissionsMatrix({ isOwner, roleDisplayNames }: Props) {
                   </>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </StickyHScroll>
         </CardContent>
       </Card>
 

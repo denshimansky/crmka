@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 export interface GroupRow {
   id: string
@@ -123,7 +124,7 @@ export function CapacityTable({ data }: CapacityTableProps) {
         )}
       </div>
 
-      <div className="rounded-md border">
+      <StickyHScroll className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -282,7 +283,7 @@ export function CapacityTable({ data }: CapacityTableProps) {
             })}
           </TableBody>
         </Table>
-      </div>
+      </StickyHScroll>
     </div>
   )
 }

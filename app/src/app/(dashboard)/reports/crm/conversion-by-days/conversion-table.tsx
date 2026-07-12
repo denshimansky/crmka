@@ -13,6 +13,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 export interface MetricRow {
   id: string
@@ -288,7 +289,8 @@ export function ConversionByDaysTable({
           За выбранный период нет данных
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border">
+        <StickyHScroll className="rounded-md border">
+          <div className="overflow-x-auto" data-sticky-scroller="">
           <table className="w-full border-collapse text-sm">
             <thead className="bg-muted/50">
               <tr>
@@ -334,7 +336,8 @@ export function ConversionByDaysTable({
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
+        </StickyHScroll>
       )}
     </div>
   )

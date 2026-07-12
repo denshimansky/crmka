@@ -2,6 +2,7 @@
 
 import { Card, CardContent } from "@/components/ui/card"
 import { ReportShell, ReportStatus, useReportData } from "@/components/report-scaffold"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 interface Row {
   channelId: string
@@ -32,7 +33,8 @@ export default function LeadsByChannelReportPage() {
         <CardContent className="p-0">
           <ReportStatus loading={loading} error={error} empty={data.length === 0} />
           {!loading && !error && data.length > 0 && (
-            <div className="overflow-x-auto">
+            <StickyHScroll>
+              <div className="overflow-x-auto" data-sticky-scroller="">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-muted/50">
                   <tr>
@@ -75,7 +77,8 @@ export default function LeadsByChannelReportPage() {
                   </tr>
                 </tbody>
               </table>
-            </div>
+              </div>
+            </StickyHScroll>
           )}
         </CardContent>
       </Card>

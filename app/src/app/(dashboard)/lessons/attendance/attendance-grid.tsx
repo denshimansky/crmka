@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { useRoleNames } from "@/components/role-names-provider"
 import type { AttendanceRow, AttendanceTypeOption, AttendanceCellData } from "./page"
 
@@ -414,7 +415,8 @@ export function AttendanceGrid({
           Нет зачисленных учеников по выбранным фильтрам и периоду.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border">
+        <StickyHScroll className="rounded-md border">
+          <div className="overflow-x-auto" data-sticky-scroller="">
           <table className="w-full border-collapse text-sm">
             <thead className="bg-muted/50">
               <tr>
@@ -475,17 +477,21 @@ export function AttendanceGrid({
                         />
                       )
                     }
+                    const single = dayCells.length === 1
                     return (
                       <td
                         key={dayKey}
-                        className="border-l p-0"
-                        // height: 1px — трюк для таблиц: даёт ячейке «заданную» высоту,
-                        // чтобы h-full у внутреннего flex-столбца растянулся на всю
-                        // фактическую высоту строки (строка растёт, когда в каком-то
-                        // дне 2+ занятия).
-                        style={{ width: 28, minWidth: 28, height: 1 }}
+                        className="relative border-l p-0"
+                        style={{ width: 28, minWidth: 28 }}
                       >
-                        <div className="flex h-full min-h-7 flex-col divide-y divide-border">
+                        {/* Никаких процентных высот: в Firefox h-full внутри td
+                            резолвится от указанной, а не фактической высоты ячейки.
+                            Одиночная отметка — absolute inset-0 (заливает ячейку
+                            любой высоты) + невидимый спейсер h-7 как вклад в высоту
+                            строки. Стопка 2+ — content-driven N × h-7, строка растёт
+                            от контента, перекрытий нет. */}
+                        {single && <div aria-hidden className="h-7" />}
+                        <div className={single ? undefined : "flex flex-col divide-y divide-border"}>
                           {dayCells.map((cell) => {
                             const cellKey = `${dayKey}-${cell.trialId ?? cell.lessonId}`
                             const isMarking = marking === cellKey
@@ -500,7 +506,7 @@ export function AttendanceGrid({
                               <DropdownMenu key={cellKey}>
                                 <DropdownMenuTrigger
                                   disabled={isMarking || (cell.isTrial ? !canMarkTrials : noTypesAvailable)}
-                                  className={`flex min-h-7 w-full flex-1 items-center justify-center text-xs font-medium transition-colors ${cellClassName(cell)} ${isMarking ? "opacity-50" : ""}`}
+                                  className={`${single ? "absolute inset-0" : "h-7 w-full"} flex items-center justify-center text-xs font-medium transition-colors ${cellClassName(cell)} ${isMarking ? "opacity-50" : ""}`}
                                   title={
                                     // Когда занятий в дне несколько — префикс времени,
                                     // иначе сокращения в стопке не различить
@@ -577,7 +583,8 @@ export function AttendanceGrid({
               ))}
             </tbody>
           </table>
-        </div>
+          </div>
+        </StickyHScroll>
       )}
     </div>
   )

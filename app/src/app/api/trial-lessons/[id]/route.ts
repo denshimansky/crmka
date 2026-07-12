@@ -250,6 +250,22 @@ export async function PATCH(
       trial.lesson.substituteInstructorId || trial.lesson.instructorId
 
     if (effectiveStatus === "attended") {
+      // Attendance пробного общая для дублей TrialLesson на одном занятии (ключ —
+      // lesson+client+ward, не trialId). Оплату педагогу не понижаем, если у
+      // другого attended-дубля она включена: иначе отметка второго пробного с
+      // выключенной оплатой затёрла бы уже начисленную ЗП первого.
+      const otherAttendedPaid = await tx.trialLesson.count({
+        where: {
+          tenantId,
+          id: { not: id },
+          lessonId: trial.lesson.id,
+          clientId: trial.clientId,
+          wardId: trial.wardId,
+          status: "attended",
+          instructorPayEnabled: true,
+        },
+      })
+      const attendancePayEnabled = effectivePay || otherAttendedPaid > 0
       const payAmount = presentType
         ? await computeTrialPay(tx, {
             tenantId,
@@ -258,7 +274,7 @@ export async function PATCH(
             clientId: trial.clientId,
             instructorId: lessonInstructorId,
             directionId: trial.lesson.group.directionId,
-            instructorPayEnabled: effectivePay,
+            instructorPayEnabled: attendancePayEnabled,
           })
         : new Prisma.Decimal(0)
 
@@ -279,7 +295,7 @@ export async function PATCH(
               attendanceTypeId: presentType.id,
               chargeAmount: new Prisma.Decimal(0),
               instructorPayAmount: payAmount,
-              instructorPayEnabled: effectivePay,
+              instructorPayEnabled: attendancePayEnabled,
               markedBy: session.user.employeeId ?? undefined,
               markedAt: now,
             },
@@ -294,7 +310,7 @@ export async function PATCH(
               attendanceTypeId: presentType.id,
               chargeAmount: new Prisma.Decimal(0),
               instructorPayAmount: payAmount,
-              instructorPayEnabled: effectivePay,
+              instructorPayEnabled: attendancePayEnabled,
               isTrial: true,
               markedBy: session.user.employeeId ?? undefined,
               markedAt: now,
@@ -309,15 +325,62 @@ export async function PATCH(
     ) {
       // scheduled здесь означает «сброс отметки» — удаляем созданную ранее Attendance,
       // если она есть. Откат этапа заявки trial_attended → trial_scheduled выполнен выше.
-      await tx.attendance.deleteMany({
+      // Attendance пробного ключуется по (lesson, client, ward), а не по trialId:
+      // при дублях TrialLesson одного лида на одном занятии (перенос занятия со
+      // старой scheduledDate, слияние клиентов, легаси) сброс одного пробного не
+      // должен стирать явку, созданную другим attended-пробным, — иначе тихо
+      // пропадают явка и ЗП педагога при зелёном статусе в сетке.
+      const otherAttendedSameLesson = await tx.trialLesson.findMany({
         where: {
           tenantId,
+          id: { not: id },
           lessonId: trial.lesson.id,
           clientId: trial.clientId,
           wardId: trial.wardId,
-          isTrial: true,
+          status: "attended",
         },
+        select: { instructorPayEnabled: true },
       })
+      if (otherAttendedSameLesson.length === 0) {
+        await tx.attendance.deleteMany({
+          where: {
+            tenantId,
+            lessonId: trial.lesson.id,
+            clientId: trial.clientId,
+            wardId: trial.wardId,
+            isTrial: true,
+          },
+        })
+      } else if (presentType) {
+        // Явка принадлежит выжившему attended-дублю — не удаляем, а пере-
+        // синхронизируем по нему: сбрасываемый мог ранее затереть общую строку
+        // своими оплатой/суммой (или наоборот — оставить свою завышенную).
+        const survivorPayEnabled = otherAttendedSameLesson.some((s) => s.instructorPayEnabled)
+        const survivorPay = await computeTrialPay(tx, {
+          tenantId,
+          lessonId: trial.lesson.id,
+          groupId: trial.lesson.groupId,
+          clientId: trial.clientId,
+          instructorId: lessonInstructorId,
+          directionId: trial.lesson.group.directionId,
+          instructorPayEnabled: survivorPayEnabled,
+        })
+        await tx.attendance.updateMany({
+          where: {
+            tenantId,
+            lessonId: trial.lesson.id,
+            clientId: trial.clientId,
+            wardId: trial.wardId,
+            isTrial: true,
+          },
+          data: {
+            attendanceTypeId: presentType.id,
+            chargeAmount: new Prisma.Decimal(0),
+            instructorPayAmount: survivorPay,
+            instructorPayEnabled: survivorPayEnabled,
+          },
+        })
+      }
     }
 
     return t
