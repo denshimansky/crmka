@@ -13,6 +13,7 @@ import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
+import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
 import { prorateScheduledWithdrawal } from "@/lib/subscriptions/prorate-scheduled-withdrawal"
 import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate, subscriptionPeriodEnd, type WithdrawalMode } from "@/lib/subscriptions/last-paid-lesson-date"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
@@ -402,6 +403,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         wardId: existing.wardId,
         excludeSubscriptionId: id,
       })
+
+      // Баг #62: заявка «Ожидаем оплату» по этому абонементу не должна зависать
+      // в воронке после отчисления (платил → won, не платил → potential).
+      await resolveAwaitingApplicationOnSubscriptionEnd(tx, {
+        tenantId: session.user.tenantId,
+        subscription: {
+          id: existing.id,
+          clientId: existing.clientId,
+          wardId: existing.wardId,
+          directionId: existing.directionId,
+          status: existing.status,
+          activatedAt: existing.activatedAt,
+        },
+        netPaid: paidToSub,
+        employeeId: session.user.employeeId,
+      })
     }
 
     // «Закрыть» = closed → штатное завершение, период истёк, занятия отработаны
@@ -464,6 +481,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
       // Деактивация зачисления (пункт 2) — ПОСЛЕ tx.subscription.update, чтобы
       // reprice внутри чистки пустых отметок видел абонемент уже closed.
+
+      // Баг #62: как и при отчислении — закрытие частично оплаченного pending
+      // не должно оставлять заявку висеть в «Ожидаем оплату».
+      await resolveAwaitingApplicationOnSubscriptionEnd(tx, {
+        tenantId: session.user.tenantId,
+        subscription: {
+          id: existing.id,
+          clientId: existing.clientId,
+          wardId: existing.wardId,
+          directionId: existing.directionId,
+          status: existing.status,
+          activatedAt: existing.activatedAt,
+        },
+        netPaid: paidToSub,
+        employeeId: session.user.employeeId,
+      })
     }
 
     if (data.status) {

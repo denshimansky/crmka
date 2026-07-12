@@ -4,6 +4,7 @@ import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 import { cleanPostWithdrawalEmptyAttendance } from "@/lib/subscriptions/deactivate-enrollment"
+import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -39,6 +40,14 @@ export async function applyWithdrawalSettlement(
   },
 ): Promise<{ balanceDelta: number }> {
   const { tenantId, subscription, withdrawalDate, withdrawalReasonId, createdBy } = params
+
+  // Состояние ДО перевода в withdrawn — нужно резолверу зависшей заявки
+  // «Ожидаем оплату» (баг #62): резолвится только pending, никогда не
+  // активированный абонемент.
+  const preState = await tx.subscription.findUnique({
+    where: { id: subscription.id },
+    select: { status: true, activatedAt: true, wardId: true },
+  })
 
   const paidToSub = await netPaidToSubscription(tx, tenantId, subscription.id)
   const usedAgg = await tx.attendance.aggregate({
@@ -114,6 +123,25 @@ export async function applyWithdrawalSettlement(
         cutoff: enr.withdrawnAt,
       })
     }
+  }
+
+  // Баг #62: зависшая заявка «Ожидаем оплату» по этому абонементу (guard'ы —
+  // внутри резолвера). ДО churn: potential-исход смотрит на текущий clientStatus.
+  if (preState) {
+    await resolveAwaitingApplicationOnSubscriptionEnd(tx, {
+      tenantId,
+      subscription: {
+        id: subscription.id,
+        clientId: subscription.clientId,
+        wardId: preState.wardId,
+        directionId: subscription.directionId,
+        status: preState.status,
+        activatedAt: preState.activatedAt,
+      },
+      netPaid: paidToSub,
+      employeeId: createdBy,
+      at: withdrawalDate,
+    })
   }
 
   // Скидки v2: отчисленный выпадает из состава месяца — пересчёт скидок клиента.

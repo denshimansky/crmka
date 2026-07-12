@@ -2,6 +2,8 @@ import { db } from "@/lib/db"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { nextDayUtc } from "@/lib/subscriptions/last-paid-lesson-date"
+import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
+import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
 
 /**
  * Закрывает все пакетные абонементы, у которых истёк срок (expiresAt < today).
@@ -28,7 +30,17 @@ export async function closeExpiredPackages(now: Date = new Date()) {
       expiresAt: { lt: today },
       deletedAt: null,
     },
-    select: { id: true, clientId: true, tenantId: true, groupId: true, wardId: true, expiresAt: true },
+    select: {
+      id: true,
+      clientId: true,
+      tenantId: true,
+      groupId: true,
+      wardId: true,
+      directionId: true,
+      status: true,
+      activatedAt: true,
+      expiresAt: true,
+    },
   })
   if (candidates.length === 0) return { closed: 0 }
 
@@ -36,6 +48,34 @@ export async function closeExpiredPackages(now: Date = new Date()) {
     where: { id: { in: candidates.map((c) => c.id) } },
     data: { status: "closed", endDate: today },
   })
+
+  // Баг #62: истёкший НЕОПЛАЧЕННЫЙ pending-пакет не должен оставлять заявку
+  // висеть в «Ожидаем оплату» (guard'ы внутри резолвера: только pending и
+  // никогда не активированный).
+  for (const c of candidates) {
+    if (c.status !== "pending" || c.activatedAt) continue
+    try {
+      await db.$transaction(async (tx) => {
+        const netPaid = await netPaidToSubscription(tx, c.tenantId, c.id)
+        await resolveAwaitingApplicationOnSubscriptionEnd(tx, {
+          tenantId: c.tenantId,
+          subscription: {
+            id: c.id,
+            clientId: c.clientId,
+            wardId: c.wardId,
+            directionId: c.directionId,
+            status: c.status,
+            activatedAt: c.activatedAt,
+          },
+          netPaid,
+          employeeId: null,
+          at: today,
+        })
+      })
+    } catch (e) {
+      console.error(`[cron:close-expired-packages] resolve application for ${c.id} failed`, e)
+    }
+  }
 
   // Ребёнок с истёкшим пакетом не должен висеть в будущем расписании:
   // деактивируем зачисление, если живых (pending/active) абонементов в группе

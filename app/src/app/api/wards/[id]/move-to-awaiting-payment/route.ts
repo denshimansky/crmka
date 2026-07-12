@@ -319,15 +319,16 @@ export async function POST(
   })
 
   if (session.user.employeeId) {
+    // entityType=Application: переход этапа заявки — его читает лента истории
+    // клиента (события «Этап заявки изменён»). wardId derivable по заявке.
     await db.auditLog.create({
       data: {
         tenantId,
         employeeId: session.user.employeeId,
         action: "update",
-        entityType: "Ward",
-        entityId: ward.id,
+        entityType: "Application",
+        entityId: targetApp.id,
         changes: {
-          applicationId: { new: targetApp.id },
           stage: { old: targetApp.stage, new: "awaiting_payment" },
           subscriptionId: { new: result.subscription.id },
         },

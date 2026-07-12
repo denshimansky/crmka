@@ -27,6 +27,13 @@ type TimelinePayment = Prisma.PaymentGetPayload<{
 type TimelineAuditLog = Prisma.AuditLogGetPayload<{
   include: { employee: { select: { firstName: true; lastName: true } } }
 }>
+type TimelineApplication = Prisma.ApplicationGetPayload<{
+  include: {
+    direction: { select: { name: true } }
+    ward: { select: { firstName: true; lastName: true } }
+    processor: { select: { firstName: true; lastName: true } }
+  }
+}>
 type TimelineBalanceTxn = Prisma.ClientBalanceTransactionGetPayload<{
   include: {
     subscription: {
@@ -76,6 +83,10 @@ type EventKind =
   | "attendance_other"
   | "status_change"
   | "template_discount_removed"
+  | "application_created"
+  | "application_stage"
+  | "application_processed"
+  | "application_removed"
 
 export interface TimelineEvent {
   id: string
@@ -132,6 +143,7 @@ export async function GET(
     attendances,
     auditLogs,
     balanceTxns,
+    applications,
   ] = await Promise.all([
     wardId
       ? Promise.resolve([] as TimelineCommunication[])
@@ -233,7 +245,34 @@ export async function GET(
           orderBy: { createdAt: "desc" },
           take: 300,
         }),
+    // Заявки воронки «Продажи» — включая soft-deleted (удаление из воронки —
+    // тоже событие истории), поэтому deletedAt не фильтруем.
+    db.application.findMany({
+      where: { tenantId, clientId, ...(wardId ? { wardId } : {}) },
+      include: {
+        direction: { select: { name: true } },
+        ward: { select: { firstName: true, lastName: true } },
+        processor: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    }) as Promise<TimelineApplication[]>,
   ])
+
+  // Аудит заявок: ручные переходы этапа (changes.stage = {old,new}) пишутся
+  // с entityType="Application" — тянем отдельным запросом по id заявок клиента.
+  const appAuditLogs = applications.length > 0
+    ? await db.auditLog.findMany({
+        where: {
+          tenantId,
+          entityType: "Application",
+          entityId: { in: applications.map((a) => a.id) },
+        },
+        include: { employee: { select: { firstName: true, lastName: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 300,
+      })
+    : []
 
   // Имена детей для посещений и операций баланса: Attendance.wardId — голая
   // колонка без Prisma-relation, поэтому подтягиваем батчем.
@@ -377,6 +416,91 @@ export async function GET(
         meta: { subscriptionId: s.id, status: s.status },
       })
     }
+  }
+
+  // --- Заявки воронки «Продажи»: создание, переходы этапов (из аудита), финал
+  const APP_STAGE_LABELS: Record<string, string> = {
+    application: "Заявка",
+    trial_scheduled: "Пробное записано",
+    trial_attended: "Прошёл пробное",
+    awaiting_payment: "Ожидаем оплату",
+  }
+  const APP_OUTCOME_TITLES: Record<string, string> = {
+    won: "Заявка выиграна — купил",
+    lead: "Заявка обработана: вернулся в лиды",
+    potential: "Заявка обработана: в потенциальные",
+    trial: "Заявка обработана: записан на пробное",
+  }
+  const appById = new Map(applications.map((a) => [a.id, a]))
+  for (const a of applications) {
+    const appWardName = a.ward ? formatWardName(a.ward, "") || null : null
+    const passport = [
+      a.direction?.name || null,
+      appWardName ? `подопечный: ${appWardName}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ")
+    events.push({
+      id: `app-created-${a.id}`,
+      kind: "application_created",
+      date: a.createdAt.toISOString(),
+      title: "Заявка создана",
+      description: [passport, a.comment].filter(Boolean).join(" · ") || null,
+      meta: { applicationId: a.id },
+    })
+    if (a.processedAt && a.processedToStatus) {
+      const processorName = a.processor
+        ? [a.processor.lastName, a.processor.firstName].filter(Boolean).join(" ")
+        : null
+      events.push({
+        id: `app-processed-${a.id}`,
+        kind: "application_processed",
+        date: a.processedAt.toISOString(),
+        title: APP_OUTCOME_TITLES[a.processedToStatus] || `Заявка обработана: ${a.processedToStatus}`,
+        description: passport || null,
+        meta: { applicationId: a.id, author: processorName },
+      })
+    }
+    // Удаление из воронки (remove-from-funnel / DELETE) — soft-delete без
+    // processedAt: отдельное событие по deletedAt.
+    if (a.deletedAt) {
+      events.push({
+        id: `app-deleted-${a.id}`,
+        kind: "application_removed",
+        date: a.deletedAt.toISOString(),
+        title: "Заявка удалена из воронки",
+        description: passport || null,
+        meta: { applicationId: a.id },
+      })
+    }
+  }
+  for (const log of appAuditLogs) {
+    const changes = (log.changes as Record<string, unknown> | null) || null
+    const c = changes?.stage as { old?: unknown; new?: unknown } | undefined
+    if (!c || c.old === c.new || typeof c.new !== "string") continue
+    // Переход в «Пробное записано» всегда сопровождается созданием пробного —
+    // в ленте уже есть событие «Запись на пробное» тем же моментом, не дублируем.
+    if (c.new === "trial_scheduled") continue
+    const app = appById.get(log.entityId)
+    const appWardName = app?.ward ? formatWardName(app.ward, "") || null : null
+    const author = log.employee
+      ? [log.employee.lastName, log.employee.firstName].filter(Boolean).join(" ")
+      : null
+    const label = (v: unknown) => (typeof v === "string" ? APP_STAGE_LABELS[v] || v : "—")
+    events.push({
+      id: `app-audit-${log.id}`,
+      kind: "application_stage",
+      date: log.createdAt.toISOString(),
+      title: "Этап заявки изменён",
+      description: [
+        `${label(c.old)} → ${label(c.new)}`,
+        app?.direction?.name || null,
+        appWardName ? `подопечный: ${appWardName}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      meta: { applicationId: log.entityId, author },
+    })
   }
 
   // --- Оплаты + возвраты + списания с баланса в счёт абонемента

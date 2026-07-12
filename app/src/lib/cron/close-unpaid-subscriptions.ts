@@ -4,6 +4,7 @@ import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
 
 /**
  * Авто-закрытие неоплаченных абонементов.
@@ -74,6 +75,8 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
           wardId: true,
           groupId: true,
           directionId: true,
+          status: true,
+          activatedAt: true,
           _count: { select: { attendances: true } },
         },
       })
@@ -98,6 +101,25 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
             data: { status: "closed", endDate: today, balance: 0 },
           })
           if (claimed.count === 0) return false
+
+          // Баг #62: этот cron закрывает ровно профиль зависшей заявки —
+          // неоплаченный pending. Считаем netPaid ДО возврата (сам возврат
+          // net-paid не меняет: он идёт балансовой транзакцией, не Payment).
+          const netPaid = await netPaidToSubscription(tx, t.id, s.id)
+          await resolveAwaitingApplicationOnSubscriptionEnd(tx, {
+            tenantId: t.id,
+            subscription: {
+              id: s.id,
+              clientId: s.clientId,
+              wardId: s.wardId,
+              directionId: s.directionId,
+              status: s.status,
+              activatedAt: s.activatedAt,
+            },
+            netPaid,
+            employeeId: null,
+            at: today,
+          })
 
           await refundNetPaid(tx, { ...s, tenantId: t.id }, "Автозакрытие неоплаченного")
 

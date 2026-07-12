@@ -17,6 +17,9 @@ import {
   CalendarClock,
   Tag,
   History,
+  FileText,
+  TrendingUp,
+  Trophy,
 } from "lucide-react"
 
 interface TimelineEvent {
@@ -36,6 +39,7 @@ interface FilterDef {
 
 const FILTERS: FilterDef[] = [
   { key: "comm", label: "Коммуникации", kinds: ["communication"] },
+  { key: "sales", label: "Продажи", kinds: ["application_created", "application_stage", "application_processed", "application_removed"] },
   { key: "trial", label: "Пробные", kinds: ["trial_scheduled", "trial_attended", "trial_no_show"] },
   { key: "sub", label: "Абонементы", kinds: ["subscription_created", "subscription_closed"] },
   { key: "pay", label: "Оплаты", kinds: ["payment_in", "payment_refund", "subscription_paid_from_balance", "balance_credit", "balance_debit"] },
@@ -68,6 +72,10 @@ const KIND_CONFIG: Record<
   attendance_other: { icon: CalendarDays, color: "text-gray-600", bg: "bg-gray-100 dark:bg-gray-800" },
   status_change: { icon: History, color: "text-indigo-600", bg: "bg-indigo-100 dark:bg-indigo-900/30" },
   template_discount_removed: { icon: Tag, color: "text-amber-700", bg: "bg-amber-100 dark:bg-amber-900/30" },
+  application_created: { icon: FileText, color: "text-blue-600", bg: "bg-blue-100 dark:bg-blue-900/30" },
+  application_stage: { icon: TrendingUp, color: "text-indigo-600", bg: "bg-indigo-100 dark:bg-indigo-900/30" },
+  application_processed: { icon: Trophy, color: "text-emerald-700", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
+  application_removed: { icon: X, color: "text-gray-600", bg: "bg-gray-100 dark:bg-gray-800" },
 }
 
 function formatDateTime(iso: string): string {
@@ -108,6 +116,7 @@ export function ClientHistory({
   const [error, setError] = useState<string | null>(null)
   const [enabled, setEnabled] = useState<Record<string, boolean>>({
     comm: true,
+    sales: true,
     trial: true,
     sub: true,
     pay: true,

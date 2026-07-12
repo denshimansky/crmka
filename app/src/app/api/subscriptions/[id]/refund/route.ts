@@ -9,6 +9,7 @@ import { getLastPaidLessonDate, validateWithdrawalDate, subscriptionPeriodEnd } 
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
+import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -213,6 +214,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       clientId: subscription.clientId,
       wardId: subscription.wardId,
       excludeSubscriptionId: id,
+    })
+
+    // Баг #62: заявка «Ожидаем оплату» по этому абонементу не должна зависать
+    // в воронке (guard'ы внутри: только pending, никогда не активированный,
+    // без другого живого абонемента направления). ДО churn: potential-исход
+    // смотрит на текущий clientStatus.
+    await resolveAwaitingApplicationOnSubscriptionEnd(tx, {
+      tenantId: session.user.tenantId,
+      subscription: {
+        id: subscription.id,
+        clientId: subscription.clientId,
+        wardId: subscription.wardId,
+        directionId: subscription.directionId,
+        status: subscription.status,
+        activatedAt: subscription.activatedAt,
+      },
+      netPaid: paidToSub,
+      employeeId: session.user.employeeId,
     })
 
     // Отчисление последнего активного абонемента → клиент «Выбывший».
