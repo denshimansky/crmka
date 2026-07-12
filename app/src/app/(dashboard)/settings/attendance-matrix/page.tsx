@@ -81,8 +81,8 @@ export default function AttendanceMatrixPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editType, setEditType] = useState<AttendanceType | null>(null)
+  // Код не спрашиваем (баг #59): сервер генерирует его транслитом из названия.
   const [form, setForm] = useState({
-    code: "",
     name: "",
     chargesSubscription: false,
     paysInstructor: false,
@@ -156,7 +156,6 @@ export default function AttendanceMatrixPage() {
   function openCreate() {
     setEditType(null)
     setForm({
-      code: "",
       name: "",
       chargesSubscription: false,
       paysInstructor: false,
@@ -176,7 +175,6 @@ export default function AttendanceMatrixPage() {
   function openEdit(t: AttendanceType) {
     setEditType(t)
     setForm({
-      code: t.code,
       name: t.name,
       chargesSubscription: t.chargesSubscription,
       paysInstructor: t.paysInstructor,
@@ -196,10 +194,6 @@ export default function AttendanceMatrixPage() {
   async function handleSave() {
     if (!form.name.trim()) {
       setError("Укажите название")
-      return
-    }
-    if (!editType && !form.code.trim()) {
-      setError("Укажите код (латиница, цифры, _)")
       return
     }
     setSaving(true)
@@ -223,7 +217,6 @@ export default function AttendanceMatrixPage() {
           }
         : {
             ...form,
-            code: form.code.trim(),
             name: form.name.trim(),
           }
       const res = await fetch(url, {
@@ -433,20 +426,6 @@ export default function AttendanceMatrixPage() {
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               />
             </div>
-
-            {!editType && (
-              <div className="space-y-2">
-                <Label>Код</Label>
-                <Input
-                  placeholder="latin_snake_case (например, sick_leave)"
-                  value={form.code}
-                  onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Внутренний идентификатор. Латиница, цифры, подчёркивания. После создания не меняется.
-                </p>
-              </div>
-            )}
 
             <div className="grid grid-cols-2 gap-2">
               {FLAG_COLUMNS.map((c) => (

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { slugCode } from "@/lib/translit"
 import { z } from "zod"
 
 // GET /api/attendance-types — системные (tenantId=null) + кастомные текущего тенанта
@@ -23,7 +24,9 @@ export async function GET() {
 
 const createSchema = z.object({
   name: z.string().min(1, "Название обязательно").max(100),
-  code: z.string().min(1).max(50).regex(/^[a-z0-9_]+$/, "Только латиница, цифры и _"),
+  // Код опционален (баг #59): UI его больше не спрашивает — генерируем
+  // транслитом из названия. Явный код принимается для обратной совместимости.
+  code: z.string().min(1).max(50).regex(/^[a-z0-9_]+$/, "Только латиница, цифры и _").optional(),
   chargesSubscription: z.boolean().default(false),
   paysInstructor: z.boolean().default(false),
   countsAsRevenue: z.boolean().default(false),
@@ -60,30 +63,44 @@ export async function POST(request: NextRequest) {
 
   // Зарезервированные коды нельзя занимать пользовательскими типами.
   const RESERVED_CODES = ["present", "no_show", "excused", "absent", "recalculation", "makeup", "makeup_scheduled"]
-  if (RESERVED_CODES.includes(parsed.data.code)) {
-    return NextResponse.json(
-      { error: `Код "${parsed.data.code}" зарезервирован системой` },
-      { status: 409 }
-    )
+
+  async function isCodeTaken(code: string): Promise<boolean> {
+    if (RESERVED_CODES.includes(code)) return true
+    const conflict = await db.attendanceType.findFirst({
+      where: { code, OR: [{ tenantId: null }, { tenantId }] },
+      select: { id: true },
+    })
+    return !!conflict
   }
 
-  const codeConflict = await db.attendanceType.findFirst({
-    where: {
-      code: parsed.data.code,
-      OR: [{ tenantId: null }, { tenantId }],
-    },
-  })
-  if (codeConflict) {
-    return NextResponse.json(
-      { error: `Код "${parsed.data.code}" уже используется` },
-      { status: 409 }
-    )
+  let code: string
+  if (parsed.data.code) {
+    // Явный код из API: при конфликте — ошибка, как раньше.
+    if (RESERVED_CODES.includes(parsed.data.code)) {
+      return NextResponse.json(
+        { error: `Код "${parsed.data.code}" зарезервирован системой` },
+        { status: 409 }
+      )
+    }
+    if (await isCodeTaken(parsed.data.code)) {
+      return NextResponse.json(
+        { error: `Код "${parsed.data.code}" уже используется` },
+        { status: 409 }
+      )
+    }
+    code = parsed.data.code
+  } else {
+    // Автогенерация из названия: «Каникулы» → kanikuly; при коллизии
+    // (в т.ч. с системными/зарезервированными) — числовой суффикс.
+    const base = slugCode(parsed.data.name) || "custom"
+    code = base
+    for (let i = 2; await isCodeTaken(code); i++) code = `${base}_${i}`
   }
 
   const created = await db.attendanceType.create({
     data: {
       tenantId,
-      code: parsed.data.code,
+      code,
       name: parsed.data.name,
       chargesSubscription: parsed.data.chargesSubscription,
       paysInstructor: parsed.data.paysInstructor,
