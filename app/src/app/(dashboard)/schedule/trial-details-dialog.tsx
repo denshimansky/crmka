@@ -60,13 +60,17 @@ function fmtDate(iso: string): string {
 
 /**
  * Клик по карточке индивидуального пробного в расписании: диалог с деталями
- * (дата/время/педагог/кабинет) + перенос + ссылка на карточку клиента.
- * Перенос атомарный: POST /api/trial-lessons с rescheduleOfTrialLessonId —
- * старое пробное отменяется в одной транзакции с созданием нового.
+ * (дата/время/педагог/кабинет) + отметка «Был / Не пришёл» + перенос + ссылка
+ * на карточку клиента. У индивидуального пробного нет сущности занятия и
+ * карточки занятия — этот диалог единственное место отметки из расписания
+ * (баг #60). Перенос атомарный: POST /api/trial-lessons с
+ * rescheduleOfTrialLessonId — старое пробное отменяется в одной транзакции
+ * с созданием нового.
  */
 export function TrialDetailsDialog({
   trial,
   canReschedule,
+  canMark = false,
   triggerClassName,
   triggerStyle,
   triggerTitle,
@@ -74,6 +78,7 @@ export function TrialDetailsDialog({
 }: {
   trial: TrialCardInfo
   canReschedule: boolean
+  canMark?: boolean
   triggerClassName?: string
   triggerStyle?: CSSProperties
   triggerTitle?: string
@@ -84,6 +89,7 @@ export function TrialDetailsDialog({
   const [open, setOpen] = useState(false)
   const [rescheduling, setRescheduling] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [marking, setMarking] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [date, setDate] = useState(trial.date)
@@ -187,6 +193,33 @@ export function TrialDetailsDialog({
       setError("Сетевая ошибка")
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // Отметка статуса — тот же эндпоинт, что в сетке посещений и карточке
+  // занятия: PATCH двигает этап заявки, воронку подопечного и автозадачи.
+  // Расписание показывает только status=scheduled, поэтому после отметки
+  // карточка пробного уходит из сетки (как проведённое).
+  async function handleMark(status: "attended" | "no_show") {
+    setError(null)
+    setMarking(true)
+    try {
+      const res = await fetch(`/api/trial-lessons/${trial.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setError(d.error || "Не удалось отметить пробное")
+        return
+      }
+      setOpen(false)
+      router.refresh()
+    } catch {
+      setError("Сетевая ошибка")
+    } finally {
+      setMarking(false)
     }
   }
 
@@ -338,6 +371,30 @@ export function TrialDetailsDialog({
                 </Button>
               </DialogFooter>
             </form>
+          )}
+
+          {!rescheduling && canMark && (
+            <div className="flex items-center gap-2 border-t pt-3">
+              <span className="mr-auto text-sm text-muted-foreground">Отметить:</span>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={marking}
+                className="border-green-300 text-green-700 hover:bg-green-50 hover:text-green-800 dark:border-green-800 dark:text-green-400 dark:hover:bg-green-950/30"
+                onClick={() => handleMark("attended")}
+              >
+                Был
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={marking}
+                className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
+                onClick={() => handleMark("no_show")}
+              >
+                Не пришёл
+              </Button>
+            </div>
           )}
 
           {!rescheduling && (

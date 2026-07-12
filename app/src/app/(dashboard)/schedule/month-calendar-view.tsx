@@ -25,6 +25,7 @@ interface MonthCalendarViewProps {
   directionColorMap: Record<string, string>
   todayKey: string
   canRescheduleTrials: boolean
+  canMarkTrials: boolean
 }
 
 export function MonthCalendarView({
@@ -34,6 +35,7 @@ export function MonthCalendarView({
   directionColorMap,
   todayKey,
   canRescheduleTrials,
+  canMarkTrials,
 }: MonthCalendarViewProps) {
   // Группируем уроки по дате
   const byDate = new Map<string, LessonItem[]>()
@@ -107,6 +109,7 @@ export function MonthCalendarView({
                       key={lesson.id}
                       trial={lesson.trial}
                       canReschedule={canRescheduleTrials}
+                      canMark={canMarkTrials}
                       triggerClassName={rowClassName}
                       triggerTitle={`${lesson.startTime} · ${lesson.group.name}`}
                     >

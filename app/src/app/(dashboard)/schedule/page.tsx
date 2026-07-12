@@ -554,6 +554,7 @@ export default async function SchedulePage({
         weekHourStart={weekHourStart}
         weekHourEnd={weekHourEnd}
         canRescheduleTrials={["owner", "manager", "admin"].includes(session.user.role)}
+        canMarkTrials={session.user.role !== "readonly"}
       />
       {!hasLessons && (
         <p className="py-2 text-center text-sm text-muted-foreground">

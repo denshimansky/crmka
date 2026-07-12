@@ -97,6 +97,7 @@ interface ScheduleFiltersProps {
   weekHourEnd: number
   /** Роль позволяет переносить пробные из диалога (owner/manager/admin). */
   canRescheduleTrials: boolean
+  canMarkTrials: boolean
 }
 
 function wardLabel(w: WardOption): string {
@@ -132,6 +133,7 @@ export function ScheduleFilterableGrid({
   weekHourStart,
   weekHourEnd,
   canRescheduleTrials,
+  canMarkTrials,
 }: ScheduleFiltersProps) {
   const roleNames = useRoleNames()
   const router = useRouter()
@@ -431,6 +433,7 @@ export function ScheduleFilterableGrid({
           hourStart={weekHourStart}
           hourEnd={weekHourEnd}
           canRescheduleTrials={canRescheduleTrials}
+          canMarkTrials={canMarkTrials}
         />
       ) : (
         <MonthCalendarView
@@ -440,6 +443,7 @@ export function ScheduleFilterableGrid({
           directionColorMap={directionColorMap}
           todayKey={new Date().toISOString().slice(0, 10)}
           canRescheduleTrials={canRescheduleTrials}
+          canMarkTrials={canMarkTrials}
         />
       )}
     </>
@@ -472,6 +476,7 @@ interface WeekRoomsViewProps {
   hourStart: number
   hourEnd: number
   canRescheduleTrials: boolean
+  canMarkTrials: boolean
 }
 
 function WeekRoomsView({
@@ -487,6 +492,7 @@ function WeekRoomsView({
   hourStart,
   hourEnd,
   canRescheduleTrials,
+  canMarkTrials,
 }: WeekRoomsViewProps) {
   // Если занятие начинается до/после рабочих часов филиалов — расширяем сетку,
   // чтобы оно не пропало из виду (например, лид-занятие в 7:30 при филиале 8–21).
@@ -763,6 +769,7 @@ function WeekRoomsView({
                       key={lesson.id}
                       trial={lesson.trial}
                       canReschedule={canRescheduleTrials}
+                      canMark={canMarkTrials}
                       triggerClassName="absolute left-0.5 right-0.5 z-10 block"
                       triggerStyle={{ top, height }}
                     >
