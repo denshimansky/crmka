@@ -500,8 +500,9 @@ export async function buildBaseContext(tenantId: string, _role: string): Promise
     db.task.count({
       where: { tenantId, deletedAt: null, completedAt: null },
     }),
+    // Долг по абонементу = balance > 0 (сколько осталось оплатить), не < 0
     db.subscription.findMany({
-      where: { tenantId, deletedAt: null, status: "active", balance: { lt: 0 } },
+      where: { tenantId, deletedAt: null, status: "active", balance: { gt: 0 } },
       select: { balance: true, client: { select: { firstName: true, lastName: true } } },
     }),
     db.group.findMany({

@@ -113,8 +113,10 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
   if (isTriggerEnabled("unmarked_lesson", triggerSettings, todayLocal)) {
     const yesterday = new Date(today)
     yesterday.setDate(yesterday.getDate() - 1)
+    // isPending-плейсхолдер разового ученика — не отметка: занятие, где есть
+    // только неотмеченные разовые, тоже считается неотмеченным.
     const unmarkedLessons = await db.lesson.findMany({
-      where: { tenantId, date: yesterday, status: "scheduled", attendances: { none: {} } },
+      where: { tenantId, date: yesterday, status: "scheduled", attendances: { none: { isPending: false } } },
       select: { id: true, group: { select: { name: true, instructorId: true } } },
     })
     for (const l of unmarkedLessons) {

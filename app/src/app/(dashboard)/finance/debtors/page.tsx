@@ -1,5 +1,6 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
+import { oneOffDebtByClient } from "@/lib/one-off-debt"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -58,9 +59,9 @@ export default async function DebtorsPage({
             },
           },
         },
-        // Перенесённый/импортный долг: отрицательный баланс клиента, не привязанный
-        // к абонементу (долг с закрытий или после импорта). Виден во вкладке
-        // «Фактический долг».
+        // Отрицательный баланс клиента, не привязанный к абонементу: разовые
+        // посещения без оплаты (обе вкладки) и перенесённый/импортный долг
+        // (только «Фактический»).
         { clientBalance: { lt: 0 } },
       ],
       ...(Object.keys(clientScope).length > 0 ? clientScope : {}),
@@ -94,6 +95,54 @@ export default async function DebtorsPage({
       },
     },
   })
+
+  // Декомпозиция минусового баланса по ledger (см. lib/one-off-debt.ts):
+  // часть от разовых посещений — реальный долг «здесь и сейчас», показываем на
+  // обеих вкладках; остаток — перенесённый/импортный долг, только на «Фактическом».
+  const negIds = candidates.filter((c) => Number(c.clientBalance) < 0).map((c) => c.id)
+  const oneOffDebtMap = await oneOffDebtByClient(tenantId, candidates)
+  const oneOffMetaByClient = new Map<string, { dates: string[]; wardId: string | null; wardName: string | null }>()
+  if (negIds.length > 0) {
+    // Детали для колонок «Ребёнок»/«Источник»: живые заряженные разовые отметки
+    const oneOffAtts = await db.attendance.findMany({
+      where: {
+        tenantId,
+        clientId: { in: negIds },
+        subscriptionId: null,
+        isPending: false,
+        chargeAmount: { gt: 0 },
+      },
+      select: {
+        clientId: true,
+        wardId: true,
+        lesson: { select: { date: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    })
+    // У Attendance нет relation на Ward — имена подтягиваем батчем по wardId
+    const wardIds = [...new Set(oneOffAtts.map((a) => a.wardId).filter(Boolean))] as string[]
+    const wards = wardIds.length
+      ? await db.ward.findMany({
+          where: { id: { in: wardIds }, tenantId },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : []
+    const wardById = new Map(wards.map((w) => [w.id, w]))
+    for (const a of oneOffAtts) {
+      const meta = oneOffMetaByClient.get(a.clientId) || { dates: [], wardId: null, wardName: null }
+      if (meta.dates.length < 3) {
+        meta.dates.push(new Date(a.lesson.date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }))
+      }
+      if (!meta.wardId && a.wardId) {
+        const w = wardById.get(a.wardId)
+        if (w) {
+          meta.wardId = w.id
+          meta.wardName = [w.lastName, w.firstName].filter(Boolean).join(" ") || null
+        }
+      }
+      oneOffMetaByClient.set(a.clientId, meta)
+    }
+  }
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -177,12 +226,25 @@ export default async function DebtorsPage({
     const branchName =
       branchSet.size > 0 ? Array.from(branchSet).join(", ") : c.branch?.name || "—"
 
-    // Перенесённый/импортный долг (отрицательный баланс клиента, не привязан к
-    // абонементу) — только во «Фактическом»: это реально недоплаченные деньги.
-    // В «Плановый» (доплата по абонементам) он не входит.
-    if (tab === "actual") {
-      const carried = -Number(c.clientBalance)
-      if (carried > 0) {
+    // Минусовой баланс клиента: часть от разовых посещений — долг «здесь и
+    // сейчас», виден на обеих вкладках; остаток (перенесённый/импортный) —
+    // только во «Фактическом».
+    const totalNeg = Math.max(0, -Number(c.clientBalance))
+    if (totalNeg > 0) {
+      const oneOffDebt = oneOffDebtMap.get(c.id) || 0
+      const carried = totalNeg - oneOffDebt
+      if (oneOffDebt > 0) {
+        const meta = oneOffMetaByClient.get(c.id)
+        sources.push({
+          key: "oneoff",
+          label: `Разовые посещения${meta && meta.dates.length ? ` (${meta.dates.join(", ")})` : ""}`,
+          amount: oneOffDebt,
+          wardId: meta?.wardId ?? null,
+          wardName: meta?.wardName ?? null,
+        })
+        debt += oneOffDebt
+      }
+      if (tab === "actual" && carried > 0) {
         sources.push({ key: "carried", label: "Перенесённый долг (импорт/закрытие)", amount: carried, wardId: null, wardName: null })
         debt += carried
       }
@@ -216,8 +278,8 @@ export default async function DebtorsPage({
 
   const tabDescription =
     tab === "planned"
-      ? "Сколько клиенты должны доплатить по выписанным абонементам (finalAmount − оплачено)."
-      : "Сколько клиент реально должен сейчас: отработано сверх оплаченного по абонементам + перенесённый долг (импорт / закрытия с долгом)."
+      ? "Сколько клиенты должны доплатить по выписанным абонементам (finalAmount − оплачено) + неоплаченные разовые посещения."
+      : "Сколько клиент реально должен сейчас: отработано сверх оплаченного по абонементам + неоплаченные разовые посещения + перенесённый долг (импорт / закрытия с долгом)."
 
   return (
     <div className="space-y-6">

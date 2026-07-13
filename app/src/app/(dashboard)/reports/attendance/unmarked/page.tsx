@@ -87,7 +87,14 @@ export default async function UnmarkedReportPage({
       },
       instructor: { select: { firstName: true, lastName: true } },
       substituteInstructor: { select: { firstName: true, lastName: true } },
-      attendances: { select: { clientId: true, wardId: true } },
+      attendances: {
+        select: {
+          clientId: true,
+          wardId: true,
+          isPending: true,
+          client: { select: { firstName: true, lastName: true, phone: true } },
+        },
+      },
     },
     orderBy: [{ date: "desc" }, { startTime: "asc" }],
   })
@@ -123,6 +130,24 @@ export default async function UnmarkedReportPage({
     enrollmentsByGroup.set(e.groupId, list)
   }
 
+  // Имена подопечных для pending-разовых (у Attendance нет relation на Ward)
+  const pendingWardIds = [
+    ...new Set(
+      lessons.flatMap((l) =>
+        l.attendances.filter((a) => a.isPending && a.wardId).map((a) => a.wardId as string),
+      ),
+    ),
+  ]
+  const pendingWards = pendingWardIds.length
+    ? await db.ward.findMany({
+        where: { id: { in: pendingWardIds }, tenantId },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : []
+  const wardNameById = new Map(
+    pendingWards.map((w) => [w.id, [w.lastName, w.firstName].filter(Boolean).join(" ") || null]),
+  )
+
   const rows: UnmarkedRow[] = []
 
   for (const lesson of lessons) {
@@ -141,15 +166,39 @@ export default async function UnmarkedReportPage({
       return true
     })
 
+    // isPending-плейсхолдер разового ученика — не отметка
     const markedSet = new Set(
-      lesson.attendances.map((a) => `${a.clientId}|${a.wardId || ""}`)
+      lesson.attendances.filter((a) => !a.isPending).map((a) => `${a.clientId}|${a.wardId || ""}`)
     )
 
     const unmarked = relevantEnrollments.filter(
       (e) => !markedSet.has(`${e.clientId}|${e.wardId || ""}`)
     )
 
-    if (unmarked.length > 0) {
+    const unmarkedStudents: UnmarkedStudent[] = unmarked.map((e) => ({
+      clientId: e.clientId,
+      clientName: [e.client.lastName, e.client.firstName].filter(Boolean).join(" "),
+      wardId: e.wardId,
+      wardName: e.ward ? [e.ward.lastName, e.ward.firstName].filter(Boolean).join(" ") : null,
+      phone: e.client.phone,
+    }))
+
+    // Неотмеченные разовые ученики (плейсхолдеры без зачисления)
+    const seenKeys = new Set(unmarkedStudents.map((s) => `${s.clientId}|${s.wardId || ""}`))
+    for (const a of lesson.attendances) {
+      const key = `${a.clientId}|${a.wardId || ""}`
+      if (!a.isPending || seenKeys.has(key) || markedSet.has(key)) continue
+      seenKeys.add(key)
+      unmarkedStudents.push({
+        clientId: a.clientId,
+        clientName: [a.client.lastName, a.client.firstName].filter(Boolean).join(" "),
+        wardId: a.wardId,
+        wardName: a.wardId ? wardNameById.get(a.wardId) ?? null : null,
+        phone: a.client.phone,
+      })
+    }
+
+    if (unmarkedStudents.length > 0) {
       const instr = lesson.substituteInstructor || lesson.instructor
       rows.push({
         lessonId: lesson.id,
@@ -159,13 +208,7 @@ export default async function UnmarkedReportPage({
         branchName: lesson.group.branch.name,
         directionName: lesson.group.direction.name,
         instructorName: [instr.lastName, instr.firstName].filter(Boolean).join(" "),
-        unmarkedStudents: unmarked.map((e) => ({
-          clientId: e.clientId,
-          clientName: [e.client.lastName, e.client.firstName].filter(Boolean).join(" "),
-          wardId: e.wardId,
-          wardName: e.ward ? [e.ward.lastName, e.ward.firstName].filter(Boolean).join(" ") : null,
-          phone: e.client.phone,
-        })),
+        unmarkedStudents,
       })
     }
   }

@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
         select: {
           clientId: true,
           wardId: true,
+          isPending: true,
         },
       },
     },
@@ -128,9 +129,10 @@ export async function GET(req: NextRequest) {
       return true
     })
 
-    // Find which enrolled students have no attendance record for this lesson
+    // Find which enrolled students have no attendance record for this lesson.
+    // isPending-плейсхолдер разового ученика — не отметка.
     const markedSet = new Set(
-      lesson.attendances.map((a) => `${a.clientId}|${a.wardId || ""}`)
+      lesson.attendances.filter((a) => !a.isPending).map((a) => `${a.clientId}|${a.wardId || ""}`)
     )
 
     const unmarked = relevantEnrollments.filter(

@@ -2,6 +2,7 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { oneOffDebtByClient } from "@/lib/one-off-debt"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -111,10 +112,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const monthExpenses = Number(monthExpensesData._sum.amount || 0)
 
   // Должники (плановый долг): клиенты с непогашенным остатком по не-отчисленным
-  // абонементам (balance>0). Совпадает с вкладкой «Плановый долг» страницы
-  // /finance/debtors, куда ведёт виджет. Перенесённый/импортный долг
-  // (отрицательный clientBalance, не привязанный к абонементу) сюда НЕ входит —
-  // он виден на странице должников.
+  // абонементам (balance>0) + неоплаченные разовые посещения (минусовой
+  // clientBalance в части personal_lesson_charge). Совпадает с вкладкой
+  // «Плановый долг» страницы /finance/debtors, куда ведёт виджет.
+  // Перенесённый/импортный долг (остаток минуса clientBalance) сюда НЕ входит —
+  // он виден на вкладке «Фактический долг».
   const debtors = await db.client.findMany({
     where: {
       tenantId,
@@ -128,6 +130,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       },
     },
     select: {
+      id: true,
       subscriptions: {
         where: {
           deletedAt: null,
@@ -138,11 +141,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       },
     },
   })
-  const debtorCount = debtors.length
-  const totalDebt = debtors.reduce(
-    (s, d) => s + d.subscriptions.reduce((acc, sub) => acc + Number(sub.balance), 0),
-    0,
-  )
+  const negBalanceClients = await db.client.findMany({
+    where: { tenantId, deletedAt: null, clientBalance: { lt: 0 } },
+    select: { id: true, clientBalance: true },
+  })
+  const oneOffDebtMap = await oneOffDebtByClient(tenantId, negBalanceClients)
+  const debtorIds = new Set<string>(debtors.map((d) => d.id))
+  for (const id of oneOffDebtMap.keys()) debtorIds.add(id)
+  const debtorCount = debtorIds.size
+  const totalDebt =
+    debtors.reduce(
+      (s, d) => s + d.subscriptions.reduce((acc, sub) => acc + Number(sub.balance), 0),
+      0,
+    ) + [...oneOffDebtMap.values()].reduce((s, v) => s + v, 0)
 
   // Задачи на сегодня (и просроченные). Для админа/менеджера/владельца — все
   // задачи тенанта; для прочих ролей (инструктор, readonly) — только свои.
@@ -213,7 +224,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       tenantId,
       date: { gte: monthStart, lte: today },
       status: "scheduled",
-      attendances: { none: {} },
+      // isPending-плейсхолдер разового ученика — не отметка
+      attendances: { none: { isPending: false } },
     },
     include: {
       group: { select: { name: true } },

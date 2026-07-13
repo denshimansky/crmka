@@ -515,6 +515,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             })
           }
         }
+        // Откат разового списания с баланса родителя (отметка без абонемента):
+        // раньше перенос удалял отметку, а personal_lesson_charge оставался —
+        // фантомный минус на балансе.
+        if (!att.subscriptionId && !att.isPending && Number(att.chargeAmount) > 0) {
+          await applyBalanceDelta(tx, {
+            tenantId,
+            clientId: att.clientId,
+            delta: att.chargeAmount,
+            type: "attendance_revert",
+            refs: { lessonId: id, attendanceId: att.id, directionId: existing.group.directionId },
+            createdBy: employeeId,
+            comment: "Перенос занятия — возврат за разовое посещение",
+          })
+        }
         // Ф-аудит: если ЗП за период уже выплачена — создаём компенсирующий
         // SalaryAdjustment, чтобы переплата не висела.
         if (Number(att.instructorPayAmount) > 0) {
@@ -527,7 +541,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             comment: `Перенос занятия ${new Date(existing.date).toLocaleDateString("ru-RU")}`,
           })
         }
-        await tx.attendance.delete({ where: { id: att.id } })
+        if (!att.subscriptionId && !att.isTrial && !att.isMakeup) {
+          // Разовый ученик остаётся в составе перенесённого занятия —
+          // возвращаем отметку в placeholder («Не отмечен»), как при сбросе отметки.
+          await tx.attendance.update({
+            where: { id: att.id },
+            data: { isPending: true, chargeAmount: 0, instructorPayAmount: 0, markedBy: null, markedAt: null },
+          })
+        } else {
+          await tx.attendance.delete({ where: { id: att.id } })
+        }
       }
 
       // Пересчёт затронутых абонементов ПОСЛЕ удаления всех отметок: занятия

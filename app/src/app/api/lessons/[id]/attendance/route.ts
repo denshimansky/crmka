@@ -960,7 +960,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
 
       let instructorPayAmount = new Prisma.Decimal(0)
-      if (effectiveType.paysInstructor && resolvedRate) {
+      if (subscription && effectiveType.paysInstructor && resolvedRate) {
         instructorPayAmount = await calcPay(tx, {
           rate: resolvedRate,
           lessonId,
@@ -1067,28 +1067,66 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           }
         }
       } else {
-        // No subscription — ищем в предзагруженных
+        // No subscription — разовое посещение: та же семантика, что в одиночной
+        // отметке (списание singleVisitPrice ?? lessonPrice с баланса родителя).
+        // Раньше bulk писал chargeAmount: 0 без списания — ученики без абонемента
+        // «ходили бесплатно», а перезапись заряженной отметки нулём теряла долг.
         const existing = existingAttendances.find(
           (a) => a.clientId === enrollment.clientId &&
             a.wardId === enrollment.wardId &&
             a.subscriptionId === null
         )
 
+        let oneOffCharge = new Prisma.Decimal(0)
+        if (effectiveType.chargesSubscription) {
+          const direction = lesson.group.direction
+          oneOffCharge = new Prisma.Decimal(direction.singleVisitPrice ?? direction.lessonPrice)
+        }
+
+        // ЗП педагога — от суммы разового списания (как в одиночной отметке)
+        if (effectiveType.paysInstructor && resolvedRate) {
+          instructorPayAmount = await calcPay(tx, {
+            rate: resolvedRate,
+            lessonId,
+            tenantId,
+            currentClientId: enrollment.clientId,
+            currentChargeAmount: oneOffCharge,
+          })
+          if (lesson.isTrial && Number(instructorPayAmount) > 0) {
+            const mode = orgBulk?.trialPayMode ?? "none"
+            const allowPay = mode === "all" || (mode === "paid_only" && oneOffCharge.gt(0))
+            if (!allowPay) instructorPayAmount = new Prisma.Decimal(0)
+          }
+        }
+
+        // Откат прежнего списания при перезаписи реальной отметки
+        if (existing && !existing.isPending && Number(existing.chargeAmount) > 0) {
+          await applyBalanceDelta(tx, {
+            tenantId,
+            clientId: enrollment.clientId,
+            delta: existing.chargeAmount,
+            type: "attendance_revert",
+            refs: { lessonId, attendanceId: existing.id, directionId: lesson.group.directionId },
+            createdBy: employeeId,
+          })
+        }
+
+        let att
         if (existing) {
-          const att = await tx.attendance.update({
+          att = await tx.attendance.update({
             where: { id: existing.id },
             data: {
               attendanceTypeId: effectiveType.id,
-              chargeAmount: 0,
+              chargeAmount: oneOffCharge,
               instructorPayAmount,
               instructorPayEnabled: effectiveType.paysInstructor,
+              isPending: false,
               markedBy: employeeId,
               markedAt: new Date(),
             },
           })
-          atts.push(att)
         } else {
-          const att = await tx.attendance.create({
+          att = await tx.attendance.create({
             data: {
               tenantId,
               lessonId,
@@ -1096,14 +1134,40 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               clientId: enrollment.clientId,
               wardId: enrollment.wardId,
               attendanceTypeId: effectiveType.id,
-              chargeAmount: 0,
+              chargeAmount: oneOffCharge,
               instructorPayAmount,
               instructorPayEnabled: effectiveType.paysInstructor,
+              isPending: false,
               markedBy: employeeId,
               markedAt: new Date(),
             },
           })
-          atts.push(att)
+        }
+        atts.push(att)
+
+        // Списание со счёта родителя + Lead→Client конверсия (как в одиночной отметке)
+        if (oneOffCharge.gt(0)) {
+          await applyBalanceDelta(tx, {
+            tenantId,
+            clientId: enrollment.clientId,
+            delta: oneOffCharge.negated(),
+            type: "personal_lesson_charge",
+            refs: { lessonId, attendanceId: att.id, directionId: lesson.group.directionId },
+            createdBy: employeeId,
+            comment: "Разовое посещение",
+          })
+
+          const client = await tx.client.findUnique({ where: { id: enrollment.clientId } })
+          if (client && client.funnelStatus !== "active_client" && client.clientStatus !== "active") {
+            await tx.client.update({
+              where: { id: client.id },
+              data: {
+                funnelStatus: "active_client",
+                clientStatus: "active",
+                ...(client.firstPaidLessonDate ? {} : { firstPaidLessonDate: lesson.date }),
+              },
+            })
+          }
         }
       }
     }
