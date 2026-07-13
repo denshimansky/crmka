@@ -294,7 +294,9 @@ export function buildSaasInvoiceParams(opts: {
   payer: TBankInvoicePayer
   payerEmail?: string
 }): CreateInvoiceParams {
-  const pricePerUnit = opts.amount / (opts.branchCount * opts.periodMonths)
+  // Единица позиции — месяц доступа: месячная цена уже включает сетку по филиалам
+  // и не обязана делиться на branchCount нацело (2 фил. «Стандарт» = 9000, не 2×5000)
+  const monthlyPrice = opts.amount / opts.periodMonths
 
   return {
     invoiceNumber: opts.invoiceNumber,
@@ -303,10 +305,10 @@ export function buildSaasInvoiceParams(opts: {
     items: [
       {
         name: `Доступ к SaaS «Умная CRM» (${opts.branchCount} фил., ${opts.periodMonths} мес.)`,
-        price: pricePerUnit,
+        price: monthlyPrice,
         unit: "мес",
         vat: "None", // АУСН, без НДС
-        amount: opts.branchCount * opts.periodMonths,
+        amount: opts.periodMonths,
       },
     ],
     contacts: opts.payerEmail ? [{ email: opts.payerEmail }] : undefined,

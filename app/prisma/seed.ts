@@ -68,7 +68,12 @@ async function step0_backoffice() {
   console.log("  AdminUser created:", admin.email)
 
   const planStandard = await db.billingPlan.create({
-    data: { name: "Стандарт", pricePerBranch: 5000, description: "5 000 ₽/мес за филиал" },
+    data: {
+      name: "Стандарт",
+      pricePerBranch: 5000,
+      priceTiers: { "1": 5000, "2": 9000, "3": 12500, "4": 15000, "5": 17000 },
+      description: "Сетка: 1 фил. — 5 000, 2 — 9 000, 3 — 12 500, 4 — 15 000, 5 — 17 000 ₽/мес",
+    },
   })
   const planPremium = await db.billingPlan.create({
     data: { name: "Премиум", pricePerBranch: 8000, description: "8 000 ₽/мес за филиал" },
@@ -98,7 +103,7 @@ async function step0_backoffice() {
       planId: planStandard.id,
       status: "active",
       branchCount: 2,
-      monthlyAmount: 10000,
+      monthlyAmount: 9000, // по сетке «Стандарта»: 2 филиала = 9 000 ₽/мес
       startDate: new Date("2026-01-01"),
       nextPaymentDate: new Date("2026-04-01"),
     },
@@ -2156,7 +2161,7 @@ async function step7_closeMarchAndApril(
     await db.billingInvoice.create({
       data: {
         subscriptionId: billingSub.id, organizationId: T, number: "INV-2026-004",
-        amount: 10000, status: "pending", periodStart: new Date("2026-04-01"), periodEnd: new Date("2026-04-30"),
+        amount: 9000, status: "pending", periodStart: new Date("2026-04-01"), periodEnd: new Date("2026-04-30"),
         dueDate: new Date("2026-04-10"),
       },
     })

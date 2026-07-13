@@ -39,7 +39,12 @@ export async function POST(req: NextRequest) {
   let plan = existingPlan
   if (!plan) {
     plan = await db.billingPlan.create({
-      data: { name: "Стандарт", pricePerBranch: 5000, description: "5 000 ₽/мес за филиал" },
+      data: {
+        name: "Стандарт",
+        pricePerBranch: 5000,
+        priceTiers: { "1": 5000, "2": 9000, "3": 12500, "4": 15000, "5": 17000 },
+        description: "Сетка: 1 фил. — 5 000, 2 — 9 000, 3 — 12 500, 4 — 15 000, 5 — 17 000 ₽/мес",
+      },
     })
   }
 

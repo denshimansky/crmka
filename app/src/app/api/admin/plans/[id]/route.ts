@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { z } from "zod"
+import { priceTiersSchema } from "@/lib/price-tiers-schema"
 
 // PATCH /api/admin/plans/[id] — обновить план
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -17,6 +19,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const schema = z.object({
     name: z.string().min(1).optional(),
     pricePerBranch: z.number().min(0).optional(),
+    priceTiers: priceTiersSchema.nullable().optional(),
     description: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
     isActive: z.boolean().optional(),
   })
@@ -29,6 +32,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const data: Record<string, unknown> = {}
   if (parsed.data.name !== undefined) data.name = parsed.data.name
   if (parsed.data.pricePerBranch !== undefined) data.pricePerBranch = parsed.data.pricePerBranch
+  if (parsed.data.priceTiers !== undefined) {
+    data.priceTiers = parsed.data.priceTiers === null ? Prisma.DbNull : parsed.data.priceTiers
+  }
   if (parsed.data.description !== undefined) data.description = parsed.data.description
   if (parsed.data.isActive !== undefined) data.isActive = parsed.data.isActive
 

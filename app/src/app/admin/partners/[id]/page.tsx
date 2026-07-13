@@ -25,6 +25,7 @@ interface Plan {
   id: string
   name: string
   pricePerBranch: string
+  priceTiers: Record<string, number> | null
 }
 
 interface Invoice {
@@ -479,7 +480,11 @@ export default function PartnerDetailPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {plans.filter((p) => (p as any).isActive !== false).map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name} — {Number(p.pricePerBranch).toLocaleString("ru")} ₽/филиал</SelectItem>
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} — {p.priceTiers && Object.keys(p.priceTiers).length
+                        ? `от ${Math.min(...Object.values(p.priceTiers)).toLocaleString("ru")} ₽/мес (сетка)`
+                        : `${Number(p.pricePerBranch).toLocaleString("ru")} ₽/филиал`}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

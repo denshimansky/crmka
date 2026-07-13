@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { monthlyPriceFor } from "@/lib/billing-price"
 
 const ALLOWED_PERIODS = [1, 3, 6, 12]
 
@@ -97,9 +98,8 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Подписка не найдена" }, { status: 404 })
   }
 
-  // Пересчитываем сумму: цена × филиалы × месяцы
-  const pricePerBranch = Number(subscription.plan.pricePerBranch)
-  const newMonthlyAmount = pricePerBranch * subscription.branchCount * billingPeriodMonths
+  // monthlyAmount хранит месячную цену (по сетке филиалов); сумма за период = цена × месяцы, считается при выставлении счёта и в UI
+  const newMonthlyAmount = monthlyPriceFor(subscription.plan, subscription.branchCount)
 
   // Рассчитываем periodEndDate от nextPaymentDate
   const nextPayment = new Date(subscription.nextPaymentDate)

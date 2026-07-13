@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { monthlyPriceFor } from "@/lib/billing-price"
 import {
   getTBankClient,
   buildSaasInvoiceParams,
@@ -72,9 +73,8 @@ export async function POST(req: NextRequest) {
   }
 
   const periodMonths = body.billingPeriodMonths || subscription.billingPeriodMonths
-  const pricePerBranch = Number(subscription.plan.pricePerBranch)
   const branchCount = subscription.branchCount
-  const amount = pricePerBranch * branchCount * periodMonths
+  const amount = monthlyPriceFor(subscription.plan, branchCount) * periodMonths
 
   // --- Номер счёта ---
   const lastInvoice = await db.billingInvoice.findFirst({

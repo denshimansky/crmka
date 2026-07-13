@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
+import { priceTiersSchema } from "@/lib/price-tiers-schema"
 import { z } from "zod"
 
 // GET /api/admin/plans — список тарифных планов
@@ -19,6 +20,7 @@ export async function GET() {
 const createSchema = z.object({
   name: z.string({ required_error: "Название обязательно" }).min(1, "Название обязательно"),
   pricePerBranch: z.number({ required_error: "Цена обязательна" }).min(0, "Цена не может быть отрицательной"),
+  priceTiers: priceTiersSchema.nullable().optional(),
   description: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
 })
 
@@ -40,6 +42,7 @@ export async function POST(req: NextRequest) {
     data: {
       name: parsed.data.name,
       pricePerBranch: parsed.data.pricePerBranch,
+      priceTiers: parsed.data.priceTiers ?? undefined,
       description: parsed.data.description,
     },
   })

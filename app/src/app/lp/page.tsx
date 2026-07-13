@@ -55,7 +55,7 @@ const faq = [
   },
   {
     q: "Сколько филиалов можно подключить?",
-    a: "Тариф — за филиал. Количество пользователей и клиентов внутри филиала не ограничено.",
+    a: "Сколько угодно. Тариф зависит от числа филиалов, каждый следующий — дешевле (1 филиал — 5 000 ₽/мес, 2 — 9 000, 3 — 12 500). Количество пользователей и клиентов внутри филиала не ограничено.",
   },
   {
     q: "Есть мобильное приложение?",
@@ -106,7 +106,7 @@ export default function LandingPage() {
               </a>
             </div>
             <p className="mt-4 text-sm text-gray-500">
-              5 000 ₽/мес за филиал. Без ограничений по пользователям и клиентам.
+              От 5 000 ₽/мес. Без ограничений по пользователям и клиентам.
             </p>
           </div>
         </div>
@@ -173,17 +173,17 @@ export default function LandingPage() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <div className="text-center mb-14">
             <h2 className="text-3xl font-bold text-gray-900">Простые тарифы</h2>
-            <p className="mt-3 text-gray-600">Без скрытых платежей. Цена за филиал.</p>
+            <p className="mt-3 text-gray-600">Без скрытых платежей. Цена зависит от числа филиалов — каждый следующий дешевле.</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 max-w-3xl mx-auto">
             {/* Standard */}
             <div className="rounded-2xl border-2 border-gray-200 bg-white p-8">
               <h3 className="text-lg font-semibold text-gray-900">Стандарт</h3>
               <div className="mt-4 flex items-baseline gap-1">
-                <span className="text-4xl font-bold text-gray-900">5 000</span>
+                <span className="text-4xl font-bold text-gray-900">от 5 000</span>
                 <span className="text-gray-500">₽/мес</span>
               </div>
-              <p className="mt-1 text-sm text-gray-500">за филиал</p>
+              <p className="mt-1 text-sm text-gray-500">1 филиал — 5 000 · 2 — 9 000 · 3 — 12 500 · 4 — 15 000 · 5 — 17 000</p>
               <ul className="mt-6 space-y-3">
                 {[
                   "Все 12 модулей",

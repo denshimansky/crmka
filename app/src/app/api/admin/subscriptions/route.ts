@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
+import { monthlyPriceFor } from "@/lib/billing-price"
 import { z } from "zod"
 
 // GET /api/admin/subscriptions — все подписки
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Тарифный план не найден" }, { status: 404 })
   }
 
-  const monthlyAmount = Number(plan.pricePerBranch) * parsed.data.branchCount
+  const monthlyAmount = monthlyPriceFor(plan, parsed.data.branchCount)
   const startDate = new Date(parsed.data.startDate)
   const nextPaymentDate = new Date(Date.UTC(startDate.getFullYear(), startDate.getMonth() + 1, 1))
 

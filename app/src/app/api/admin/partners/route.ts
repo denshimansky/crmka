@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
+import { monthlyPriceFor } from "@/lib/billing-price"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
 
@@ -108,7 +109,7 @@ export async function POST(req: NextRequest) {
         organizationId: org.id,
         planId: defaultPlan.id,
         branchCount: 1,
-        monthlyAmount: Number(defaultPlan.pricePerBranch),
+        monthlyAmount: monthlyPriceFor(defaultPlan, 1),
         startDate: new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)),
         nextPaymentDate: new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1)),
       },

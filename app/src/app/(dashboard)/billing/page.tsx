@@ -12,11 +12,13 @@ import {
   CreditCard, FileText, Building2, Calendar, Receipt, TrendingUp, Clock,
 } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
+import { monthlyPriceFor } from "@/lib/billing-price"
 
 interface Plan {
   id: string
   name: string
   pricePerBranch: string
+  priceTiers: Record<string, number> | null
   description: string | null
 }
 
@@ -126,9 +128,9 @@ export default function BillingPage() {
   const { organization, subscription, invoices, stats } = data
   const ss = subscription ? (SUB_STATUS[subscription.status] || { label: subscription.status, variant: "outline" as const }) : null
 
-  const pricePerBranch = subscription ? Number(subscription.plan.pricePerBranch) : 0
   const branchCount = subscription ? subscription.branchCount : stats.branchCount
-  const calculatedAmount = pricePerBranch * branchCount * selectedPeriod
+  const monthlyPrice = subscription ? monthlyPriceFor(subscription.plan, subscription.branchCount) : 0
+  const calculatedAmount = monthlyPrice * selectedPeriod
 
   const handlePeriodChange = async () => {
     if (!subscription) return
@@ -180,7 +182,7 @@ export default function BillingPage() {
               <>
                 <div className="text-2xl font-bold">{subscription.plan.name}</div>
                 <div className="text-sm text-muted-foreground">
-                  {Number(subscription.plan.pricePerBranch).toLocaleString("ru")} ₽/филиал
+                  {monthlyPrice.toLocaleString("ru")} ₽/мес за {subscription.branchCount} фил.
                 </div>
               </>
             ) : (
@@ -197,10 +199,10 @@ export default function BillingPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {subscription ? `${Number(subscription.monthlyAmount).toLocaleString("ru")} ₽` : "—"}
+              {subscription ? `${(monthlyPrice * subscription.billingPeriodMonths).toLocaleString("ru")} ₽` : "—"}
             </div>
             <div className="text-sm text-muted-foreground">
-              {subscription ? `${subscription.branchCount} филиал(ов)` : ""}
+              {subscription ? `${subscription.branchCount} филиал(ов) · ${subscription.billingPeriodMonths} мес.` : ""}
             </div>
           </CardContent>
         </Card>
@@ -261,7 +263,7 @@ export default function BillingPage() {
                 >
                   <div className="text-lg font-bold">{opt.label}</div>
                   <div className="text-sm text-muted-foreground mt-1">
-                    {(pricePerBranch * branchCount * opt.months).toLocaleString("ru")} ₽
+                    {(monthlyPrice * opt.months).toLocaleString("ru")} ₽
                   </div>
                 </button>
               ))}
@@ -270,7 +272,7 @@ export default function BillingPage() {
             <div className="flex items-center justify-between pt-2">
               <div className="space-y-1">
                 <div className="text-sm text-muted-foreground">
-                  Итого: {pricePerBranch.toLocaleString("ru")} ₽ × {branchCount} филиал(ов) × {selectedPeriod} мес
+                  Итого: {monthlyPrice.toLocaleString("ru")} ₽/мес ({branchCount} филиал(ов)) × {selectedPeriod} мес
                 </div>
                 <div className="text-xl font-bold">
                   {calculatedAmount.toLocaleString("ru")} ₽
@@ -348,7 +350,7 @@ export default function BillingPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Сумма за период:</span>
-                  <span>{Number(subscription.monthlyAmount).toLocaleString("ru")} ₽</span>
+                  <span>{(monthlyPrice * subscription.billingPeriodMonths).toLocaleString("ru")} ₽</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Филиалов:</span>

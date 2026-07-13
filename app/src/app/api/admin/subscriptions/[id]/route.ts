@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
+import { monthlyPriceFor } from "@/lib/billing-price"
 import { z } from "zod"
 
 // PATCH /api/admin/subscriptions/[id] — обновить подписку
@@ -49,13 +50,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  if (parsed.data.branchCount) {
-    data.branchCount = parsed.data.branchCount
+  if (parsed.data.branchCount || parsed.data.planId) {
+    if (parsed.data.branchCount) data.branchCount = parsed.data.branchCount
     const plan = parsed.data.planId
       ? await db.billingPlan.findUnique({ where: { id: parsed.data.planId } })
       : existing.plan
     if (plan) {
-      data.monthlyAmount = Number(plan.pricePerBranch) * parsed.data.branchCount
+      data.monthlyAmount = monthlyPriceFor(plan, parsed.data.branchCount ?? existing.branchCount)
     }
   }
 
