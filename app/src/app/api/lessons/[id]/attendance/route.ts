@@ -11,7 +11,7 @@ import { calcPay } from "@/lib/salary/calc-pay"
 import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
 import { reallocateLessonPay, lessonPaySnapshot } from "@/lib/salary/reallocate-lesson-pay"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
-import { effectiveLessonPrice } from "@/lib/discounts/effective-price"
+import { effectiveLessonPrice, oneOffPriceWithDiscount } from "@/lib/discounts/effective-price"
 import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
 import { isConsumingAttendanceType } from "@/lib/subscriptions/consumed-lessons"
 import { z } from "zod"
@@ -652,11 +652,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         })
       }
 
+      // Постоянная скидка клиента (шаблон в карточке) действует и на разовые
+      const oneOffClient = await tx.client.findUnique({
+        where: { id: data.clientId },
+        include: { discountTemplate: true },
+      })
+
       let newChargeAmount = new Prisma.Decimal(0)
+      let oneOffBase = new Prisma.Decimal(0)
       if (attendanceType.chargesSubscription) {
         const direction = lesson.group.direction
-        const fallback = direction.singleVisitPrice ?? direction.lessonPrice
-        newChargeAmount = new Prisma.Decimal(fallback)
+        oneOffBase = new Prisma.Decimal(direction.singleVisitPrice ?? direction.lessonPrice)
+        newChargeAmount = oneOffPriceWithDiscount(oneOffBase, oneOffClient?.discountTemplate ?? null)
       }
 
       if (existing) {
@@ -710,18 +717,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             directionId: lesson.group.directionId,
           },
           createdBy: employeeId,
-          comment: "Разовое посещение",
+          comment: newChargeAmount.lt(oneOffBase) ? "Разовое посещение (со скидкой)" : "Разовое посещение",
         })
 
         // Lead→Client конверсия как и в обычной отметке.
-        const client = await tx.client.findUnique({ where: { id: data.clientId } })
-        if (client && client.funnelStatus !== "active_client" && client.clientStatus !== "active") {
+        if (oneOffClient && oneOffClient.funnelStatus !== "active_client" && oneOffClient.clientStatus !== "active") {
           await tx.client.update({
             where: { id: data.clientId },
             data: {
               funnelStatus: "active_client",
               clientStatus: "active",
-              ...(client.firstPaidLessonDate ? {} : { firstPaidLessonDate: lesson.date }),
+              ...(oneOffClient.firstPaidLessonDate ? {} : { firstPaidLessonDate: lesson.date }),
             },
           })
         }
@@ -1077,10 +1083,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             a.subscriptionId === null
         )
 
+        // Постоянная скидка клиента (шаблон в карточке) действует и на разовые
+        const oneOffClient = await tx.client.findUnique({
+          where: { id: enrollment.clientId },
+          include: { discountTemplate: true },
+        })
+
         let oneOffCharge = new Prisma.Decimal(0)
+        let oneOffBase = new Prisma.Decimal(0)
         if (effectiveType.chargesSubscription) {
           const direction = lesson.group.direction
-          oneOffCharge = new Prisma.Decimal(direction.singleVisitPrice ?? direction.lessonPrice)
+          oneOffBase = new Prisma.Decimal(direction.singleVisitPrice ?? direction.lessonPrice)
+          oneOffCharge = oneOffPriceWithDiscount(oneOffBase, oneOffClient?.discountTemplate ?? null)
         }
 
         // ЗП педагога — от суммы разового списания (как в одиночной отметке)
@@ -1154,17 +1168,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             type: "personal_lesson_charge",
             refs: { lessonId, attendanceId: att.id, directionId: lesson.group.directionId },
             createdBy: employeeId,
-            comment: "Разовое посещение",
+            comment: oneOffCharge.lt(oneOffBase) ? "Разовое посещение (со скидкой)" : "Разовое посещение",
           })
 
-          const client = await tx.client.findUnique({ where: { id: enrollment.clientId } })
-          if (client && client.funnelStatus !== "active_client" && client.clientStatus !== "active") {
+          if (oneOffClient && oneOffClient.funnelStatus !== "active_client" && oneOffClient.clientStatus !== "active") {
             await tx.client.update({
-              where: { id: client.id },
+              where: { id: oneOffClient.id },
               data: {
                 funnelStatus: "active_client",
                 clientStatus: "active",
-                ...(client.firstPaidLessonDate ? {} : { firstPaidLessonDate: lesson.date }),
+                ...(oneOffClient.firstPaidLessonDate ? {} : { firstPaidLessonDate: lesson.date }),
               },
             })
           }
