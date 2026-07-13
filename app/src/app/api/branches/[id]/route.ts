@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { syncSubscriptionBranchCount } from "@/lib/sync-subscription-branches"
 import { z } from "zod"
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -53,6 +54,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     where: { id, tenantId: session.user.tenantId },
     data: { deletedAt: new Date() },
   })
+
+  await syncSubscriptionBranchCount(session.user.tenantId)
 
   return NextResponse.json({ ok: true })
 }

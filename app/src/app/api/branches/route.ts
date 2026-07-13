@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { syncSubscriptionBranchCount } from "@/lib/sync-subscription-branches"
 import { z } from "zod"
 
 export async function GET() {
@@ -52,6 +53,8 @@ export async function POST(req: NextRequest) {
       workingHoursEnd: parsed.data.workingHoursEnd,
     },
   })
+
+  await syncSubscriptionBranchCount(session.user.tenantId)
 
   return NextResponse.json(branch, { status: 201 })
 }
