@@ -239,7 +239,7 @@ export function ContactsTable({
               tab === "all") && <TableHead>Дети</TableHead>}
             {tab === "active" && <TableHead>Сегмент</TableHead>}
             {tab === "leads" && <TableHead>Канал</TableHead>}
-            {tab === "active" && <TableHead>Филиал</TableHead>}
+            <TableHead>Филиал</TableHead>
             {tab === "active" && <TableHead>Направление</TableHead>}
             {tab === "active" && <TableHead>Группа</TableHead>}
             {tab === "active" && <TableHead>{roleNames.instructor}</TableHead>}
@@ -309,7 +309,7 @@ export function ContactsTable({
               )}
               {tab === "active" && <TableCell className="text-xs">{SEGMENT_LABELS[r.segment] || "—"}</TableCell>}
               {tab === "leads" && <TableCell className="text-sm">{r.channelName || "—"}</TableCell>}
-              {tab === "active" && <TableCell className="text-sm">{r.branchName || "—"}</TableCell>}
+              <TableCell className="text-sm">{r.branchName || "—"}</TableCell>
               {tab === "active" && (
                 <TableCell className="text-sm">{r.activeSubscription?.directionName || "—"}</TableCell>
               )}

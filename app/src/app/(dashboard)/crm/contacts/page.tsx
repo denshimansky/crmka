@@ -236,6 +236,18 @@ export default async function ContactsPage({
     }
   }
 
+  // Словарь имён филиалов для колонки «Филиал»: у lastBranchId нет relation в
+  // схеме, а ярлык должен показываться даже для филиала вне scope админа —
+  // сам клиент уже прошёл сегментную видимость.
+  const branchNames = new Map(
+    (
+      await db.branch.findMany({
+        where: { tenantId },
+        select: { id: true, name: true },
+      })
+    ).map((b) => [b.id, b.name]),
+  )
+
   const rows: ContactRow[] = clients.map((c) => {
     const sub = c.subscriptions[0]
     const instrName = sub?.group?.instructor
@@ -264,7 +276,12 @@ export default async function ContactsPage({
       socialLink: c.socialLink,
       segment,
       channelName: c.channel?.name ?? null,
-      branchName: c.branch?.name ?? sub?.group?.branch?.name ?? null,
+      // Филиал строки: свой филиал клиента → филиал группы активного
+      // абонемента → филиал последнего абонемента (выбывшие/архив).
+      branchName:
+        c.branch?.name ??
+        sub?.group?.branch?.name ??
+        (c.lastBranchId ? branchNames.get(c.lastBranchId) ?? null : null),
       funnelStatus: c.funnelStatus,
       clientStatus: c.clientStatus,
       comment: c.comment,
