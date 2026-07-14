@@ -4,6 +4,7 @@
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
 import { readSheet, normPhone, normName } from "./parse-xlsx"
 import { parseStatus, toDbStatus, topStatus, type LeadStatus } from "./status-map"
 import { splitParentFio } from "./surname-gender"
@@ -461,6 +462,33 @@ export async function syncLeads(
           },
         })
         if (setBranchId || setLastBranchId) branchAssigned++
+        // Терминальный статус из файла (Архив/ЧС) выводит активные заявки
+        // клиента из воронки — тот же инвариант, что movingToTerminal в
+        // PATCH /api/clients/[id]: иначе заявка зависает активной навечно
+        // (скрыта из «Продаж», держит Ward.salesStage и пробные).
+        if (
+          (mergedDb.funnelStatus === "archived" || mergedDb.funnelStatus === "blacklisted") &&
+          existing.funnelStatus !== mergedDb.funnelStatus
+        ) {
+          const activeApps = await tx.application.findMany({
+            where: {
+              tenantId: opts.tenantId,
+              clientId: existing.id,
+              status: "active",
+              deletedAt: null,
+            },
+            select: { id: true, wardId: true },
+          })
+          for (const app of activeApps) {
+            await removeApplicationFromFunnel(tx, {
+              tenantId: opts.tenantId,
+              applicationId: app.id,
+              wardId: app.wardId,
+              clientId: existing.id,
+              employeeId: opts.createdBy ?? null,
+            })
+          }
+        }
         clientId = existing.id
         clientsMerged++
         if (groupHasBalanceData) {

@@ -8,6 +8,7 @@ import { CreateApplicationDialog } from "../_components/create-application-dialo
 import { SalesTabs, type SalesTab } from "./sales-tabs"
 import { SalesTable, type SalesRow, type SalesTabKey } from "./sales-table"
 import { ContactTable, type ContactRow } from "./contact-table"
+import { ContactBranchFilter } from "./contact-filter"
 import { scopeBranch, scopeApplication, type BranchScope, isUnscoped } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 
@@ -118,12 +119,23 @@ export default async function SalesPage({
 
   // Вкладка «Связь»: клиенты/лиды с назначенной датой связи (любой этап воронки,
   // кроме архива/ЧС). Тот же клиентский фильтр и scope, что и в остальных вкладках.
+  // Фильтр по филиалу единый для всех вкладок «Продаж» — по заявке (решение
+  // владельца 14.07.2026): клиент попадает в выбранный филиал, если у него есть
+  // активная заявка в нём; клиенты без активных заявок видны при «Все филиалы».
   const contactWhere: Prisma.ClientWhereInput = {
     tenantId,
     AND: [
       notArchivedClient(scope),
       { nextContactDate: { not: null } },
-      ...(branchFilter ? [{ branchId: branchFilter }] : []),
+      ...(branchFilter
+        ? [
+            {
+              applications: {
+                some: { status: "active" as const, deletedAt: null, branchId: branchFilter },
+              },
+            },
+          ]
+        : []),
     ],
   }
 
@@ -455,7 +467,10 @@ export default async function SalesPage({
       <SalesTabs tabs={tabs} current={tab} />
 
       {tab === "contact" ? (
-        <ContactTable rows={contactRows} canEdit={role !== "readonly"} />
+        <>
+          <ContactBranchFilter branches={branches} branchId={branchFilter} />
+          <ContactTable rows={contactRows} canEdit={role !== "readonly"} />
+        </>
       ) : (
         <SalesTable
           tab={tab}

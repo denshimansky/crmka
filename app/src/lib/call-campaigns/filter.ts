@@ -98,8 +98,19 @@ export function buildCampaignClientWhere(
   }
 
   // --- Рабочий статус клиента ---
+  // «Архив» живёт в funnelStatus: перевод в архив ставит funnelStatus=archived
+  // и ОБНУЛЯЕТ clientStatus (movingToArchived в PATCH /api/clients/[id]),
+  // поэтому критерий по одному clientStatus='archived' не матчил ни одного
+  // реального архивного клиента. clientStatus='archived' оставлен для
+  // совместимости — API его допускает.
+  const archivedOr: Prisma.ClientWhereInput[] = [
+    { funnelStatus: "archived" },
+    { clientStatus: "archived" },
+  ]
   if (fc.clientStatus === "not_active") {
-    and.push({ clientStatus: { in: ["churned", "archived"] } as never })
+    and.push({ OR: [{ clientStatus: "churned" }, ...archivedOr] })
+  } else if (fc.clientStatus === "archived") {
+    and.push({ OR: archivedOr })
   } else if (fc.clientStatus) {
     and.push({ clientStatus: fc.clientStatus as never })
   }

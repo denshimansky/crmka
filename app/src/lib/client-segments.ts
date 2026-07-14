@@ -5,9 +5,9 @@
 //   - Живой абонемент (pending/active)       → группа абонемента в scope
 //   - Активная заявка                        → филиал заявки в scope
 //   - Активный клиент без живого абонемента  → Client.branchId IN scope OR IS NULL
-//   - Выбывший (clientStatus=churned)        → Client.lastBranchId IN scope
+//   - Выбывший (clientStatus=churned)        → lastBranchId IN scope; NULL → по Client.branchId (NULL → видят все)
 //   - Потенциал (funnelStatus=potential)     → последняя заявка в scope; нет заявок → видят все
-//   - Архив (clientStatus=archived)          → lastBranchId IN scope OR IS NULL
+//   - Архив (funnelStatus=archived ИЛИ clientStatus=archived) → lastBranchId IN scope OR IS NULL
 //   - ЧС (funnelStatus=blacklisted)          → lastBranchId IN scope OR IS NULL
 //   - Нецелевой (funnelStatus=non_target)    → видят все
 //
@@ -92,13 +92,22 @@ export function scopeClientByBranch(
           { OR: [{ branchId: branchIn }, { branchId: null }] },
         ],
       },
-      // 5. Выбывший: lastBranchId в scope. Если lastBranchId=NULL — этот
-      //    OR-вариант не сработает, и клиент попадёт под другое правило
-      //    (например, по Client.branchId как «лид» — если у него история
-      //    воронки не успела закрыться) или не попадёт вовсе.
+      // 5. Выбывший: lastBranchId в scope. lastBranchId=NULL значит «абонементов
+      //    не было» (например, ходил на разовые) — тогда видимость определяет
+      //    Client.branchId, а клиент вовсе без филиала виден всем (решение
+      //    владельца 14.07.2026: клиент без филиала не должен быть виден только
+      //    владельцу).
       {
         clientStatus: "churned",
-        lastBranchId: branchIn,
+        OR: [
+          { lastBranchId: branchIn },
+          {
+            AND: [
+              { lastBranchId: null },
+              { OR: [{ branchId: branchIn }, { branchId: null }] },
+            ],
+          },
+        ],
       },
       // 6. Потенциал: последняя заявка в scope-филиалах.
       //    Application.branchId обязательное, поэтому «нет филиала в заявке»
@@ -111,10 +120,16 @@ export function scopeClientByBranch(
           { applications: { none: {} } },
         ],
       },
-      // 7. Архив: lastBranchId в scope; NULL → видят все.
+      // 7. Архив: lastBranchId в scope; NULL → видят все. Архив живёт в
+      //    funnelStatus (перевод в архив ставит funnelStatus=archived и
+      //    ОБНУЛЯЕТ clientStatus — см. movingToArchived в PATCH /api/clients/[id],
+      //    импорт делает так же); clientStatus=archived оставлен для
+      //    совместимости — API его допускает.
       {
-        clientStatus: "archived",
-        OR: [{ lastBranchId: branchIn }, { lastBranchId: null }],
+        AND: [
+          { OR: [{ funnelStatus: "archived" }, { clientStatus: "archived" }] },
+          { OR: [{ lastBranchId: branchIn }, { lastBranchId: null }] },
+        ],
       },
       // 8. Чёрный список: то же правило, что и архив.
       {

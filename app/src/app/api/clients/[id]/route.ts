@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
 import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
 import { z } from "zod"
 
@@ -182,11 +183,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (data.funnelStatus === "archived" || data.funnelStatus === "blacklisted") &&
     data.clientStatus === undefined
 
+  // Архив/ЧС — терминальные состояния: активные заявки клиента выводим из
+  // воронки (иначе они висят в «Продажах» вечно, а по правилу сегментной
+  // видимости «активная заявка» держали бы клиента в списках). Логика та же,
+  // что у «Удалить заявку»: отмена запланированных пробных, аннулирование
+  // чистого pending-абонемента, пересчёт этапа ребёнка.
+  const movingToTerminal =
+    !!data.funnelStatus &&
+    (data.funnelStatus === "archived" || data.funnelStatus === "blacklisted") &&
+    data.funnelStatus !== existing.funnelStatus
+
   // Скидки v2: смена шаблона — триггер пересчёта. Установка типа 2 заменяет
   // выданные тип-1-скидки (оставшиеся занятия), старые без скидки не трогает;
   // снятие («Без скидки») снимает тип-2-скидки и возвращает инвариант типа 1.
   // Update и пересчёт — одна транзакция: при сбое пересчёта выбор шаблона
   // тоже откатывается (нет рассинхрона «шаблон сменён, скидки старые»).
+  const removedApplications: {
+    id: string
+    stage: string
+    cancelledTrials: number
+    deletedSubscriptions: number
+  }[] = []
   const client = await db.$transaction(async (tx) => {
     const updated = await tx.client.update({
       where: { id },
@@ -229,8 +246,48 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         createdBy: session.user.employeeId ?? null,
       })
     }
+
+    if (movingToTerminal) {
+      const activeApps = await tx.application.findMany({
+        where: {
+          tenantId: session.user.tenantId,
+          clientId: id,
+          status: "active",
+          deletedAt: null,
+        },
+        select: { id: true, wardId: true, stage: true },
+      })
+      for (const app of activeApps) {
+        const res = await removeApplicationFromFunnel(tx, {
+          tenantId: session.user.tenantId,
+          applicationId: app.id,
+          wardId: app.wardId,
+          clientId: id,
+          employeeId: session.user.employeeId,
+        })
+        removedApplications.push({ id: app.id, stage: app.stage, ...res })
+      }
+    }
     return updated
   })
+
+  // Аудит массового вывода заявок из воронки — как у ручных путей той же
+  // операции (DELETE /api/applications/[id] и remove-from-funnel).
+  if (removedApplications.length > 0 && session.user.employeeId) {
+    await db.auditLog.create({
+      data: {
+        tenantId: session.user.tenantId,
+        employeeId: session.user.employeeId,
+        action: "update",
+        entityType: "Client",
+        entityId: id,
+        changes: {
+          funnelStatus: { old: existing.funnelStatus, new: data.funnelStatus },
+          applicationsRemovedFromFunnel: removedApplications,
+        },
+      },
+    })
+  }
 
   // Баг #18: если выставили дату связи и она уже наступила — создаём автозадачу
   // «Позвонить» сразу, чтобы она появилась в виджете «Задачи на сегодня», не
@@ -257,9 +314,32 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   })
   if (!existing) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
 
-  await db.client.update({
-    where: { id },
-    data: { deletedAt: new Date() },
+  // Удаление клиента выводит его активные заявки из воронки — иначе они
+  // висят активными в БД (расписание и отчёты без join на клиента продолжали
+  // бы видеть их пробные), а Ward.salesStage застревает на этапе воронки.
+  await db.$transaction(async (tx) => {
+    const activeApps = await tx.application.findMany({
+      where: {
+        tenantId: session.user.tenantId,
+        clientId: id,
+        status: "active",
+        deletedAt: null,
+      },
+      select: { id: true, wardId: true },
+    })
+    for (const app of activeApps) {
+      await removeApplicationFromFunnel(tx, {
+        tenantId: session.user.tenantId,
+        applicationId: app.id,
+        wardId: app.wardId,
+        clientId: id,
+        employeeId: session.user.employeeId,
+      })
+    }
+    await tx.client.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    })
   })
 
   return NextResponse.json({ ok: true })

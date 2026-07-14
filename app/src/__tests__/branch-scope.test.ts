@@ -317,20 +317,34 @@ describe("scopeClientByBranch (сегментная видимость)", () => 
     )
   })
 
-  it("сегмент «архив» — lastBranchId IN OR IS NULL (видят все, если NULL)", () => {
+  // Регрессия: перевод в архив ставит funnelStatus=archived и ОБНУЛЯЕТ
+  // clientStatus (movingToArchived в PATCH /api/clients/[id]) — правило,
+  // смотревшее только на clientStatus=archived, не матчило ни одного
+  // реального архивного клиента, и весь архив был невидим филиальным админам.
+  it("сегмент «архив» — по funnelStatus ИЛИ clientStatus; lastBranchId IN OR IS NULL", () => {
     const scope = branchScopeFromSession([BR_A])
     const result = scopeClientByBranch(scope) as { OR: any[] }
-    const archived = result.OR.find((c) => c.clientStatus === "archived")
+    const archived = result.OR.find((c) =>
+      c.AND?.some((p: any) => p.OR?.some((s: any) => s.funnelStatus === "archived")),
+    )
     assert.ok(archived)
-    assert.ok(archived.OR.some((b: any) => b.lastBranchId === null))
+    const [statusOr, branchOr] = archived.AND
+    assert.ok(statusOr.OR.some((s: any) => s.clientStatus === "archived"))
+    assert.ok(branchOr.OR.some((b: any) => b.lastBranchId === null))
   })
 
-  it("сегмент «выбывший» — lastBranchId строго IN scope (NULL не виден)", () => {
+  // Решение владельца 14.07.2026: выбывший без филиала виден всем, а не только
+  // владельцу. lastBranchId=NULL (абонементов не было — разовые) → фолбэк на
+  // Client.branchId, совсем без филиала → видят все.
+  it("сегмент «выбывший» — lastBranchId IN scope; NULL → по branchId (NULL → все)", () => {
     const scope = branchScopeFromSession([BR_A])
     const result = scopeClientByBranch(scope) as { OR: any[] }
     const churned = result.OR.find((c) => c.clientStatus === "churned")
     assert.ok(churned)
-    // У churned — lastBranchId напрямую in:, без OR с null
-    assert.deepEqual(churned.lastBranchId, { in: [BR_A] })
+    assert.deepEqual(churned.OR[0], { lastBranchId: { in: [BR_A] } })
+    const fallback = churned.OR[1].AND
+    assert.deepEqual(fallback[0], { lastBranchId: null })
+    assert.ok(fallback[1].OR.some((b: any) => b.branchId === null))
+    assert.ok(fallback[1].OR.some((b: any) => Array.isArray(b.branchId?.in)))
   })
 })
