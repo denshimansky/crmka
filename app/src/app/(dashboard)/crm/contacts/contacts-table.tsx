@@ -1,11 +1,18 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useRef, useState } from "react"
-import { useRouter, useSearchParams, usePathname } from "next/navigation"
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react"
+import { useRouter, usePathname } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
-import { Search } from "lucide-react"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select"
+import { ArrowDown, ArrowUp, ArrowUpDown, Search } from "lucide-react"
 import { CreateApplicationDialog } from "../_components/create-application-dialog"
 import { formatWardName } from "@/lib/format-name"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
@@ -134,34 +141,133 @@ function stateLabel(r: ContactRow): string {
   return "Лид"
 }
 
+// Идентификаторы контентных столбцов — общие для сортировки и ресайза.
+type ColId =
+  | "state"
+  | "parent"
+  | "phone"
+  | "social"
+  | "birth"
+  | "wards"
+  | "segment"
+  | "channel"
+  | "branch"
+  | "direction"
+  | "group"
+  | "instructor"
+  | "created"
+  | "nextContact"
+  | "comment"
+  | "assigned"
+
+type SortDir = "asc" | "desc"
+
+// Стартовые ширины (px): table-fixed требует явных ширин, иначе браузер
+// делит место поровну и узкие колонки («Телефон») расползаются.
+const DEFAULT_WIDTHS: Record<ColId, number> = {
+  state: 110,
+  parent: 220,
+  phone: 130,
+  social: 140,
+  birth: 120,
+  wards: 200,
+  segment: 110,
+  channel: 130,
+  branch: 140,
+  direction: 150,
+  group: 150,
+  instructor: 160,
+  created: 120,
+  // 160 = инпут даты (w-[140px]) + паддинги ячейки, иначе правый край клипается
+  nextContact: 160,
+  comment: 220,
+  assigned: 170,
+}
+
+const MIN_COL_WIDTH = 60
+const ALL_VALUE = "__all__"
+
+// Заголовок с сортировкой и ручкой ресайза. Вынесен на модульный уровень:
+// компонент, объявленный внутри ContactsTable, пересоздавался бы как новый
+// тип на каждый рендер — React ремоунтил бы все th (потеря фокуса кнопки
+// сортировки, лишний DOM-черн на каждый mousemove при ресайзе).
+function Th({
+  label,
+  k,
+  width,
+  sortKey,
+  sortDir,
+  onSort,
+  onResizeStart,
+}: {
+  label: string
+  k: ColId
+  width: number
+  sortKey: ColId | null
+  sortDir: SortDir
+  onSort: (k: ColId) => void
+  onResizeStart: (k: ColId, e: ReactMouseEvent) => void
+}) {
+  const active = sortKey === k
+  const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
+  return (
+    <TableHead
+      className="relative overflow-hidden whitespace-nowrap"
+      style={{ width, minWidth: width, maxWidth: width }}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className="inline-flex max-w-full items-center gap-1 overflow-hidden hover:text-foreground"
+        title="Сортировать"
+      >
+        <span className="truncate">{label}</span>
+        <Icon className={`size-3 shrink-0 ${active ? "text-foreground" : "text-muted-foreground/60"}`} />
+      </button>
+      {/* Ручка изменения ширины столбца */}
+      <span
+        onMouseDown={(e) => onResizeStart(k, e)}
+        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize touch-none select-none hover:bg-primary/40"
+        title="Потянуть, чтобы изменить ширину"
+      />
+    </TableHead>
+  )
+}
+
 export function ContactsTable({
   tab,
   rows,
   employees,
   initialQuery = "",
+  branches,
+  branchId,
 }: {
   tab: ContactsTabKey
   rows: ContactRow[]
   employees: EmployeeOption[]
   initialQuery?: string
+  branches: { id: string; name: string }[]
+  branchId: string | null
 }) {
   const roleNames = useRoleNames()
   const router = useRouter()
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const [query, setQuery] = useState(initialQuery)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Debounced sync ввода с URL ?q=… — серверный поиск по всей базе.
+  // Параметры читаются из window.location в момент срабатывания (не из
+  // searchParams рендера): устаревшее замыкание таймера иначе стирало бы
+  // branchId, выбранный в течение 350 мс после набора текста (и наоборот).
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      const params = new URLSearchParams(searchParams.toString())
+      const params = new URLSearchParams(window.location.search)
+      const current = params.toString()
       const trimmed = query.trim()
       if (trimmed) params.set("q", trimmed)
       else params.delete("q")
       const next = params.toString()
-      const current = searchParams.toString()
       if (next !== current) router.replace(`${pathname}?${next}`, { scroll: false })
     }, 350)
     return () => {
@@ -169,6 +275,13 @@ export function ContactsTable({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query])
+
+  function setBranchParam(value: string | null) {
+    const params = new URLSearchParams(window.location.search)
+    if (value) params.set("branchId", value)
+    else params.delete("branchId")
+    router.push(`${pathname}?${params.toString()}`)
+  }
 
   const employeeOptions = useMemo(
     () =>
@@ -179,38 +292,216 @@ export function ContactsTable({
     [employees],
   )
 
-  // Сервер уже отфильтровал по q — клиентский filter не нужен.
-  const visibleRows = rows
+  const employeeLabel = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const o of employeeOptions) m.set(o.value, o.label)
+    return (id: string | null) => (id ? m.get(id) || "" : "")
+  }, [employeeOptions])
 
-  const searchBar = (
-    <div className="relative">
-      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Поиск по ФИО родителя или ребёнка..."
-        className="pl-9"
-      />
+  // --- Сортировка (как в «Продажах»): клик — asc, второй — desc, третий —
+  // сброс; хранится в sessionStorage per-вкладка, чтобы не соскакивала при
+  // уходе в карточку клиента и обратно.
+  const [sortKey, setSortKey] = useState<ColId | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>("asc")
+  const sortStorageKey = `contacts-sort:${tab}`
+  const skipNextSave = useRef(true)
+  useEffect(() => {
+    let key: ColId | null = null
+    let dir: SortDir = "asc"
+    try {
+      const raw = sessionStorage.getItem(sortStorageKey)
+      if (raw) {
+        const s = JSON.parse(raw) as { key?: ColId | null; dir?: SortDir }
+        if (s?.key) {
+          key = s.key
+          dir = s.dir === "desc" ? "desc" : "asc"
+        }
+      }
+    } catch {
+      /* приватный режим / недоступный storage — игнорируем */
+    }
+    setSortKey(key)
+    setSortDir(dir)
+    skipNextSave.current = true
+  }, [sortStorageKey])
+  useEffect(() => {
+    if (skipNextSave.current) {
+      skipNextSave.current = false
+      return
+    }
+    try {
+      if (sortKey) sessionStorage.setItem(sortStorageKey, JSON.stringify({ key: sortKey, dir: sortDir }))
+      else sessionStorage.removeItem(sortStorageKey)
+    } catch {
+      /* недоступный storage — игнорируем */
+    }
+  }, [sortStorageKey, sortKey, sortDir])
+
+  function toggleSort(key: ColId) {
+    if (sortKey !== key) {
+      setSortKey(key)
+      setSortDir("asc")
+    } else if (sortDir === "asc") {
+      setSortDir("desc")
+    } else {
+      setSortKey(null)
+    }
+  }
+
+  /** Сравнимое значение для сортировки. Даты → ISO-строка (естественный
+   *  порядок), остальное → строка в нижнем регистре. Пустые — в конец. */
+  function sortValue(r: ContactRow, key: ColId): string {
+    switch (key) {
+      case "state":
+        return stateLabel(r).toLowerCase()
+      case "parent":
+        return fullName(r).toLowerCase()
+      case "phone":
+        return (r.phone || "").toLowerCase()
+      case "social":
+        return (r.socialLink || "").toLowerCase()
+      case "birth":
+        return r.wards.find((w) => w.birthDate)?.birthDate || ""
+      case "wards":
+        return wardsLabel(r.wards) === "—" ? "" : wardsLabel(r.wards).toLowerCase()
+      case "segment":
+        return (SEGMENT_LABELS[r.segment] || "").toLowerCase()
+      case "channel":
+        return (r.channelName || "").toLowerCase()
+      case "branch":
+        return (r.branchName || "").toLowerCase()
+      case "direction":
+        return (r.activeSubscription?.directionName || "").toLowerCase()
+      case "group":
+        return (r.activeSubscription?.groupName || "").toLowerCase()
+      case "instructor":
+        return r.activeSubscription?.instructor.name === "—"
+          ? ""
+          : (r.activeSubscription?.instructor.name || "").toLowerCase()
+      case "created":
+        return r.createdAt || ""
+      case "nextContact":
+        return r.nextContactDate || ""
+      case "comment":
+        return (r.comment || "").toLowerCase()
+      case "assigned":
+        return employeeLabel(r.assignedTo).toLowerCase()
+    }
+  }
+
+  // Сервер уже отфильтровал по q и филиалу — здесь только сортировка.
+  const visibleRows = useMemo(() => {
+    if (!sortKey) return rows
+    const sign = sortDir === "asc" ? 1 : -1
+    const copy = [...rows]
+    copy.sort((a, b) => {
+      const va = sortValue(a, sortKey)
+      const vb = sortValue(b, sortKey)
+      // Пустые в конец независимо от направления
+      const ae = va === ""
+      const be = vb === ""
+      if (ae && !be) return 1
+      if (!ae && be) return -1
+      if (va === vb) return 0
+      return va.localeCompare(vb, "ru") * sign
+    })
+    return copy
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, sortKey, sortDir, employeeLabel])
+
+  // --- Ширина столбцов: тянется за ручку на правом крае заголовка,
+  // хранится в localStorage per-вкладка. table-fixed + overflow-hidden на
+  // ячейках обрезают невлезающий текст.
+  const [colWidths, setColWidths] = useState<Record<string, number>>({})
+  const widthStorageKey = `contacts-colw:${tab}`
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(widthStorageKey)
+      setColWidths(raw ? (JSON.parse(raw) as Record<string, number>) : {})
+    } catch {
+      setColWidths({})
+    }
+  }, [widthStorageKey])
+  const widthOf = (id: ColId) => colWidths[id] ?? DEFAULT_WIDTHS[id]
+  const colWidthsRef = useRef(colWidths)
+  colWidthsRef.current = colWidths
+
+  function startResize(id: ColId, e: ReactMouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startW = widthOf(id)
+    function onMove(ev: MouseEvent) {
+      const w = Math.max(MIN_COL_WIDTH, startW + (ev.clientX - startX))
+      setColWidths((prev) => ({ ...prev, [id]: w }))
+    }
+    function onUp(ev: MouseEvent) {
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+      // Финальная ширина считается из координаты mouseup, а не из ref:
+      // setState из mousemove может ещё не отрендериться (и не попасть в ref)
+      // к моменту отпускания — иначе при быстром драге сохранится устаревшая.
+      const w = Math.max(MIN_COL_WIDTH, startW + (ev.clientX - startX))
+      try {
+        localStorage.setItem(
+          widthStorageKey,
+          JSON.stringify({ ...colWidthsRef.current, [id]: w }),
+        )
+      } catch {
+        /* недоступный storage — игнорируем */
+      }
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
+
+  const thProps = { sortKey, sortDir, onSort: toggleSort, onResizeStart: startResize }
+
+  const filterBar = (
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="relative min-w-[240px] flex-1">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск по ФИО родителя или ребёнка..."
+          className="pl-9"
+        />
+      </div>
+      {branches.length > 1 && (
+        <div className="space-y-1">
+          <Label className="text-xs">Филиал</Label>
+          <Select
+            value={branchId || ALL_VALUE}
+            onValueChange={(v) => setBranchParam(v === ALL_VALUE ? null : v)}
+          >
+            <SelectTrigger className="w-[200px]">
+              {branchId ? branches.find((b) => b.id === branchId)?.name || "—" : "Все филиалы"}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_VALUE}>Все филиалы</SelectItem>
+              {branches.map((b) => (
+                <SelectItem key={b.id} value={b.id}>
+                  {b.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
     </div>
   )
 
   if (rows.length === 0) {
     return (
       <>
-        {searchBar}
+        {filterBar}
         <div className="flex items-center justify-center rounded-lg border bg-card p-12 text-sm text-muted-foreground">
-          В этой категории пока пусто
-        </div>
-      </>
-    )
-  }
-
-  if (visibleRows.length === 0) {
-    return (
-      <>
-        {searchBar}
-        <div className="flex items-center justify-center rounded-lg border bg-card p-12 text-sm text-muted-foreground">
-          Никто не найден по запросу «{query}»
+          {query
+            ? `Никто не найден по запросу «${query}»`
+            : branchId
+              ? "В выбранном филиале никого нет — выберите другой или «Все филиалы»"
+              : "В этой категории пока пусто"}
         </div>
       </>
     )
@@ -218,40 +509,42 @@ export function ContactsTable({
 
   return (
     <>
-    {searchBar}
+    {filterBar}
     <StickyHScroll className="rounded-lg border bg-card">
-      <Table>
+      <Table className="table-fixed [&_td]:overflow-hidden [&_td]:text-ellipsis [&_td]:whitespace-nowrap">
         <TableHeader>
           <TableRow>
             {tab === "leads" && <TableHead className="w-[40px]"></TableHead>}
             {tab === "potential" && <TableHead className="w-[40px]"></TableHead>}
-            {tab === "all" && <TableHead>Состояние</TableHead>}
-            <TableHead>ФИО родителя</TableHead>
-            <TableHead>Телефон</TableHead>
-            <TableHead>Соцсети</TableHead>
+            {tab === "all" && <Th label="Состояние" k="state" width={widthOf("state")} {...thProps} />}
+            <Th label="ФИО родителя" k="parent" width={widthOf("parent")} {...thProps} />
+            <Th label="Телефон" k="phone" width={widthOf("phone")} {...thProps} />
+            <Th label="Соцсети" k="social" width={widthOf("social")} {...thProps} />
             {(tab === "churned" || tab === "archived" || tab === "blacklist") && (
-              <TableHead>Дата рождения</TableHead>
+              <Th label="Дата рождения" k="birth" width={widthOf("birth")} {...thProps} />
             )}
             {(tab === "leads" ||
               tab === "potential" ||
               tab === "nontarget" ||
               tab === "active" ||
-              tab === "all") && <TableHead>Дети</TableHead>}
-            {tab === "active" && <TableHead>Сегмент</TableHead>}
-            {tab === "leads" && <TableHead>Канал</TableHead>}
-            <TableHead>Филиал</TableHead>
-            {tab === "active" && <TableHead>Направление</TableHead>}
-            {tab === "active" && <TableHead>Группа</TableHead>}
-            {tab === "active" && <TableHead>{roleNames.instructor}</TableHead>}
-            {tab === "leads" && <TableHead>Дата создания</TableHead>}
+              tab === "all") && <Th label="Дети" k="wards" width={widthOf("wards")} {...thProps} />}
+            {tab === "active" && <Th label="Сегмент" k="segment" width={widthOf("segment")} {...thProps} />}
+            {tab === "leads" && <Th label="Канал" k="channel" width={widthOf("channel")} {...thProps} />}
+            <Th label="Филиал" k="branch" width={widthOf("branch")} {...thProps} />
+            {tab === "active" && <Th label="Направление" k="direction" width={widthOf("direction")} {...thProps} />}
+            {tab === "active" && <Th label="Группа" k="group" width={widthOf("group")} {...thProps} />}
+            {tab === "active" && (
+              <Th label={roleNames.instructor} k="instructor" width={widthOf("instructor")} {...thProps} />
+            )}
+            {tab === "leads" && <Th label="Дата создания" k="created" width={widthOf("created")} {...thProps} />}
             {(tab === "leads" || tab === "potential" || tab === "active" || tab === "churned") && (
-              <TableHead>След. связь</TableHead>
+              <Th label="След. связь" k="nextContact" width={widthOf("nextContact")} {...thProps} />
             )}
             {(tab === "leads" || tab === "potential" || tab === "nontarget" || tab === "active" || tab === "all") && (
-              <TableHead>Комментарий</TableHead>
+              <Th label="Комментарий" k="comment" width={widthOf("comment")} {...thProps} />
             )}
             {(tab === "leads" || tab === "potential" || tab === "nontarget" || tab === "active") && (
-              <TableHead>Ответственный</TableHead>
+              <Th label="Ответственный" k="assigned" width={widthOf("assigned")} {...thProps} />
             )}
             {(tab === "active" || tab === "churned") && <TableHead className="w-[40px]"></TableHead>}
           </TableRow>
@@ -266,21 +559,29 @@ export function ContactsTable({
               )}
               {tab === "all" && <TableCell className="text-xs">{stateLabel(r)}</TableCell>}
               <TableCell>
-                <Link href={`/crm/clients/${r.id}`} className="font-medium hover:underline">
-                  {fullName(r)}
-                </Link>
-                {r.topSalesStage && (() => {
-                  const b = SALES_STAGE_BADGE[r.topSalesStage]
-                  return (
-                    <Link
-                      href={b.href}
-                      title={b.title}
-                      className={`ml-2 inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${b.className}`}
-                    >
-                      {b.label}
-                    </Link>
-                  )
-                })()}
+                {/* Бадж стадии — actionable-индикатор: он не должен клипаться
+                    при узкой колонке, обрезается ФИО (flex + shrink-0). */}
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <Link
+                    href={`/crm/clients/${r.id}`}
+                    className="truncate font-medium hover:underline"
+                    title={fullName(r)}
+                  >
+                    {fullName(r)}
+                  </Link>
+                  {r.topSalesStage && (() => {
+                    const b = SALES_STAGE_BADGE[r.topSalesStage]
+                    return (
+                      <Link
+                        href={b.href}
+                        title={b.title}
+                        className={`inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${b.className}`}
+                      >
+                        {b.label}
+                      </Link>
+                    )
+                  })()}
+                </div>
               </TableCell>
               <TableCell className="text-sm">{r.phone || "—"}</TableCell>
               <TableCell className="text-sm">
@@ -289,7 +590,7 @@ export function ContactsTable({
                     href={r.socialLink}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-primary hover:underline truncate max-w-[140px] inline-block"
+                    className="text-primary hover:underline"
                   >
                     {r.socialLink}
                   </a>
@@ -305,7 +606,7 @@ export function ContactsTable({
                 tab === "nontarget" ||
                 tab === "active" ||
                 tab === "all") && (
-                <TableCell className="text-sm max-w-[200px] truncate">{wardsLabel(r.wards)}</TableCell>
+                <TableCell className="text-sm" title={wardsLabel(r.wards)}>{wardsLabel(r.wards)}</TableCell>
               )}
               {tab === "active" && <TableCell className="text-xs">{SEGMENT_LABELS[r.segment] || "—"}</TableCell>}
               {tab === "leads" && <TableCell className="text-sm">{r.channelName || "—"}</TableCell>}

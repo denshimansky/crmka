@@ -9,7 +9,7 @@ import { CreateClientDialog } from "../clients/create-client-dialog"
 import { ContactsTabs, type ContactsTab } from "./contacts-tabs"
 import { ContactsTable, type ContactRow, type ContactsTabKey } from "./contacts-table"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
-import { scopeBranch, type BranchScope } from "@/lib/branch-scope"
+import { scopeBranch, isUnscoped, type BranchScope } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import {
   computeSegment,
@@ -69,10 +69,33 @@ const NO_ACTIVE_APP: Prisma.ClientWhereInput = {
   applications: { none: { status: "active", deletedAt: null } },
 }
 
+// Фильтр по филиалу зеркалит колонку «Филиал» таблицы: филиал клиента →
+// филиал группы действующего абонемента → филиал последнего абонемента
+// (lastBranchId — когда активного абонемента нет).
+function branchColumnWhere(branchId: string): Prisma.ClientWhereInput {
+  return {
+    OR: [
+      { branchId },
+      {
+        branchId: null,
+        subscriptions: {
+          some: { status: "active", deletedAt: null, group: { branchId } },
+        },
+      },
+      {
+        branchId: null,
+        subscriptions: { none: { status: "active", deletedAt: null } },
+        lastBranchId: branchId,
+      },
+    ],
+  }
+}
+
 function buildWhere(
   tab: ContactsTabKey,
   tenantId: string,
   scope: BranchScope,
+  branchFilter: string | null,
 ): Prisma.ClientWhereInput {
   const base: Prisma.ClientWhereInput = { tenantId, deletedAt: null }
   if (tab === "leads") {
@@ -105,34 +128,41 @@ function buildWhere(
   // ADM-04: сегментный scope (см. client-segments.ts) — клиент попадает в
   // выборку только если хотя бы одно из правил видимости по его статусу
   // совпадает с филиалами сессии.
+  const parts: Prisma.ClientWhereInput[] = [base]
   const segmentScope = scopeClientByBranch(scope)
-  if (Object.keys(segmentScope).length > 0) {
-    return { AND: [base, segmentScope] }
-  }
-  return base
+  if (Object.keys(segmentScope).length > 0) parts.push(segmentScope)
+  if (branchFilter) parts.push(branchColumnWhere(branchFilter))
+  return parts.length > 1 ? { AND: parts } : base
 }
 
 async function countTab(
   tab: ContactsTabKey,
   tenantId: string,
   scope: BranchScope,
+  branchFilter: string | null,
 ): Promise<number> {
-  return db.client.count({ where: buildWhere(tab, tenantId, scope) })
+  return db.client.count({ where: buildWhere(tab, tenantId, scope, branchFilter) })
 }
 
 export default async function ContactsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; q?: string }>
+  searchParams: Promise<{ tab?: string; q?: string; branchId?: string }>
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
-  const { tab: rawTab, q: rawQ } = await searchParams
+  const { tab: rawTab, q: rawQ, branchId: rawBranchId } = await searchParams
   const tab: ContactsTabKey = TAB_ORDER.includes(rawTab as ContactsTabKey)
     ? (rawTab as ContactsTabKey)
     : "leads"
   const query = (rawQ ?? "").trim()
+  // ADM-04: явный фильтр по филиалу из URL пересекается с серверным scope.
+  const rawBranch = rawBranchId && rawBranchId !== "all" ? rawBranchId : null
+  const branchFilter =
+    rawBranch && (isUnscoped(scope) || scope.branchIds.includes(rawBranch))
+      ? rawBranch
+      : null
 
   const role = session.user.role
 
@@ -147,13 +177,13 @@ export default async function ContactsPage({
       select: { id: true, firstName: true, lastName: true },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
-    ...TAB_ORDER.map((t) => countTab(t, tenantId, scope)),
+    ...TAB_ORDER.map((t) => countTab(t, tenantId, scope, branchFilter)),
   ])
 
   const counts = new Map<ContactsTabKey, number>()
   TAB_ORDER.forEach((t, i) => counts.set(t, countsArr[i] as number))
 
-  const baseWhere = buildWhere(tab, tenantId, scope)
+  const baseWhere = buildWhere(tab, tenantId, scope, branchFilter)
   let where: Prisma.ClientWhereInput = baseWhere
   if (query) {
     // Поиск-по-токенам: каждое слово запроса должно совпасть с одним из полей
@@ -188,9 +218,12 @@ export default async function ContactsPage({
       wards: true,
       branch: { select: { id: true, name: true } },
       channel: { select: { id: true, name: true } },
+      // Все активные абонементы: колонки направления/группы/педагога берут
+      // самый свежий ([0]), а колонка «Филиал» и фильтр по филиалу должны
+      // видеть ВСЕ филиалы активных абонементов — иначе клиент с детьми в
+      // двух филиалах при фильтре по «старшему» выглядел бы как баг фильтра.
       subscriptions: {
         where: { status: "active", deletedAt: null },
-        take: 1,
         orderBy: { startDate: "desc" },
         include: {
           direction: { select: { id: true, name: true } },
@@ -205,8 +238,11 @@ export default async function ContactsPage({
         },
       },
     },
+    // Как в «Продажах»: грузим фактически всю вкладку — клиентская сортировка
+    // по заголовкам должна сортировать весь список, а не первые N строк
+    // серверного порядка (у крупных тенантов вкладка «Все» — 3000+ строк).
     orderBy: [{ nextContactDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
-    take: 200,
+    take: 10000,
   })
 
   // Сегмент клиента считается лениво из настроек (Organization.segmentationConfig).
@@ -276,11 +312,13 @@ export default async function ContactsPage({
       socialLink: c.socialLink,
       segment,
       channelName: c.channel?.name ?? null,
-      // Филиал строки: свой филиал клиента → филиал группы активного
-      // абонемента → филиал последнего абонемента (выбывшие/архив).
+      // Филиал строки: свой филиал клиента → филиалы ВСЕХ активных
+      // абонементов (через запятую — зеркалит фильтр по филиалу) → филиал
+      // последнего абонемента (выбывшие/архив).
       branchName:
         c.branch?.name ??
-        sub?.group?.branch?.name ??
+        ([...new Set(c.subscriptions.map((s) => s.group?.branch?.name).filter(Boolean))].join(", ") ||
+          null) ??
         (c.lastBranchId ? branchNames.get(c.lastBranchId) ?? null : null),
       funnelStatus: c.funnelStatus,
       clientStatus: c.clientStatus,
@@ -331,7 +369,14 @@ export default async function ContactsPage({
 
       <ContactsTabs tabs={tabs} current={tab} />
 
-      <ContactsTable tab={tab} rows={rows} employees={employees} initialQuery={query} />
+      <ContactsTable
+        tab={tab}
+        rows={rows}
+        employees={employees}
+        initialQuery={query}
+        branches={branches}
+        branchId={branchFilter}
+      />
     </div>
   )
 }
