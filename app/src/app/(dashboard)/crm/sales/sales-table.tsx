@@ -1,10 +1,15 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react"
 import { useRouter } from "next/navigation"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
+import {
+  ResizableHead,
+  RESIZABLE_TABLE_CLASS,
+  useColumnWidths,
+} from "@/components/resizable-columns"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -170,6 +175,67 @@ type SortKey =
   | "assigned"
 
 type SortDir = "asc" | "desc"
+
+// Столбцы для ресайза = сортируемые + несортируемые «Соцсети».
+type ColId = SortKey | "social"
+
+// Стартовые ширины столбцов (px): table-fixed требует явных ширин; даты с
+// инпутом (EditableDateCell w-[140px]) получают 160, чтобы не клипался край.
+const DEFAULT_WIDTHS: Record<ColId, number> = {
+  state: 105,
+  confirmed: 100,
+  parent: 220,
+  phone: 130,
+  channel: 130,
+  nextContact: 160,
+  ward: 180,
+  scheduled: 150,
+  branch: 140,
+  direction: 150,
+  group: 150,
+  createdAt: 120,
+  firstPaid: 160,
+  expected: 170,
+  comment: 220,
+  assigned: 170,
+  social: 140,
+}
+
+// Заголовок с сортировкой и ручкой ресайза (модульный уровень — см.
+// комментарий у Th в contacts-table: иначе ремоунт th на каждый рендер).
+function SortableHead({
+  label,
+  k,
+  width,
+  sortKey,
+  sortDir,
+  onSort,
+  onResizeStart,
+}: {
+  label: string
+  k: SortKey
+  width: number
+  sortKey: SortKey | null
+  sortDir: SortDir
+  onSort: (k: SortKey) => void
+  onResizeStart: (k: string, e: ReactMouseEvent) => void
+}) {
+  const active = sortKey === k
+  const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
+  return (
+    <ResizableHead id={k} width={width} onResizeStart={onResizeStart}>
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className="inline-flex max-w-full items-center gap-1 overflow-hidden hover:text-foreground"
+        title="Сортировать"
+      >
+        <span className="truncate">{label}</span>
+        <Icon className={`size-3 shrink-0 ${active ? "text-foreground" : "text-muted-foreground/60"}`} />
+      </button>
+    </ResizableHead>
+  )
+}
 
 export function SalesTable({
   tab,
@@ -356,23 +422,10 @@ export function SalesTable({
     return ts < nowTs
   }
 
-  function SortableHead({ label, sortKey: k, className }: { label: string; sortKey: SortKey; className?: string }) {
-    const active = sortKey === k
-    const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
-    return (
-      <TableHead className={className}>
-        <button
-          type="button"
-          onClick={() => toggleSort(k)}
-          className="inline-flex items-center gap-1 hover:text-foreground"
-          title="Сортировать"
-        >
-          <span>{label}</span>
-          <Icon className={`size-3 ${active ? "text-foreground" : "text-muted-foreground/60"}`} />
-        </button>
-      </TableHead>
-    )
-  }
+  // Ширина столбцов: полоска-ручка на правом крае заголовка, localStorage
+  // per-вкладка (общий модуль resizable-columns).
+  const { widthOf, startResize } = useColumnWidths(`sales-colw:${tab}`, DEFAULT_WIDTHS)
+  const thProps = { sortKey, sortDir, onSort: toggleSort, onResizeStart: startResize }
 
   // Фильтры по филиалу и направлению — на всех вкладках Продаж (баг #48).
   // Счётчики в табах пересчитываются на сервере с учётом этих фильтров (баг #46).
@@ -452,37 +505,43 @@ export function SalesTable({
     <>
       {searchBar}
       <StickyHScroll className="rounded-lg border bg-card">
-        <Table>
+        <Table className={RESIZABLE_TABLE_CLASS}>
           <TableHeader>
             <TableRow>
-              <SortableHead label="Состояние" sortKey="state" />
+              <SortableHead label="Состояние" k="state" width={widthOf("state")} {...thProps} />
               {tab === "trial" && (
-                <SortableHead label="Подтвердил" sortKey="confirmed" className="w-[90px]" />
+                <SortableHead label="Подтвердил" k="confirmed" width={widthOf("confirmed")} {...thProps} />
               )}
               {tab === "application" && <TableHead className="w-[40px]"></TableHead>}
-              <SortableHead label="ФИО родителя" sortKey="parent" />
-              <SortableHead label="Телефон" sortKey="phone" />
+              <SortableHead label="ФИО родителя" k="parent" width={widthOf("parent")} {...thProps} />
+              <SortableHead label="Телефон" k="phone" width={widthOf("phone")} {...thProps} />
               {(tab === "trial_done" || tab === "awaiting_payment") && (
-                <SortableHead label="Дата 1-го платного" sortKey="firstPaid" />
+                <SortableHead label="Дата 1-го платного" k="firstPaid" width={widthOf("firstPaid")} {...thProps} />
               )}
-              {tab === "application" && <SortableHead label="Канал" sortKey="channel" />}
-              {tab === "application" && <SortableHead label="След. связь" sortKey="nextContact" />}
-              <SortableHead label="Ребёнок" sortKey="ward" />
+              {tab === "application" && <SortableHead label="Канал" k="channel" width={widthOf("channel")} {...thProps} />}
+              {tab === "application" && (
+                <SortableHead label="След. связь" k="nextContact" width={widthOf("nextContact")} {...thProps} />
+              )}
+              <SortableHead label="Ребёнок" k="ward" width={widthOf("ward")} {...thProps} />
               {(tab === "trial" || tab === "trial_done" || tab === "awaiting_payment") && (
-                <SortableHead label="Дата пробного" sortKey="scheduled" />
+                <SortableHead label="Дата пробного" k="scheduled" width={widthOf("scheduled")} {...thProps} />
               )}
-              <SortableHead label="Филиал" sortKey="branch" />
-              <SortableHead label="Направление" sortKey="direction" />
+              <SortableHead label="Филиал" k="branch" width={widthOf("branch")} {...thProps} />
+              <SortableHead label="Направление" k="direction" width={widthOf("direction")} {...thProps} />
               {(tab === "trial" || tab === "trial_done" || tab === "awaiting_payment") && (
-                <SortableHead label="Группа" sortKey="group" />
+                <SortableHead label="Группа" k="group" width={widthOf("group")} {...thProps} />
               )}
-              {tab === "application" && <SortableHead label="Создана" sortKey="createdAt" />}
-              <TableHead>Соцсети</TableHead>
+              {tab === "application" && (
+                <SortableHead label="Создана" k="createdAt" width={widthOf("createdAt")} {...thProps} />
+              )}
+              <ResizableHead id="social" width={widthOf("social")} onResizeStart={startResize}>
+                Соцсети
+              </ResizableHead>
               {tab === "awaiting_payment" && (
-                <SortableHead label="Стоимость абонемента" sortKey="expected" />
+                <SortableHead label="Стоимость абонемента" k="expected" width={widthOf("expected")} {...thProps} />
               )}
-              <SortableHead label="Комментарий" sortKey="comment" />
-              <SortableHead label="Ответственный" sortKey="assigned" />
+              <SortableHead label="Комментарий" k="comment" width={widthOf("comment")} {...thProps} />
+              <SortableHead label="Ответственный" k="assigned" width={widthOf("assigned")} {...thProps} />
             </TableRow>
           </TableHeader>
           <TableBody>

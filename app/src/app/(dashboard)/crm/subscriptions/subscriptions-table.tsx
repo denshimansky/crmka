@@ -5,8 +5,13 @@ import { useEffect, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table, TableBody, TableCell, TableHeader, TableRow,
 } from "@/components/ui/table"
+import {
+  ResizableHead,
+  RESIZABLE_TABLE_CLASS,
+  useColumnWidths,
+} from "@/components/resizable-columns"
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@/components/ui/select"
@@ -42,6 +47,18 @@ export interface SubscriptionRow {
 interface DictItem {
   id: string
   name: string
+}
+
+// Стартовые ширины столбцов (px) для ресайза (см. resizable-columns).
+const DEFAULT_WIDTHS: Record<string, number> = {
+  ward: 220,
+  direction: 150,
+  branch: 140,
+  group: 160,
+  amount: 140,
+  paid: 130,
+  period: 180,
+  discount: 150,
 }
 
 function fmtDate(iso: string): string {
@@ -88,6 +105,9 @@ export function SubscriptionsTable({
 
   const [query, setQuery] = useState(initialQuery)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Ширина столбцов: полоска-ручка на правом крае заголовка, localStorage
+  // (общий модуль resizable-columns; столбцы всех вкладок одинаковые).
+  const { widthOf, startResize } = useColumnWidths("subscriptions-colw", DEFAULT_WIDTHS)
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -212,28 +232,42 @@ export function SubscriptionsTable({
         </div>
       ) : (
         <StickyHScroll className="rounded-lg border bg-card">
-          <Table>
+          <Table className={RESIZABLE_TABLE_CLASS}>
             <TableHeader>
               <TableRow>
-                <TableHead>ФИО ребёнка</TableHead>
-                <TableHead>Направление</TableHead>
-                <TableHead>Филиал</TableHead>
-                <TableHead>Группа</TableHead>
-                <TableHead className="text-right">Сумма к оплате</TableHead>
-                <TableHead className="text-right">Оплачено</TableHead>
-                <TableHead>
+                <ResizableHead id="ward" width={widthOf("ward")} onResizeStart={startResize}>
+                  ФИО ребёнка
+                </ResizableHead>
+                <ResizableHead id="direction" width={widthOf("direction")} onResizeStart={startResize}>
+                  Направление
+                </ResizableHead>
+                <ResizableHead id="branch" width={widthOf("branch")} onResizeStart={startResize}>
+                  Филиал
+                </ResizableHead>
+                <ResizableHead id="group" width={widthOf("group")} onResizeStart={startResize}>
+                  Группа
+                </ResizableHead>
+                <ResizableHead id="amount" width={widthOf("amount")} onResizeStart={startResize} className="text-right">
+                  Сумма к оплате
+                </ResizableHead>
+                <ResizableHead id="paid" width={widthOf("paid")} onResizeStart={startResize} className="text-right">
+                  Оплачено
+                </ResizableHead>
+                <ResizableHead id="period" width={widthOf("period")} onResizeStart={startResize}>
                   <button
                     type="button"
                     onClick={toggleSortByPeriod}
-                    className="inline-flex items-center gap-1 hover:text-foreground"
+                    className="inline-flex max-w-full items-center gap-1 overflow-hidden hover:text-foreground"
                   >
                     Срок
                     {initialSort === "asc"
-                      ? <ArrowUp className="size-3" />
-                      : <ArrowDown className="size-3" />}
+                      ? <ArrowUp className="size-3 shrink-0" />
+                      : <ArrowDown className="size-3 shrink-0" />}
                   </button>
-                </TableHead>
-                <TableHead>Скидка</TableHead>
+                </ResizableHead>
+                <ResizableHead id="discount" width={widthOf("discount")} onResizeStart={startResize}>
+                  Скидка
+                </ResizableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

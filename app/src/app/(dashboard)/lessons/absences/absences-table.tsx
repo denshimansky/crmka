@@ -13,8 +13,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
+import {
+  ResizableHead,
+  RESIZABLE_TABLE_CLASS,
+  useColumnWidths,
+} from "@/components/resizable-columns"
 import { RefreshCw, Loader2 } from "lucide-react"
 import { useRoleNames } from "@/components/role-names-provider"
 import type { AbsenceGroupRow, AbsenceDetail, EditableAttendanceType } from "./page"
@@ -26,6 +31,20 @@ const UNMARKED_VALUE = "__unmarked__"
 interface FilterOption {
   id: string
   name: string
+}
+
+// Стартовые ширины столбцов (px) для ресайза (см. resizable-columns).
+const DEFAULT_WIDTHS: Record<string, number> = {
+  branch: 140,
+  name: 220,
+  direction: 150,
+  segment: 120,
+  instructor: 160,
+  count: 110,
+  date: 120,
+  dayKind: 170,
+  balance: 120,
+  comment: 240,
 }
 
 interface AbsencesViewProps {
@@ -92,6 +111,9 @@ export function AbsencesView({
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const editable = canEdit && attendanceTypes.length > 0
+  // Ширина столбцов: полоска-ручка на правом крае заголовка, localStorage
+  // (общий модуль resizable-columns; столбцы обеих вкладок одинаковые).
+  const { widthOf, startResize } = useColumnWidths("absences-colw", DEFAULT_WIDTHS)
 
   // Сменить «Вид дня». typeId=null — сброс отметки (только если она уже есть).
   // POST/DELETE используют тот же эндпоинт и бизнес-логику, что и карточка занятия
@@ -358,19 +380,39 @@ export function AbsencesView({
       {/* Таблица */}
       {rows.length > 0 && (
         <StickyHScroll className="rounded-md border">
-          <Table>
+          <Table className={RESIZABLE_TABLE_CLASS}>
             <TableHeader>
               <TableRow>
-                <TableHead>Филиал</TableHead>
-                <TableHead>ФИО</TableHead>
-                <TableHead>Направление</TableHead>
-                <TableHead>Сегмент</TableHead>
-                <TableHead>{roleNames.instructor}</TableHead>
-                <TableHead className="text-center">Кол.занятий</TableHead>
-                <TableHead>Дата</TableHead>
-                <TableHead>Вид дня</TableHead>
-                <TableHead className="text-right">Баланс</TableHead>
-                <TableHead>Комментарий</TableHead>
+                <ResizableHead id="branch" width={widthOf("branch")} onResizeStart={startResize}>
+                  Филиал
+                </ResizableHead>
+                <ResizableHead id="name" width={widthOf("name")} onResizeStart={startResize}>
+                  ФИО
+                </ResizableHead>
+                <ResizableHead id="direction" width={widthOf("direction")} onResizeStart={startResize}>
+                  Направление
+                </ResizableHead>
+                <ResizableHead id="segment" width={widthOf("segment")} onResizeStart={startResize}>
+                  Сегмент
+                </ResizableHead>
+                <ResizableHead id="instructor" width={widthOf("instructor")} onResizeStart={startResize}>
+                  {roleNames.instructor}
+                </ResizableHead>
+                <ResizableHead id="count" width={widthOf("count")} onResizeStart={startResize} className="text-center">
+                  Кол.занятий
+                </ResizableHead>
+                <ResizableHead id="date" width={widthOf("date")} onResizeStart={startResize}>
+                  Дата
+                </ResizableHead>
+                <ResizableHead id="dayKind" width={widthOf("dayKind")} onResizeStart={startResize}>
+                  Вид дня
+                </ResizableHead>
+                <ResizableHead id="balance" width={widthOf("balance")} onResizeStart={startResize} className="text-right">
+                  Баланс
+                </ResizableHead>
+                <ResizableHead id="comment" width={widthOf("comment")} onResizeStart={startResize}>
+                  Комментарий
+                </ResizableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

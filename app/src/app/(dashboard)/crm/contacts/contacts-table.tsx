@@ -13,6 +13,11 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { ArrowDown, ArrowUp, ArrowUpDown, Search } from "lucide-react"
+import {
+  ResizableHead,
+  RESIZABLE_TABLE_CLASS,
+  useColumnWidths,
+} from "@/components/resizable-columns"
 import { CreateApplicationDialog } from "../_components/create-application-dialog"
 import { formatWardName } from "@/lib/format-name"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
@@ -184,7 +189,6 @@ const DEFAULT_WIDTHS: Record<ColId, number> = {
   assigned: 170,
 }
 
-const MIN_COL_WIDTH = 60
 const ALL_VALUE = "__all__"
 
 // Заголовок с сортировкой и ручкой ресайза. Вынесен на модульный уровень:
@@ -206,15 +210,12 @@ function Th({
   sortKey: ColId | null
   sortDir: SortDir
   onSort: (k: ColId) => void
-  onResizeStart: (k: ColId, e: ReactMouseEvent) => void
+  onResizeStart: (id: string, e: ReactMouseEvent) => void
 }) {
   const active = sortKey === k
   const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
   return (
-    <TableHead
-      className="relative overflow-hidden whitespace-nowrap"
-      style={{ width, minWidth: width, maxWidth: width }}
-    >
+    <ResizableHead id={k} width={width} onResizeStart={onResizeStart}>
       <button
         type="button"
         onClick={() => onSort(k)}
@@ -224,13 +225,7 @@ function Th({
         <span className="truncate">{label}</span>
         <Icon className={`size-3 shrink-0 ${active ? "text-foreground" : "text-muted-foreground/60"}`} />
       </button>
-      {/* Ручка изменения ширины столбца */}
-      <span
-        onMouseDown={(e) => onResizeStart(k, e)}
-        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize touch-none select-none hover:bg-primary/40"
-        title="Потянуть, чтобы изменить ширину"
-      />
-    </TableHead>
+    </ResizableHead>
   )
 }
 
@@ -409,51 +404,9 @@ export function ContactsTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, sortKey, sortDir, employeeLabel])
 
-  // --- Ширина столбцов: тянется за ручку на правом крае заголовка,
-  // хранится в localStorage per-вкладка. table-fixed + overflow-hidden на
-  // ячейках обрезают невлезающий текст.
-  const [colWidths, setColWidths] = useState<Record<string, number>>({})
-  const widthStorageKey = `contacts-colw:${tab}`
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(widthStorageKey)
-      setColWidths(raw ? (JSON.parse(raw) as Record<string, number>) : {})
-    } catch {
-      setColWidths({})
-    }
-  }, [widthStorageKey])
-  const widthOf = (id: ColId) => colWidths[id] ?? DEFAULT_WIDTHS[id]
-  const colWidthsRef = useRef(colWidths)
-  colWidthsRef.current = colWidths
-
-  function startResize(id: ColId, e: ReactMouseEvent) {
-    e.preventDefault()
-    e.stopPropagation()
-    const startX = e.clientX
-    const startW = widthOf(id)
-    function onMove(ev: MouseEvent) {
-      const w = Math.max(MIN_COL_WIDTH, startW + (ev.clientX - startX))
-      setColWidths((prev) => ({ ...prev, [id]: w }))
-    }
-    function onUp(ev: MouseEvent) {
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-      // Финальная ширина считается из координаты mouseup, а не из ref:
-      // setState из mousemove может ещё не отрендериться (и не попасть в ref)
-      // к моменту отпускания — иначе при быстром драге сохранится устаревшая.
-      const w = Math.max(MIN_COL_WIDTH, startW + (ev.clientX - startX))
-      try {
-        localStorage.setItem(
-          widthStorageKey,
-          JSON.stringify({ ...colWidthsRef.current, [id]: w }),
-        )
-      } catch {
-        /* недоступный storage — игнорируем */
-      }
-    }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
-  }
+  // --- Ширина столбцов: тянется за полоску на правом крае заголовка,
+  // хранится в localStorage per-вкладка (общий модуль resizable-columns).
+  const { widthOf, startResize } = useColumnWidths(`contacts-colw:${tab}`, DEFAULT_WIDTHS)
 
   const thProps = { sortKey, sortDir, onSort: toggleSort, onResizeStart: startResize }
 
@@ -511,7 +464,7 @@ export function ContactsTable({
     <>
     {filterBar}
     <StickyHScroll className="rounded-lg border bg-card">
-      <Table className="table-fixed [&_td]:overflow-hidden [&_td]:text-ellipsis [&_td]:whitespace-nowrap">
+      <Table className={RESIZABLE_TABLE_CLASS}>
         <TableHeader>
           <TableRow>
             {tab === "leads" && <TableHead className="w-[40px]"></TableHead>}

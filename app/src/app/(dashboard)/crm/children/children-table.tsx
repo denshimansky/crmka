@@ -6,12 +6,16 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
+import {
+  ResizableHead,
+  RESIZABLE_TABLE_CLASS,
+  useColumnWidths,
+} from "@/components/resizable-columns"
 import { Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 import { EditableTextCell } from "../_components/editable-cell"
 import { formatWardName as fmtWardName } from "@/lib/format-name"
@@ -42,6 +46,18 @@ export interface ChildRow {
 export interface BranchOption {
   id: string
   name: string
+}
+
+// Стартовые ширины столбцов (px) для ресайза (см. resizable-columns).
+const DEFAULT_WIDTHS: Record<string, number> = {
+  state: 130,
+  child: 220,
+  parent: 200,
+  phone: 140,
+  age: 100,
+  birthDate: 140,
+  branch: 160,
+  comment: 240,
 }
 
 const STATE_LABEL: Record<ChildState, string> = {
@@ -215,26 +231,30 @@ export function ChildrenTable({
   }, [filtered, sortKey, sortDir])
 
   function sortIcon(key: SortKey) {
-    if (sortKey !== key) return <ArrowUpDown className="size-3 text-muted-foreground/50" />
+    if (sortKey !== key) return <ArrowUpDown className="size-3 shrink-0 text-muted-foreground/50" />
     return sortDir === "asc" ? (
-      <ArrowUp className="size-3" />
+      <ArrowUp className="size-3 shrink-0" />
     ) : (
-      <ArrowDown className="size-3" />
+      <ArrowDown className="size-3 shrink-0" />
     )
   }
 
-  function sortableHead(key: SortKey, label: string, extraClass = "") {
+  // Ширина столбцов: полоска-ручка на правом крае заголовка, localStorage
+  // (общий модуль resizable-columns).
+  const { widthOf, startResize } = useColumnWidths("children-colw", DEFAULT_WIDTHS)
+
+  function sortableHead(key: SortKey, label: string) {
     return (
-      <TableHead className={extraClass}>
+      <ResizableHead id={key} width={widthOf(key)} onResizeStart={startResize}>
         <button
           type="button"
           onClick={() => setSort(key)}
-          className="inline-flex items-center gap-1 hover:text-foreground"
+          className="inline-flex max-w-full items-center gap-1 overflow-hidden hover:text-foreground"
         >
-          {label}
+          <span className="truncate">{label}</span>
           {sortIcon(key)}
         </button>
-      </TableHead>
+      </ResizableHead>
     )
   }
 
@@ -347,7 +367,7 @@ export function ChildrenTable({
         </div>
       ) : (
         <StickyHScroll className="rounded-lg border bg-card">
-          <Table>
+          <Table className={RESIZABLE_TABLE_CLASS}>
             <TableHeader>
               <TableRow>
                 {sortableHead("state", "Состояние")}
@@ -357,7 +377,9 @@ export function ChildrenTable({
                 {sortableHead("age", "Возраст")}
                 {sortableHead("birthDate", "Дата рождения")}
                 {sortableHead("branch", "Филиал посещения")}
-                <TableHead>Комментарий</TableHead>
+                <ResizableHead id="comment" width={widthOf("comment")} onResizeStart={startResize}>
+                  Комментарий
+                </ResizableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
