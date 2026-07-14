@@ -460,7 +460,7 @@ export default async function DebtorsPage({
                         initialValue={r.comment}
                         endpoint={{ url: `/api/clients/${r.id}`, field: "comment" }}
                         rows={1}
-                        className="min-h-[32px] w-[200px] resize-none text-xs"
+                        className="min-h-[32px] max-h-[50px] w-[200px] resize-none overflow-y-auto text-xs"
                       />
                     ) : (
                       <span className="text-xs text-muted-foreground">{r.comment || "—"}</span>

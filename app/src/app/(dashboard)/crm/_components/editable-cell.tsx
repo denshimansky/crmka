@@ -122,7 +122,10 @@ export function EditableTextCell({
       disabled={disabled || saving}
       rows={rows}
       placeholder={placeholder}
-      className={className ?? "text-xs min-h-[36px] w-[200px] resize-none"}
+      // max-h ограничивает авторост textarea (field-sizing-content) двумя
+      // строками — длинный комментарий скроллится внутри ячейки, не раздувая
+      // строку таблицы.
+      className={className ?? "text-xs min-h-[36px] max-h-[50px] w-[200px] resize-none overflow-y-auto"}
     />
   )
 }
