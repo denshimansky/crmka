@@ -193,6 +193,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })),
       startDate: group.startDate,
       endDate: group.endDate,
+      createdBy: session.user.employeeId ?? null,
     })
   }
 

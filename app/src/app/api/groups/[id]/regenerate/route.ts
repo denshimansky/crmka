@@ -50,12 +50,14 @@ export async function POST(
     })),
     rangeStart,
     rangeEnd,
+    createdBy: session.user.employeeId ?? null,
   })
 
   return NextResponse.json({
     created: result.created,
     skipped: result.skippedNonWorking,
     skippedDates: result.skippedDates,
+    subscriptionsUpdated: result.subscriptionsUpdated,
     rangeStart: rangeStart.toISOString().slice(0, 10),
     rangeEnd: rangeEnd.toISOString().slice(0, 10),
   })

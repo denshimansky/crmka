@@ -3,6 +3,7 @@ import { z } from "zod"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { getNonWorkingDateSet } from "@/lib/production-calendar"
+import { recalcSubscriptionsOnScheduleChange } from "@/lib/subscriptions/recalc-on-schedule-change"
 
 const generateSchema = z.object({
   month: z.number().min(1, "Месяц от 1 до 12").max(12, "Месяц от 1 до 12"),
@@ -129,13 +130,29 @@ export async function POST(
 
   await db.lesson.createMany({ data: lessonsToCreate })
 
+  // Живые календарные абонементы месяца получают +N занятий и долг на ту же
+  // сумму — расписание изменилось после выписки.
+  const recalc = await recalcSubscriptionsOnScheduleChange(db, {
+    tenantId,
+    groupId: id,
+    addedDates: lessonsToCreate.map((l) => l.date),
+    removedDates: [],
+    createdBy: session.user.employeeId ?? null,
+  })
+
+  const baseMessage =
+    skippedDates.length > 0
+      ? `Создано ${lessonsToCreate.length} занятий, пропущено ${skippedDates.length} нерабочих дней`
+      : `Создано ${lessonsToCreate.length} занятий`
+
   return NextResponse.json({
     created: lessonsToCreate.length,
     skipped: skippedDates.length,
     skippedDates,
+    subscriptionsUpdated: recalc.updated,
     message:
-      skippedDates.length > 0
-        ? `Создано ${lessonsToCreate.length} занятий, пропущено ${skippedDates.length} нерабочих дней`
-        : `Создано ${lessonsToCreate.length} занятий`,
+      recalc.updated > 0
+        ? `${baseMessage}. Пересчитано абонементов: ${recalc.updated}`
+        : baseMessage,
   })
 }

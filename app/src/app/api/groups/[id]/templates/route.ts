@@ -114,6 +114,7 @@ export async function PUT(
           })),
           rangeStart,
           rangeEnd,
+          createdBy: session.user.employeeId ?? null,
         })
       : { created: 0, deleted: 0, skippedNonWorking: 0, skippedDates: [] }
 

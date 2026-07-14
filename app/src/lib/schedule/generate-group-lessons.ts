@@ -1,5 +1,6 @@
 import { db } from "@/lib/db"
 import { getNonWorkingDateSet } from "@/lib/production-calendar"
+import { recalcSubscriptionsOnScheduleChange } from "@/lib/subscriptions/recalc-on-schedule-change"
 
 /**
  * День года в формате YYYY-MM-DD без учёта таймзоны (используем локальную дату).
@@ -31,6 +32,11 @@ interface BaseOptions {
   templates: ScheduleTemplate[]
   rangeStart: Date // inclusive
   rangeEnd: Date // inclusive
+  /** Автор изменения — для истории скидок при пересчёте абонементов. */
+  createdBy?: string | null
+  /** Внутренний флаг regenerate*-обёрток: пересчёт абонементов делает обёртка
+   * одной дельтой (созданные + удалённые), а не по частям. */
+  skipSubscriptionRecalc?: boolean
 }
 
 interface GenerationResult {
@@ -38,6 +44,10 @@ interface GenerationResult {
   deleted: number
   skippedNonWorking: number
   skippedDates: string[]
+  /** Даты созданных занятий — для дельта-пересчёта абонементов. */
+  createdDates: Date[]
+  /** Сколько абонементов пересчитано (totalLessons/деньги). */
+  subscriptionsUpdated: number
 }
 
 /**
@@ -54,7 +64,14 @@ export async function generateGroupLessons(
     opts
 
   if (templates.length === 0) {
-    return { created: 0, deleted: 0, skippedNonWorking: 0, skippedDates: [] }
+    return {
+      created: 0,
+      deleted: 0,
+      skippedNonWorking: 0,
+      skippedDates: [],
+      createdDates: [],
+      subscriptionsUpdated: 0,
+    }
   }
 
   // Существующие занятия в диапазоне — чтобы не создавать дубли
@@ -122,11 +139,29 @@ export async function generateGroupLessons(
     await db.lesson.createMany({ data: toCreate })
   }
 
+  const createdDates = toCreate.map((l) => l.date)
+
+  // Живые календарные абонементы группы получают +N занятий в своём диапазоне
+  // (и долг на ту же сумму). При создании группы абонементов ещё нет — no-op.
+  let subscriptionsUpdated = 0
+  if (!opts.skipSubscriptionRecalc && createdDates.length > 0) {
+    const recalc = await recalcSubscriptionsOnScheduleChange(db, {
+      tenantId,
+      groupId,
+      addedDates: createdDates,
+      removedDates: [],
+      createdBy: opts.createdBy ?? null,
+    })
+    subscriptionsUpdated = recalc.updated
+  }
+
   return {
     created: toCreate.length,
     deleted: 0,
     skippedNonWorking: skipped.size,
     skippedDates: Array.from(skipped),
+    createdDates,
+    subscriptionsUpdated,
   }
 }
 
@@ -169,6 +204,7 @@ export async function regenerateGroupSchedule(
       id: true,
       date: true,
       startTime: true,
+      status: true,
       attendances: { select: { id: true }, take: 1 },
     },
   })
@@ -179,6 +215,10 @@ export async function regenerateGroupSchedule(
   )
 
   const toDelete: string[] = []
+  // Даты удаляемых занятий для пересчёта абонементов. Отменённые не в счёт:
+  // они не декрементили totalLessons при отмене (вариант A) — их физическое
+  // удаление дельту не даёт.
+  const removedDates: Date[] = []
   const surviving = new Set<string>()
 
   for (const l of futureLessons) {
@@ -191,6 +231,7 @@ export async function regenerateGroupSchedule(
     // Удалить можно только если нет посещений
     if (l.attendances.length === 0) {
       toDelete.push(l.id)
+      if (l.status !== "cancelled") removedDates.push(l.date)
     } else {
       // Сохраняем как есть — не трогаем уже отмеченное
       surviving.add(`${ymd(l.date)}_${l.startTime}`)
@@ -212,6 +253,16 @@ export async function regenerateGroupSchedule(
     templates,
     rangeStart: effectiveStart,
     rangeEnd,
+    skipSubscriptionRecalc: true,
+  })
+
+  // Пересчёт абонементов одной дельтой: созданные и удалённые вместе.
+  const recalc = await recalcSubscriptionsOnScheduleChange(db, {
+    tenantId,
+    groupId,
+    addedDates: created.createdDates,
+    removedDates,
+    createdBy: opts.createdBy ?? null,
   })
 
   return {
@@ -219,6 +270,8 @@ export async function regenerateGroupSchedule(
     deleted: toDelete.length,
     skippedNonWorking: created.skippedNonWorking,
     skippedDates: created.skippedDates,
+    createdDates: created.createdDates,
+    subscriptionsUpdated: recalc.updated,
   }
 }
 
@@ -245,6 +298,7 @@ export async function regenerateOnDateChange(opts: {
   templates: ScheduleTemplate[]
   startDate: Date | null
   endDate: Date | null
+  createdBy?: string | null
 }): Promise<GenerationResult> {
   const { tenantId, groupId, instructorId, templates, startDate, endDate } = opts
 
@@ -259,6 +313,7 @@ export async function regenerateOnDateChange(opts: {
       id: true,
       date: true,
       startTime: true,
+      status: true,
       attendances: { select: { id: true }, take: 1 },
     },
   })
@@ -268,6 +323,9 @@ export async function regenerateOnDateChange(opts: {
   )
 
   const toDelete: string[] = []
+  // Даты удаляемых занятий для пересчёта абонементов (отменённые не в счёт —
+  // они не декрементили totalLessons при отмене, вариант A).
+  const removedDates: Date[] = []
 
   for (const l of allLessons) {
     const lessonDay = new Date(l.date)
@@ -277,12 +335,18 @@ export async function regenerateOnDateChange(opts: {
     const tooLate = endBound !== null && lessonDay > endBound
 
     if (tooEarly || tooLate) {
-      if (!hasAttendance) toDelete.push(l.id)
+      if (!hasAttendance) {
+        toDelete.push(l.id)
+        if (l.status !== "cancelled") removedDates.push(l.date)
+      }
       continue
     }
     const tDay = jsDayToTemplateDay(l.date.getDay())
     if (allowed.has(`${tDay}_${l.startTime}`)) continue
-    if (!hasAttendance) toDelete.push(l.id)
+    if (!hasAttendance) {
+      toDelete.push(l.id)
+      if (l.status !== "cancelled") removedDates.push(l.date)
+    }
   }
 
   if (toDelete.length > 0) {
@@ -290,7 +354,21 @@ export async function regenerateOnDateChange(opts: {
   }
 
   if (templates.length === 0) {
-    return { created: 0, deleted: toDelete.length, skippedNonWorking: 0, skippedDates: [] }
+    const recalc = await recalcSubscriptionsOnScheduleChange(db, {
+      tenantId,
+      groupId,
+      addedDates: [],
+      removedDates,
+      createdBy: opts.createdBy ?? null,
+    })
+    return {
+      created: 0,
+      deleted: toDelete.length,
+      skippedNonWorking: 0,
+      skippedDates: [],
+      createdDates: [],
+      subscriptionsUpdated: recalc.updated,
+    }
   }
 
   const { rangeStart, rangeEnd } = getGenerationRange(startDate, endDate)
@@ -301,6 +379,16 @@ export async function regenerateOnDateChange(opts: {
     templates,
     rangeStart,
     rangeEnd,
+    skipSubscriptionRecalc: true,
+  })
+
+  // Пересчёт абонементов одной дельтой: созданные и удалённые вместе.
+  const recalc = await recalcSubscriptionsOnScheduleChange(db, {
+    tenantId,
+    groupId,
+    addedDates: created.createdDates,
+    removedDates,
+    createdBy: opts.createdBy ?? null,
   })
 
   return {
@@ -308,6 +396,8 @@ export async function regenerateOnDateChange(opts: {
     deleted: toDelete.length,
     skippedNonWorking: created.skippedNonWorking,
     skippedDates: created.skippedDates,
+    createdDates: created.createdDates,
+    subscriptionsUpdated: recalc.updated,
   }
 }
 

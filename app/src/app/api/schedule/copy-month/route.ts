@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { getNonWorkingDateSet } from "@/lib/production-calendar"
+import { recalcSubscriptionsOnScheduleChange } from "@/lib/subscriptions/recalc-on-schedule-change"
 
 const copySchema = z.object({
   sourceMonth: z.string().regex(/^\d{4}-\d{2}$/, "Формат: YYYY-MM"),
@@ -137,8 +138,34 @@ export async function POST(req: NextRequest) {
     data: lessonsToCreate,
   })
 
+  // Пересчёт живых календарных абонементов целевого месяца по каждой группе:
+  // если абонементы на месяц уже выписаны, добавленные занятия увеличивают
+  // totalLessons/сумму (и вешают долг).
+  const datesByGroup = new Map<string, Date[]>()
+  for (const l of lessonsToCreate) {
+    const dates = datesByGroup.get(l.groupId) ?? []
+    dates.push(l.date)
+    datesByGroup.set(l.groupId, dates)
+  }
+  let subscriptionsUpdated = 0
+  for (const [groupId, addedDates] of datesByGroup) {
+    const recalc = await recalcSubscriptionsOnScheduleChange(db, {
+      tenantId,
+      groupId,
+      addedDates,
+      removedDates: [],
+      createdBy: session.user.employeeId ?? null,
+    })
+    subscriptionsUpdated += recalc.updated
+  }
+
   return NextResponse.json(
-    { created: result.count, skipped: skippedDates.length, skippedDates },
+    {
+      created: result.count,
+      skipped: skippedDates.length,
+      skippedDates,
+      subscriptionsUpdated,
+    },
     { status: 201 },
   )
 }

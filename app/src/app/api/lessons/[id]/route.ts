@@ -671,6 +671,8 @@ export async function DELETE(
     select: {
       id: true,
       date: true,
+      groupId: true,
+      status: true,
       _count: {
         select: {
           // Реальные отметки блокируют удаление. Placeholder (isPending=true)
@@ -715,6 +717,23 @@ export async function DELETE(
   })
 
   await db.lesson.delete({ where: { id } })
+
+  // Живые календарные абонементы периода теряют одно занятие — уменьшаем
+  // totalLessons/сумму (переплата вернётся на баланс родителя через reprice).
+  // Отменённое занятие дельту не даёт: отмена не декрементила totalLessons
+  // (вариант A), удаление её записи денег не меняет.
+  if (lesson.status !== "cancelled") {
+    const { recalcSubscriptionsOnScheduleChange } = await import(
+      "@/lib/subscriptions/recalc-on-schedule-change"
+    )
+    await recalcSubscriptionsOnScheduleChange(db, {
+      tenantId,
+      groupId: lesson.groupId,
+      addedDates: [],
+      removedDates: [new Date(lesson.date)],
+      createdBy: employeeId ?? null,
+    })
+  }
 
   return NextResponse.json({ ok: true })
 }
