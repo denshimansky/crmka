@@ -212,17 +212,22 @@ ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
 
     // Лог диалога — сырьё для аудита качества ответов и пополнения FAQ
     // в ai-context.ts (выборка через SQL, UI нет). Сбой записи не должен
-    // ломать ответ пользователю.
+    // ломать ответ пользователю. logId возвращается клиенту — по нему
+    // кнопки «полезно/не помогло» пишут оценку через /api/ai/feedback.
+    let logId: string | null = null
     try {
-      await db.aiChatLog.create({
+      const log = await db.aiChatLog.create({
         data: { tenantId, userName, userRole: role, provider, model, message, reply },
+        select: { id: true },
       })
+      logId = log.id
     } catch (logErr) {
       console.error("[ai/chat] Log write error:", logErr)
     }
 
     return NextResponse.json({
       reply,
+      logId,
       remaining: DAILY_LIMIT - currentUsage - 1,
     })
   } catch (err) {

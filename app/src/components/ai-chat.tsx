@@ -1,11 +1,13 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Sparkles, X, Send, Loader2 } from "lucide-react"
+import { Sparkles, X, Send, Loader2, ThumbsUp, ThumbsDown } from "lucide-react"
 
 interface Message {
   role: "user" | "assistant"
   content: string
+  logId?: string | null // id записи ai_chat_logs — по нему уходит оценка
+  feedback?: "like" | "dislike" | null
 }
 
 const SUGGESTIONS = [
@@ -64,7 +66,7 @@ export function AiChat() {
       if (data.error) {
         setMessages(prev => [...prev, { role: "assistant", content: data.error }])
       } else {
-        setMessages(prev => [...prev, { role: "assistant", content: data.reply }])
+        setMessages(prev => [...prev, { role: "assistant", content: data.reply, logId: data.logId ?? null }])
       }
 
       if (data.remaining !== undefined) {
@@ -79,6 +81,20 @@ export function AiChat() {
       setLoading(false)
     }
   }, [messages, loading])
+
+  // Лайк/дизлайк ответа: повторный клик снимает оценку. Оптимистично —
+  // ошибку сети не показываем, оценка не критична для диалога.
+  const rateMessage = useCallback((index: number, value: "like" | "dislike") => {
+    const msg = messages[index]
+    if (!msg?.logId) return
+    const next = msg.feedback === value ? null : value
+    setMessages(prev => prev.map((m, i) => (i === index ? { ...m, feedback: next } : m)))
+    fetch("/api/ai/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ logId: msg.logId, feedback: next }),
+    }).catch(() => {})
+  }, [messages])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -144,7 +160,7 @@ export function AiChat() {
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
               >
                 <div
                   className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${
@@ -155,6 +171,30 @@ export function AiChat() {
                 >
                   {msg.content}
                 </div>
+                {msg.role === "assistant" && msg.logId && (
+                  <div className="mt-1 flex items-center gap-0.5 pl-1">
+                    <button
+                      onClick={() => rateMessage(i, "like")}
+                      title="Ответ полезен"
+                      aria-label="Ответ полезен"
+                      className={`rounded p-1 transition-colors hover:bg-muted ${
+                        msg.feedback === "like" ? "text-primary" : "text-muted-foreground/60"
+                      }`}
+                    >
+                      <ThumbsUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => rateMessage(i, "dislike")}
+                      title="Ответ не помог"
+                      aria-label="Ответ не помог"
+                      className={`rounded p-1 transition-colors hover:bg-muted ${
+                        msg.feedback === "dislike" ? "text-destructive" : "text-muted-foreground/60"
+                      }`}
+                    >
+                      <ThumbsDown className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
 

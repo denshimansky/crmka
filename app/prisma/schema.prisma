@@ -1185,6 +1185,7 @@ model AiChatLog {
   model     String
   message   String
   reply     String
+  feedback  String? // "like" | "dislike" | null — оценка ответа пользователем
   createdAt DateTime @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [tenantId], references: [id])
