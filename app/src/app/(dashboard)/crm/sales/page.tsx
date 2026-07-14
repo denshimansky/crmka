@@ -8,7 +8,7 @@ import { CreateApplicationDialog } from "../_components/create-application-dialo
 import { SalesTabs, type SalesTab } from "./sales-tabs"
 import { SalesTable, type SalesRow, type SalesTabKey } from "./sales-table"
 import { ContactTable, type ContactRow } from "./contact-table"
-import { scopeBranch, type BranchScope, isUnscoped } from "@/lib/branch-scope"
+import { scopeBranch, scopeApplication, type BranchScope, isUnscoped } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 
 // Раздел «Продажи» = 4 этапа воронки заявок + вкладка «Связь» (клиенты с
@@ -61,7 +61,9 @@ function appFunnelWhere(
     deletedAt: null,
     stage,
     client: notArchivedClient(scope),
-    ...(branchFilter ? { branchId: branchFilter } : {}),
+    // ADM-04: без явного фильтра заявки ограничены филиалами scope (у заявки
+    // branchId обязательный). Явный фильтр из URL уже пересечён со scope выше.
+    ...(branchFilter ? { branchId: branchFilter } : scopeApplication(scope)),
     ...(directionFilter ? { directionId: directionFilter } : {}),
   }
 }
@@ -148,7 +150,7 @@ export default async function SalesPage({
     }),
     // Список клиентов для диалога «Создать заявку» (поиск по подстроке на клиенте).
     db.client.findMany({
-      where: notArchivedClient(scope),
+      where: { tenantId, ...notArchivedClient(scope) },
       select: { id: true, firstName: true, lastName: true },
       orderBy: { lastName: "asc" },
       take: 10000,

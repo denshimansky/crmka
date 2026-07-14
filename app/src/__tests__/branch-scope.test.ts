@@ -216,17 +216,19 @@ describe("scopeClientByBranch (сегментная видимость)", () => 
     assert.deepEqual(scopeClientByBranch(scope), {})
   })
 
-  it("limited → OR из 7 сегментов", () => {
+  it("limited → OR из 9 сегментов", () => {
     const scope = branchScopeFromSession([BR_A])
     const result = scopeClientByBranch(scope) as { OR: object[] }
     // 1. Лид + branchId(IN OR NULL)
     // 2. Живой абонемент (pending/active) + subscriptions.some
-    // 3. Выбывший + lastBranchId
-    // 4. Потенциал + applications
-    // 5. Архив + lastBranchId(IN OR NULL)
-    // 6. ЧС + lastBranchId(IN OR NULL)
-    // 7. Нецелевой (без ограничения)
-    assert.equal(result.OR.length, 7)
+    // 3. Активная заявка в scope-филиале
+    // 4. Активный клиент без живого абонемента + branchId(IN OR NULL)
+    // 5. Выбывший + lastBranchId
+    // 6. Потенциал + applications
+    // 7. Архив + lastBranchId(IN OR NULL)
+    // 8. ЧС + lastBranchId(IN OR NULL)
+    // 9. Нецелевой (без ограничения)
+    assert.equal(result.OR.length, 9)
   })
 
   it("сегмент «нецелевой» — без branch-условия", () => {
@@ -271,6 +273,48 @@ describe("scopeClientByBranch (сегментная видимость)", () => 
     })
     assert.deepEqual(withSub.subscriptions.some.group, { branchId: { in: [BR_A] } })
     assert.equal("clientStatus" in withSub, false)
+  })
+
+  // Регрессия (баг Фирова, 14.07.2026): уже купивший клиент (active_client),
+  // который привёл ребёнка на новое направление, пропадал из «Продаж» и «Связи»
+  // у админа своего филиала — правило «лид» требует лидовый funnelStatus,
+  // правило «живой абонемент» — pending/active-абонемент, которого у клиента
+  // с разовыми посещениями нет вовсе.
+  it("сегмент «активная заявка» — заявка scope-филиала видна, кроме архива/ЧС", () => {
+    const scope = branchScopeFromSession([BR_A])
+    const result = scopeClientByBranch(scope) as { OR: any[] }
+    const withApp = result.OR.find((c) => c.applications?.some?.status === "active")
+    assert.ok(withApp)
+    assert.deepEqual(withApp.applications.some.branchId, { in: [BR_A] })
+    assert.equal(withApp.applications.some.deletedAt, null)
+    // Архив/ЧС исключены: зависшая заявка не должна давать вечную видимость
+    // в обход правил архива и чёрного списка.
+    assert.deepEqual(withApp.funnelStatus, { notIn: ["archived", "blacklisted"] })
+    // По clientStatus правило не ограничивает: выбывший с открытой заявкой
+    // в моём филиале — рабочий набор (возврат в процессе).
+    assert.equal("clientStatus" in withApp, false)
+  })
+
+  it("сегмент «активный клиент без живого абонемента» — branchId IN OR IS NULL", () => {
+    const scope = branchScopeFromSession([BR_A])
+    const result = scopeClientByBranch(scope) as { OR: any[] }
+    const activeNoSub = result.OR.find((c) => c.funnelStatus === "active_client")
+    assert.ok(activeNoSub)
+    // Ровно «нет живого абонемента» — иначе клиент виден по филиалу группы.
+    assert.deepEqual(activeNoSub.subscriptions.none.status, {
+      in: ["pending", "active"],
+    })
+    const [statusOr, branchOr] = activeNoSub.AND
+    // Работающие клиенты: clientStatus active ИЛИ NULL (API не гарантирует
+    // пару funnelStatus/clientStatus); выбывшими управляет правило 5.
+    assert.ok(statusOr.OR.some((s: any) => s.clientStatus === "active"))
+    assert.ok(statusOr.OR.some((s: any) => s.clientStatus === null))
+    assert.ok(branchOr.OR.some((b: any) => b.branchId === null))
+    assert.ok(
+      branchOr.OR.some((b: any) => {
+        return b.branchId && typeof b.branchId === "object" && Array.isArray(b.branchId.in)
+      }),
+    )
   })
 
   it("сегмент «архив» — lastBranchId IN OR IS NULL (видят все, если NULL)", () => {

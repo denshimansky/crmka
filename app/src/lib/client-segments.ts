@@ -3,6 +3,8 @@
 // Правила (от продукта):
 //   - Лид (funnelStatus до первой оплаты)    → Client.branchId IN scope OR IS NULL
 //   - Живой абонемент (pending/active)       → группа абонемента в scope
+//   - Активная заявка                        → филиал заявки в scope
+//   - Активный клиент без живого абонемента  → Client.branchId IN scope OR IS NULL
 //   - Выбывший (clientStatus=churned)        → Client.lastBranchId IN scope
 //   - Потенциал (funnelStatus=potential)     → последняя заявка в scope; нет заявок → видят все
 //   - Архив (clientStatus=archived)          → lastBranchId IN scope OR IS NULL
@@ -61,7 +63,36 @@ export function scopeClientByBranch(
           },
         },
       },
-      // 3. Выбывший: lastBranchId в scope. Если lastBranchId=NULL — этот
+      // 3. Активная заявка в scope-филиале: воронка «Продаж» этого филиала —
+      //    рабочий набор его админа независимо от статуса родителя. Без этого
+      //    правила уже купивший клиент (active_client), который привёл ребёнка
+      //    на новое направление, пропадал из «Продаж» у админа филиала: правило 1
+      //    требует лидовый funnelStatus, правило 2 — живой абонемент (а у
+      //    клиента с разовыми посещениями его нет вовсе). Архив/ЧС исключены:
+      //    перевод в архив заявки не закрывает, и зависшая заявка ранних этапов
+      //    иначе давала бы вечную видимость в обход правил 7–8.
+      {
+        funnelStatus: { notIn: ["archived", "blacklisted"] },
+        applications: {
+          some: { status: "active", deletedAt: null, branchId: branchIn },
+        },
+      },
+      // 4. Активный клиент без живого абонемента (например, ходит на разовые
+      //    посещения): якоря «группа абонемента» нет — видимость по
+      //    Client.branchId, как у лида (NULL → видят все). Выбывшие сюда не
+      //    попадают (clientStatus=churned управляется правилом 5); NULL
+      //    допущен, потому что API не гарантирует пару funnelStatus/clientStatus.
+      {
+        funnelStatus: "active_client",
+        subscriptions: {
+          none: { status: { in: ["pending", "active"] }, deletedAt: null },
+        },
+        AND: [
+          { OR: [{ clientStatus: "active" }, { clientStatus: null }] },
+          { OR: [{ branchId: branchIn }, { branchId: null }] },
+        ],
+      },
+      // 5. Выбывший: lastBranchId в scope. Если lastBranchId=NULL — этот
       //    OR-вариант не сработает, и клиент попадёт под другое правило
       //    (например, по Client.branchId как «лид» — если у него история
       //    воронки не успела закрыться) или не попадёт вовсе.
@@ -69,7 +100,7 @@ export function scopeClientByBranch(
         clientStatus: "churned",
         lastBranchId: branchIn,
       },
-      // 4. Потенциал: последняя заявка в scope-филиалах.
+      // 6. Потенциал: последняя заявка в scope-филиалах.
       //    Application.branchId обязательное, поэтому «нет филиала в заявке»
       //    не бывает; правило «если в заявке не было филиала, то все видят»
       //    переинтерпретировано как «если у клиента нет заявок — видят все».
@@ -80,17 +111,17 @@ export function scopeClientByBranch(
           { applications: { none: {} } },
         ],
       },
-      // 5. Архив: lastBranchId в scope; NULL → видят все.
+      // 7. Архив: lastBranchId в scope; NULL → видят все.
       {
         clientStatus: "archived",
         OR: [{ lastBranchId: branchIn }, { lastBranchId: null }],
       },
-      // 6. Чёрный список: то же правило, что и архив.
+      // 8. Чёрный список: то же правило, что и архив.
       {
         funnelStatus: "blacklisted",
         OR: [{ lastBranchId: branchIn }, { lastBranchId: null }],
       },
-      // 7. Нецелевой: видят все, без ограничений по филиалу.
+      // 9. Нецелевой: видят все, без ограничений по филиалу.
       { funnelStatus: "non_target" },
     ],
   }

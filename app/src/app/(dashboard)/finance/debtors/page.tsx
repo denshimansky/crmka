@@ -45,26 +45,32 @@ export default async function DebtorsPage({
   //   - ИЛИ есть не-отчисленный абонемент с накоплёнными списаниями (chargedAmount>0) —
   //     кандидат в фактический долг (он мог уже оплатить часть, но списано больше).
   // Дальше отфильтруем уже в JS по выбранному tab'у.
+  // Кандидаты и clientScope оба строятся на OR — объединяем через AND, иначе
+  // spread перезаписал бы ключ OR и фильтр кандидатов долга терялся бы.
   const candidates = await db.client.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      OR: [
+      AND: [
         {
-          subscriptions: {
-            some: {
-              deletedAt: null,
-              status: { not: "withdrawn" },
-              OR: [{ balance: { gt: 0 } }, { chargedAmount: { gt: 0 } }],
+          OR: [
+            {
+              subscriptions: {
+                some: {
+                  deletedAt: null,
+                  status: { not: "withdrawn" },
+                  OR: [{ balance: { gt: 0 } }, { chargedAmount: { gt: 0 } }],
+                },
+              },
             },
-          },
+            // Отрицательный баланс клиента, не привязанный к абонементу: разовые
+            // посещения без оплаты (обе вкладки) и перенесённый/импортный долг
+            // (только «Фактический»).
+            { clientBalance: { lt: 0 } },
+          ],
         },
-        // Отрицательный баланс клиента, не привязанный к абонементу: разовые
-        // посещения без оплаты (обе вкладки) и перенесённый/импортный долг
-        // (только «Фактический»).
-        { clientBalance: { lt: 0 } },
+        ...(Object.keys(clientScope).length > 0 ? [clientScope] : []),
       ],
-      ...(Object.keys(clientScope).length > 0 ? clientScope : {}),
     },
     select: {
       id: true,
