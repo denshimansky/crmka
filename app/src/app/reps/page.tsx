@@ -225,7 +225,7 @@ const modules: Module[] = [
         id: "CRM-33 / CALL-05",
         name: "Эффективность обзвонов",
         data: [
-          { what: "Кампания обзвона: название, период, ответственный", from: "Диалог «Новая кампания» в /crm/calls (CreateCampaignDialog), фильтры по статусу/сегменту" },
+          { what: "Кампания обзвона: название, период, ответственный", from: "Диалоги «Обзвон по базам» / «Обзвон по задачам» в /crm/calls (create-campaign-dialog), фильтры по этапу воронки/статусу" },
           { what: "Звонок в кампании: статус, результат", from: "Карточка кампании /crm/calls/[id] — компонент call-item-row (Select результата, поле комментария)" },
         ],
         formula: "Всего = COUNT(items). Отработано = COUNT(WHERE status != pending). Назначено пробных = COUNT(WHERE result = trial_scheduled). Продажи = COUNT(WHERE result = sale). Не дозвонились = COUNT(WHERE result = no_answer). Отказы = COUNT(WHERE result = refused)",

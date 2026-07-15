@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Phone, Users } from "lucide-react"
 import Link from "next/link"
-import { CreateCampaignDialog } from "./create-campaign-dialog"
+import { CreateCampaignDialog, CreateTaskCampaignDialog } from "./create-campaign-dialog"
 import { PageHelp } from "@/components/page-help"
 
 function formatDate(date: Date): string {
@@ -54,7 +54,10 @@ export default async function CallsPage() {
           <h1 className="text-2xl font-bold">Обзвон</h1>
           <PageHelp pageKey="crm/calls" />
         </div>
-        <CreateCampaignDialog branches={branches} />
+        <div className="flex items-center gap-2">
+          <CreateCampaignDialog branches={branches} />
+          <CreateTaskCampaignDialog />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">

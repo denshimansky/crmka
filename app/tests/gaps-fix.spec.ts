@@ -29,12 +29,12 @@ test.describe("Закрытие пробелов", () => {
 
   test("2. Создание кампании с фильтрами", async ({ page }) => {
     await page.goto("/crm/calls")
-    await page.locator("button", { hasText: "Новый обзвон" }).click()
+    await page.locator("button", { hasText: "Обзвон по базам" }).click()
     const dialog = page.locator("div[role='dialog']")
     await expect(dialog).toBeVisible()
     // Фильтры должны быть
     await expect(dialog.locator("label:has-text('Статус клиента')")).toBeVisible()
-    await expect(dialog.locator("label:has-text('Сегмент')")).toBeVisible()
+    await expect(dialog.locator("label:has-text('Этап воронки')")).toBeVisible()
     await page.keyboard.press("Escape")
   })
 

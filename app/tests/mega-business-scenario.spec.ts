@@ -756,7 +756,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     await page.waitForTimeout(1000)
 
     try {
-      await page.locator("button:has-text('Новый обзвон')").click()
+      await page.locator("button:has-text('Обзвон по базам')").click()
       await page.waitForSelector("[data-slot='dialog-content'], div[role='dialog']", { timeout: 5000 })
       const dialog = page.locator("[data-slot='dialog-content'], div[role='dialog']").first()
 

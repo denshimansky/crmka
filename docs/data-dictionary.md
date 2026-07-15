@@ -1706,17 +1706,27 @@ CRUD: `/api/expense-categories` (GET для системных + tenant, POST/PA
 ```
 
 ### CallCampaign.filter_criteria
-Критерии фильтрации для обзвона. Формат:
+Критерии фильтрации для обзвона (единая zod-схема `campaignFilterSchema` в `app/src/lib/call-campaigns/filter.ts`; все поля опциональны, комбинируются по AND). Формат:
 ```json
 {
-  "statuses": ["active", "potential"],
-  "age_from": 5,
-  "age_to": 7,
-  "branches": ["uuid1"],
-  "directions": ["uuid2"],
-  "segments": ["new", "standard"]
+  "mode": "base",
+  "funnelStatus": "application",
+  "clientStatus": "active",
+  "branchId": "uuid1",
+  "minAge": 5,
+  "maxAge": 7,
+  "withdrawnFrom": "2026-01-01",
+  "withdrawnTo": "2026-05-31",
+  "nextContactFrom": "2026-07-01",
+  "nextContactTo": "2026-07-31",
+  "autoTriggers": ["contact_date", "promised_payment"]
 }
 ```
+- `mode` — `base` (обзвон по базам, дефолт) или `tasks` (обзвон по задачам: только `autoTriggers`, поиск по всей базе, кроме архива, ЧС и нецелевых)
+- `funnelStatus` — вкладки «Продаж»: `application | trial_scheduled | trial_attended | awaiting_payment` (по активной заявке) или `contact` (назначена дата следующей связи); legacy: `new | active_client | potential`
+- `clientStatus` — вкладки «Клиентов»: `leads | active | churned | potential | archived | blacklist | nontarget`; legacy: `not_active`
+- `nextContactFrom/To` — диапазон по `Client.next_contact_date`
+- `autoTriggers` — типы открытых автозадач (`TaskAutoTrigger`)
 
 ### Period.snapshot
 Снимок финансовых данных при закрытии периода. Формат:

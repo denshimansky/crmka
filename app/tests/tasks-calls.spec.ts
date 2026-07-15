@@ -66,7 +66,7 @@ test.describe.serial("Модуль 8: Задачи + Обзвон", () => {
     await login(page)
     await page.goto("/crm/calls")
 
-    await page.locator("button", { hasText: "Новый обзвон" }).click()
+    await page.locator("button", { hasText: "Обзвон по базам" }).click()
     const dialog = page.locator("div[role='dialog']")
     await expect(dialog).toBeVisible()
 
