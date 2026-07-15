@@ -81,6 +81,26 @@ export interface InvoiceStatusResult {
   paidAmount?: number | null
 }
 
+// --- Выписка по счёту ---
+
+/**
+ * Нормализованная операция из выписки.
+ * Формат ответа Т-Банк местами плавает (см. TODO в getStatementOperations),
+ * поэтому нормализуем с фолбэками, а сырой объект сохраняем в raw.
+ */
+export interface TBankStatementOperation {
+  operationId: string
+  date: Date | null
+  /** Сумма в рублях */
+  amount: number
+  /** true — входящий платёж (Credit) */
+  isCredit: boolean
+  payerName: string | null
+  payerInn: string | null
+  paymentPurpose: string | null
+  raw: unknown
+}
+
 // --- Ошибки ---
 
 export class TBankApiError extends Error {
@@ -245,6 +265,102 @@ export class TBankClient {
       paidAt: response.paidDate || response.paidAt || null,
       paidAmount: response.paidAmount ?? response.amount?.value ?? null,
     }
+  }
+
+  // --- Выписка по счёту ---
+
+  /**
+   * Операции по счёту за период (с курсорной пагинацией).
+   *
+   * GET /api/v1/statement?accountNumber=...&from=...&till=...
+   * https://developer.tbank.ru/docs/api/get-api-v-1-statement
+   *
+   * Токену нужно право «Выписки» (выпускается в ЛК Т-Бизнеса).
+   *
+   * TODO: точные имена полей операции проверить в sandbox — в документации
+   * встречаются варианты (operationId/id, typeOfOperation/category,
+   * payerInn/payer.inn, accountAmount/amount/operationAmount). Парсим
+   * дефензивно с фолбэками, сырой объект возвращаем в raw.
+   *
+   * @param from Дата начала (YYYY-MM-DD)
+   * @param till Дата конца (YYYY-MM-DD)
+   */
+  async getStatementOperations(params: {
+    accountNumber: string
+    from: string
+    till: string
+  }): Promise<TBankStatementOperation[]> {
+    const operations: TBankStatementOperation[] = []
+    let cursor: string | undefined
+    // Ограничитель на случай зацикленного курсора
+    for (let page = 0; page < 20; page++) {
+      const qs = new URLSearchParams({
+        accountNumber: params.accountNumber,
+        from: params.from,
+        till: params.till,
+        limit: "500",
+      })
+      if (cursor) qs.set("cursor", cursor)
+
+      const response = await this.request<{
+        operations?: Record<string, unknown>[]
+        cursor?: string
+      }>("GET", `/statement?${qs.toString()}`)
+
+      for (const raw of response.operations || []) {
+        operations.push(normalizeStatementOperation(raw))
+      }
+
+      if (!response.cursor || (response.operations || []).length === 0) break
+      cursor = response.cursor
+    }
+    return operations
+  }
+}
+
+/** Нормализация операции выписки с фолбэками по вариантам схемы Т-Банк */
+function normalizeStatementOperation(raw: Record<string, unknown>): TBankStatementOperation {
+  const s = (v: unknown): string | null =>
+    typeof v === "string" && v.trim() ? v.trim() : null
+
+  const payer = (raw.payer || raw.counterParty || {}) as Record<string, unknown>
+
+  const amountRaw =
+    raw.accountAmount ?? raw.operationAmount ?? raw.amount ?? (raw as any)?.amount?.value
+  const amount = Number(
+    typeof amountRaw === "object" && amountRaw !== null
+      ? (amountRaw as any).value
+      : amountRaw
+  )
+
+  const typeOf = (s(raw.typeOfOperation) || s(raw.operationType) || s(raw.category) || "")
+    .toLowerCase()
+  const isCredit = typeOf.includes("credit") || typeOf.includes("income")
+
+  const dateStr =
+    s(raw.operationDate) || s(raw.date) || s(raw.chargeDate) || s(raw.drawDate)
+  const date = dateStr ? new Date(dateStr) : null
+
+  const payerInn = s(raw.payerInn) || s(payer.inn)
+  const payerName = s(raw.payerName) || s(payer.name)
+  const purpose = s(raw.paymentPurpose) || s(raw.purpose)
+
+  // Идемпотентность требует стабильного ID; если банк его не дал —
+  // детерминированный композитный ключ
+  const operationId =
+    s(raw.operationId) ||
+    s(raw.id) ||
+    `${dateStr || "?"}|${Number.isFinite(amount) ? amount : "?"}|${payerInn || "?"}|${(purpose || "").slice(0, 60)}`
+
+  return {
+    operationId,
+    date: date && !Number.isNaN(date.getTime()) ? date : null,
+    amount: Number.isFinite(amount) ? amount : 0,
+    isCredit,
+    payerName,
+    payerInn,
+    paymentPurpose: purpose,
+    raw,
   }
 }
 

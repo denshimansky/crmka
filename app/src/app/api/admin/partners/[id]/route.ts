@@ -55,6 +55,7 @@ const updateSchema = z.object({
   email: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   contactPerson: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   billingStatus: z.enum(["active", "grace_period", "blocked"]).optional(),
+  billingExempt: z.boolean().optional(),
 })
 
 // PATCH /api/admin/partners/[id] — обновить партнёра
@@ -80,6 +81,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (parsed.data.email !== undefined) data.email = parsed.data.email
   if (parsed.data.contactPerson !== undefined) data.contactPerson = parsed.data.contactPerson
   if (parsed.data.billingStatus !== undefined) data.billingStatus = parsed.data.billingStatus
+  if (parsed.data.billingExempt !== undefined) data.billingExempt = parsed.data.billingExempt
 
   const updated = await db.organization.update({ where: { id }, data })
   return NextResponse.json(updated)

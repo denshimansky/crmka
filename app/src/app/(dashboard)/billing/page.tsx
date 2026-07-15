@@ -400,6 +400,7 @@ export default function BillingPage() {
                 <TableHead>Оплата до</TableHead>
                 <TableHead>Оплачен</TableHead>
                 <TableHead>Статус</TableHead>
+                <TableHead>Счёт</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -419,12 +420,23 @@ export default function BillingPage() {
                       ) : "—"}
                     </TableCell>
                     <TableCell><Badge variant={is.variant}>{is.label}</Badge></TableCell>
+                    <TableCell>
+                      <a
+                        href={`/api/billing/invoices/${inv.id}/pdf`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                        title="Открыть PDF счёта"
+                      >
+                        <FileText className="size-3.5" />PDF
+                      </a>
+                    </TableCell>
                   </TableRow>
                 )
               })}
               {invoices.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     Нет счетов
                   </TableCell>
                 </TableRow>

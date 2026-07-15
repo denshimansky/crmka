@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import {
+  applyInvoicePaymentById,
+  removeInvoiceNotifications,
+} from "@/lib/billing/apply-invoice-payment"
 
 /**
  * POST /api/billing/webhook
@@ -89,49 +93,18 @@ export async function POST(req: NextRequest) {
   const upperStatus = (status || "").toUpperCase()
 
   if (upperStatus === "PAID") {
-    // Счёт оплачен
-    await db.$transaction(async (tx) => {
-      // 1. Обновить BillingInvoice
-      await tx.billingInvoice.update({
-        where: { id: invoice.id },
-        data: {
-          status: "paid",
-          paidAt: paidDate ? new Date(paidDate) : new Date(),
-          paidAmount: paidAmount ?? invoice.amount,
-          paidVia: "tbank_api",
-        },
-      })
-
-      // 2. Продлить подписку
-      const periodEnd = new Date(invoice.periodEnd)
-      const nextPaymentDate = new Date(periodEnd)
-      // Следующая оплата — за 5 дней до конца нового периода (цепочка уведомлений)
-      nextPaymentDate.setDate(nextPaymentDate.getDate() - 5)
-
-      await tx.billingSubscription.update({
-        where: { id: invoice.subscriptionId },
-        data: {
-          status: "active",
-          periodEndDate: periodEnd,
-          nextPaymentDate: periodEnd,
-          blockedAt: null,
-          gracePeriodEnd: null,
-        },
-      })
-
-      // 3. Разблокировать тенант (если был заблокирован)
-      if (invoice.organization.billingStatus !== "active") {
-        await tx.organization.update({
-          where: { id: invoice.organizationId },
-          data: {
-            billingStatus: "active",
-          },
-        })
-
-        console.log(`[webhook] Tenant ${invoice.organizationId} unblocked after payment`)
-      }
+    // Счёт оплачен: общий хелпер (продление подписки, разблокировка,
+    // удаление уведомлений «оплатите счёт»)
+    const result = await applyInvoicePaymentById({
+      invoiceId: invoice.id,
+      paidVia: "tbank_api",
+      paidAmount: paidAmount ?? undefined,
+      paidAt: paidDate ? new Date(paidDate) : undefined,
     })
 
+    if (result.unblocked) {
+      console.log(`[webhook] Tenant ${invoice.organizationId} unblocked after payment`)
+    }
     console.log(`[webhook] Invoice ${invoice.id} marked as PAID`)
   } else if (upperStatus === "OVERDUE") {
     await db.billingInvoice.update({
@@ -144,6 +117,7 @@ export async function POST(req: NextRequest) {
       where: { id: invoice.id },
       data: { status: "cancelled" },
     })
+    await removeInvoiceNotifications(invoice.id, invoice.organizationId)
     console.log(`[webhook] Invoice ${invoice.id} marked as CANCELLED`)
   } else {
     console.log(`[webhook] Unhandled status "${status}" for invoice ${invoice.id}`)

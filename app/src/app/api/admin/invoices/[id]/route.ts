@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
+import {
+  applyInvoicePaymentById,
+  removeInvoiceNotifications,
+} from "@/lib/billing/apply-invoice-payment"
 import { z } from "zod"
 
 // PATCH /api/admin/invoices/[id] — обновить статус счёта
@@ -36,43 +40,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const data: Record<string, unknown> = {}
   if (parsed.data.comment !== undefined) data.comment = parsed.data.comment
 
-  if (parsed.data.status) {
+  if (parsed.data.status === "paid") {
+    // Оплата: счёт → paid, подписка → продление, организация → разблокировка,
+    // уведомления «оплатите счёт» → удаляются (общий хелпер)
+    await applyInvoicePaymentById({
+      invoiceId: id,
+      paidVia: "manual",
+      paidAmount: parsed.data.paidAmount,
+    })
+  } else if (parsed.data.status) {
     data.status = parsed.data.status
-
-    if (parsed.data.status === "paid") {
-      data.paidAt = new Date()
-      data.paidAmount = parsed.data.paidAmount ?? Number(existing.amount)
-
-      // Разблокируем организацию и подписку при оплате
-      await db.billingSubscription.update({
-        where: { id: existing.subscriptionId },
-        data: {
-          status: "active",
-          blockedAt: null,
-          gracePeriodEnd: null,
-          // Сдвигаем следующую оплату на месяц от конца оплаченного периода
-          nextPaymentDate: new Date(
-            new Date(existing.periodEnd).getFullYear(),
-            new Date(existing.periodEnd).getMonth() + 1,
-            1
-          ),
-        },
-      })
-
-      await db.organization.update({
-        where: { id: existing.organizationId },
-        data: { billingStatus: "active" },
-      })
+    if (parsed.data.status === "cancelled") {
+      await removeInvoiceNotifications(id, existing.organizationId)
     }
   }
 
-  const updated = await db.billingInvoice.update({
-    where: { id },
-    data,
-    include: {
-      organization: { select: { name: true } },
-    },
-  })
+  const updated = Object.keys(data).length
+    ? await db.billingInvoice.update({
+        where: { id },
+        data,
+        include: { organization: { select: { name: true } } },
+      })
+    : await db.billingInvoice.findUnique({
+        where: { id },
+        include: { organization: { select: { name: true } } },
+      })
 
   return NextResponse.json(updated)
 }

@@ -93,6 +93,8 @@ async function step0_backoffice() {
       payForAbsence: false,
       attendanceDeadline: 14,
       onboardingCompleted: true,
+      // Тестовая организация — автосчета 20-го числа не выставляем
+      billingExempt: true,
     },
   })
   console.log("  Organization created:", org.name)

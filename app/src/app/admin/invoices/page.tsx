@@ -22,6 +22,17 @@ interface Invoice {
   subscription: { id: string; plan: { name: string } }
 }
 
+interface BankOperation {
+  id: string
+  operationId: string
+  operationDate: string
+  amount: string
+  payerName: string | null
+  payerInn: string | null
+  paymentPurpose: string | null
+  comment: string | null
+}
+
 const STATUS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   pending: { label: "Ожидает", variant: "secondary" },
   paid: { label: "Оплачен", variant: "default" },
@@ -31,6 +42,7 @@ const STATUS: Record<string, { label: string; variant: "default" | "secondary" |
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [unmatchedOps, setUnmatchedOps] = useState<BankOperation[]>([])
   const [loading, setLoading] = useState(true)
 
   const fetchInvoices = () => {
@@ -39,6 +51,10 @@ export default function InvoicesPage() {
       .then(setInvoices)
       .catch(console.error)
       .finally(() => setLoading(false))
+    fetch("/api/admin/bank-operations?status=unmatched")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setUnmatchedOps(Array.isArray(d) ? d : []))
+      .catch(() => setUnmatchedOps([]))
   }
 
   useEffect(() => { fetchInvoices() }, [])
@@ -58,6 +74,44 @@ export default function InvoicesPage() {
         <h1 className="text-2xl font-bold">Счета</h1>
         <p className="text-sm text-muted-foreground">Все выставленные счета</p>
       </div>
+
+      {/* Платежи из выписки Т-Банк, которые не удалось сопоставить со счетами
+          автоматически — разбираются вручную: найти счёт и отметить «Оплачен» */}
+      {unmatchedOps.length > 0 && (
+        <div className="mb-6 rounded-md border border-destructive/40 bg-destructive/5 p-4">
+          <h2 className="mb-2 font-semibold text-destructive">
+            Неразобранные платежи из выписки ({unmatchedOps.length})
+          </h2>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Дата</TableHead>
+                <TableHead>Плательщик</TableHead>
+                <TableHead>ИНН</TableHead>
+                <TableHead>Сумма</TableHead>
+                <TableHead>Назначение</TableHead>
+                <TableHead>Причина</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {unmatchedOps.map((op) => (
+                <TableRow key={op.id}>
+                  <TableCell className="text-sm">{new Date(op.operationDate).toLocaleDateString("ru")}</TableCell>
+                  <TableCell className="text-sm">{op.payerName || "—"}</TableCell>
+                  <TableCell className="font-mono text-sm">{op.payerInn || "—"}</TableCell>
+                  <TableCell>{Number(op.amount).toLocaleString("ru")} ₽</TableCell>
+                  <TableCell className="max-w-64 truncate text-sm" title={op.paymentPurpose || ""}>
+                    {op.paymentPurpose || "—"}
+                  </TableCell>
+                  <TableCell className="max-w-64 truncate text-sm" title={op.comment || ""}>
+                    {op.comment || "—"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-muted-foreground">Загрузка...</div>
@@ -95,15 +149,25 @@ export default function InvoicesPage() {
                     <TableCell className="text-sm">{new Date(inv.dueDate).toLocaleDateString("ru")}</TableCell>
                     <TableCell><Badge variant={st.variant}>{st.label}</Badge></TableCell>
                     <TableCell>
-                      {inv.status === "pending" && (
-                        <div className="flex gap-1">
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title="Открыть PDF счёта"
+                          onClick={() => window.open(`/api/admin/invoices/${inv.id}/pdf`, "_blank")}
+                        >
+                          PDF
+                        </Button>
+                        {inv.status === "pending" && (
+                          <>
+                            <Button size="sm" variant="outline" onClick={() => handleStatus(inv.id, "paid")}>Оплачен</Button>
+                            <Button size="sm" variant="ghost" onClick={() => handleStatus(inv.id, "cancelled")}>Отменить</Button>
+                          </>
+                        )}
+                        {inv.status === "overdue" && (
                           <Button size="sm" variant="outline" onClick={() => handleStatus(inv.id, "paid")}>Оплачен</Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleStatus(inv.id, "cancelled")}>Отменить</Button>
-                        </div>
-                      )}
-                      {inv.status === "overdue" && (
-                        <Button size="sm" variant="outline" onClick={() => handleStatus(inv.id, "paid")}>Оплачен</Button>
-                      )}
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 )

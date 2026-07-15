@@ -32,6 +32,9 @@ function buildNotificationUrl(n: Notification): string | null {
       return `/finance/payments`
     case "Subscription":
       return `/crm/clients/${n.entityId}`
+    case "BillingInvoice":
+      // PDF счёта-договора оферты — открывается в новой вкладке
+      return `/api/billing/invoices/${n.entityId}/pdf`
     default:
       return null
   }
@@ -137,7 +140,12 @@ export function NotificationBell() {
     if (!n.isRead) markAsRead(n.id)
     const url = buildNotificationUrl(n)
     if (url) {
-      window.location.href = url
+      if (n.entityType === "BillingInvoice") {
+        // PDF — в новой вкладке, не выгружая CRM
+        window.open(url, "_blank")
+      } else {
+        window.location.href = url
+      }
     }
     setOpen(false)
   }

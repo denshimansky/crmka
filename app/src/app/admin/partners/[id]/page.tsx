@@ -61,6 +61,7 @@ interface Partner {
   email: string | null
   contactPerson: string | null
   billingStatus: string
+  billingExempt: boolean
   createdAt: string
   branches: { id: string; name: string; address: string | null }[]
   employees: { id: string; firstName: string; lastName: string; role: string; email: string | null; phone: string | null; isActive: boolean }[]
@@ -206,6 +207,18 @@ export default function PartnerDetailPage() {
     fetchPartner()
   }
 
+  // Исключение из автобиллинга: счета 20-го числа и автоблокировка 1-го
+  // не применяются (своя/тестовая организация)
+  const handleExemptToggle = async () => {
+    if (!partner) return
+    await fetch(`/api/admin/partners/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ billingExempt: !partner.billingExempt }),
+    })
+    fetchPartner()
+  }
+
   const handleImpersonate = async () => {
     setImpersonating(true)
     setError("")
@@ -242,6 +255,7 @@ export default function PartnerDetailPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{partner.name}</h1>
             <Badge variant={st.variant}>{st.label}</Badge>
+            {partner.billingExempt && <Badge variant="outline">Без автосчетов</Badge>}
           </div>
           {partner.legalName && <p className="text-sm text-muted-foreground">{partner.legalName}</p>}
         </div>
@@ -250,6 +264,14 @@ export default function PartnerDetailPage() {
         </Button>
         <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
           <Pencil className="mr-2 size-4" />Редактировать
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExemptToggle}
+          title="Автовыставление счетов 20-го числа и автоблокировка 1-го"
+        >
+          {partner.billingExempt ? "Включить автосчета" : "Отключить автосчета"}
         </Button>
         <Button
           variant={partner.billingStatus === "blocked" ? "default" : "destructive"}
@@ -416,21 +438,31 @@ export default function PartnerDetailPage() {
                     </TableCell>
                     <TableCell><Badge variant={is.variant}>{is.label}</Badge></TableCell>
                     <TableCell>
-                      {inv.status === "pending" && (
-                        <div className="flex gap-1">
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title="Открыть PDF счёта"
+                          onClick={() => window.open(`/api/admin/invoices/${inv.id}/pdf`, "_blank")}
+                        >
+                          <FileText className="size-4" />
+                        </Button>
+                        {inv.status === "pending" && (
+                          <>
+                            <Button size="sm" variant="outline" onClick={() => handleInvoiceStatus(inv.id, "paid")}>
+                              Оплачен
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => handleInvoiceStatus(inv.id, "cancelled")}>
+                              Отменить
+                            </Button>
+                          </>
+                        )}
+                        {inv.status === "overdue" && (
                           <Button size="sm" variant="outline" onClick={() => handleInvoiceStatus(inv.id, "paid")}>
                             Оплачен
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleInvoiceStatus(inv.id, "cancelled")}>
-                            Отменить
-                          </Button>
-                        </div>
-                      )}
-                      {inv.status === "overdue" && (
-                        <Button size="sm" variant="outline" onClick={() => handleInvoiceStatus(inv.id, "paid")}>
-                          Оплачен
-                        </Button>
-                      )}
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 )

@@ -1,6 +1,9 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { useSession } from "next-auth/react"
 import { AlertTriangle, Ban } from "lucide-react"
 
 type BillingInfo = {
@@ -10,22 +13,40 @@ type BillingInfo = {
 
 export function BillingBanner() {
   const [info, setInfo] = useState<BillingInfo>(null)
+  const pathname = usePathname()
+  const { data: session } = useSession()
+  const role = (session?.user as { role?: string } | undefined)?.role
 
   useEffect(() => {
-    fetch("/api/billing-status")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setInfo)
-      .catch(() => null)
+    const load = () =>
+      fetch("/api/billing-status")
+        .then((r) => (r.ok ? r.json() : null))
+        .then(setInfo)
+        .catch(() => null)
+    load()
+    // Живое обновление: плашка появляется/исчезает без перезагрузки
+    // (enforcement в middleware идёт по JWT и запаздывает до 5 минут)
+    const timer = setInterval(load, 60_000)
+    return () => clearInterval(timer)
   }, [])
 
   if (!info) return null
 
   if (info.billingStatus === "blocked") {
     return (
-      <div className="flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-destructive-foreground text-sm">
+      <div className="sticky top-0 z-40 flex flex-wrap items-center gap-2 bg-destructive px-4 py-2 text-destructive-foreground text-sm">
         <Ban className="size-4 shrink-0" />
-        <span className="font-medium">Доступ заблокирован.</span>
-        <span>Оплата не поступила. Свяжитесь с поддержкой или оплатите счёт для разблокировки.</span>
+        <span className="font-medium">Счёт не оплачен — CRM в режиме просмотра.</span>
+        <span>Любые изменения недоступны до оплаты.</span>
+        {role === "owner" || role === "manager" ? (
+          pathname !== "/billing" && (
+            <Link href="/billing" className="font-medium underline underline-offset-2">
+              Перейти к оплате →
+            </Link>
+          )
+        ) : (
+          <span>Обратитесь к владельцу организации.</span>
+        )}
       </div>
     )
   }

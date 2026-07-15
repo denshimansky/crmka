@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
+import { nextInvoiceNumber } from "@/lib/billing/invoice-number"
 import { z } from "zod"
 
 // GET /api/admin/invoices — все счета
@@ -59,30 +61,35 @@ export async function POST(req: NextRequest) {
   }
 
   const amount = parsed.data.amount ?? Number(subscription.monthlyAmount)
+  const periodStart = new Date(parsed.data.periodStart)
 
-  // Генерируем номер счёта: INV-YYYYMM-XXX
-  const now = new Date()
-  const prefix = `INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`
-  const count = await db.billingInvoice.count({
-    where: { number: { startsWith: prefix } },
-  })
-  const number = `${prefix}-${String(count + 1).padStart(3, "0")}`
-
-  const invoice = await db.billingInvoice.create({
-    data: {
-      subscriptionId: subscription.id,
-      organizationId: subscription.organizationId,
-      number,
-      amount,
-      periodStart: new Date(parsed.data.periodStart),
-      periodEnd: new Date(parsed.data.periodEnd),
-      dueDate: new Date(parsed.data.dueDate),
-      comment: parsed.data.comment,
-    },
-    include: {
-      organization: { select: { name: true } },
-    },
-  })
+  // Номер «{seq}-{MM}»: гонка по unique(number) разрешается ретраем
+  let invoice = null
+  for (let attempt = 0; attempt < 3 && !invoice; attempt++) {
+    const number = await nextInvoiceNumber(periodStart)
+    try {
+      invoice = await db.billingInvoice.create({
+        data: {
+          subscriptionId: subscription.id,
+          organizationId: subscription.organizationId,
+          number,
+          amount,
+          periodStart,
+          periodEnd: new Date(parsed.data.periodEnd),
+          dueDate: new Date(parsed.data.dueDate),
+          comment: parsed.data.comment,
+        },
+        include: {
+          organization: { select: { name: true } },
+        },
+      })
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") throw e
+    }
+  }
+  if (!invoice) {
+    return NextResponse.json({ error: "Не удалось сгенерировать номер счёта" }, { status: 500 })
+  }
 
   return NextResponse.json(invoice, { status: 201 })
 }
