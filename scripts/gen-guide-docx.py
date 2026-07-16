@@ -1,11 +1,14 @@
-"""Конвертирует docs/getting-started-guide.md в .docx (Word).
+"""Конвертирует Markdown-руководство в .docx (Word).
 
-Поддерживает подмножество Markdown, которое используется в руководстве:
+Поддерживает подмножество Markdown, которое используется в руководствах:
 заголовки #..####, **жирный**, *курсив*, `код`, маркированные/нумерованные
 списки (с одним уровнем вложенности), таблицы, чек-листы «- [ ]» и
 горизонтальные разделители «---».
 
-Запуск:  python scripts/gen-guide-docx.py
+Запуск (полное руководство по умолчанию):
+    python scripts/gen-guide-docx.py
+Произвольный файл:
+    python scripts/gen-guide-docx.py docs/quick-start-guide.md quick-start-guide.docx
 Требует: pip install python-docx
 """
 
@@ -171,13 +174,19 @@ def build(md: str) -> Document:
 
 
 def main() -> int:
-    if not SRC.exists():
-        print(f"Нет файла: {SRC}", file=sys.stderr)
+    src = Path(sys.argv[1]) if len(sys.argv) > 1 else SRC
+    out = Path(sys.argv[2]) if len(sys.argv) > 2 else OUT
+    if not src.is_absolute():
+        src = ROOT / src
+    if not out.is_absolute():
+        out = ROOT / out
+    if not src.exists():
+        print(f"Нет файла: {src}", file=sys.stderr)
         return 1
-    md = SRC.read_text(encoding="utf-8-sig")  # utf-8-sig снимает BOM, если есть
+    md = src.read_text(encoding="utf-8-sig")  # utf-8-sig снимает BOM, если есть
     doc = build(md)
-    doc.save(OUT)
-    print(f"Сохранено: {OUT}")
+    doc.save(out)
+    print(f"Сохранено: {out}")
     return 0
 
 
