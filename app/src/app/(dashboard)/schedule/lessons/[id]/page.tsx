@@ -1,7 +1,13 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { getRoleNames } from "@/lib/role-names"
-import { rosterWhereOnDate, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
+import {
+  rosterWhereOnDate,
+  effectiveRosterDate,
+  coverageSubscriptionsWhere,
+  coverageKeysOnDate,
+  coverageKey,
+} from "@/lib/subscriptions/roster-filter"
 import { notFound } from "next/navigation"
 import { isUnscoped } from "@/lib/branch-scope"
 import Link from "next/link"
@@ -126,34 +132,40 @@ export default async function LessonCardPage({
   // абонемента и покрытие, чтобы перенос на более поздний день не затягивал
   // учеников, начавших заниматься позже исходной даты.
   const rosterDate = effectiveRosterDate(lesson)
-  // Get subscriptions for this period
-  const periodYear = rosterDate.getFullYear()
-  const periodMonth = rosterDate.getMonth() + 1
 
-  const subscriptions = await db.subscription.findMany({
-    where: {
+  // Кандидаты в покрывающие абонементы — по НАПРАВЛЕНИЮ занятия (перевод между
+  // группами не переносит groupId абонемента). Отсюда же берём данные для цены.
+  const subscriptionsAll = await db.subscription.findMany({
+    where: coverageSubscriptionsWhere({
       tenantId,
-      groupId: lesson.groupId,
-      periodYear,
-      periodMonth,
-      deletedAt: null,
-      status: { in: ["active", "pending"] },
-    },
+      directionIds: [lesson.group.directionId],
+      from: rosterDate,
+    }),
     select: {
       id: true,
+      groupId: true,
       clientId: true,
       wardId: true,
       lessonPrice: true,
       discountPerLesson: true,
       balance: true,
       startDate: true,
+      type: true,
+      status: true,
+      periodYear: true,
+      periodMonth: true,
+      expiresAt: true,
     },
   })
+  // Для цены/привязки отметки — как раньше: живые абонементы ЭТОЙ группы.
+  const subscriptions = subscriptionsAll.filter(
+    (s) => s.groupId === lesson.groupId && (s.status === "active" || s.status === "pending"),
+  )
 
   // Состав занятия. Дата = граница состава: активные (withdrawnAt IS NULL) +
   // отчисленные/переведённые ПОЗЖЕ даты занятия (withdrawnAt > date), чтобы ученик
   // был виден в занятиях по дату отчисления включительно. isActive=false без
-  // withdrawnAt не бывает. enrolledAt отсекается ниже в JS (+ фоллбэк по абонементу).
+  // withdrawnAt не бывает.
   const enrollmentsRaw = await db.groupEnrollment.findMany({
     where: {
       groupId: lesson.groupId,
@@ -166,21 +178,14 @@ export default async function LessonCardPage({
       ward: { select: { id: true, firstName: true, lastName: true } },
     },
   })
-  // Ребёнок попадает в состав занятия, если его абонемент покрывает дату
-  // занятия (startDate <= дата) — расписание идёт от абонемента, а не от
-  // оплат/посещений. Фоллбэк на enrolledAt оставляем для зачислений без
-  // абонемента (например, «ожидание оплаты» без выписанного абонемента).
-  // Иначе при переоформлении абонемента задним числом (enrolledAt создаётся
-  // позже даты занятия, чем startDate) ребёнок ошибочно считался бы «разовым».
-  const coveringSubKeys = new Set(
-    subscriptions
-      .filter((s) => s.startDate <= rosterDate)
-      .map((s) => `${s.clientId}:${s.wardId || ""}`),
-  )
-  const enrollments = enrollmentsRaw.filter(
-    (e) =>
-      e.enrolledAt <= rosterDate ||
-      coveringSubKeys.has(`${e.clientId}:${e.wardId || ""}`),
+  // Зачисление даёт место в составе, только если есть покрывающий абонемент на
+  // дату состава (правило — см. roster-filter.ts). enrolledAt не участвует:
+  // границу начала задаёт startDate абонемента (переоформление задним числом).
+  // Дети без покрытия, но с отметкой на занятии остаются видимыми ниже —
+  // через oneTimeAttendances (их списание и есть разовое).
+  const coveredKeys = coverageKeysOnDate(subscriptionsAll, rosterDate)
+  const enrollments = enrollmentsRaw.filter((e) =>
+    coveredKeys.has(coverageKey(e.clientId, e.wardId)),
   )
 
   // Get attendance types

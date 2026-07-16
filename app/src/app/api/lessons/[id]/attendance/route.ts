@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { rosterWhereOnDate, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
+import {
+  rosterWhereOnDate,
+  effectiveRosterDate,
+  coverageSubscriptionsWhere,
+  coverageKeysOnDate,
+  coverageKey,
+} from "@/lib/subscriptions/roster-filter"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { calcRefund } from "@/lib/balance/calc-refund"
@@ -860,32 +866,38 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   // Состав занятия (для «Отметить всех») по дате занятия. Дата = граница состава:
   // активные + отчисленные/переведённые позже даты занятия (withdrawnAt > date),
-  // чтобы ученик, выбывший ПОСЛЕ этого занятия, в нём ещё участвовал. enrolledAt
-  // отсекает зачисленных позже. isActive=false без withdrawnAt не бывает.
+  // чтобы ученик, выбывший ПОСЛЕ этого занятия, в нём ещё участвовал.
+  // isActive=false без withdrawnAt не бывает.
   // Дата состава: для перенесённого занятия — исходная дата, иначе текущая.
   const rosterDate = effectiveRosterDate(lesson)
-  const enrollments = await db.groupEnrollment.findMany({
+  const enrollmentsRaw = await db.groupEnrollment.findMany({
     where: {
       groupId: lesson.groupId,
       tenantId,
       deletedAt: null,
-      enrolledAt: { lte: rosterDate },
       ...rosterWhereOnDate(rosterDate),
     },
   })
 
-  // Get subscriptions for this period (период — по дате состава, см. rosterDate)
-  const lessonDate = new Date(rosterDate)
-  const subscriptions = await db.subscription.findMany({
-    where: {
+  // Кандидаты в покрывающие абонементы — по направлению занятия (период — по
+  // дате состава). «Отметить всех» отмечает ТОЛЬКО состав по новому правилу:
+  // зачисление + покрывающий абонемент (см. roster-filter.ts) — иначе bulk
+  // возвращал бы в состав детей без абонемента через разовые списания.
+  const subscriptionsAll = await db.subscription.findMany({
+    where: coverageSubscriptionsWhere({
       tenantId,
-      groupId: lesson.groupId,
-      periodYear: lessonDate.getFullYear(),
-      periodMonth: lessonDate.getMonth() + 1,
-      deletedAt: null,
-      status: { in: ["active", "pending"] },
-    },
+      directionIds: [lesson.group.directionId],
+      from: rosterDate,
+    }),
   })
+  const coveredKeys = coverageKeysOnDate(subscriptionsAll, rosterDate)
+  const enrollments = enrollmentsRaw.filter((e) =>
+    coveredKeys.has(coverageKey(e.clientId, e.wardId)),
+  )
+  // Для списания/привязки — как раньше: живые абонементы ЭТОЙ группы.
+  const subscriptions = subscriptionsAll.filter(
+    (s) => s.groupId === lesson.groupId && (s.status === "active" || s.status === "pending"),
+  )
 
   // Резолв ставки ЗП через единую утилиту: приоритет — GroupSalaryRate
   // группы → личное исключение по направлению → дефолт педагога.

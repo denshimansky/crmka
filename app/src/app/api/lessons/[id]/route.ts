@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { rosterWhereOnDate, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
+import {
+  rosterWhereOnDate,
+  effectiveRosterDate,
+  coverageSubscriptionsWhere,
+  coverageKeysOnDate,
+  coverageKey,
+} from "@/lib/subscriptions/roster-filter"
 import { z } from "zod"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
@@ -120,14 +126,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   // отчисления включительно и пропадает в более поздних. Поэтому берём активных
   // (withdrawnAt IS NULL) И отчисленных/переведённых ПОЗЖЕ даты занятия
   // (withdrawnAt > date; при отчислении withdrawnAt = последнее платное + 1).
-  // isActive=false без withdrawnAt не бывает (все деактивации ставят withdrawnAt),
-  // поэтому второй ветке нужен isActive=true. enrolledAt отсекает зачисленных позже.
-  const enrollments = await db.groupEnrollment.findMany({
+  // isActive=false без withdrawnAt не бывает (все деактивации ставят isActive),
+  // поэтому второй ветке нужен isActive=true.
+  const enrollmentsRaw = await db.groupEnrollment.findMany({
     where: {
       groupId: lesson.groupId,
       tenantId,
       deletedAt: null,
-      enrolledAt: { lte: rosterDate },
       ...rosterWhereOnDate(rosterDate),
     },
     include: {
@@ -136,32 +141,45 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     },
   })
 
-  // For each enrollment, find active subscription for this group & current period.
-  // Период берём по дате состава (rosterDate) — для перенесённого через границу
-  // месяца занятия абонемент ищется в исходном месяце, а не в новом.
-  const lessonDate = new Date(rosterDate)
-  const periodYear = lessonDate.getFullYear()
-  const periodMonth = lessonDate.getMonth() + 1
-
-  const subscriptions = await db.subscription.findMany({
-    where: {
+  // Кандидаты в покрывающие абонементы — по направлению занятия (перевод между
+  // группами не переносит groupId абонемента). Период — по дате состава
+  // (rosterDate): для перенесённого через границу месяца занятия абонемент
+  // ищется в исходном месяце, а не в новом.
+  const subscriptionsAll = await db.subscription.findMany({
+    where: coverageSubscriptionsWhere({
       tenantId,
-      groupId: lesson.groupId,
-      periodYear,
-      periodMonth,
-      deletedAt: null,
-      status: { in: ["active", "pending"] },
-    },
+      directionIds: [lesson.group.directionId],
+      from: rosterDate,
+    }),
     select: {
       id: true,
+      groupId: true,
       clientId: true,
       wardId: true,
       lessonPrice: true,
       discountPerLesson: true,
       balance: true,
       chargedAmount: true,
+      startDate: true,
+      type: true,
+      status: true,
+      periodYear: true,
+      periodMonth: true,
+      expiresAt: true,
     },
   })
+  // Для цены/привязки — как раньше: живые абонементы ЭТОЙ группы.
+  const subscriptions = subscriptionsAll.filter(
+    (s) => s.groupId === lesson.groupId && (s.status === "active" || s.status === "pending"),
+  )
+
+  // Зачисление даёт место в составе, только если есть покрывающий абонемент на
+  // дату состава (правило — см. roster-filter.ts). enrolledAt не участвует:
+  // границу начала задаёт startDate абонемента.
+  const coveredKeys = coverageKeysOnDate(subscriptionsAll, rosterDate)
+  const enrollments = enrollmentsRaw.filter((e) =>
+    coveredKeys.has(coverageKey(e.clientId, e.wardId)),
+  )
 
   // Get available attendance types (system + tenant-specific)
   const attendanceTypes = await db.attendanceType.findMany({

@@ -1,3 +1,5 @@
+import type { Prisma } from "@prisma/client"
+
 // Единая логика «состав группы на дату» (граница по withdrawnAt). Используется во
 // ВСЕХ дата-зависимых выборках состава занятия/сетки/отчётов, чтобы они не
 // расходились (раньше каждое место дублировало фильтр и часть была неполной).
@@ -69,4 +71,138 @@ export function isEnrolledOnLesson(
   if (e.enrolledAt > lessonDate) return false
   if (e.withdrawnAt && e.withdrawnAt <= lessonDate) return false
   return true
+}
+
+// ── Покрывающий абонемент ──────────────────────────────────────────────────
+//
+// Правило (решение владельца 14.07.2026): зачисление даёт место в составе
+// занятия, только если на дату состава у ребёнка есть ПОКРЫВАЮЩИЙ абонемент.
+// Ребёнок без абонемента на месяц занятия в составе не показывается (кейс:
+// абонемент выписали на прошлый месяц — ребёнок продолжал висеть в расписании,
+// и «Был» уходил в разовое списание с баланса родителя). Ученики с уже
+// существующей отметкой (Attendance, вкл. placeholder разовых), пробные
+// (TrialLesson) и отработки остаются видимыми независимо от покрытия.
+//
+// Покрытие:
+// - календарный/фиксированный: periodYear/periodMonth = месяц даты состава
+//   И startDate <= дата (границу начала задаёт абонемент, а не enrolledAt —
+//   переоформление задним числом расширяет состав назад). Статусы: active,
+//   pending («выписан, ждём оплату» — состав наполняется сразу после массовой
+//   выписки) и closed (историю прошлых месяцев кроном переводит в closed —
+//   без него ретро-составы опустели бы). withdrawn НЕ покрывает.
+// - пакетный: startDate <= дата, не истёк (expiresAt), balance > 0 — как в
+//   резолвере списания. Статусы: active, pending.
+//
+// Матч по НАПРАВЛЕНИЮ (directionId), а не по группе занятия: перевод между
+// группами не переносит groupId абонемента (признанный пробел — bulk-renew
+// воспроизводит старый groupId), матч по направлению сохраняет переведённых
+// в составе новой группы. Группу задаёт само зачисление.
+
+/** Поля абонемента, достаточные для предиката покрытия. */
+export type CoverageSubscription = {
+  clientId: string
+  wardId: string | null
+  type: string
+  status: string
+  periodYear: number | null
+  periodMonth: number | null
+  startDate: Date
+  expiresAt: Date | null
+  balance: { toString(): string } | number
+}
+
+/** select-фрагмент Prisma под CoverageSubscription. */
+export const coverageSubscriptionSelect = {
+  clientId: true,
+  wardId: true,
+  type: true,
+  status: true,
+  periodYear: true,
+  periodMonth: true,
+  startDate: true,
+  expiresAt: true,
+  balance: true,
+} as const
+
+/** Единый ключ «ребёнок» для матчинга зачисление ↔ абонемент ↔ отметка. */
+export function coverageKey(clientId: string, wardId: string | null | undefined): string {
+  return `${clientId}:${wardId || ""}`
+}
+
+/**
+ * Prisma-where: кандидаты в покрывающие абонементы для занятий диапазона
+ * [from..to] (для одного занятия from = to = дата состава). Выборка — надмножество:
+ * точное покрытие конкретной даты проверяется в JS через subscriptionCoversDate
+ * (месяц периода, границы startDate/expiresAt).
+ */
+export function coverageSubscriptionsWhere(args: {
+  tenantId: string
+  directionIds: string[]
+  from: Date
+  to?: Date
+}): Prisma.SubscriptionWhereInput {
+  const { tenantId, directionIds, from } = args
+  const to = args.to ?? from
+  // Все календарные месяцы диапазона
+  const periods: { periodYear: number; periodMonth: number }[] = []
+  let y = from.getFullYear()
+  let m = from.getMonth() + 1
+  const endY = to.getFullYear()
+  const endM = to.getMonth() + 1
+  while (y < endY || (y === endY && m <= endM)) {
+    periods.push({ periodYear: y, periodMonth: m })
+    m++
+    if (m > 12) {
+      m = 1
+      y++
+    }
+  }
+  return {
+    tenantId,
+    directionId: { in: directionIds },
+    deletedAt: null,
+    OR: [
+      {
+        status: { in: ["active", "pending", "closed"] },
+        OR: periods,
+      },
+      {
+        type: "package",
+        status: { in: ["active", "pending"] },
+        startDate: { lte: to },
+        balance: { gt: 0 },
+        OR: [{ expiresAt: null }, { expiresAt: { gte: from } }],
+      },
+    ],
+  }
+}
+
+/** Покрывает ли абонемент дату состава занятия. */
+export function subscriptionCoversDate(s: CoverageSubscription, rosterDate: Date): boolean {
+  if (s.type === "package") {
+    return (
+      (s.status === "active" || s.status === "pending") &&
+      s.startDate <= rosterDate &&
+      (!s.expiresAt || s.expiresAt >= rosterDate) &&
+      Number(s.balance) > 0
+    )
+  }
+  if (s.status !== "active" && s.status !== "pending" && s.status !== "closed") return false
+  return (
+    s.periodYear === rosterDate.getFullYear() &&
+    s.periodMonth === rosterDate.getMonth() + 1 &&
+    s.startDate <= rosterDate
+  )
+}
+
+/** Ключи детей, покрытых абонементом на дату состава. */
+export function coverageKeysOnDate(
+  subs: CoverageSubscription[],
+  rosterDate: Date,
+): Set<string> {
+  const keys = new Set<string>()
+  for (const s of subs) {
+    if (subscriptionCoversDate(s, rosterDate)) keys.add(coverageKey(s.clientId, s.wardId))
+  }
+  return keys
 }
