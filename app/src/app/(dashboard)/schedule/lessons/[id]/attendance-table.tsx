@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -143,6 +143,106 @@ const TRIAL_STATUS_OPTIONS = [
   { value: "no_show", label: "Не пришёл" },
 ]
 
+/** Тема занятия / домашнее задание: текст пишется кнопкой «Записать» (и,
+ *  как раньше, автоматически при уходе фокуса), состояние записи видно явно —
+ *  «есть незаписанные изменения» / «Записано» / ошибка с повтором. */
+function LessonTextField({
+  label,
+  placeholder,
+  initialValue,
+  onSave,
+}: {
+  label: string
+  placeholder: string
+  initialValue: string | null
+  onSave: (value: string | null) => Promise<boolean>
+}) {
+  const [value, setValue] = useState(initialValue || "")
+  const [savedValue, setSavedValue] = useState((initialValue || "").trim())
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
+  // Последний поставленный в очередь текст: blur перед кликом по кнопке уже
+  // запускает запись — повторный запрос того же текста не шлём.
+  const lastQueuedRef = useRef<string | null>(null)
+  // PATCH'и сериализуются через очередь: два конкурентных запроса с разным
+  // текстом сервер может применить в любом порядке.
+  const queueRef = useRef<Promise<unknown>>(Promise.resolve())
+  const pendingCountRef = useRef(0)
+
+  const dirty = value.trim() !== savedValue
+
+  async function save() {
+    const trimmed = value.trim()
+    if (trimmed === savedValue || lastQueuedRef.current === trimmed) return
+    lastQueuedRef.current = trimmed
+    pendingCountRef.current += 1
+    setSaving(true)
+    setSaveError(false)
+    const run = queueRef.current.then(() => onSave(trimmed || null))
+    queueRef.current = run.catch(() => {})
+    const ok = await run
+    if (lastQueuedRef.current === trimmed) lastQueuedRef.current = null
+    pendingCountRef.current -= 1
+    if (pendingCountRef.current === 0) setSaving(false)
+    if (ok) {
+      setSavedValue(trimmed)
+      setJustSaved(true)
+      setSaveError(false)
+    } else {
+      setSaveError(true)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <Textarea
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value)
+          setJustSaved(false)
+        }}
+        onBlur={save}
+        placeholder={placeholder}
+        className="min-h-[60px]"
+      />
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={save}
+          disabled={saving || !dirty}
+        >
+          {saving ? (
+            <>
+              <Loader2 className="mr-2 size-4 animate-spin" />
+              Сохранение...
+            </>
+          ) : (
+            "Записать"
+          )}
+        </Button>
+        {saveError ? (
+          <span className="text-xs text-destructive">
+            Не удалось записать — нажмите «Записать» ещё раз
+          </span>
+        ) : !saving && dirty ? (
+          <span className="text-xs text-muted-foreground">
+            Есть незаписанные изменения
+          </span>
+        ) : !saving && justSaved ? (
+          <span className="flex items-center gap-1 text-xs text-green-600">
+            <CheckCircle2 className="size-3.5" />
+            Записано
+          </span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 interface AttendanceTableProps {
   lessonId: string
   lessonDateISO: string
@@ -207,10 +307,6 @@ export function AttendanceTable({
     setTrialStudents(initialTrialStudents)
   }, [initialTrialStudents])
   const [loadingTrialId, setLoadingTrialId] = useState<string | null>(null)
-  const [topic, setTopic] = useState(initialTopic || "")
-  const [homework, setHomework] = useState(initialHomework || "")
-  const [savingTopic, setSavingTopic] = useState(false)
-  const [savingHomework, setSavingHomework] = useState(false)
   const [markingAll, setMarkingAll] = useState(false)
   const [loadingStudentId, setLoadingStudentId] = useState<string | null>(null)
   const [substituteId, setSubstituteId] = useState<string | null>(initSubstituteId || null)
@@ -244,21 +340,19 @@ export function AttendanceTable({
   const totalStudentsCount = allStudents.length + trialStudents.length
   const totalMarkedCount = allStudents.filter((s) => s.attendance).length + trialMarkedCount
 
-  // Auto-save topic
-  const saveField = useCallback(
-    async (field: "topic" | "homework", value: string) => {
-      const setter = field === "topic" ? setSavingTopic : setSavingHomework
-      setter(true)
+  // Запись темы / домашнего задания (LessonTextField). Возвращает успех —
+  // поле показывает ошибку и оставляет кнопку «Записать» для повтора.
+  const saveLessonField = useCallback(
+    async (field: "topic" | "homework", value: string | null): Promise<boolean> => {
       try {
-        await fetch(`/api/lessons/${lessonId}`, {
+        const res = await fetch(`/api/lessons/${lessonId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ [field]: value || null }),
+          body: JSON.stringify({ [field]: value }),
         })
+        return res.ok
       } catch {
-        // Silently fail, data is still in local state
-      } finally {
-        setter(false)
+        return false
       }
     },
     [lessonId]
@@ -1050,32 +1144,18 @@ export function AttendanceTable({
 
       {/* Topic & Homework */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Тема занятия</Label>
-          <Textarea
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            onBlur={() => saveField("topic", topic)}
-            placeholder="Тема занятия..."
-            className="min-h-[60px]"
-          />
-          {savingTopic && (
-            <span className="text-xs text-muted-foreground">Сохранение...</span>
-          )}
-        </div>
-        <div className="space-y-2">
-          <Label>Домашнее задание</Label>
-          <Textarea
-            value={homework}
-            onChange={(e) => setHomework(e.target.value)}
-            onBlur={() => saveField("homework", homework)}
-            placeholder="Домашнее задание..."
-            className="min-h-[60px]"
-          />
-          {savingHomework && (
-            <span className="text-xs text-muted-foreground">Сохранение...</span>
-          )}
-        </div>
+        <LessonTextField
+          label="Тема занятия"
+          placeholder="Тема занятия..."
+          initialValue={initialTopic}
+          onSave={(v) => saveLessonField("topic", v)}
+        />
+        <LessonTextField
+          label="Домашнее задание"
+          placeholder="Домашнее задание..."
+          initialValue={initialHomework}
+          onSave={(v) => saveLessonField("homework", v)}
+        />
       </div>
 
       {/* Attendance section */}

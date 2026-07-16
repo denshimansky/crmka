@@ -53,11 +53,19 @@ async function checkLessonAccess(
   return { ok: true }
 }
 
+// Отсутствующее в body поле обязано остаться undefined («не трогаем»), а не
+// схлопываться в null: иначе любой частичный PATCH (замена педагога, отмена,
+// перенос, сохранение только темы) затирал остальные текстовые поля в NULL.
+const optionalTrimmed = z.any().transform(v => {
+  if (v === undefined) return undefined
+  return (typeof v === "string" && v.trim()) ? v.trim() : null
+})
+
 const updateSchema = z.object({
-  topic: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
-  homework: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  topic: optionalTrimmed,
+  homework: optionalTrimmed,
   status: z.enum(["scheduled", "completed", "cancelled"]).optional(),
-  cancelReason: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  cancelReason: optionalTrimmed,
   substituteInstructorId: z.any().transform(v => {
     if (v === null || v === "") return null
     if (typeof v === "string" && v.trim()) return v.trim()
