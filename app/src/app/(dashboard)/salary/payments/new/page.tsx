@@ -40,6 +40,8 @@ interface AccrualByDirection {
   directionId: string | null
   directionName: string
   amount: number
+  paid: number
+  remaining: number
 }
 
 interface AccrualRow {
@@ -49,6 +51,9 @@ interface AccrualRow {
   accrued: number
   bonuses: number
   penalties: number
+  adjNet: number
+  adjPaid: number
+  adjRemaining: number
   alreadyPaid: number
   remaining: number
   byDirection: AccrualByDirection[]
@@ -61,6 +66,10 @@ interface ItemRow {
   directionId: string | null
   directionName: string
   accruedHint: number
+  paidHint: number
+  // Остаток к выплате на момент автозаполнения (для предупреждения о переплате).
+  // null — строка добавлена вручную, остаток неизвестен.
+  remainingHint: number | null
   amount: string
   accountId: string
   comment: string
@@ -75,6 +84,15 @@ function formatMoney(amount: number): string {
 
 function uid(): string {
   return Math.random().toString(36).slice(2, 10)
+}
+
+function r2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+// Сумма в строке больше остатка на момент автозаполнения — будет переплата.
+function isOverpaid(it: ItemRow): boolean {
+  return it.remainingHint !== null && (Number(it.amount) || 0) > it.remainingHint + 0.001
 }
 
 export default function NewSalaryPaymentPage() {
@@ -123,37 +141,50 @@ export default function NewSalaryPaymentPage() {
       const json = await res.json()
       const data: AccrualRow[] = json.data || []
       setAccruals(data)
+      // «К выплате» = остаток (начислено − уже выплачено за период), а не полное
+      // начисление: повторное заполнение после аванса не даёт переплату.
+      // Построчные остатки отсекаются по нулю, поэтому отрицательные компоненты
+      // (штраф больше премии, переплата по направлению, аванс строкой «без
+      // направления») в них теряются — сумма строк ограничивается «бюджетом»:
+      // общим остатком сотрудника за период (Σ строк ≤ max(0, row.remaining)).
       const newItems: ItemRow[] = []
       for (const row of data) {
-        if (row.byDirection.length === 0) {
-          // Сотрудник без направления, но есть бонус/штраф/долг — добавляем одну строку.
-          const remaining = row.remaining
-          if (remaining > 0) {
+        let budget = Math.max(0, row.remaining)
+        for (const d of row.byDirection) {
+          if (d.remaining <= 0 || budget <= 0) continue
+          const give = r2(Math.min(d.remaining, budget))
+          if (give <= 0) continue
+          budget = r2(budget - give)
+          newItems.push({
+            uid: uid(),
+            employeeId: row.employeeId,
+            employeeName: row.employeeName,
+            directionId: d.directionId,
+            directionName: d.directionName,
+            accruedHint: d.amount,
+            paidHint: d.paid,
+            remainingHint: d.remaining,
+            amount: String(give),
+            accountId: defaultAccountId,
+            comment: "",
+          })
+        }
+        // Премии − штрафы за период (за вычетом выплат «без направления»).
+        if (row.adjRemaining > 0 && budget > 0) {
+          const give = r2(Math.min(row.adjRemaining, budget))
+          if (give > 0) {
             newItems.push({
               uid: uid(),
               employeeId: row.employeeId,
               employeeName: row.employeeName,
               directionId: null,
               directionName: "Без направления",
-              accruedHint: row.remaining,
-              amount: String(Math.round(remaining * 100) / 100),
+              accruedHint: row.adjNet,
+              paidHint: row.adjPaid,
+              remainingHint: row.adjRemaining,
+              amount: String(give),
               accountId: defaultAccountId,
-              comment: "",
-            })
-          }
-        } else {
-          for (const d of row.byDirection) {
-            if (d.amount <= 0) continue
-            newItems.push({
-              uid: uid(),
-              employeeId: row.employeeId,
-              employeeName: row.employeeName,
-              directionId: d.directionId,
-              directionName: d.directionName,
-              accruedHint: d.amount,
-              amount: String(Math.round(d.amount * 100) / 100),
-              accountId: defaultAccountId,
-              comment: "",
+              comment: "Премии − штрафы",
             })
           }
         }
@@ -184,6 +215,8 @@ export default function NewSalaryPaymentPage() {
         directionId: null,
         directionName: "Без направления",
         accruedHint: 0,
+        paidHint: 0,
+        remainingHint: null,
         amount: "",
         accountId: defaultAccountId,
         comment: "",
@@ -271,7 +304,7 @@ export default function NewSalaryPaymentPage() {
             <PageHelp pageKey="salary/payments/new" />
           </div>
           <p className="text-sm text-muted-foreground">
-            Кнопка «Заполнить» подтягивает начисления преподавателей по направлениям + оклады.
+            Кнопка «Заполнить» подтягивает остатки к выплате: начисления по направлениям + оклады + премии, за вычетом уже выплаченного за период.
           </p>
         </div>
       </div>
@@ -369,6 +402,7 @@ export default function NewSalaryPaymentPage() {
                     <TableHead>Сотрудник</TableHead>
                     <TableHead>Направление</TableHead>
                     <TableHead className="text-right">Начислено</TableHead>
+                    <TableHead className="text-right">Выплачено</TableHead>
                     <TableHead className="text-right">К выплате</TableHead>
                     <TableHead>Счёт</TableHead>
                     <TableHead>Комментарий</TableHead>
@@ -400,6 +434,9 @@ export default function NewSalaryPaymentPage() {
                       <TableCell className="text-right text-muted-foreground">
                         {it.accruedHint > 0 ? formatMoney(it.accruedHint) : "—"}
                       </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {it.paidHint > 0 ? formatMoney(it.paidHint) : "—"}
+                      </TableCell>
                       <TableCell className="text-right">
                         <Input
                           type="number"
@@ -407,7 +444,10 @@ export default function NewSalaryPaymentPage() {
                           min="0"
                           value={it.amount}
                           onChange={e => updateItem(it.uid, { amount: e.target.value })}
-                          className="w-[120px] text-right"
+                          className={
+                            "w-[120px] text-right" +
+                            (isOverpaid(it) ? " border-orange-400 text-orange-700" : "")
+                          }
                         />
                       </TableCell>
                       <TableCell>
@@ -435,6 +475,12 @@ export default function NewSalaryPaymentPage() {
                 </TableBody>
               </Table>
             </StickyHScroll>
+          )}
+
+          {items.some(isOverpaid) && (
+            <div className="border-t px-4 py-2 text-xs text-orange-600">
+              Внимание: по подсвеченным строкам сумма больше остатка за период — будет переплата.
+            </div>
           )}
 
           {/* Добавить ещё строку */}

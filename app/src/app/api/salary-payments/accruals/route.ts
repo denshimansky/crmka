@@ -14,6 +14,16 @@ import { requirePermission } from "@/lib/api-permissions"
  *   2. Окладники → `Employee.monthlySalary` (одна строка с defaultDirectionId).
  *   3. Корректировки → суммируются как `bonus` / `penalty` без направления.
  *   4. `alreadyPaid` → `SalaryPaymentItem.amount` за тот же период.
+ *
+ * Неттинг для повторных выплат за период (аванс → остаток): по каждому
+ * направлению отдаётся `paid` (строки выплат этого направления) и
+ * `remaining = amount − paid`. Выплаты без направления целиком относятся к
+ * премиям−штрафам (`adjPaid`, `adjRemaining = bonuses − penalties − adjPaid`) —
+ * та же семантика, что у карточки педагога (lib/salary/instructor-detail.ts),
+ * чтобы разбивка остатка в двух местах CRM совпадала. Отрицательные
+ * компоненты (штраф больше премии, переплата по направлению, выплата «мимо»
+ * направления) построчным неттингом не ловятся — поэтому клиент обязан
+ * ограничивать сумму автозаполнения общим остатком сотрудника `remaining`.
  */
 export async function GET(req: NextRequest) {
   const guard = await requirePermission("finance.salary")
@@ -68,7 +78,7 @@ export async function GET(req: NextRequest) {
         tenantId,
         salaryPayment: { periodYear, periodMonth },
       },
-      select: { employeeId: true, amount: true },
+      select: { employeeId: true, amount: true, directionId: true },
     }),
   ])
 
@@ -113,30 +123,57 @@ export async function GET(req: NextRequest) {
   }
 
   const paidByEmp = new Map<string, number>()
+  const paidByEmpDir = new Map<string, number>() // `${employeeId}:${directionId ?? "null"}`
   for (const it of paymentItems) {
     paidByEmp.set(it.employeeId, (paidByEmp.get(it.employeeId) || 0) + Number(it.amount))
+    const key = `${it.employeeId}:${it.directionId ?? "null"}`
+    paidByEmpDir.set(key, (paidByEmpDir.get(key) || 0) + Number(it.amount))
   }
 
   // === Сборка результата ===
+  const r2 = (n: number) => Math.round(n * 100) / 100
   const data = employees
     .map((emp) => {
       const name = [emp.lastName, emp.firstName].filter(Boolean).join(" ").trim() || "Без имени"
       const dirMap = accrualsByEmployee.get(emp.id) || new Map<string, AccrualPerDir>()
-      const byDirection = Array.from(dirMap.values()).sort((a, b) => b.amount - a.amount)
-      const accrued = byDirection.reduce((s, d) => s + d.amount, 0)
+      const accruedRows = Array.from(dirMap.values()).sort((a, b) => b.amount - a.amount)
+      const accrued = accruedRows.reduce((s, d) => s + d.amount, 0)
       const bonuses = bonusByEmp.get(emp.id) || 0
       const penalties = penaltyByEmp.get(emp.id) || 0
       const alreadyPaid = paidByEmp.get(emp.id) || 0
       const remaining = accrued + bonuses - penalties - alreadyPaid
+
+      // Выплаты без направления целиком идут в счёт премий−штрафов; начисление
+      // «Без направления» (окладник без defaultDirection) ими не гасится —
+      // как в buildInstructorSalaryDetail (карточка педагога).
+      const adjPaid = paidByEmpDir.get(`${emp.id}:null`) || 0
+      const adjNet = bonuses - penalties
+
+      const byDirection = accruedRows.map((d) => {
+        const paid = d.directionId === null
+          ? 0
+          : paidByEmpDir.get(`${emp.id}:${d.directionId}`) || 0
+        return {
+          directionId: d.directionId,
+          directionName: d.directionName,
+          amount: r2(d.amount),
+          paid: r2(paid),
+          remaining: r2(d.amount - paid),
+        }
+      })
+
       return {
         employeeId: emp.id,
         employeeName: name,
         role: emp.role,
-        accrued: Math.round(accrued * 100) / 100,
-        bonuses: Math.round(bonuses * 100) / 100,
-        penalties: Math.round(penalties * 100) / 100,
-        alreadyPaid: Math.round(alreadyPaid * 100) / 100,
-        remaining: Math.round(remaining * 100) / 100,
+        accrued: r2(accrued),
+        bonuses: r2(bonuses),
+        penalties: r2(penalties),
+        adjNet: r2(adjNet),
+        adjPaid: r2(adjPaid),
+        adjRemaining: r2(adjNet - adjPaid),
+        alreadyPaid: r2(alreadyPaid),
+        remaining: r2(remaining),
         byDirection,
       }
     })
