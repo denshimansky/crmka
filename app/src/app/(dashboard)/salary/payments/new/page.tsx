@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect, useCallback, Suspense } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -95,18 +95,58 @@ function isOverpaid(it: ItemRow): boolean {
   return it.remainingHint !== null && (Number(it.amount) || 0) > it.remainingHint + 0.001
 }
 
+// useSearchParams в клиентской странице требует Suspense-границу при сборке.
 export default function NewSalaryPaymentPage() {
+  return (
+    <Suspense fallback={null}>
+      <NewSalaryPaymentForm />
+    </Suspense>
+  )
+}
+
+function monthLastDayIso(year: number, month: number): string {
+  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
+}
+
+function NewSalaryPaymentForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const now = new Date()
-  const todayIso = now.toISOString().slice(0, 10)
+  // Локальная дата (не UTC): ночью по МСК toISOString() отдаёт вчерашний день,
+  // а от этой даты считается граница начислений.
+  const todayIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
 
   const [accounts, setAccounts] = useState<AccountOption[]>([])
   const [directions, setDirections] = useState<DirectionOption[]>([])
 
-  const [periodYear, setPeriodYear] = useState(now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear())
-  const [periodMonth, setPeriodMonth] = useState(now.getMonth() === 0 ? 12 : now.getMonth())
+  // Период берём из ссылки (/salary передаёт выбранный месяц: ?year&month);
+  // без параметров — предыдущий месяц (типовой сценарий «платим за прошлый»).
+  const qYear = Number(searchParams.get("year"))
+  const qMonth = Number(searchParams.get("month"))
+  const [periodYear, setPeriodYear] = useState(
+    Number.isInteger(qYear) && qYear >= 2020 && qYear <= 2099
+      ? qYear
+      : now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
+  )
+  const [periodMonth, setPeriodMonth] = useState(
+    Number.isInteger(qMonth) && qMonth >= 1 && qMonth <= 12
+      ? qMonth
+      : now.getMonth() === 0 ? 12 : now.getMonth()
+  )
   const [date, setDate] = useState(todayIso)
   const [comment, setComment] = useState("")
+
+  // Граница начислений (аванс «по 15-е»): занятия учитываются по эту дату
+  // включительно. По умолчанию следует за датой выплаты, пока она внутри
+  // месяца периода (иначе — конец месяца), до первого ручного изменения.
+  const [accrualUpTo, setAccrualUpTo] = useState("")
+  const [upToTouched, setUpToTouched] = useState(false)
+  useEffect(() => { setUpToTouched(false) }, [periodYear, periodMonth])
+  useEffect(() => {
+    if (upToTouched) return
+    const prefix = `${periodYear}-${String(periodMonth).padStart(2, "0")}-`
+    setAccrualUpTo(date.startsWith(prefix) ? date : monthLastDayIso(periodYear, periodMonth))
+  }, [date, periodYear, periodMonth, upToTouched])
 
   const [accruals, setAccruals] = useState<AccrualRow[]>([])
   const [items, setItems] = useState<ItemRow[]>([])
@@ -133,7 +173,8 @@ export default function NewSalaryPaymentPage() {
     setLoadingAccruals(true)
     setError(null)
     try {
-      const res = await fetch(`/api/salary-payments/accruals?periodYear=${periodYear}&periodMonth=${periodMonth}`)
+      const upToParam = accrualUpTo ? `&upTo=${accrualUpTo}` : ""
+      const res = await fetch(`/api/salary-payments/accruals?periodYear=${periodYear}&periodMonth=${periodMonth}${upToParam}`)
       if (!res.ok) {
         setError("Не удалось загрузить начисления")
         return
@@ -195,7 +236,12 @@ export default function NewSalaryPaymentPage() {
     } finally {
       setLoadingAccruals(false)
     }
-  }, [periodYear, periodMonth, defaultAccountId])
+  }, [periodYear, periodMonth, accrualUpTo, defaultAccountId])
+
+  // Граница начислений внутри месяца периода = режим аванса.
+  const periodPrefix = `${periodYear}-${String(periodMonth).padStart(2, "0")}-`
+  const isPartialCutoff =
+    accrualUpTo.startsWith(periodPrefix) && accrualUpTo < monthLastDayIso(periodYear, periodMonth)
 
   function updateItem(uid: string, patch: Partial<ItemRow>) {
     setItems(prev => prev.map(it => it.uid === uid ? { ...it, ...patch } : it))
@@ -250,6 +296,9 @@ export default function NewSalaryPaymentPage() {
           date,
           periodYear,
           periodMonth,
+          // Отчёт «ЗП по педагогам» делит выплаты по половинам месяца:
+          // periodHalf=1 — первая половина (аванс), иначе — вторая.
+          periodHalf: isPartialCutoff && Number(accrualUpTo.slice(8, 10)) <= 15 ? 1 : 2,
           comment: comment || undefined,
           items: items.map(it => ({
             employeeId: it.employeeId,
@@ -304,7 +353,7 @@ export default function NewSalaryPaymentPage() {
             <PageHelp pageKey="salary/payments/new" />
           </div>
           <p className="text-sm text-muted-foreground">
-            Кнопка «Заполнить» подтягивает остатки к выплате: начисления по направлениям + оклады + премии, за вычетом уже выплаченного за период.
+            Кнопка «Заполнить» подтягивает остатки к выплате: начисления по направлениям + оклады + премии, за вычетом уже выплаченного за период. Начисления считаются по дату из поля «Начисления по дату».
           </p>
         </div>
       </div>
@@ -333,6 +382,23 @@ export default function NewSalaryPaymentPage() {
           <div className="space-y-1.5">
             <Label>Дата выплаты *</Label>
             <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Начисления по дату</Label>
+            <Input
+              type="date"
+              value={accrualUpTo}
+              onChange={e => { setUpToTouched(true); setAccrualUpTo(e.target.value) }}
+            />
+            {isPartialCutoff ? (
+              <p className="text-xs text-orange-600">
+                Аванс: начисления по {accrualUpTo.split("-").reverse().join(".")} включительно. Оклады — пропорционально дням, премии не включаются.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Полный месяц. Для аванса поставьте, например, 15-е — начисления посчитаются по эту дату включительно.
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Комментарий</Label>

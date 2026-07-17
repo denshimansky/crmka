@@ -3,7 +3,13 @@ import { db } from "@/lib/db"
 import { requirePermission } from "@/lib/api-permissions"
 
 /**
- * GET /api/salary-payments/accruals?periodYear&periodMonth
+ * GET /api/salary-payments/accruals?periodYear&periodMonth&upTo
+ *
+ * `upTo` (yyyy-mm-dd, опционально) — граница начислений ВНУТРИ месяца периода
+ * (сценарий аванса «по 15-е включительно»): занятия учитываются по эту дату,
+ * оклад берётся пропорционально дням месяца, премии/штрафы НЕ включаются
+ * (они выплачиваются при полном месяце). Дата вне месяца/некорректная —
+ * считается весь месяц. Выплаты (`alreadyPaid`, `paid`) всегда за весь период.
  *
  * Возвращает по каждому сотруднику начисление за период, разнесённое по направлениям —
  * для автозаполнения документа выплаты ЗП.
@@ -38,6 +44,19 @@ export async function GET(req: NextRequest) {
   const monthStart = new Date(Date.UTC(periodYear, periodMonth - 1, 1))
   const monthEnd = new Date(Date.UTC(periodYear, periodMonth, 0, 23, 59, 59, 999))
 
+  // Граница начислений внутри месяца (аванс). partial = true только если
+  // upTo — валидная дата строго раньше конца месяца периода.
+  const upToRaw = searchParams.get("upTo")
+  let accrualEnd = monthEnd
+  let partial = false
+  if (upToRaw && /^\d{4}-\d{2}-\d{2}$/.test(upToRaw)) {
+    const d = new Date(upToRaw + "T23:59:59.999Z")
+    if (!isNaN(d.getTime()) && d >= monthStart && d < monthEnd) {
+      accrualEnd = d
+      partial = true
+    }
+  }
+
   const [employees, attendances, adjustments, paymentItems] = await Promise.all([
     db.employee.findMany({
       where: { tenantId, deletedAt: null, isActive: true, role: { not: "readonly" } },
@@ -55,7 +74,7 @@ export async function GET(req: NextRequest) {
     db.attendance.findMany({
       where: {
         tenantId,
-        lesson: { date: { gte: monthStart, lte: monthEnd } },
+        lesson: { date: { gte: monthStart, lte: accrualEnd } },
         instructorPayEnabled: true,
       },
       select: {
@@ -100,8 +119,10 @@ export async function GET(req: NextRequest) {
   }
 
   // === Окладники ===
+  // При границе внутри месяца оклад начисляется пропорционально дням.
+  const salaryShare = partial ? accrualEnd.getUTCDate() / monthEnd.getUTCDate() : 1
   for (const emp of employees) {
-    const ms = emp.monthlySalary ? Number(emp.monthlySalary) : 0
+    const ms = (emp.monthlySalary ? Number(emp.monthlySalary) : 0) * salaryShare
     if (ms <= 0) continue
     const dirId = emp.defaultDirectionId ?? null
     const dirName = emp.defaultDirection?.name ?? "Без направления"
@@ -117,7 +138,9 @@ export async function GET(req: NextRequest) {
   // === Корректировки и выплаты ===
   const bonusByEmp = new Map<string, number>()
   const penaltyByEmp = new Map<string, number>()
-  for (const a of adjustments) {
+  // Премии/штрафы — только при полном месяце: в аванс они не включаются,
+  // adjRemaining при partial становится ≤ 0 и строка премий не заполняется.
+  for (const a of partial ? [] : adjustments) {
     if (a.type === "bonus") bonusByEmp.set(a.employeeId, (bonusByEmp.get(a.employeeId) || 0) + Number(a.amount))
     else penaltyByEmp.set(a.employeeId, (penaltyByEmp.get(a.employeeId) || 0) + Number(a.amount))
   }
