@@ -24,13 +24,26 @@ export async function GET() {
           employees: { where: { deletedAt: null } },
           clients: { where: { deletedAt: null } },
           branches: { where: { deletedAt: null } },
+          directions: { where: { deletedAt: null } },
+          aiChatLogs: true,
         },
       },
     },
     orderBy: { createdAt: "desc" },
   })
 
-  return NextResponse.json(partners)
+  // У Subscription нет relation на Organization (только колонка tenantId) —
+  // активные абонементы считаем отдельным groupBy и подмешиваем в ответ.
+  const activeSubs = await db.subscription.groupBy({
+    by: ["tenantId"],
+    where: { status: "active", deletedAt: null },
+    _count: { _all: true },
+  })
+  const activeSubsByTenant = new Map(activeSubs.map((s) => [s.tenantId, s._count._all]))
+
+  return NextResponse.json(
+    partners.map((p) => ({ ...p, activeSubscriptions: activeSubsByTenant.get(p.id) ?? 0 }))
+  )
 }
 
 const createSchema = z.object({

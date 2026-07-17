@@ -28,7 +28,8 @@ interface Partner {
   branches: { id: string; name: string }[]
   employees: { id: string; firstName: string; lastName: string; email: string | null }[]
   billingSubscriptions: { id: string; status: string; monthlyAmount: string; plan: { name: string } }[]
-  _count: { employees: number; clients: number; branches: number }
+  _count: { employees: number; clients: number; branches: number; directions: number; aiChatLogs: number }
+  activeSubscriptions: number
 }
 
 const BILLING_STATUS_MAP: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -102,6 +103,9 @@ export default function PartnersPage() {
                 <TableHead>Филиалы</TableHead>
                 <TableHead>Сотрудники</TableHead>
                 <TableHead>Клиенты</TableHead>
+                <TableHead>Направления</TableHead>
+                <TableHead>Акт. абонементы</TableHead>
+                <TableHead>ИИ-запросы</TableHead>
                 <TableHead>Тариф</TableHead>
                 <TableHead>Статус</TableHead>
                 <TableHead></TableHead>
@@ -125,6 +129,9 @@ export default function PartnersPage() {
                     <TableCell>{p._count.branches}</TableCell>
                     <TableCell>{p._count.employees}</TableCell>
                     <TableCell>{p._count.clients}</TableCell>
+                    <TableCell>{p._count.directions}</TableCell>
+                    <TableCell>{p.activeSubscriptions}</TableCell>
+                    <TableCell>{p._count.aiChatLogs}</TableCell>
                     <TableCell className="text-sm">
                       {sub ? (
                         <span>{sub.plan.name} — {Number(sub.monthlyAmount).toLocaleString("ru")} ₽</span>
@@ -147,7 +154,7 @@ export default function PartnersPage() {
               })}
               {partners.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
                     Нет партнёров
                   </TableCell>
                 </TableRow>
