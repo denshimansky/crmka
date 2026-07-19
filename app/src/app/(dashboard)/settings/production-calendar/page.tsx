@@ -23,6 +23,7 @@ import {
   Trash2,
 } from "lucide-react"
 import { buildMonthGrid, ymd } from "@/lib/date/month-grid"
+import { PageHelp } from "@/components/page-help"
 
 interface CalendarItem {
   id: string
@@ -193,6 +194,7 @@ export default function ProductionCalendarPage() {
         <div className="mt-2 flex items-center gap-2">
           <CalendarDays className="size-6 text-primary" />
           <h1 className="text-2xl font-bold">Производственный календарь</h1>
+          <PageHelp pageKey="settings/production-calendar" />
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           Праздничные и нерабочие дни. Занятия в эти дни автоматически пропускаются при генерации

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CreditCard, FileText, Building2, GraduationCap, User, Percent, CalendarDays } from "lucide-react"
 import { BackButton } from "@/components/back-button"
+import { PageHelp } from "@/components/page-help"
 import { ClientTabs } from "../clients/[id]/client-tabs"
 import { EditClientDialog } from "../clients/[id]/edit-client-dialog"
 import { UnprolongedCommentsSection } from "../clients/[id]/unprolonged-comments"
@@ -378,6 +379,7 @@ export async function ClientCardContent({
                   {CLIENT_STATUS_LABELS[client.clientStatus] || client.clientStatus}
                 </Badge>
               )}
+            <PageHelp pageKey="crm/clients/[id]" />
           </div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
             <span>{visiblePhone || "—"}</span>

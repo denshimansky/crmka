@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/table"
 import { ArrowLeft, ArrowRightLeft } from "lucide-react"
 import Link from "next/link"
+import { PageHelp } from "@/components/page-help"
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 } from "@/components/ui/context-menu"
@@ -77,6 +78,7 @@ export default function RoomBalancesPage() {
           <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
         </Link>
         <h1 className="text-2xl font-bold">Баланс кабинетов</h1>
+        <PageHelp pageKey="stock/rooms" />
       </div>
 
       {loading ? (

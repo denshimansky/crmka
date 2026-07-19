@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select"
 import { ArrowLeft, Plus, UserCheck, X } from "lucide-react"
 import Link from "next/link"
+import { PageHelp } from "@/components/page-help"
 import { useRoleNames } from "@/components/role-names-provider"
 
 interface Candidate {
@@ -156,6 +157,7 @@ export default function CandidateCardPage() {
           <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
         </Link>
         <h1 className="text-2xl font-bold">{fullName}</h1>
+        <PageHelp pageKey="staff/candidates/[id]" />
         <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_COLORS[status]}`}>
           {STATUS_LABELS[status]}
         </span>

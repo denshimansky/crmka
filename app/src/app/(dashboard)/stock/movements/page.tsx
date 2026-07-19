@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/table"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { PageHelp } from "@/components/page-help"
 
 interface Movement {
   id: string
@@ -75,6 +76,7 @@ export default function MovementsPage() {
           <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
         </Link>
         <h1 className="text-2xl font-bold">Движения товаров</h1>
+        <PageHelp pageKey="stock/movements" />
       </div>
 
       {loading ? (

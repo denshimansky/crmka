@@ -9,6 +9,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { CampaignItemsTable } from "./campaign-items-table"
 import type { CallItem } from "./call-item-row"
+import { PageHelp } from "@/components/page-help"
 
 const CLIENT_STATUS_LABELS: Record<string, string> = {
   active: "Активный",
@@ -109,7 +110,10 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           <ArrowLeft className="size-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold">{campaign.name}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">{campaign.name}</h1>
+            <PageHelp pageKey="crm/calls/[id]" />
+          </div>
           <p className="text-sm text-muted-foreground">
             Создана {campaign.createdAt.toLocaleDateString("ru-RU")}
           </p>

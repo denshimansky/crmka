@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Plus, ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { PageHelp } from "@/components/page-help"
 
 interface Candidate {
   id: string
@@ -105,6 +106,7 @@ export default function CandidatesPage() {
             <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
           </Link>
           <h1 className="text-2xl font-bold">Кандидаты</h1>
+          <PageHelp pageKey="staff/candidates" />
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="size-4 mr-1" /> Новый кандидат
