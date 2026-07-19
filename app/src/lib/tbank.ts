@@ -85,8 +85,11 @@ export interface InvoiceStatusResult {
 
 /**
  * Нормализованная операция из выписки.
- * Формат ответа Т-Банк местами плавает (см. TODO в getStatementOperations),
- * поэтому нормализуем с фолбэками, а сырой объект сохраняем в raw.
+ * Схема сверена с живым ответом прода 15.07.2026: operationId, operationDate,
+ * typeOfOperation (Credit/Debit), operationStatus (Transaction/Authorization),
+ * accountAmount, payPurpose, payer {acct, inn, kpp, name}. Нормализуем с
+ * фолбэками на прочие встречающиеся в документации варианты, сырой объект
+ * сохраняем в raw.
  */
 export interface TBankStatementOperation {
   operationId: string
@@ -95,6 +98,8 @@ export interface TBankStatementOperation {
   amount: number
   /** true — входящий платёж (Credit) */
   isCredit: boolean
+  /** true — проведённая операция (Transaction), false — холд (Authorization) */
+  isSettled: boolean
   payerName: string | null
   payerInn: string | null
   paymentPurpose: string | null
@@ -275,15 +280,12 @@ export class TBankClient {
    * GET /api/v1/statement?accountNumber=...&from=...&till=...
    * https://developer.tbank.ru/docs/api/get-api-v-1-statement
    *
-   * Токену нужно право «Выписки» (выпускается в ЛК Т-Бизнеса).
+   * Токену нужно право «Счета и выписки» (выпускается в ЛК Т-Бизнеса,
+   * токен привязан к IP серверов). Проверено на проде 15.07.2026.
    *
-   * TODO: точные имена полей операции проверить в sandbox — в документации
-   * встречаются варианты (operationId/id, typeOfOperation/category,
-   * payerInn/payer.inn, accountAmount/amount/operationAmount). Парсим
-   * дефензивно с фолбэками, сырой объект возвращаем в raw.
-   *
-   * @param from Дата начала (YYYY-MM-DD)
-   * @param till Дата конца (YYYY-MM-DD)
+   * @param from Начало периода — строго date-time ISO 8601
+   *             (например 2026-07-08T00:00:00Z; голая дата даёт 400)
+   * @param till Конец периода — строго date-time ISO 8601
    */
   async getStatementOperations(params: {
     accountNumber: string
@@ -333,9 +335,14 @@ function normalizeStatementOperation(raw: Record<string, unknown>): TBankStateme
       : amountRaw
   )
 
-  const typeOf = (s(raw.typeOfOperation) || s(raw.operationType) || s(raw.category) || "")
-    .toLowerCase()
-  const isCredit = typeOf.includes("credit") || typeOf.includes("income")
+  const typeOf = (s(raw.typeOfOperation) || s(raw.operationType) || "").toLowerCase()
+  const isCredit = typeOf
+    ? typeOf === "credit"
+    : (s(raw.category) || "").toLowerCase().includes("income")
+
+  // Authorization = холд (деньги ещё не проведены) — такие операции не матчим
+  const opStatus = s(raw.operationStatus)
+  const isSettled = !opStatus || opStatus === "Transaction"
 
   const dateStr =
     s(raw.operationDate) || s(raw.date) || s(raw.chargeDate) || s(raw.drawDate)
@@ -343,7 +350,8 @@ function normalizeStatementOperation(raw: Record<string, unknown>): TBankStateme
 
   const payerInn = s(raw.payerInn) || s(payer.inn)
   const payerName = s(raw.payerName) || s(payer.name)
-  const purpose = s(raw.paymentPurpose) || s(raw.purpose)
+  const purpose =
+    s(raw.payPurpose) || s(raw.paymentPurpose) || s(raw.purpose) || s(raw.description)
 
   // Идемпотентность требует стабильного ID; если банк его не дал —
   // детерминированный композитный ключ
@@ -357,6 +365,7 @@ function normalizeStatementOperation(raw: Record<string, unknown>): TBankStateme
     date: date && !Number.isNaN(date.getTime()) ? date : null,
     amount: Number.isFinite(amount) ? amount : 0,
     isCredit,
+    isSettled,
     payerName,
     payerInn,
     paymentPurpose: purpose,

@@ -23,7 +23,8 @@ import {
   MatchableOperation,
 } from "@/lib/billing/match-bank-operations"
 
-const fmtDay = (d: Date) => d.toISOString().slice(0, 10)
+// Т-Банк требует полный date-time (голая дата YYYY-MM-DD даёт 400)
+const fmtDateTime = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z")
 
 export interface CheckPaymentsResult {
   /** Крон не сконфигурирован (нет токена/счёта) — не ошибка */
@@ -73,16 +74,16 @@ export async function checkBillingPayments(now: Date = new Date()): Promise<Chec
   const client = getTBankClient()
   const operations = await client.getStatementOperations({
     accountNumber: account,
-    from: fmtDay(from),
-    till: fmtDay(now),
+    from: fmtDateTime(from),
+    till: fmtDateTime(now),
   })
   empty.operationsSeen = operations.length
 
-  // Только входящие и не от самого исполнителя
+  // Только проведённые входящие и не от самого исполнителя (холды не матчим)
   const knownInns = new Set(matchable.map((i) => i.orgInn).filter(Boolean) as string[])
   const knownNumbers = new Set(matchable.map((i) => i.number))
   const relevant = operations.filter((op) => {
-    if (!op.isCredit || op.payerInn === EXECUTOR.inn) return false
+    if (!op.isCredit || !op.isSettled || op.payerInn === EXECUTOR.inn) return false
     if (op.payerInn && knownInns.has(op.payerInn)) return true
     return extractInvoiceNumberTokens(op.paymentPurpose).some((t) => knownNumbers.has(t))
   })
@@ -118,7 +119,7 @@ export async function checkBillingPayments(now: Date = new Date()): Promise<Chec
           paidAt: m.operation.date ?? now,
           // Сумму каждого счёта считаем оплаченной целиком (правила матчинга
           // гарантируют равенство сумм)
-          comment: `Оплачен по выписке Т-Банк, операция ${m.operation.operationId} от ${m.operation.date ? fmtDay(m.operation.date) : "?"}`,
+          comment: `Оплачен по выписке Т-Банк, операция ${m.operation.operationId} от ${m.operation.date ? m.operation.date.toISOString().slice(0, 10) : "?"}`,
         })
       }
       await tx.billingBankOperation.create({
