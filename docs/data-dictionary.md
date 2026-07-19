@@ -1,9 +1,16 @@
 # Data Dictionary — Умная CRM v2.0
 
-> **Версия:** 1.2
-> **Дата:** 20.03.2026 (обновлено по итогам аудит-встречи 19.03.2026)
-> **Источники:** [PRD.md](PRD.md) (v2.0), [reports-logic.md](reports-logic.md), [backoffice.md](backoffice.md)
+> **Версия:** 1.3
+> **Дата:** 19.07.2026 (обновлено под ЛК родителя v2)
+> **Источники:** [PRD.md](PRD.md) (v2.8), [reports-logic.md](reports-logic.md), [backoffice.md](backoffice.md)
 > **Назначение:** Полный перечень сущностей, полей, типов данных, ограничений и связей. Используется для генерации Prisma-схемы и проектирования API.
+>
+> **Changelog v1.3 (19.07.2026 — ЛК родителя v2):**
+> - Новая таблица ClientPortalAccount (парольная учётка родителя, заменяет ClientPortalToken/ClientPortalUser)
+> - Новая таблица ClientConsent (append-only журнал согласий) + enum PortalConsentType
+> - Organization: добавлены portal_slug и 6 URL документов-согласий
+> - Branch: добавлены контакты для ЛК (contact_phone, contact_whatsapp, contact_telegram, contact_max)
+> - ClientPortalToken помечена deprecated (удаляется релизом 2), ClientPortalUser — не реализована, заменена ClientPortalAccount
 >
 > **Changelog v1.2 (19.03.2026 аудит-встреча):**
 > - Attendance: subscription_id стал nullable, добавлен trial_lesson_id
@@ -77,6 +84,13 @@
 | task_trigger_settings | Json | нет | Ф6: настройки автотриггеров задач — массив `{ trigger: TaskAutoTrigger, enabled: bool, startDayOfMonth?: int }`. null или отсутствие триггера = триггер включён | Используется генератором задач |
 | hide_phones_from_instructors | Boolean | да | **Ф8 / dead code:** поле осталось от Ф6 для конфигурируемой политики. Логика хардкоднута — инструктор всегда не видит телефоны, флаг не читается и не пишется | — |
 | restrict_client_export | Boolean | да | **Ф8 / dead code:** аналогично — инструктор всегда не может выгрузить базу, флаг не используется | — |
+| portal_slug | String | нет | **ЛК v2:** слаг адреса кабинета родителя `/p/<слаг>`. Глобально уникален, транслит из названия (backfill-скрипт + автогенерация при создании партнёра в бэк-офисе), редактирует владелец в настройках | — |
+| portal_offer_url | String | нет | **ЛК v2:** URL оферты (внешняя ссылка, партнёр размещает PDF сам). Обязателен для выдачи учёток | — |
+| portal_privacy_policy_url | String | нет | **ЛК v2:** URL политики конфиденциальности. Обязателен для выдачи учёток | — |
+| portal_pdn_parent_consent_url | String | нет | **ЛК v2:** URL согласия на обработку ПДн родителя. Обязателен для выдачи учёток | — |
+| portal_pdn_child_consent_url | String | нет | **ЛК v2:** URL согласия на обработку ПДн ребёнка. Обязателен для выдачи учёток | — |
+| portal_pdn_distribution_consent_url | String | нет | **ЛК v2:** URL согласия на распространение ПДн (ст. 10.1 — фото/имя). Опциональное согласие | — |
+| portal_marketing_consent_url | String | нет | **ЛК v2:** URL согласия на рекламные рассылки. Опциональное согласие | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 
@@ -96,6 +110,10 @@
 | working_hours_start | Time | нет | Начало рабочего дня (для расчёта загрузки) | — |
 | working_hours_end | Time | нет | Конец рабочего дня | — |
 | working_days | Int[] | нет | Рабочие дни недели (0-6, пн=0) | — |
+| contact_phone | String | нет | **ЛК v2:** телефон администратора филиала — показывается родителю в кабинете | — |
+| contact_whatsapp | String | нет | **ЛК v2:** ссылка/номер WhatsApp для родителей | — |
+| contact_telegram | String | нет | **ЛК v2:** ссылка Telegram для родителей | — |
+| contact_max | String | нет | **ЛК v2:** ссылка MAX для родителей | — |
 | is_active | Boolean | да | Активен (дефолт true) | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
@@ -1541,6 +1559,8 @@ CRUD: `/api/expense-categories` (GET для системных + tenant, POST/PA
 
 ## ClientPortalUser
 
+> **Не реализована.** Проектная сущность, заменена на [ClientPortalAccount](#clientportalaccount) (ЛК v2, 19.07.2026).
+
 Пользователь личного кабинета клиента (родитель).
 
 | Поле | Тип | Обязательное | Описание | Связь |
@@ -1555,6 +1575,65 @@ CRUD: `/api/expense-categories` (GET для системных + tenant, POST/PA
 | last_login_at | DateTime | нет | Последний вход | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
+
+---
+
+## ClientPortalAccount
+
+**ЛК v2 (19.07.2026).** Парольная учётная запись родителя в личном кабинете. Выдаёт сотрудник партнёра (право `clients.edit`) из карточки клиента; пароль формата `xxxx-xxxx` генерируется системой и показывается один раз. Перевыпуск пароля и деактивация инвалидируют все сессии (JWT v2: `iat >= password_issued_at`).
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | Мультитенант |
+| client_id | UUID | да | FK → Client, 1:1 | Клиент в CRM |
+| login_phone | String | да | Телефон-логин, канон 11 цифр «7…» (только РФ). `@@unique([tenant_id, login_phone])` | — |
+| password_hash | String | да | Хеш пароля (bcrypt) | — |
+| is_active | Boolean | да | Активна (дефолт true); деактивация закрывает доступ и сессии | — |
+| password_issued_at | DateTime | да | Момент выдачи/перевыпуска пароля — порог валидности JWT | — |
+| issued_by | UUID | нет | FK → Employee | Кто выдал учётку |
+| last_login_at | DateTime | нет | Последний вход | — |
+| created_at | DateTime | да | Дата создания | — |
+| updated_at | DateTime | да | Дата обновления | — |
+
+---
+
+## ClientConsent
+
+**ЛК v2 (19.07.2026).** Append-only журнал согласий родителя (гейт при первом входе в кабинет). Записи не редактируются и не удаляются, переживают перевыпуск пароля. Обязательные согласия отозвать нельзя, опциональные — можно (новой записью с `granted = false`). Старые `pdnConsent` с токенов мигрированы с `source = legacy_token`.
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | Мультитенант |
+| client_id | UUID | да | FK → Client | Клиент в CRM |
+| type | PortalConsentType | да | Тип согласия (6 значений, см. enum) | — |
+| granted | Boolean | да | Дано (true) / отозвано (false) | — |
+| document_url | String | нет | Снапшот URL документа на момент согласия | — |
+| ip_address | String | нет | IP-адрес | — |
+| user_agent | String | нет | User agent браузера | — |
+| source | String | да | Источник: `portal` (гейт в кабинете) / `legacy_token` (миграция старых pdnConsent) | — |
+| created_at | DateTime | да | Момент фиксации | — |
+
+---
+
+## ClientPortalToken
+
+> **Deprecated (ЛК v2, 19.07.2026).** Бессрочные магические ссылки входа отключены, заменены на [ClientPortalAccount](#clientportalaccount). Таблица пока остаётся (архив + редирект `/portal?token=...` → `/p/<слаг>?from=legacy`), дроп — релизом 2.
+
+Токен магической ссылки входа в ЛК клиента (v1).
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | FK → Organization | Мультитенант |
+| client_id | UUID | да | FK → Client | Клиент в CRM |
+| token | String | да | Токен ссылки (уникален) | — |
+| is_active | Boolean | да | Активен | — |
+| pdn_consent | Boolean | да | Согласие ПДн одной кнопкой (v1). Мигрировано в ClientConsent (`source = legacy_token`) | — |
+| pdn_consent_date | DateTime | нет | Дата согласия ПДн (v1) | — |
+| last_accessed_at | DateTime | нет | Последний вход по ссылке | — |
+| created_at | DateTime | да | Дата создания | — |
 
 ---
 
@@ -1589,6 +1668,11 @@ CRUD: `/api/expense-categories` (GET для системных + tenant, POST/PA
 
 ## ClientSegment
 `new` | `standard` | `regular` | `vip`
+
+## PortalConsentType
+`offer` | `privacy_policy` | `pdn_parent` | `pdn_child` | `pdn_distribution` | `marketing`
+
+Первые 4 обязательны для входа в ЛК родителя, `pdn_distribution` и `marketing` — опциональные.
 
 ## PaymentType
 `incoming` | `refund` | `transfer_in`

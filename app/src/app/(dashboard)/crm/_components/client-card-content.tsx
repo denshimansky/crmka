@@ -22,7 +22,7 @@ import {
   parseSegmentationConfig,
   type ClientSegmentKey,
 } from "@/lib/segmentation"
-import { PortalLinkButton } from "./portal-link-button"
+import { PortalAccountButton } from "./portal-account-button"
 import { ClientDiscountSelect } from "./client-discount-select"
 import { EditableDateCell } from "./editable-cell"
 import { BonusDiscountDialog } from "./bonus-discount-dialog"
@@ -515,7 +515,7 @@ export async function ClientCardContent({
               }
             />
             {/* Личный кабинет — для тех, кто уже клиент (есть clientStatus). */}
-            {client.clientStatus && <PortalLinkButton clientId={client.id} />}
+            {client.clientStatus && <PortalAccountButton clientId={client.id} />}
           </>
         )}
         <LeadStatusActions

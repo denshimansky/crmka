@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
 import { monthlyPriceFor } from "@/lib/billing-price"
+import { generateUniquePortalSlug } from "@/lib/portal-slug"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
 
@@ -85,6 +86,8 @@ export async function POST(req: NextRequest) {
       phone: d.phone,
       email: d.email,
       contactPerson: d.contactPerson,
+      // Слаг ЛК родителя (/p/<slug>) — сразу при создании организации
+      portalSlug: await generateUniquePortalSlug(d.name),
     },
   })
 

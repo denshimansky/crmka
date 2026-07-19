@@ -3,6 +3,14 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { PORTAL_SLUG_REGEX } from "@/lib/portal-slug"
+
+// URL-поле настроек: валидный URL, пустая строка = «очистить» (пишем null)
+const portalUrlField = z
+  .string()
+  .url("Введите корректную ссылку (https://…)")
+  .or(z.literal(""))
+  .optional()
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -29,7 +37,28 @@ const updateSchema = z.object({
   // Кол-во дней до автозакрытия неоплаченного абонемента без посещений.
   // null = функция выключена; 0 — недопустимо (запретили бы сразу после создания).
   unpaidSubscriptionAutoCloseDays: z.number().int().min(1).max(365).nullable().optional(),
+  // ЛК родителя: слаг ссылки /p/<slug> (латиница/цифры/дефис) и 6 внешних URL
+  // юридических документов (см. lib/portal-consents.ts)
+  portalSlug: z
+    .string()
+    .regex(PORTAL_SLUG_REGEX, "Слаг: 3–40 символов, латиница, цифры и дефис")
+    .optional(),
+  portalOfferUrl: portalUrlField,
+  portalPrivacyPolicyUrl: portalUrlField,
+  portalPdnParentConsentUrl: portalUrlField,
+  portalPdnChildConsentUrl: portalUrlField,
+  portalPdnDistributionConsentUrl: portalUrlField,
+  portalMarketingConsentUrl: portalUrlField,
 })
+
+const PORTAL_URL_KEYS = [
+  "portalOfferUrl",
+  "portalPrivacyPolicyUrl",
+  "portalPdnParentConsentUrl",
+  "portalPdnChildConsentUrl",
+  "portalPdnDistributionConsentUrl",
+  "portalMarketingConsentUrl",
+] as const
 
 export async function GET() {
   const session = await getServerSession(authOptions)
@@ -70,6 +99,30 @@ export async function PATCH(req: NextRequest) {
     ) as typeof data.roleDisplayNames
   }
 
+  // Пустая строка URL-поля документа = очистить (null)
+  const portalData: Record<string, string | null> = {}
+  for (const key of PORTAL_URL_KEYS) {
+    if (data[key] !== undefined) portalData[key] = data[key] || null
+  }
+
+  // Слаг портала: меняет только владелец (смена ломает разосланные ссылки),
+  // глобальная уникальность — понятная ошибка вместо P2002
+  if (data.portalSlug !== undefined) {
+    if (session.user.role !== "owner") {
+      return NextResponse.json({ error: "Адрес кабинета может менять только владелец" }, { status: 403 })
+    }
+    const taken = await db.organization.findFirst({
+      where: { portalSlug: data.portalSlug, id: { not: session.user.tenantId } },
+      select: { id: true },
+    })
+    if (taken) {
+      return NextResponse.json(
+        { error: "Этот адрес кабинета уже занят другой организацией" },
+        { status: 409 },
+      )
+    }
+  }
+
   // Тип абонемента нельзя сменить после блокировки (= после создания первого абонемента).
   // Разблокировать может только техподдержка через backoffice.
   if (data.subscriptionType !== undefined) {
@@ -90,7 +143,7 @@ export async function PATCH(req: NextRequest) {
 
   const org = await db.organization.update({
     where: { id: session.user.tenantId },
-    data,
+    data: { ...data, ...portalData },
   })
 
   return NextResponse.json(org)

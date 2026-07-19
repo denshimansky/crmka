@@ -345,9 +345,9 @@ describe("Billing (owner)", () => {
 // PORTAL
 // ═══════════════════════════════════════════════════════════════
 describe("Portal", () => {
-  it("GET /api/portal/data → responds (401 without token)", async () => {
-    // Portal requires portal token; without it should return 401
-    const res = await apiCall("GET", "/api/portal/data")
+  it("GET /api/portal/me → responds (401 without session)", async () => {
+    // Портал требует сессию (логин/пароль); без неё — 401
+    const res = await apiCall("GET", "/api/portal/me")
     assert.ok([200, 401, 403].includes(res.status), `Expected 200/401/403, got ${res.status}`)
   })
 

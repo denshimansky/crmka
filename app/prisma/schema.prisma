@@ -124,6 +124,18 @@ model Organization {
   // автоблокировка 1-го числа не применяется (своя/тестовая организация).
   billingExempt Boolean       @default(false) @map("billing_exempt")
 
+  // ЛК родителя: адрес портала и юридические документы (внешние URL, партнёр
+  // размещает их сам — Tilda/сайт/диск). portalSlug — часть ссылки /p/<slug>,
+  // глобально уникален. Первые 4 документа обязательны для гейта согласий,
+  // без них выдача учёток родителям заблокирована; 2 последних — опциональные.
+  portalSlug                      String? @unique @map("portal_slug")
+  portalOfferUrl                  String? @map("portal_offer_url")
+  portalPrivacyPolicyUrl          String? @map("portal_privacy_policy_url")
+  portalPdnParentConsentUrl       String? @map("portal_pdn_parent_consent_url")
+  portalPdnChildConsentUrl        String? @map("portal_pdn_child_consent_url")
+  portalPdnDistributionConsentUrl String? @map("portal_pdn_distribution_consent_url")
+  portalMarketingConsentUrl       String? @map("portal_marketing_consent_url")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -174,6 +186,12 @@ model Branch {
   workingHoursStart String?   @map("working_hours_start")
   workingHoursEnd   String?   @map("working_hours_end")
   workingDays       Json?     @map("working_days")
+  // Контакты для ЛК родителя: показываются родителю по филиалу его занятий.
+  // Телефон — строка-номер (в ЛК становится tel:), мессенджеры — полные URL.
+  contactPhone      String?   @map("contact_phone")
+  contactWhatsapp   String?   @map("contact_whatsapp")
+  contactTelegram   String?   @map("contact_telegram")
+  contactMax        String?   @map("contact_max")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
   deletedAt         DateTime? @map("deleted_at")
@@ -362,6 +380,8 @@ model Client {
   tasks               Task[]
   callCampaignItems   CallCampaignItem[]
   portalTokens        ClientPortalToken[]
+  portalAccount       ClientPortalAccount?
+  consents            ClientConsent[]
   trialLessons        TrialLesson[]
   balanceTransactions ClientBalanceTransaction[]
   unprolongedComments UnprolongedComment[]
@@ -1694,6 +1714,63 @@ model ClientPortalToken {
   @@index([token])
   @@index([tenantId, clientId])
   @@map("client_portal_tokens")
+}
+
+// Учётка родителя в ЛК: логин = телефон (канон 11 цифр, «7…»), пароль выдаёт
+// сотрудник из карточки клиента. Перевыпуск пароля/деактивация убивают все
+// выданные сессии: data-роуты сверяют iat токена с passwordIssuedAt
+// (см. requirePortalAccount в lib/portal-auth.ts).
+model ClientPortalAccount {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  clientId         String    @unique @map("client_id") @db.Uuid
+  loginPhone       String    @map("login_phone")
+  passwordHash     String    @map("password_hash")
+  isActive         Boolean   @default(true) @map("is_active")
+  passwordIssuedAt DateTime  @default(now()) @map("password_issued_at")
+  issuedBy         String?   @map("issued_by") @db.Uuid
+  lastLoginAt      DateTime? @map("last_login_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, loginPhone])
+  @@map("client_portal_accounts")
+}
+
+// Типы согласий гейта ЛК. Первые 4 обязательны для входа, 2 последних
+// опциональны (могут даваться/отзываться из кабинета).
+enum PortalConsentType {
+  offer
+  privacy_policy
+  pdn_parent
+  pdn_child
+  pdn_distribution
+  marketing
+}
+
+// Журнал согласий родителя — append-only: актуальное состояние по типу =
+// последняя запись. Согласие — юридический факт субъекта ПДн, живёт на
+// клиенте и переживает перевыпуск пароля/учётки. documentUrl — снапшот
+// ссылки на документ в момент действия. source=legacy_token — перенос
+// старого pdnConsent из client_portal_tokens.
+model ClientConsent {
+  id          String            @id @default(uuid()) @db.Uuid
+  tenantId    String            @map("tenant_id") @db.Uuid
+  clientId    String            @map("client_id") @db.Uuid
+  type        PortalConsentType
+  granted     Boolean
+  documentUrl String?           @map("document_url")
+  ipAddress   String?           @map("ip_address")
+  userAgent   String?           @map("user_agent")
+  source      String            @default("portal")
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, clientId, type, createdAt])
+  @@map("client_consents")
 }
 
 // === ЗАКРЫТИЕ ПЕРИОДА ===

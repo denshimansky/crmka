@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { PageHelp } from "@/components/page-help"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { ParentPortalSettingsForm } from "./parent-portal-settings-form"
 
 export default async function OrganizationInfoPage() {
   const session = await getSession()
@@ -15,8 +16,33 @@ export default async function OrganizationInfoPage() {
       inn: true,
       phone: true,
       email: true,
+      portalSlug: true,
+      portalOfferUrl: true,
+      portalPrivacyPolicyUrl: true,
+      portalPdnParentConsentUrl: true,
+      portalPdnChildConsentUrl: true,
+      portalPdnDistributionConsentUrl: true,
+      portalMarketingConsentUrl: true,
     },
   })
+
+  const canEditPortal = session.user.role === "owner" || session.user.role === "manager"
+  const branches = canEditPortal
+    ? await db.branch.findMany({
+        where: { tenantId: session.user.tenantId, deletedAt: null },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          name: true,
+          contactPhone: true,
+          contactWhatsapp: true,
+          contactTelegram: true,
+          contactMax: true,
+        },
+      })
+    : []
+
+  const baseUrl = process.env.NEXTAUTH_URL || "https://app.umnayacrm.ru"
 
   return (
     <div className="space-y-6">
@@ -50,6 +76,23 @@ export default async function OrganizationInfoPage() {
           )}
         </CardContent>
       </Card>
+
+      {org && canEditPortal && (
+        <ParentPortalSettingsForm
+          portalSlug={org.portalSlug}
+          docs={{
+            portalOfferUrl: org.portalOfferUrl,
+            portalPrivacyPolicyUrl: org.portalPrivacyPolicyUrl,
+            portalPdnParentConsentUrl: org.portalPdnParentConsentUrl,
+            portalPdnChildConsentUrl: org.portalPdnChildConsentUrl,
+            portalPdnDistributionConsentUrl: org.portalPdnDistributionConsentUrl,
+            portalMarketingConsentUrl: org.portalMarketingConsentUrl,
+          }}
+          branches={branches}
+          isOwner={session.user.role === "owner"}
+          baseUrl={baseUrl}
+        />
+      )}
     </div>
   )
 }
