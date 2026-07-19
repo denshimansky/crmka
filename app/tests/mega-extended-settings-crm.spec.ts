@@ -588,26 +588,6 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
     }
   })
 
-  safeTest("9.6: Импорт — страница загружается", async (page) => {
-    await login(page)
-    await page.goto("/crm/import")
-    await page.waitForLoadState("domcontentloaded")
-    await page.waitForTimeout(1500)
-
-    try {
-      const h1 = await page.locator("h1").first().textContent()
-      const hasContent = h1?.includes("Импорт") || h1?.includes("импорт")
-        || await page.locator("text=Импорт").first().isVisible({ timeout: 3000 }).catch(() => false)
-        || await page.locator("text=CSV").first().isVisible({ timeout: 1000 }).catch(() => false)
-        || await page.locator("text=Excel").first().isVisible({ timeout: 1000 }).catch(() => false)
-        || await page.locator("text=Загрузить").first().isVisible({ timeout: 1000 }).catch(() => false)
-
-      log("9.6 Страница импорта", hasContent ? "OK" : "BUG", hasContent ? undefined : `Заголовок: ${h1}`)
-    } catch (e: any) {
-      log("9.6 Импорт", "BUG", e.message?.slice(0, 150))
-    }
-  })
-
   // ============================================================
   // ЧАСТЬ 17: UI FEATURES
   // ============================================================

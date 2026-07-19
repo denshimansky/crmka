@@ -7,15 +7,10 @@ import { MANAGED_TRIGGERS, type TriggerSetting } from "@/lib/tasks/trigger-setti
 import { z } from "zod"
 
 const itemSchema = z.object({
-  trigger: z.enum([
-    "contact_date",
-    "promised_payment",
-    "birthday",
-    "unmarked_lesson",
-    "payment_due",
-    "trial_reminder",
-    "absence",
-  ]),
+  // Ключ триггера проверяется ниже по MANAGED_TRIGGERS (единый источник истины
+  // со страницей настроек и генератором). Неизвестные/устаревшие ключи молча
+  // игнорируются, а не роняют весь запрос — обратная совместимость.
+  trigger: z.string(),
   enabled: z.boolean(),
   startDayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
 })
@@ -56,9 +51,10 @@ export async function PATCH(req: NextRequest) {
   // (берём последнее значение по каждому триггеру).
   const map = new Map<string, TriggerSetting>()
   for (const item of parsed.data.settings) {
-    if (!MANAGED_TRIGGERS.includes(item.trigger as (typeof MANAGED_TRIGGERS)[number])) continue
-    map.set(item.trigger, {
-      trigger: item.trigger,
+    const trigger = item.trigger as (typeof MANAGED_TRIGGERS)[number]
+    if (!MANAGED_TRIGGERS.includes(trigger)) continue
+    map.set(trigger, {
+      trigger,
       enabled: item.enabled,
       startDayOfMonth: item.startDayOfMonth ?? null,
     })

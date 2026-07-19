@@ -48,6 +48,9 @@ const TRIGGER_LABELS: Record<string, string> = {
   absence: "Прогул",
   promised_payment: "Обещание",
   unmarked_lesson: "Отметка",
+  no_show_review: "Не был",
+  first_paid_reminder: "1-е платное",
+  missed_makeup: "Отработка",
 }
 
 export function TaskList({ tasks }: { tasks: TaskRow[] }) {

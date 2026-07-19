@@ -182,7 +182,7 @@ export function QuickRenewSubscriptionDialog({
           )}
           {selected && (
             <div className="rounded-md border bg-muted/30 p-3 text-sm">
-              <div className="text-xs text-muted-foreground">Будет создан pending-абонемент на</div>
+              <div className="text-xs text-muted-foreground">Будет создан ожидающий оплаты абонемент на</div>
               <div className="font-medium">{nextPeriodLabel(selected)}</div>
               <div className="mt-1 text-xs text-muted-foreground">
                 Цена занятия — по текущему прайсу направления. Количество занятий —
@@ -194,7 +194,7 @@ export function QuickRenewSubscriptionDialog({
         <DialogFooter>
           <DialogClose render={<Button variant="outline" type="button" />}>Отмена</DialogClose>
           <Button type="button" onClick={handleSubmit} disabled={loading || !selectedId}>
-            {loading ? "Создание..." : "Создать pending"}
+            {loading ? "Создание..." : "Создать абонемент"}
           </Button>
         </DialogFooter>
       </DialogContent>
