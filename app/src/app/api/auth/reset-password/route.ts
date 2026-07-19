@@ -42,12 +42,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Идентификатор токена: email (самостоятельный /forgot-password) или
+    // "employee:{id}" (ссылка, сгенерированная админом из бэк-офиса —
+    // работает и для сотрудников без email)
+    const identifier = verificationToken.identifier
     const employee = await db.employee.findFirst({
-      where: {
-        email: verificationToken.identifier,
-        isActive: true,
-        deletedAt: null,
-      },
+      where: identifier.startsWith("employee:")
+        ? { id: identifier.slice("employee:".length), isActive: true, deletedAt: null }
+        : { email: identifier, isActive: true, deletedAt: null },
     })
 
     if (!employee) {

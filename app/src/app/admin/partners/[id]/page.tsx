@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  ArrowLeft, Building2, CreditCard, FileText, LogIn, Pencil, Plus, Users,
+  ArrowLeft, Building2, CreditCard, FileText, KeyRound, LogIn, Pencil, Plus, Users,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -101,6 +101,9 @@ export default function PartnerDetailPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [impersonating, setImpersonating] = useState(false)
+  const [resetInfo, setResetInfo] = useState<{ url: string; name: string; emailSent: boolean } | null>(null)
+  const [resetOpen, setResetOpen] = useState(false)
+  const [resetCopied, setResetCopied] = useState(false)
 
   const fetchPartner = () => {
     fetch(`/api/admin/partners/${id}`)
@@ -205,6 +208,25 @@ export default function PartnerDetailPage() {
       })
     }
     fetchPartner()
+  }
+
+  // Ссылка сброса пароля (на случай «владелец забыл пароль»): токен на 1 час,
+  // ссылку показываем админу — передать партнёру; письмо уходит само, если
+  // настроен SMTP и у сотрудника есть email
+  const handleResetPassword = async (employeeId: string) => {
+    setError("")
+    try {
+      const res = await fetch(`/api/admin/partners/${id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setError(d.error || "Не удалось создать ссылку"); return }
+      setResetInfo({ url: d.resetUrl, name: d.employee?.name || "", emailSent: !!d.emailSent })
+      setResetCopied(false)
+      setResetOpen(true)
+    } catch { setError("Ошибка сети") }
   }
 
   // Исключение из автобиллинга: счета 20-го числа и автоблокировка 1-го
@@ -336,6 +358,17 @@ export default function PartnerDetailPage() {
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-xs">{e.role}</Badge>
                     {!e.isActive && <Badge variant="destructive" className="text-xs">Неактивен</Badge>}
+                    {e.isActive && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-1.5"
+                        title="Ссылка для сброса пароля"
+                        onClick={() => handleResetPassword(e.id)}
+                      >
+                        <KeyRound className="size-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -537,6 +570,34 @@ export default function PartnerDetailPage() {
             <Button variant="outline" onClick={() => setSubOpen(false)}>Отмена</Button>
             <Button onClick={handleCreateSub} disabled={saving || !subForm.planId}>{saving ? "Создание..." : "Создать"}</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог ссылки сброса пароля */}
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Сброс пароля{resetInfo?.name ? `: ${resetInfo.name}` : ""}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Ссылка действует 1 час. Передайте её сотруднику любым удобным способом —
+              по ней он задаст себе новый пароль.
+              {resetInfo?.emailSent && " Письмо со ссылкой также отправлено на email."}
+            </p>
+            <div className="flex gap-2">
+              <Input readOnly value={resetInfo?.url || ""} onFocus={(e) => e.target.select()} />
+              <Button
+                variant="outline"
+                onClick={() => {
+                  navigator.clipboard.writeText(resetInfo?.url || "")
+                  setResetCopied(true)
+                }}
+              >
+                {resetCopied ? "Скопировано" : "Копировать"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
