@@ -1,22 +1,23 @@
-// Автовыставление SaaS-счетов партнёрам (20-е число, далее ежедневно до конца
-// месяца — самовосстановление после задержек GH Actions и дозапуск для
-// организаций, у которых ИНН заполнили после 20-го).
+// Автовыставление SaaS-счетов партнёрам. Крон ежедневный; две схемы (Bug #65):
 //
-// Каждой не-exempt подписке (кроме cancelled), у которой оплаченный период
-// кончается к 1-му числу следующего месяца, выставляется счёт на период
-// с 1-го числа, сумма — строго по тарифной сетке × billingPeriodMonths.
-// Заблокированные подписки НЕ исключаются: счета продолжают выставляться,
-// пока подписку не отменили в админке (иначе после разблокировки задним
-// числом появлялись бы «дыры» в периодах).
+//  • LEGACY (billingAnchorDay = null) — текущие партнёры: счёт на 1-е число
+//    следующего месяца, генерация только с 20-го (гейт по дню), срок оплаты 1-е.
+//    Поведение полностью сохранено.
+//  • ANCHORED (billingAnchorDay задан) — новые партнёры с индивидуальным
+//    днём-якорем: срок оплаты = день-якорь месяца, счёт выставляется за 10 дней
+//    до срока (shouldIssueAnchored). Первый счёт теста — за 10 дней до конца
+//    теста (= на 4-й день). Сумма строго по сетке × billingPeriodMonths.
 //
-// Владелец и управляющие получают уведомление в колокольчик со ссылкой
-// на PDF счёта (entityType=BillingInvoice → /api/billing/invoices/{id}/pdf).
+// Заблокированные подписки НЕ исключаются: счета продолжают выставляться, пока
+// подписку не отменили (иначе после разблокировки задним числом были бы «дыры»).
+// Владелец и управляющие получают уведомление в колокольчик со ссылкой на PDF.
 
 import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { monthlyPriceFor } from "@/lib/billing-price"
 import { nextInvoiceNumber } from "@/lib/billing/invoice-number"
 import { ensureOrgLegalName } from "@/lib/billing/checko"
+import { planInvoice } from "@/lib/billing/billing-schedule"
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -27,26 +28,27 @@ export interface GenerateInvoicesResult {
   created: number
   skippedAlreadyInvoiced: number
   skippedNoInn: { orgId: string; name: string }[]
-  /** Подписки с nextPaymentDate в прошлом (долг за прошлые периоды — разобрать вручную) */
+  /** Legacy-подписки с nextPaymentDate в прошлом (долг за прошлые периоды) */
   debtWarning: { orgName: string; nextPaymentDate: string }[]
 }
 
 export async function generateBillingInvoices(
   now: Date = new Date()
 ): Promise<GenerateInvoicesResult> {
-  // 1-е число следующего месяца (UTC) — начало оплачиваемого периода и срок оплаты
-  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
-  const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-
+  // Тянем все не-отменённые подписки не-exempt организаций и решаем по каждой
+  // чистой функцией planInvoice. (Volume — десятки строк; отдельный DB-фильтр
+  // по nextPaymentDate ронял бы anchored-подписки с якорем ≤10 числа, у которых
+  // дата выставления в прошлом календарном месяце — см. Bug #65.)
   const subs = await db.billingSubscription.findMany({
     where: {
       status: { not: "cancelled" },
-      nextPaymentDate: { lte: nextMonthStart },
       organization: { billingExempt: false },
     },
     include: {
       plan: true,
-      organization: { select: { id: true, name: true, legalName: true, inn: true } },
+      organization: {
+        select: { id: true, name: true, legalName: true, inn: true },
+      },
     },
   })
 
@@ -60,18 +62,18 @@ export async function generateBillingInvoices(
   for (const sub of subs) {
     const org = sub.organization
 
-    // Без ИНН счёт не выставляем: нечем матчить оплату по выписке,
-    // в PDF нет заказчика. Админ заполняет ИНН → следующий прогон создаст.
+    // Пора ли выставлять счёт этой подписке сейчас (legacy/anchored — внутри)
+    const plan = planInvoice(sub, now)
+    if (!plan) continue
+
+    // Без ИНН счёт не выставляем: нечем матчить оплату по выписке, в PDF нет
+    // заказчика. Для новых партнёров ИНН обязателен при создании (Bug #65).
     if (!org.inn || !org.inn.trim()) {
       result.skippedNoInn.push({ orgId: org.id, name: org.name })
       continue
     }
 
-    // Официальное наименование заказчика для PDF берём из ЕГРЮЛ/ЕГРИП (checko).
-    // Если ещё не подтянуто — подтягиваем сейчас и сохраняем в organization,
-    // чтобы в счёте был не «ДЦ …» из системы, а реальное юрлицо/ИП.
-    // Best-effort: при недоступности checko счёт всё равно выставляем (в PDF
-    // отрендерится прежний фоллбэк на organization.name).
+    // Официальное наименование заказчика из ЕГРЮЛ/ЕГРИП (best-effort, checko).
     if (!org.legalName || !org.legalName.trim()) {
       try {
         await ensureOrgLegalName(org)
@@ -80,13 +82,24 @@ export async function generateBillingInvoices(
       }
     }
 
-    // Идемпотентность: счёт за этот период уже есть (pending/paid) — пропускаем.
-    // cancelled не блокирует перевыставление.
+    const periodMonths = sub.billingPeriodMonths || 1
+    const branchCount = sub.branchCount
+    const { periodStart, periodEnd, dueDate } = plan
+
+    // Долг за прошлые периоды (legacy) в счёт не включаем — на ручную разборку
+    if (plan.isPastDuePeriod) {
+      result.debtWarning.push({
+        orgName: org.name,
+        nextPaymentDate: sub.nextPaymentDate.toISOString().slice(0, 10),
+      })
+    }
+
+    // Идемпотентность: счёт за этот период уже есть — пропускаем
     const existing = await db.billingInvoice.findFirst({
       where: {
         subscriptionId: sub.id,
-        periodStart: nextMonthStart,
-        status: { in: ["pending", "paid"] },
+        periodStart,
+        status: { in: plan.idempotencyStatuses },
       },
       select: { id: true },
     })
@@ -95,21 +108,7 @@ export async function generateBillingInvoices(
       continue
     }
 
-    // Долг за прошлые периоды в счёт не включаем (сумма строго по сетке) —
-    // отдаём в ответ крона на ручную разборку.
-    if (sub.nextPaymentDate < currentMonthStart) {
-      result.debtWarning.push({
-        orgName: org.name,
-        nextPaymentDate: sub.nextPaymentDate.toISOString().slice(0, 10),
-      })
-    }
-
-    const periodMonths = sub.billingPeriodMonths || 1
-    const amount = round2(monthlyPriceFor(sub.plan, sub.branchCount) * periodMonths)
-    // Последний день последнего месяца периода (как в образце: 01.07–31.07)
-    const periodEnd = new Date(
-      Date.UTC(nextMonthStart.getUTCFullYear(), nextMonthStart.getUTCMonth() + periodMonths, 0)
-    )
+    const amount = round2(monthlyPriceFor(sub.plan, branchCount) * periodMonths)
 
     const recipients = await db.employee.findMany({
       where: {
@@ -124,7 +123,7 @@ export async function generateBillingInvoices(
     // Номер: гонка по unique(number) разрешается ретраем
     let created = false
     for (let attempt = 0; attempt < 3 && !created; attempt++) {
-      const number = await nextInvoiceNumber(nextMonthStart)
+      const number = await nextInvoiceNumber(periodStart)
       try {
         await db.$transaction(async (tx) => {
           const invoice = await tx.billingInvoice.create({
@@ -134,12 +133,12 @@ export async function generateBillingInvoices(
               number,
               amount,
               periodMonths,
-              branchCount: sub.branchCount,
+              branchCount,
               status: "pending",
-              periodStart: nextMonthStart,
+              periodStart,
               periodEnd,
-              dueDate: nextMonthStart,
-              comment: `SaaS «Умная CRM», ${sub.branchCount} фил. × ${periodMonths} мес.`,
+              dueDate,
+              comment: `SaaS «Умная CRM», ${branchCount} фил. × ${periodMonths} мес.`,
             },
           })
 
@@ -150,7 +149,7 @@ export async function generateBillingInvoices(
                 employeeId: r.id,
                 type: "billing_invoice" as const,
                 title: `Оплатите счёт №${number} на ${amount.toLocaleString("ru-RU")} ₽`,
-                message: `Период ${fmtDate(nextMonthStart)}–${fmtDate(periodEnd)}, оплатить до ${fmtDate(nextMonthStart)}. Нажмите, чтобы открыть счёт (PDF).`,
+                message: `Период ${fmtDate(periodStart)}–${fmtDate(periodEnd)}, оплатить до ${fmtDate(dueDate)}. Нажмите, чтобы открыть счёт (PDF).`,
                 entityType: "BillingInvoice",
                 entityId: invoice.id,
               })),

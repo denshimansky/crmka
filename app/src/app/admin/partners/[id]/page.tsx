@@ -72,6 +72,7 @@ interface Partner {
 
 const STATUS_MAP: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   active: { label: "Активен", variant: "default" },
+  trial: { label: "Тестовый период", variant: "secondary" },
   grace_period: { label: "Грейс-период", variant: "secondary" },
   blocked: { label: "Заблокирован", variant: "destructive" },
   cancelled: { label: "Отменена", variant: "outline" },

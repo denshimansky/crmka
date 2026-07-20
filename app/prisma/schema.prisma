@@ -1589,6 +1589,11 @@ model BillingSubscription {
   billingPeriodMonths Int                       @default(1) @map("billing_period_months")
   nextPaymentDate     DateTime                  @map("next_payment_date") @db.Date
   periodEndDate       DateTime?                 @map("period_end_date") @db.Date
+  // Индивидуальный биллинг (Bug #65): день-якорь месяца (1–31) для срока оплаты
+  // и дата конца 14-дневного теста. NULL у обеих = legacy-режим «1-е число»
+  // (текущие партнёры остаются на 1-м навсегда). Заполнены — anchored-режим.
+  billingAnchorDay    Int?                      @map("billing_anchor_day")
+  trialEndsAt         DateTime?                 @map("trial_ends_at") @db.Date
   gracePeriodEnd      DateTime?                 @map("grace_period_end") @db.Date
   blockedAt           DateTime?                 @map("blocked_at")
   startDate           DateTime                  @map("start_date") @db.Date
@@ -1682,6 +1687,7 @@ enum BillingSubscriptionStatus {
   grace_period
   blocked
   cancelled
+  trial
 }
 
 enum BillingInvoiceStatus {

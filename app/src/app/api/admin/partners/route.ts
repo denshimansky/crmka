@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
 import { monthlyPriceFor } from "@/lib/billing-price"
+import {
+  trialEndFromStart,
+  anchorDayFromTrialEnd,
+  toUtcDate,
+} from "@/lib/billing/billing-schedule"
 import { generateUniquePortalSlug } from "@/lib/portal-slug"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
@@ -78,11 +83,22 @@ export async function POST(req: NextRequest) {
 
   const d = parsed.data
 
+  // ИНН обязателен: без него невозможно выставлять счета и матчить оплату по
+  // выписке (Bug #65 — тест не должен стартовать без реквизитов). 10 цифр (ЮЛ)
+  // или 12 (ИП/физлицо).
+  const innDigits = (d.inn || "").replace(/\D/g, "")
+  if (innDigits.length !== 10 && innDigits.length !== 12) {
+    return NextResponse.json(
+      { error: "Укажите корректный ИНН партнёра (10 или 12 цифр) — без него невозможно выставлять счета" },
+      { status: 400 }
+    )
+  }
+
   const org = await db.organization.create({
     data: {
       name: d.name,
       legalName: d.legalName,
-      inn: d.inn,
+      inn: innDigits,
       phone: d.phone,
       email: d.email,
       contactPerson: d.contactPerson,
@@ -116,18 +132,24 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Автоматически создаём подписку на тариф «Стандарт» если есть
+  // Автоматически создаём подписку на тариф «Стандарт» если есть.
+  // Новый партнёр стартует с 14-дневного теста: старт = сегодня, срок первой
+  // оплаты = конец теста, далее — индивидуальный день-якорь (Bug #65).
   const defaultPlan = await db.billingPlan.findFirst({ where: { isActive: true }, orderBy: { createdAt: "asc" } })
   if (defaultPlan) {
-    const now = new Date()
+    const start = toUtcDate(new Date())
+    const trialEnd = trialEndFromStart(start)
     await db.billingSubscription.create({
       data: {
         organizationId: org.id,
         planId: defaultPlan.id,
         branchCount: 1,
         monthlyAmount: monthlyPriceFor(defaultPlan, 1),
-        startDate: new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)),
-        nextPaymentDate: new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1)),
+        status: "trial",
+        startDate: start,
+        trialEndsAt: trialEnd,
+        billingAnchorDay: anchorDayFromTrialEnd(trialEnd),
+        nextPaymentDate: trialEnd,
       },
     })
   }

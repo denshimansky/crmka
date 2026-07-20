@@ -30,6 +30,8 @@ interface Subscription {
   billingPeriodMonths: number
   nextPaymentDate: string
   periodEndDate: string | null
+  trialEndsAt: string | null
+  billingAnchorDay: number | null
   startDate: string
   plan: Plan
 }
@@ -65,9 +67,17 @@ interface BillingData {
 
 const SUB_STATUS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   active: { label: "Активна", variant: "default" },
+  trial: { label: "Тестовый период", variant: "secondary" },
   grace_period: { label: "Грейс-период", variant: "secondary" },
   blocked: { label: "Заблокирована", variant: "destructive" },
   cancelled: { label: "Отменена", variant: "outline" },
+}
+
+// Осталось дней теста (>= 0). trialEndsAt — полночь UTC дня-срока.
+function trialDaysLeft(trialEndsAt: string): number {
+  const end = new Date(trialEndsAt).getTime()
+  const days = Math.ceil((end - Date.now()) / (24 * 60 * 60 * 1000))
+  return Math.max(0, days)
 }
 
 const INV_STATUS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -168,6 +178,21 @@ export default function BillingPage() {
         </div>
         <p className="text-sm text-muted-foreground">Управление подпиской и счетами</p>
       </div>
+
+      {/* Баннер тестового периода */}
+      {subscription?.status === "trial" && subscription.trialEndsAt && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+          <span className="font-semibold">
+            Тестовый период: осталось {trialDaysLeft(subscription.trialEndsAt)} дн.
+          </span>{" "}
+          Оплатите счёт до{" "}
+          <span className="font-medium">
+            {new Date(subscription.trialEndsAt).toLocaleDateString("ru")}
+          </span>
+          , иначе доступ к CRM будет ограничен. После оплаты подписка станет активной,
+          дальнейшие счета — к {subscription.billingAnchorDay ?? new Date(subscription.trialEndsAt).getUTCDate()}-му числу каждого месяца.
+        </div>
+      )}
 
       {/* Карточки-метрики */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

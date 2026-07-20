@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
 import { monthlyPriceFor } from "@/lib/billing-price"
+import {
+  trialEndFromStart,
+  anchorDayFromTrialEnd,
+  toUtcDate,
+} from "@/lib/billing/billing-schedule"
 import { z } from "zod"
 
 // GET /api/admin/subscriptions — все подписки
@@ -47,9 +52,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Тарифный план не найден" }, { status: 404 })
   }
 
+  // ИНН обязателен: без него нельзя выставлять счета/матчить оплату (Bug #65).
+  const org = await db.organization.findUnique({
+    where: { id: parsed.data.organizationId },
+    select: { inn: true },
+  })
+  const innDigits = (org?.inn || "").replace(/\D/g, "")
+  if (innDigits.length !== 10 && innDigits.length !== 12) {
+    return NextResponse.json(
+      { error: "У организации не заполнен корректный ИНН — сначала укажите ИНН партнёра" },
+      { status: 400 }
+    )
+  }
+
   const monthlyAmount = monthlyPriceFor(plan, parsed.data.branchCount)
-  const startDate = new Date(parsed.data.startDate)
-  const nextPaymentDate = new Date(Date.UTC(startDate.getFullYear(), startDate.getMonth() + 1, 1))
+  // 14-дневный тест от даты старта (Bug #65): срок первой оплаты = конец теста,
+  // далее — индивидуальный день-якорь.
+  const startDate = toUtcDate(new Date(parsed.data.startDate))
+  const trialEnd = trialEndFromStart(startDate)
 
   const subscription = await db.billingSubscription.create({
     data: {
@@ -57,8 +77,11 @@ export async function POST(req: NextRequest) {
       planId: parsed.data.planId,
       branchCount: parsed.data.branchCount,
       monthlyAmount,
+      status: "trial",
       startDate,
-      nextPaymentDate,
+      trialEndsAt: trialEnd,
+      billingAnchorDay: anchorDayFromTrialEnd(trialEnd),
+      nextPaymentDate: trialEnd,
     },
     include: {
       organization: { select: { name: true } },
