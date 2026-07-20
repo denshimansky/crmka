@@ -1,15 +1,22 @@
 const MASK = "•••••"
 
 /**
- * Маскирует телефон для роли «инструктор» — политика жёсткая и не настраивается.
- * Бизнес-правило: педагоги не видят клиентскую базу.
+ * Маскирует телефон для роли «инструктор». По умолчанию педагоги не видят
+ * клиентскую базу; владелец может открыть телефоны настройкой организации
+ * `instructorsSeePhones` (Настройки → Организация) — тогда маска снимается.
+ *
+ * Флаг берётся из сессии: session.user.instructorsSeePhones.
  *
  * Использовать на серверной стороне (API + server components), до отправки данных
  * клиенту — иначе номер можно прочитать в Network-вкладке браузера.
  */
-export function maskPhone(phone: string | null | undefined, role: string): string | null {
+export function maskPhone(
+  phone: string | null | undefined,
+  role: string,
+  instructorsSeePhones: boolean,
+): string | null {
   if (!phone) return null
-  if (role === "instructor") return MASK
+  if (role === "instructor" && !instructorsSeePhones) return MASK
   return phone
 }
 

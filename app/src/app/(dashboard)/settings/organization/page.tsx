@@ -5,6 +5,7 @@ import { PageHelp } from "@/components/page-help"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { ParentPortalSettingsForm } from "./parent-portal-settings-form"
+import { InstructorPhonesToggle } from "./instructor-phones-toggle"
 
 export default async function OrganizationInfoPage() {
   const session = await getSession()
@@ -16,6 +17,7 @@ export default async function OrganizationInfoPage() {
       inn: true,
       phone: true,
       email: true,
+      instructorsSeePhones: true,
       portalSlug: true,
       portalOfferUrl: true,
       portalPrivacyPolicyUrl: true,
@@ -76,6 +78,10 @@ export default async function OrganizationInfoPage() {
           )}
         </CardContent>
       </Card>
+
+      {org && session.user.role === "owner" && (
+        <InstructorPhonesToggle initial={org.instructorsSeePhones} />
+      )}
 
       {org && canEditPortal && (
         <ParentPortalSettingsForm

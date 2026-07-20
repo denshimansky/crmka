@@ -417,7 +417,7 @@ export default async function LessonCardPage({
       trialId: t.id,
       clientId: t.clientId,
       clientName: [t.client.lastName, t.client.firstName].filter(Boolean).join(" ") || "Без имени",
-      clientPhone: maskPhone(t.client.phone, currentRole),
+      clientPhone: maskPhone(t.client.phone, currentRole, session.user.instructorsSeePhones),
       wardId: t.wardId,
       wardName: t.ward
         ? [t.ward.lastName, t.ward.firstName].filter(Boolean).join(" ")
@@ -442,7 +442,7 @@ export default async function LessonCardPage({
         clientName: client
           ? [client.lastName, client.firstName].filter(Boolean).join(" ") || "Без имени"
           : "Без имени",
-        clientPhone: maskPhone(client?.phone || null, currentRole),
+        clientPhone: maskPhone(client?.phone || null, currentRole, session.user.instructorsSeePhones),
         wardId: a.wardId,
         wardName: ward ? [ward.lastName, ward.firstName].filter(Boolean).join(" ") : null,
         subscriptionId: a.subscriptionId,
@@ -479,7 +479,7 @@ export default async function LessonCardPage({
         clientId: a.clientId,
         clientName:
           [a.client.lastName, a.client.firstName].filter(Boolean).join(" ") || "Без имени",
-        clientPhone: maskPhone(a.client.phone, currentRole),
+        clientPhone: maskPhone(a.client.phone, currentRole, session.user.instructorsSeePhones),
         wardId: a.wardId,
         wardName: w ? [w.lastName, w.firstName].filter(Boolean).join(" ") : null,
         subscriptionId: a.subscriptionId,
@@ -564,7 +564,7 @@ export default async function LessonCardPage({
       enrollmentId: enrollment.id,
       clientId: enrollment.clientId,
       clientName: [enrollment.client.lastName, enrollment.client.firstName].filter(Boolean).join(" ") || "Без имени",
-      clientPhone: maskPhone(enrollment.client.phone, currentRole),
+      clientPhone: maskPhone(enrollment.client.phone, currentRole, session.user.instructorsSeePhones),
       wardId: enrollment.wardId,
       wardName: enrollment.ward
         ? [enrollment.ward.lastName, enrollment.ward.firstName].filter(Boolean).join(" ")
@@ -621,7 +621,7 @@ export default async function LessonCardPage({
       clientName: client
         ? [client.lastName, client.firstName].filter(Boolean).join(" ") || "Без имени"
         : "Без имени",
-      clientPhone: maskPhone(client?.phone || null, currentRole),
+      clientPhone: maskPhone(client?.phone || null, currentRole, session.user.instructorsSeePhones),
       wardId: a.wardId,
       wardName: ward
         ? [ward.lastName, ward.firstName].filter(Boolean).join(" ")

@@ -175,7 +175,7 @@ export default async function ChildrenPage() {
       parentId: w.client.id,
       parentName:
         [w.client.lastName, w.client.firstName, w.client.patronymic].filter(Boolean).join(" ") || "Без имени",
-      parentPhone: maskPhone(w.client.phone, role),
+      parentPhone: maskPhone(w.client.phone, role, session.user.instructorsSeePhones),
       parentComment: w.client.comment,
       branchId: branch.branchId,
       branchName: branch.branchName,

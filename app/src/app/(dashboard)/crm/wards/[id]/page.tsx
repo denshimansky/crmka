@@ -142,7 +142,7 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
   const parentName =
     [ward.client.lastName, ward.client.firstName, ward.client.patronymic].filter(Boolean).join(" ") || "Без имени"
   const wardName = formatWardName(ward)
-  const parentPhone = maskPhone(ward.client.phone, session.user.role)
+  const parentPhone = maskPhone(ward.client.phone, session.user.role, session.user.instructorsSeePhones)
 
   return (
     <div className="space-y-6">

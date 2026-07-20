@@ -146,8 +146,8 @@ export async function GET(req: NextRequest) {
   const role = session.user.role
   const masked = clients.map((c) => ({
     ...c,
-    phone: maskPhone(c.phone, role),
-    phone2: maskPhone(c.phone2, role),
+    phone: maskPhone(c.phone, role, session.user.instructorsSeePhones),
+    phone2: maskPhone(c.phone2, role, session.user.instructorsSeePhones),
   }))
 
   return NextResponse.json(masked)

@@ -98,8 +98,8 @@ export async function ClientCardContent({
 
   // Маскируем телефоны для инструктора (PRD §5.4)
   const role = session.user.role
-  const visiblePhone = maskPhone(client.phone, role)
-  const visiblePhone2 = maskPhone(client.phone2, role)
+  const visiblePhone = maskPhone(client.phone, role, session.user.instructorsSeePhones)
+  const visiblePhone2 = maskPhone(client.phone2, role, session.user.instructorsSeePhones)
 
   // Активные абонементы — то, чем ребёнок занимается прямо сейчас:
   // не отчислены админом (withdrawalDate IS NULL, status != withdrawn|closed)

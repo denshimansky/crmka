@@ -13,6 +13,8 @@ declare module "next-auth" {
       // null — доступ ко всем филиалам (owner/manager всегда; admin/instructor
       // если EmployeeBranch пуст). Массив — ограниченный набор UUID. См. ADM-04.
       allowedBranchIds: string[] | null
+      // Видит ли роль инструктора телефоны клиентов (настройка организации).
+      instructorsSeePhones: boolean
     }
   }
 }
@@ -25,5 +27,6 @@ declare module "next-auth/jwt" {
     orgName: string
     allowedBranchIds: string[] | null
     allowedBranchesCheckedAt?: number
+    instructorsSeePhones?: boolean
   }
 }

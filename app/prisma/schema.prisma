@@ -84,6 +84,9 @@ model Organization {
   /// (у направления задана цена пробного), all — все пробные.
   trialPayMode        String   @default("none") @map("trial_pay_mode")
   attendanceDeadline  Int      @default(14) @map("attendance_deadline")
+  // Видят ли педагоги (instructor) телефоны клиентов. По умолчанию скрыты (маска);
+  // владелец может открыть в «Настройки → Организация».
+  instructorsSeePhones Boolean @default(false) @map("instructors_see_phones")
   debtLimit           Decimal? @map("debt_limit") @db.Decimal(12, 2)
   makeupDaysLimit     Int?     @map("makeup_days_limit")
   makeupDeadlineDays  Int?     @map("makeup_deadline_days")

@@ -98,6 +98,7 @@ export const authOptions: NextAuthOptions = {
           tenantId: employee.tenantId,
           orgName: employee.organization.name,
           billingStatus: employee.organization.billingStatus,
+          instructorsSeePhones: employee.organization.instructorsSeePhones,
         }
       },
     }),
@@ -110,20 +111,24 @@ export const authOptions: NextAuthOptions = {
         token.employeeId = user.id
         token.orgName = (user as any).orgName
         token.billingStatus = (user as any).billingStatus
+        token.instructorsSeePhones = (user as any).instructorsSeePhones
         token.allowedBranchIds = null
       }
 
-      // Периодически обновляем billingStatus (каждые 5 минут)
+      // Периодически обновляем настройки организации (billingStatus +
+      // instructorsSeePhones) — каждые 5 минут, чтобы правки в настройках
+      // подхватывались без релогина.
       const now = Math.floor(Date.now() / 1000)
       const lastCheck = (token.billingStatusCheckedAt as number) || 0
       if (token.tenantId && now - lastCheck > 300) {
         try {
           const org = await db.organization.findUnique({
             where: { id: token.tenantId as string },
-            select: { billingStatus: true },
+            select: { billingStatus: true, instructorsSeePhones: true },
           })
           if (org) {
             token.billingStatus = org.billingStatus
+            token.instructorsSeePhones = org.instructorsSeePhones
           }
           token.billingStatusCheckedAt = now
         } catch {
@@ -172,6 +177,7 @@ export const authOptions: NextAuthOptions = {
         ;(session.user as any).employeeId = token.employeeId
         ;(session.user as any).orgName = token.orgName
         ;(session.user as any).billingStatus = token.billingStatus
+        ;(session.user as any).instructorsSeePhones = token.instructorsSeePhones ?? false
         ;(session.user as any).allowedBranchIds = token.allowedBranchIds ?? null
         if (token.impersonatedBy) {
           ;(session.user as any).impersonatedBy = token.impersonatedBy

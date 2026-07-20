@@ -35,7 +35,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   return NextResponse.json({
     ...ward,
-    client: { ...ward.client, phone: maskPhone(ward.client.phone, session.user.role) },
+    client: { ...ward.client, phone: maskPhone(ward.client.phone, session.user.role, session.user.instructorsSeePhones) },
   })
 }
 

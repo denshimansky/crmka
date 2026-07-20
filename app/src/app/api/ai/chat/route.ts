@@ -30,12 +30,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Пустое сообщение" }, { status: 400 })
   }
 
-  // --- Rate limiting (per tenant per day, через header — упрощённо) ---
-  const usageHeader = req.headers.get("x-ai-usage-count")
-  const currentUsage = usageHeader ? parseInt(usageHeader, 10) : 0
-  if (currentUsage >= DAILY_LIMIT) {
+  // --- Лимит: DAILY_LIMIT ответов в сутки НА ОРГАНИЗАЦИЮ (tenant), общий на всех
+  // сотрудников. Считаем реально записанные диалоги за текущие сутки (UTC) —
+  // заголовку с клиента доверять нельзя (обходится). Индекс [tenantId, createdAt]. ---
+  const startOfDay = new Date()
+  startOfDay.setUTCHours(0, 0, 0, 0)
+  const usedToday = await db.aiChatLog.count({
+    where: { tenantId, createdAt: { gte: startOfDay } },
+  })
+  if (usedToday >= DAILY_LIMIT) {
     return NextResponse.json({
-      error: `Достигнут лимит: ${DAILY_LIMIT} запросов в день`,
+      error: `Достигнут дневной лимит запросов к ИИ (${DAILY_LIMIT} в сутки на организацию). Лимит обновится завтра.`,
       remaining: 0,
     }, { status: 429 })
   }
@@ -49,7 +54,7 @@ export async function POST(req: NextRequest) {
   if (!apiKey) {
     return NextResponse.json({
       reply: "AI-ассистент временно недоступен. Обратитесь к администратору.",
-      remaining: DAILY_LIMIT - currentUsage,
+      remaining: DAILY_LIMIT - usedToday,
     })
   }
 
@@ -160,7 +165,7 @@ ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
         console.error("[ai/chat] OpenAI API error:", response.status, errBody)
         return NextResponse.json({
           reply: "Не удалось получить ответ от AI. Попробуйте позже.",
-          remaining: DAILY_LIMIT - currentUsage,
+          remaining: DAILY_LIMIT - usedToday,
         })
       }
 
@@ -202,7 +207,7 @@ ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
         console.error("[ai/chat] Anthropic API error:", response.status, errBody)
         return NextResponse.json({
           reply: "Не удалось получить ответ от AI. Попробуйте позже.",
-          remaining: DAILY_LIMIT - currentUsage,
+          remaining: DAILY_LIMIT - usedToday,
         })
       }
 
@@ -228,13 +233,13 @@ ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
     return NextResponse.json({
       reply,
       logId,
-      remaining: DAILY_LIMIT - currentUsage - 1,
+      remaining: Math.max(0, DAILY_LIMIT - usedToday - 1),
     })
   } catch (err) {
     console.error("[ai/chat] Error:", err)
     return NextResponse.json({
       reply: "Произошла ошибка. Попробуйте позже.",
-      remaining: DAILY_LIMIT - currentUsage,
+      remaining: DAILY_LIMIT - usedToday,
     })
   }
 }

@@ -131,7 +131,7 @@ export async function GET(req: NextRequest) {
   // Маскирование телефонов для инструктора.
   const masked = subscriptions.map((s) => ({
     ...s,
-    client: { ...s.client, phone: maskPhone(s.client.phone, session.user.role) },
+    client: { ...s.client, phone: maskPhone(s.client.phone, session.user.role, session.user.instructorsSeePhones) },
     refundedToBalance: refundBySub.get(s.id) ?? 0,
     attendedLessons: attendedBySub.get(s.id) ?? 0,
     // legacy идёт по замороженной денежной модели (reprice его пропускает) —

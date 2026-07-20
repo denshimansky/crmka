@@ -51,6 +51,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
   }
 
+  // Email уникален глобально (второй логин + адрес сброса пароля). При смене
+  // проверяем, что его не занял другой сотрудник (без учёта регистра).
+  if (data.email) {
+    const emailTaken = await db.employee.findFirst({
+      where: {
+        email: { equals: data.email, mode: "insensitive" },
+        deletedAt: null,
+        id: { not: id },
+      },
+      select: { id: true },
+    })
+    if (emailTaken) {
+      return NextResponse.json(
+        { error: "Этот email уже используется другим сотрудником. Email должен быть уникальным — это второй логин и адрес для сброса пароля." },
+        { status: 409 },
+      )
+    }
+  }
+
   // Нельзя менять роль владельца
   if (existing.role === "owner" && data.role) {
     return NextResponse.json({ error: "Нельзя изменить роль владельца" }, { status: 400 })

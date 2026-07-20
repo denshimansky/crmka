@@ -62,12 +62,28 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Проверяем уникальность логина
+  // Проверяем уникальность логина (в пределах организации)
   const existing = await db.employee.findFirst({
     where: { tenantId: session.user.tenantId, login: data.login, deletedAt: null },
   })
   if (existing) {
     return NextResponse.json({ error: "Логин уже занят" }, { status: 409 })
+  }
+
+  // Email — второй способ входа (вход по email ищет сотрудника ПО ВСЕЙ СИСТЕМЕ)
+  // и адрес для сброса пароля, поэтому уникальность проверяем глобально, без
+  // учёта регистра — иначе общая почта ломает и вход по email, и сброс пароля.
+  if (data.email) {
+    const emailTaken = await db.employee.findFirst({
+      where: { email: { equals: data.email, mode: "insensitive" }, deletedAt: null },
+      select: { id: true },
+    })
+    if (emailTaken) {
+      return NextResponse.json(
+        { error: "Этот email уже используется другим сотрудником. Email должен быть уникальным — это второй логин и адрес для сброса пароля." },
+        { status: 409 },
+      )
+    }
   }
 
   const employee = await db.employee.create({

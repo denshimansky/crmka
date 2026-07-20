@@ -39,7 +39,7 @@ export default async function FunnelReportPage({
     for (const scheme of tab) {
       for (const stage of scheme.stages) {
         for (const row of stage.rows) {
-          row.phone = maskPhone(row.phone, role)
+          row.phone = maskPhone(row.phone, role, session.user.instructorsSeePhones)
         }
       }
     }

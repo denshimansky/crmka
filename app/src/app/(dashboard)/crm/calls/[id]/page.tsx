@@ -91,7 +91,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       id: i.id,
       clientId: i.clientId,
       clientName: name,
-      phone: maskPhone(i.client.phone, session.user.role) || "",
+      phone: maskPhone(i.client.phone, session.user.role, session.user.instructorsSeePhones) || "",
       wardName,
       age,
       clientStatusLabel: i.client.clientStatus

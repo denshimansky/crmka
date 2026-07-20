@@ -308,7 +308,7 @@ export default async function ContactsPage({
       id: c.id,
       firstName: c.firstName,
       lastName: c.lastName,
-      phone: maskPhone(c.phone, role),
+      phone: maskPhone(c.phone, role, session.user.instructorsSeePhones),
       socialLink: c.socialLink,
       segment,
       channelName: c.channel?.name ?? null,

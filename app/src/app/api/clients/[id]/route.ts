@@ -64,8 +64,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   // Маскирование телефонов для роли «инструктор» — жёсткая политика.
   return NextResponse.json({
     ...client,
-    phone: maskPhone(client.phone, session.user.role),
-    phone2: maskPhone(client.phone2, session.user.role),
+    phone: maskPhone(client.phone, session.user.role, session.user.instructorsSeePhones),
+    phone2: maskPhone(client.phone2, session.user.role, session.user.instructorsSeePhones),
   })
 }
 

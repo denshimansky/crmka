@@ -29,7 +29,7 @@ export async function GET(
   // Маскирование телефонов для инструктора — жёсткая политика.
   const masked = enrollments.map((e) => ({
     ...e,
-    client: { ...e.client, phone: maskPhone(e.client.phone, session.user.role) },
+    client: { ...e.client, phone: maskPhone(e.client.phone, session.user.role, session.user.instructorsSeePhones) },
   }))
 
   return NextResponse.json(masked)
