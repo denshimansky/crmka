@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
-import { normalizePhone, formatPhone } from "@/lib/phone"
+import { normalizePhone } from "@/lib/phone"
 import { generatePortalPassword, hashPortalPassword } from "@/lib/portal-password"
 import { ensurePortalSlug } from "@/lib/portal-slug"
 import { hasRequiredDocs } from "@/lib/portal-consents"
@@ -76,8 +76,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   return NextResponse.json({
     account: account
       ? {
+          // Логин = телефон в каноничном виде (сплошные цифры 7XXXXXXXXXX),
+          // без плюсов/скобок/дефисов — именно его родитель вводит при входе.
           loginPhone: account.loginPhone,
-          loginPhoneFormatted: formatPhone(account.loginPhone),
           isActive: account.isActive,
           passwordIssuedAt: account.passwordIssuedAt,
           lastLoginAt: account.lastLoginAt,
@@ -173,14 +174,15 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const portalUrl = `${baseUrl()}/p/${slug}`
-  const loginPhoneFormatted = formatPhone(loginPhone)
+  // Логин в сообщении родителю — сплошной номер (79991112233), без форматирования:
+  // именно его вводят при входе, а +7 (999)… путает.
   const message =
     `Здравствуйте! Ваш личный кабинет центра «${org.name}»:\n` +
     `${portalUrl}\n` +
-    `Логин: ${loginPhoneFormatted}\n` +
+    `Логин: ${loginPhone}\n` +
     `Пароль: ${password}`
 
-  return NextResponse.json({ loginPhone, loginPhoneFormatted, password, portalUrl, message })
+  return NextResponse.json({ loginPhone, password, portalUrl, message })
 }
 
 // DELETE /api/clients/[id]/portal-account — отключить доступ (сессии умирают

@@ -17,7 +17,6 @@ import { KeyRound, Copy, Check, RefreshCw, Ban, AlertTriangle } from "lucide-rea
 
 type AccountInfo = {
   loginPhone: string
-  loginPhoneFormatted: string
   isActive: boolean
   passwordIssuedAt: string
   lastLoginAt: string | null
@@ -31,7 +30,7 @@ type Checks = {
 }
 
 type IssueResult = {
-  loginPhoneFormatted: string
+  loginPhone: string
   password: string
   portalUrl: string
   message: string
@@ -179,7 +178,7 @@ export function PortalAccountButton({ clientId }: { clientId: string }) {
                   </a>
                 </div>
                 <div>
-                  Логин: <span className="font-medium">{result.loginPhoneFormatted}</span>
+                  Логин: <span className="font-mono font-medium">{result.loginPhone}</span>
                 </div>
                 <div>
                   Пароль: <span className="font-mono text-lg font-semibold">{result.password}</span>
@@ -204,7 +203,7 @@ export function PortalAccountButton({ clientId }: { clientId: string }) {
                   {account ? (
                     <div className="rounded-md border p-3 space-y-1 text-sm">
                       <div>
-                        Логин: <span className="font-medium">{account.loginPhoneFormatted}</span>{" "}
+                        Логин: <span className="font-mono font-medium">{account.loginPhone}</span>{" "}
                         <span className="text-muted-foreground">(телефон на момент выдачи)</span>
                       </div>
                       <div>
