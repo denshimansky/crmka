@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { ensureOrgLegalName } from "@/lib/billing/checko"
 
 // GET /api/admin/partners/[id] — карточка партнёра
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -84,5 +85,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (parsed.data.billingExempt !== undefined) data.billingExempt = parsed.data.billingExempt
 
   const updated = await db.organization.update({ where: { id }, data })
+
+  // Если у партнёра есть ИНН, но юр. наименование не задано вручную — подтягиваем
+  // официальное название из ЕГРЮЛ/ЕГРИП (checko), чтобы оно попало в счёт.
+  // Best-effort: не задерживаем ответ ошибкой checko.
+  if ((!updated.legalName || !updated.legalName.trim()) && updated.inn?.trim()) {
+    try {
+      const name = await ensureOrgLegalName({
+        id: updated.id,
+        inn: updated.inn,
+        legalName: updated.legalName,
+      })
+      if (name) updated.legalName = name
+    } catch {
+      // игнорируем — реквизиты можно заполнить вручную
+    }
+  }
+
   return NextResponse.json(updated)
 }

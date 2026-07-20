@@ -16,6 +16,7 @@ import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { monthlyPriceFor } from "@/lib/billing-price"
 import { nextInvoiceNumber } from "@/lib/billing/invoice-number"
+import { ensureOrgLegalName } from "@/lib/billing/checko"
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -64,6 +65,19 @@ export async function generateBillingInvoices(
     if (!org.inn || !org.inn.trim()) {
       result.skippedNoInn.push({ orgId: org.id, name: org.name })
       continue
+    }
+
+    // Официальное наименование заказчика для PDF берём из ЕГРЮЛ/ЕГРИП (checko).
+    // Если ещё не подтянуто — подтягиваем сейчас и сохраняем в organization,
+    // чтобы в счёте был не «ДЦ …» из системы, а реальное юрлицо/ИП.
+    // Best-effort: при недоступности checko счёт всё равно выставляем (в PDF
+    // отрендерится прежний фоллбэк на organization.name).
+    if (!org.legalName || !org.legalName.trim()) {
+      try {
+        await ensureOrgLegalName(org)
+      } catch {
+        // не блокируем выставление счёта
+      }
     }
 
     // Идемпотентность: счёт за этот период уже есть (pending/paid) — пропускаем.
