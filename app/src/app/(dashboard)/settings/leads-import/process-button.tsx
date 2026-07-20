@@ -24,9 +24,9 @@ interface Conflict {
 function reasonLabel(reason: Conflict["reason"]): string {
   switch (reason) {
     case "child_in_lead_and_other":
-      return "Один ребёнок в статусе «Лид» и в другом статусе"
+      return "Один ребёнок в статусе «Лид/Предзапись/Пробник» и в клиентском статусе"
     case "phone_has_lead_and_others":
-      return "На одном телефоне «Лид» и другие статусы"
+      return "На одном телефоне «Лид/Предзапись/Пробник» и клиентские статусы"
     case "phone_has_multiple_branches":
       return "Разные филиалы у одного телефона"
   }
@@ -40,6 +40,7 @@ interface ImportStats {
   parentFromContact: number
   needsReview: number
   noContacts: number
+  unknownStatus: number
   missingBranch: number
   byStatus: Record<string, number>
 }
@@ -149,7 +150,7 @@ export function ProcessLeadsButton() {
             <DialogTitle>Этап 1. Обработка выгрузки 1С</DialogTitle>
             <DialogDescription>
               Загрузите файл <code>Список лидов.xlsx</code> с колонками: ФИО, Контактное лицо,
-              Телефон, Соцсети, Дата рождения, Состояние лида, Филиал. Получите файл
+              Телефон, Соцсети, Дата рождения, Состояние лида (или «Актив»), Филиал. Получите файл
               <code> Список лидов — для импорта.xlsx</code> для вычитки.
             </DialogDescription>
           </DialogHeader>
@@ -214,6 +215,14 @@ export function ProcessLeadsButton() {
                     <span className="font-medium">Без телефона и соцсетей: {success.noContacts}.</span>{" "}
                     Эти строки помечены «Проверить = да» — заполните телефон или соцсети
                     (или удалите строку) при вычитке, иначе Этап 2 файл не примет.
+                  </div>
+                )}
+                {(success.unknownStatus ?? 0) > 0 && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-200">
+                    <span className="font-medium">С пустым или нераспознанным статусом: {success.unknownStatus}.</span>{" "}
+                    Эти строки помечены «Проверить = да» — проставьте статус
+                    (Лид/Предзапись/Пробник/Потенциал/Нецелевой/Выбыл/Продажа/Архив/ЧС)
+                    или удалите строку при вычитке.
                   </div>
                 )}
                 <div className="text-xs text-muted-foreground">

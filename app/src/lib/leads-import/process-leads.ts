@@ -4,7 +4,7 @@
 
 import { readSheet, writeSheet, getCell, normPhone, normName, fmtDate } from "./parse-xlsx"
 import { parentFullName } from "./surname-gender"
-import { parseStatus, type LeadStatus } from "./status-map"
+import { parseStatus, LEAD_LIKE, type LeadStatus } from "./status-map"
 
 export interface RawLeadRow {
   fio: string
@@ -54,6 +54,9 @@ export interface ProcessResult {
     // Из них: строки без телефона И без соцсетей (помечены «Проверить = да»;
     // этап 2 такие строки не пропустит — заполнить контакты или удалить).
     noContacts: number
+    // Из них: строки с пустым/нераспознанным статусом (тоже «Проверить = да» —
+    // этап 2 группу без валидного статуса молча пропустил бы).
+    unknownStatus: number
     missingBranch: number
     byStatus: Record<LeadStatus, number>
   }
@@ -64,7 +67,6 @@ export interface ProcessConflicts {
   conflicts: Conflict[]
 }
 
-const STATE_LEAD: LeadStatus = "Лид"
 const STATE_BLACKLIST: LeadStatus = "Черный список"
 const STATE_ARCHIVE: LeadStatus = "Архив"
 const STATE_POTENTIAL: LeadStatus = "Потенциал"
@@ -75,7 +77,9 @@ const COLUMN_CONTACT = ["Контактное лицо", "Контактное_�
 const COLUMN_PHONE = ["Телефон", "телефон"]
 const COLUMN_SOCIALS = ["Соцсети", "соцсети"]
 const COLUMN_BIRTH = ["Дата рождения", "Дата_рождения"]
-const COLUMN_STATUS = ["Состояние лида", "Состояние_лида", "Статус"]
+// «Актив» — второй формат выгрузки 1С (шапка на первой строке, статусы
+// Лид/Предзапись/Пробник/Потенциал/Нецелевой лид/Выбыл/Продажа/Архив/ЧС).
+const COLUMN_STATUS = ["Состояние лида", "Состояние_лида", "Статус", "Актив"]
 const COLUMN_BRANCH = ["Филиал", "Подразделение", "Точка"]
 
 function loadRawRows(buffer: Buffer): RawLeadRow[] {
@@ -115,14 +119,14 @@ function loadRawRows(buffer: Buffer): RawLeadRow[] {
       return rows
     }
   }
-  throw new Error("Не удалось распознать структуру файла: нужны столбцы 'ФИО' и 'Состояние лида'.")
+  throw new Error("Не удалось распознать структуру файла: нужны столбцы 'ФИО' и 'Состояние лида' (или 'Актив').")
 }
 
 function detectConflicts(rows: RawLeadRow[]): Conflict[] {
   const conflicts: Conflict[] = []
   const seen = new Set<string>()
 
-  // (а) у одного (ФИО+Телефон) — Лид и другие статусы
+  // (а) у одного (ФИО+Телефон) — лидоподобный (Лид/Предзапись/Пробник) и клиентские статусы
   const byKey = new Map<string, RawLeadRow[]>()
   for (const r of rows) {
     const arr = byKey.get(r.key) ?? []
@@ -131,7 +135,7 @@ function detectConflicts(rows: RawLeadRow[]): Conflict[] {
   }
   for (const [, group] of byKey) {
     const statuses = new Set(group.map((g) => g.status).filter((s): s is LeadStatus => !!s))
-    if (statuses.has(STATE_LEAD) && [...statuses].some((s) => s !== STATE_LEAD)) {
+    if ([...statuses].some((s) => LEAD_LIKE.has(s)) && [...statuses].some((s) => !LEAD_LIKE.has(s))) {
       for (const r of group) {
         const k = `${r.rowIdx}:a`
         if (!seen.has(k)) {
@@ -149,7 +153,7 @@ function detectConflicts(rows: RawLeadRow[]): Conflict[] {
     }
   }
 
-  // (б) у одного телефона дети с Лид и не-Лид
+  // (б) у одного телефона дети с лидоподобным и клиентским статусом
   const byPhone = new Map<string, RawLeadRow[]>()
   for (const r of rows) {
     if (!r.phoneNorm) continue
@@ -159,7 +163,7 @@ function detectConflicts(rows: RawLeadRow[]): Conflict[] {
   }
   for (const [, group] of byPhone) {
     const statuses = new Set(group.map((g) => g.status).filter((s): s is LeadStatus => !!s))
-    if (statuses.has(STATE_LEAD) && [...statuses].some((s) => s !== STATE_LEAD)) {
+    if ([...statuses].some((s) => LEAD_LIKE.has(s)) && [...statuses].some((s) => !LEAD_LIKE.has(s))) {
       for (const r of group) {
         const k = `${r.rowIdx}:b`
         if (!seen.has(k)) {
@@ -253,15 +257,19 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
     byKey2.set(r.key, arr)
   }
   const byStatus: Record<LeadStatus, number> = {
-    "Лид": 0, "Потенциал": 0, "Выбыл": 0, "Архив": 0, "Черный список": 0,
+    "Лид": 0, "Предзапись": 0, "Пробник": 0, "Потенциал": 0, "Нецелевой": 0,
+    "Выбыл": 0, "Продажа": 0, "Архив": 0, "Черный список": 0,
   }
   let surnameChanged = 0
   let parentFromContact = 0
   let needsReviewCount = 0
   let noContactsCount = 0
+  let unknownStatusCount = 0
   let missingBranch = 0
   for (const [, group] of byKey2) {
-    const base = group[0]
+    // База группы — первая строка с распознанным статусом (у дублей ребёнка
+    // статус может быть заполнен не в каждой строке).
+    const base = group.find((g) => g.status) ?? group[0]
     const socials = Array.from(new Set(
       group.map((g) => g.socials).filter((s) => s && s.trim()).map((s) => s.trim())
     )).join("; ")
@@ -280,9 +288,14 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
     // удаляет строку при вычитке; этап 2 строки с «да» не пропускает.
     const noContacts = !base.phoneNorm && !socials
     if (noContacts) noContactsCount++
-    const review = parent.needsReview || noContacts
-    if (review) needsReviewCount++
+    // Пустой или нераспознанный статус: этап 2 пропустил бы такую группу молча
+    // (warning «ни одного валидного статуса») — вместо этого отдаём владельцу
+    // на вычитку: проставить статус или удалить строку.
     const status = base.status
+    const unknownStatus = !status
+    if (unknownStatus) unknownStatusCount++
+    const review = parent.needsReview || noContacts || unknownStatus
+    if (review) needsReviewCount++
     if (status) byStatus[status]++
     outRows.push({
       "Фамилия Имя родителя": parent.full,
@@ -326,6 +339,7 @@ export function processLeads(buffer: Buffer): ProcessResult | ProcessConflicts {
       parentFromContact,
       needsReview: needsReviewCount,
       noContacts: noContactsCount,
+      unknownStatus: unknownStatusCount,
       missingBranch,
       byStatus,
     },

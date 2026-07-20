@@ -672,8 +672,13 @@ function inferLeadStatusFromDb(
     case "blacklisted": return "Черный список"
     case "archived": return "Архив"
     case "potential": return "Потенциал"
+    case "non_target": return "Нецелевой"
+    case "trial_scheduled": return "Пробник"
     case "new": return "Лид"
-    case "active_client": return null
+    // Живой активный клиент: приоритет «Продажи» выше «Выбыл» из файла —
+    // повторный прогон импорта устаревшей выгрузкой не выбивает клиента
+    // в отток (Архив/ЧС из файла по-прежнему главнее).
+    case "active_client": return "Продажа"
     default: return null
   }
 }
