@@ -2,7 +2,7 @@
 // База логики — import/build_leads.py; сверх него: конфликт филиалов и разбор
 // полного ФИО в «Контактном лице» (parentFullName в surname-gender.ts).
 
-import { readSheet, writeSheet, getCell, normPhone, normName, fmtDate } from "./parse-xlsx"
+import { readSheet, writeSheet, buildColMap, getCellByMap, normColKey, normPhone, normName, fmtDate } from "./parse-xlsx"
 import { parentFullName } from "./surname-gender"
 import { parseStatus, LEAD_LIKE, type LeadStatus } from "./status-map"
 
@@ -77,9 +77,10 @@ const COLUMN_CONTACT = ["Контактное лицо", "Контактное_�
 const COLUMN_PHONE = ["Телефон", "телефон"]
 const COLUMN_SOCIALS = ["Соцсети", "соцсети"]
 const COLUMN_BIRTH = ["Дата рождения", "Дата_рождения"]
-// «Актив» — второй формат выгрузки 1С (шапка на первой строке, статусы
+// «Актив»/«статус» — второй формат выгрузки 1С (шапка на первой строке, статусы
 // Лид/Предзапись/Пробник/Потенциал/Нецелевой лид/Выбыл/Продажа/Архив/ЧС).
-const COLUMN_STATUS = ["Состояние лида", "Состояние_лида", "Статус", "Актив"]
+// Регистр названия колонки не важен (см. normColKey): «Статус» = «статус».
+const COLUMN_STATUS = ["Состояние лида", "Статус", "Актив"]
 const COLUMN_BRANCH = ["Филиал", "Подразделение", "Точка"]
 
 function loadRawRows(buffer: Buffer): RawLeadRow[] {
@@ -88,23 +89,27 @@ function loadRawRows(buffer: Buffer): RawLeadRow[] {
   for (const headerRow of [3, 0, 1, 2]) {
     const sheet = readSheet(buffer, { headerRow })
     if (sheet.length === 0) continue
-    const first = sheet[0]
-    const hasFio = COLUMN_FIO.some((k) => k in first)
-    const hasStatus = COLUMN_STATUS.some((k) => k in first)
+    // Колонки сопоставляем по нормализованному ключу (регистр/ё/пробелы не важны):
+    // 1С выдаёт заголовок статуса как «Состояние лида», «Статус», «статус» или «Актив».
+    const colMap = buildColMap(sheet[0])
+    const hasFio = COLUMN_FIO.some((k) => colMap.has(normColKey(k)))
+    const hasStatus = COLUMN_STATUS.some((k) => colMap.has(normColKey(k)))
     if (hasFio && hasStatus) {
+      const birthKey =
+        colMap.get(normColKey("Дата рождения")) ?? colMap.get(normColKey("Дата_рождения"))
       const rows: RawLeadRow[] = []
       sheet.forEach((row, idx) => {
-        const fio = getCell(row, ...COLUMN_FIO)
+        const fio = getCellByMap(row, colMap, ...COLUMN_FIO)
         if (!fio) return
-        const contactPerson = getCell(row, ...COLUMN_CONTACT)
-        const phoneRaw = getCell(row, ...COLUMN_PHONE)
+        const contactPerson = getCellByMap(row, colMap, ...COLUMN_CONTACT)
+        const phoneRaw = getCellByMap(row, colMap, ...COLUMN_PHONE)
         const phone = phoneRaw
         const phoneNorm = normPhone(phoneRaw)
-        const socials = getCell(row, ...COLUMN_SOCIALS)
-        const birthDate = row["Дата рождения"] ?? row["Дата_рождения"] ?? null
-        const statusRaw = getCell(row, ...COLUMN_STATUS)
+        const socials = getCellByMap(row, colMap, ...COLUMN_SOCIALS)
+        const birthDate = birthKey ? row[birthKey] ?? null : null
+        const statusRaw = getCellByMap(row, colMap, ...COLUMN_STATUS)
         const status = parseStatus(statusRaw)
-        const branch = getCell(row, ...COLUMN_BRANCH)
+        const branch = getCellByMap(row, colMap, ...COLUMN_BRANCH)
         const key = phoneNorm
           ? `${normName(fio)}|${phoneNorm}`
           : `__solo_${idx}`
@@ -119,7 +124,7 @@ function loadRawRows(buffer: Buffer): RawLeadRow[] {
       return rows
     }
   }
-  throw new Error("Не удалось распознать структуру файла: нужны столбцы 'ФИО' и 'Состояние лида' (или 'Актив').")
+  throw new Error("Не удалось распознать структуру файла: нужны столбцы 'ФИО' и 'Состояние лида' (либо 'Статус' / 'Актив').")
 }
 
 function detectConflicts(rows: RawLeadRow[]): Conflict[] {

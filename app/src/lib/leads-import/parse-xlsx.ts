@@ -53,6 +53,43 @@ export function getCell(row: Record<string, unknown>, ...keys: string[]): string
   return ""
 }
 
+// Нормализация ключа колонки для регистронезависимого сопоставления заголовков:
+// lower-case, ё→е, _→пробел, схлопывание пробелов. 1С выдаёт название одной и
+// той же колонки в разном регистре («Статус» / «статус» / «Актив»), поэтому
+// сравниваем по нормализованному ключу, а не по точному совпадению.
+export function normColKey(s: string): string {
+  return s.trim().toLowerCase().replace(/ё/g, "е").replace(/_/g, " ").replace(/\s+/g, " ")
+}
+
+// Карта: нормализованный ключ колонки → реальное название в строке.
+export function buildColMap(row: Record<string, unknown>): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const k of Object.keys(row)) {
+    const norm = normColKey(k)
+    // Первое вхождение выигрывает (у дубликатов заголовков берём левую колонку).
+    if (!map.has(norm)) map.set(norm, k)
+  }
+  return map
+}
+
+// Значение ячейки по любому из алиасов через нормализованную карту колонок.
+// Возвращает первую непустую строку (trim), иначе "".
+export function getCellByMap(
+  row: Record<string, unknown>,
+  colMap: Map<string, string>,
+  ...aliases: string[]
+): string {
+  for (const alias of aliases) {
+    const realKey = colMap.get(normColKey(alias))
+    if (realKey === undefined) continue
+    const v = row[realKey]
+    if (v === null || v === undefined) continue
+    const s = String(v).trim()
+    if (s) return s
+  }
+  return ""
+}
+
 export function normPhone(raw: string | null | undefined): string {
   if (raw === null || raw === undefined) return ""
   return String(raw).replace(/\D/g, "")

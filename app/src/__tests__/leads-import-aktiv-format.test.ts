@@ -99,6 +99,28 @@ describe("Импорт базы — этап 1: формат «Актив»", ()
     const result = processLeads(buf)
     assert.equal(result.ok, true, "оба статуса клиентские — приоритет разрулит на этапе 2")
   })
+
+  it("колонка статуса распознаётся независимо от регистра («статус» строчными)", () => {
+    // Реальный третий вариант выгрузки 1С: колонка называется «статус».
+    const headers = ["Филиал", "ФИО", "Телефон", "Контактное лицо", "Дата рождения", "статус"]
+    const aoa = [
+      headers,
+      ["Новокуркино", "Иванов Иван", "+7 900 111-11-11", "Мария", "02.10.19", "Потенциал"],
+      ["Путилково", "Петров Петя", "+7 900 222-22-22", "Ольга", "21.02.17", "Выбыл"],
+    ]
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Лист_1")
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer
+
+    const result = processLeads(buf)
+    assert.equal(result.ok, true, "файл с колонкой «статус» должен распознаться")
+    const ok = result as ProcessResult
+    assert.equal(ok.stats.totalInput, 2)
+    assert.equal(ok.stats.byStatus["Потенциал"], 1)
+    assert.equal(ok.stats.byStatus["Выбыл"], 1)
+    assert.equal(ok.stats.unknownStatus, 0, "статусы распознаны, не «на проверку»")
+  })
 })
 
 describe("Импорт базы — карта статусов «Актив»", () => {
