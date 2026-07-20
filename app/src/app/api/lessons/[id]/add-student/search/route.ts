@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import {
+  effectiveRosterDate,
+  rosterWhereOnDate,
+  coverageSubscriptionsWhere,
+  coverageSubscriptionSelect,
+  coverageKeysOnDate,
+  coverageKey,
+} from "@/lib/subscriptions/roster-filter"
 
 /**
  * GET /api/lessons/[id]/add-student/search?q=...
@@ -30,13 +38,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const lesson = await db.lesson.findFirst({
     where: { id: lessonId, tenantId },
-    select: { id: true, groupId: true, date: true },
+    select: {
+      id: true,
+      groupId: true,
+      date: true,
+      rescheduledFromDate: true,
+      group: { select: { directionId: true } },
+    },
   })
   if (!lesson) return NextResponse.json({ error: "Занятие не найдено" }, { status: 404 })
 
-  const lessonDate = new Date(lesson.date)
-  const periodYear = lessonDate.getFullYear()
-  const periodMonth = lessonDate.getMonth() + 1
+  // Дата состава: для перенесённого занятия — исходная (rescheduledFromDate),
+  // иначе фактическая. По ней считаем период абонемента и покрытие — как в
+  // page.tsx, чтобы поиск и состав занятия не расходились.
+  const rosterDate = effectiveRosterDate(lesson)
+  const periodYear = rosterDate.getFullYear()
+  const periodMonth = rosterDate.getMonth() + 1
 
   const searchTerms = q.split(/\s+/).filter(Boolean)
 
@@ -71,27 +88,53 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           periodYear,
           periodMonth,
         },
-        select: { id: true, wardId: true, balance: true, lessonPrice: true, discountPerLesson: true },
+        select: { id: true, wardId: true, balance: true, lessonPrice: true, discountPerLesson: true, startDate: true },
       },
     },
     take: 30,
   })
 
-  // Исключаем тех, кто уже на занятии (attendance любого статуса, включая
-  // pending-placeholder) или активно зачислен в группу.
-  const [existingAttendances, existingEnrollments] = await Promise.all([
+  // Исключаем тех, кто УЖЕ фактически в этом занятии — ровно как их показывает
+  // страница занятия (page.tsx). Это:
+  //  1) любые Attendance на занятии (вкл. placeholder разовых и pending);
+  //  2) зачисления, активные на дату состава (rosterWhereOnDate) И ПОКРЫТЫЕ
+  //     абонементом на эту дату (coverageKeysOnDate).
+  // Зачисление БЕЗ покрытия на эту дату (например, абонемент начинается позже
+  // даты состава) НЕ исключается: такого ребёнка нет в составе занятия, и его
+  // правомерно добавить разовым посещением. Раньше отсекали по самому факту
+  // активного зачисления — и зачисленный, но ещё не покрытый ребёнок проваливался
+  // в щель: невидим в составе и недоступен в разовом.
+  const [existingAttendances, enrollmentsOnDate, coverageSubs] = await Promise.all([
     db.attendance.findMany({
       where: { lessonId, tenantId },
       select: { clientId: true, wardId: true },
     }),
     db.groupEnrollment.findMany({
-      where: { groupId: lesson.groupId, tenantId, isActive: true, deletedAt: null },
+      where: {
+        groupId: lesson.groupId,
+        tenantId,
+        deletedAt: null,
+        ...rosterWhereOnDate(rosterDate),
+      },
       select: { clientId: true, wardId: true },
     }),
+    db.subscription.findMany({
+      where: coverageSubscriptionsWhere({
+        tenantId,
+        directionIds: [lesson.group.directionId],
+        from: rosterDate,
+      }),
+      select: coverageSubscriptionSelect,
+    }),
   ])
-  const attendingKeys = new Set([
-    ...existingAttendances.map((a) => `${a.clientId}:${a.wardId || ""}`),
-    ...existingEnrollments.map((e) => `${e.clientId}:${e.wardId || ""}`),
+  const coveredKeys = coverageKeysOnDate(coverageSubs, rosterDate)
+  // Состав занятия = зачислён на дату И покрыт абонементом на дату (как в page.tsx).
+  const rosterKeys = enrollmentsOnDate
+    .map((e) => coverageKey(e.clientId, e.wardId))
+    .filter((k) => coveredKeys.has(k))
+  const attendingKeys = new Set<string>([
+    ...existingAttendances.map((a) => coverageKey(a.clientId, a.wardId)),
+    ...rosterKeys,
   ])
 
   const results: Array<{
@@ -107,9 +150,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   for (const c of clients) {
     const clientName = [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени"
     for (const w of c.wards) {
-      const key = `${c.id}:${w.id}`
+      const key = coverageKey(c.id, w.id)
       if (attendingKeys.has(key)) continue
       const sub = c.subscriptions.find((s) => s.wardId === w.id)
+      // Абонемент показываем только если он ПОКРЫВАЕТ дату занятия (startDate <=
+      // дата состава). Иначе на этом занятии ребёнок разовый — списание с баланса
+      // родителя, а не с этого абонемента; чип «Абонемент» вводил бы в заблуждение.
+      const subCovers = sub ? sub.startDate <= rosterDate : false
       results.push({
         clientId: c.id,
         clientName,
@@ -118,7 +165,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         wardId: w.id,
         wardName: [w.lastName, w.firstName].filter(Boolean).join(" ") || "Без имени",
         subscription:
-          sub && Number(sub.balance) > 0
+          sub && subCovers && Number(sub.balance) > 0
             ? {
                 id: sub.id,
                 balance: Number(sub.balance),
