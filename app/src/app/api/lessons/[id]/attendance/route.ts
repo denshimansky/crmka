@@ -492,19 +492,48 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Upsert attendance
     let att
     if (subscriptionId) {
-      const existing = await tx.attendance.findUnique({
+      let existing = await tx.attendance.findUnique({
         where: { tenantId_lessonId_subscriptionId: { tenantId, lessonId, subscriptionId } },
         include: { attendanceType: { select: { chargePercent: true } } },
       })
 
-      // Баг #38: убираем «осиротевшую» отметку того же ученика на этом занятии,
-      // хранящуюся без subscriptionId. Типичный случай — «Не был» (no_show
-      // абонемент не списывает, хранится с subscriptionId=null). При смене на
-      // списывающий тип резолвится свежий subscriptionId, и upsert по ключу
-      // (lesson, subscriptionId) эту строку не находит → без чистки появляется
-      // ВТОРАЯ отметка, а старый «Не был» остаётся, и реестр «Пропусков»
-      // показывает прежнее значение. Удаляем только финансово пустые записи
-      // (chargeAmount=0 и ЗП=0) — у no_show/заглушек так и есть, денег не теряем.
+      // Баг #38 / дубль «Не был»: отметка того же ученика на этом занятии может
+      // храниться БЕЗ subscriptionId (типичный случай — «Не был»: no_show
+      // абонемент не резолвит, subscription_id=null). При смене на тип,
+      // резолвящий абонемент (списывающий ИЛИ расходующий занятие — «Уваж.
+      // пропуск»), ключ (lesson, subscriptionId) её не находит. Раньше её лишь
+      // удаляла очистка ниже, и ТОЛЬКО финансово пустую (charge=0 И ЗП=0). Но с
+      // включённой «Оплатой инструктору за прогул» no_show несёт ЗП>0 → под
+      // очистку не попадал: появлялась ВТОРАЯ отметка, а старый «Не был» (с ЗП)
+      // висел в реестре «Пропусков» и продолжал платить педагогу. Решение —
+      // ПЕРЕИСПОЛЬЗОВАТЬ такую строку: обновляем её на месте (перецепив на
+      // резолвнутый абонемент), а не плодим дубль. ЗП и списание пересчитаются
+      // штатно ниже (update + reallocateLessonPay + repriceSubscription).
+      if (!existing) {
+        existing = await tx.attendance.findFirst({
+          where: {
+            tenantId,
+            lessonId,
+            clientId: data.clientId,
+            wardId: data.wardId,
+            subscriptionId: null,
+          },
+          // Предпочитаем реальную «нагруженную» отметку (оплаченный «Не был»)
+          // плейсхолдеру: её очистка ниже не удалит, поэтому переиспользовать
+          // надо именно её, иначе останется дубль.
+          orderBy: [
+            { instructorPayAmount: "desc" },
+            { chargeAmount: "desc" },
+            { isPending: "asc" },
+            { markedAt: "desc" },
+          ],
+          include: { attendanceType: { select: { chargePercent: true } } },
+        })
+      }
+
+      // Прочие «осиротевшие» финансово пустые строки без subscriptionId убираем
+      // (кроме переиспользуемой выше по id) — иначе после смены типа остаётся
+      // дубль. Только charge=0 И ЗП=0: денег такие записи не несут.
       const orphanNullSub = await tx.attendance.findMany({
         where: {
           tenantId,
@@ -514,6 +543,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           subscriptionId: null,
           chargeAmount: 0,
           instructorPayAmount: 0,
+          ...(existing ? { id: { not: existing.id } } : {}),
         },
         select: { id: true },
       })
@@ -550,6 +580,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         att = await tx.attendance.update({
           where: { id: existing.id },
           data: {
+            // Перецепляем на резолвнутый абонемент: для обычного пути значение
+            // не меняется, для переиспользованной null-sub строки (см. выше) —
+            // связывает отметку с абонементом, чтобы repriceSubscription учёл её.
+            subscriptionId,
             attendanceTypeId: data.attendanceTypeId,
             chargeAmount,
             instructorPayAmount,
@@ -557,6 +591,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             scheduledMakeupLessonId,
             isMakeup: isMakeupArrival,
             makeupOfLessonId: sourceMakeupLessonId,
+            // Реальная отметка с абонементом не бывает «в ожидании»; если
+            // переиспользовали плейсхолдер (isPending=true) — снимаем флаг.
+            isPending: false,
             markedBy: employeeId,
             markedAt: new Date(),
           },
