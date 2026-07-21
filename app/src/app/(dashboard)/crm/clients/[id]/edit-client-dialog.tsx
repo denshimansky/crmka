@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select"
 import { Pencil } from "lucide-react"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
+import { NO_AUTO, shortTitle, discountLabel, type DiscountTemplateLite } from "../../_components/discount-label"
 
 interface BranchOption {
   id: string
@@ -41,6 +42,13 @@ interface EmployeeOption {
   employeeBranches?: { branchId: string }[]
 }
 
+interface TemplateOption {
+  id: string
+  name: string
+  valueType: "percent" | "fixed"
+  value: string | number
+}
+
 interface ClientData {
   id: string
   firstName: string | null
@@ -54,6 +62,12 @@ interface ClientData {
   branchId: string | null
   assignedTo: string | null
   comment: string | null
+  // Скидки v2: выбор перенесён сюда из шапки карточки (там теперь информационно).
+  discountTemplateId: string | null
+  autoDiscountDisabled: boolean
+  discountTemplate: DiscountTemplateLite | null
+  /** Действует ли на абонементах клиента автоскидка «за второй абонемент». */
+  hasType1Discount?: boolean
 }
 
 export function EditClientDialog({ client }: { client: ClientData }) {
@@ -76,19 +90,31 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   const [branchId, setBranchId] = useState(client.branchId || "")
   const [assignedTo, setAssignedTo] = useState(client.assignedTo || "")
   const [comment, setComment] = useState(client.comment || "")
+  // Скидка: sentinel-значение поля (templateId | "none" | NO_AUTO).
+  const initialDiscountValue = client.autoDiscountDisabled
+    ? NO_AUTO
+    : client.discountTemplateId ?? "none"
+  const [discountValue, setDiscountValue] = useState(initialDiscountValue)
+  const [discountTemplates, setDiscountTemplates] = useState<TemplateOption[]>([])
 
   useEffect(() => {
     if (!open) return
     async function load() {
       try {
-        const [bRes, eRes, cRes] = await Promise.all([
+        const [bRes, eRes, cRes, dRes] = await Promise.all([
           fetch("/api/branches"),
           fetch("/api/employees"),
           fetch("/api/lead-channels"),
+          // Вручную выбирается только постоянная скидка (тип 2), активная.
+          fetch("/api/discount-templates?isActive=true&kind=permanent"),
         ])
         if (bRes.ok) setBranches(await bRes.json())
         if (eRes.ok) setEmployees(await eRes.json())
         if (cRes.ok) setChannels(await cRes.json())
+        if (dRes.ok) {
+          const data = await dRes.json()
+          setDiscountTemplates(Array.isArray(data) ? data : [])
+        }
       } catch {
         /* ignore */
       }
@@ -108,6 +134,7 @@ export function EditClientDialog({ client }: { client: ClientData }) {
     setBranchId(client.branchId || "")
     setAssignedTo(client.assignedTo || "")
     setComment(client.comment || "")
+    setDiscountValue(initialDiscountValue)
     setError(null)
   }
 
@@ -122,22 +149,36 @@ export function EditClientDialog({ client }: { client: ClientData }) {
 
     setLoading(true)
     try {
+      const body: Record<string, unknown> = {
+        firstName: firstName.trim() || null,
+        lastName: lastName.trim() || null,
+        patronymic: patronymic.trim() || null,
+        phone: phone.trim() || null,
+        phone2: phone2.trim() || null,
+        email: email.trim() || null,
+        socialLink: socialLink.trim() || null,
+        channelId: channelId || null,
+        branchId: branchId || null,
+        assignedTo: assignedTo || null,
+        comment: comment.trim() || null,
+      }
+      // Скидку шлём ТОЛЬКО если её изменили: наличие discountTemplateId/
+      // autoDiscountDisabled в теле триггерит пересчёт скидок клиента (с флагом
+      // «тип 1 в текущем месяце»). Без этого гарда правка телефона запускала бы
+      // recalc и могла случайно применить автоскидку за второй абонемент.
+      if (discountValue !== initialDiscountValue) {
+        if (discountValue === NO_AUTO) {
+          body.discountTemplateId = null
+          body.autoDiscountDisabled = true
+        } else {
+          body.discountTemplateId = discountValue === "none" ? null : discountValue
+          body.autoDiscountDisabled = false
+        }
+      }
       const res = await fetch(`/api/clients/${client.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          firstName: firstName.trim() || null,
-          lastName: lastName.trim() || null,
-          patronymic: patronymic.trim() || null,
-          phone: phone.trim() || null,
-          phone2: phone2.trim() || null,
-          email: email.trim() || null,
-          socialLink: socialLink.trim() || null,
-          channelId: channelId || null,
-          branchId: branchId || null,
-          assignedTo: assignedTo || null,
-          comment: comment.trim() || null,
-        }),
+        body: JSON.stringify(body),
       })
 
       if (!res.ok) {
@@ -161,6 +202,19 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   const assigneeLabel = selectedAssignee
     ? [selectedAssignee.lastName, selectedAssignee.firstName].filter(Boolean).join(" ") || "Без имени"
     : "Не назначен"
+
+  // Подпись триггера скидки: загруженный шаблон в приоритете (отражает текущий
+  // выбор), иначе — общий словарь (индикатор тип 1 / исходный шаблон / «Без скидки»).
+  const selectedTpl = discountTemplates.find((t) => t.id === discountValue)
+  const discountTriggerLabel = selectedTpl
+    ? shortTitle(selectedTpl)
+    : discountLabel({
+        autoDiscountDisabled: discountValue === NO_AUTO,
+        templateId:
+          discountValue === "none" || discountValue === NO_AUTO ? null : discountValue,
+        template: client.discountTemplate,
+        hasType1Discount: client.hasType1Discount,
+      })
 
   return (
     <Dialog
@@ -252,6 +306,33 @@ export function EditClientDialog({ client }: { client: ClientData }) {
                 placeholder="https://vk.com/..."
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Скидка</Label>
+            <Select
+              value={discountValue}
+              onValueChange={(v) => {
+                if (v !== null) setDiscountValue(v)
+              }}
+            >
+              <SelectTrigger className="w-full">
+                {discountTriggerLabel}
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">
+                  {client.hasType1Discount ? "Без скидки (действует автоскидка)" : "Без скидки"}
+                </SelectItem>
+                <SelectItem value={NO_AUTO}>Без скидки (вручную — запрет автоскидок)</SelectItem>
+                {discountTemplates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {shortTitle(t)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* Автоскидка «за второй абонемент» (тип 1) руками не выбирается —
+                управляется тумблером в настройках организации. */}
           </div>
 
           {channels.length > 0 && (

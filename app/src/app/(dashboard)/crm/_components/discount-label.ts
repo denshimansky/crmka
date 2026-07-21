@@ -1,0 +1,41 @@
+// Скидки v2 — общий словарь подписей скидки клиента.
+// Используется информационным отображением в шапке карточки и селектором
+// в окне «Редактировать клиента» (единый текст, без расхождений).
+//
+// Вручную выбирается только постоянная скидка (тип 2). Автоскидка «за второй
+// абонемент» (тип 1) — индикатор, руками не выбирается. Отдельное значение
+// «Без скидки (вручную)» (sentinel NO_AUTO, баг #50) запрещает любые автоскидки.
+
+export const NO_AUTO = "no-auto"
+
+export interface DiscountTemplateLite {
+  name: string
+  valueType: "percent" | "fixed"
+  value: string | number
+}
+
+/** «Название (−50 ₽/занятие)» или «Название (10%)». */
+export function shortTitle(t: DiscountTemplateLite): string {
+  const v = Number(t.value)
+  const suffix =
+    t.valueType === "percent" ? `${v}%` : `−${v.toLocaleString("ru-RU")} ₽/занятие`
+  return `${t.name} (${suffix})`
+}
+
+/**
+ * Read-only подпись текущей скидки клиента из серверных данных (без загрузки
+ * списка шаблонов). Порядок зеркалит логику селектора:
+ *   запрет автоскидок → выбранный шаблон → индикатор тип 1 → «Без скидки».
+ */
+export function discountLabel(input: {
+  autoDiscountDisabled?: boolean | null
+  templateId?: string | null
+  template?: DiscountTemplateLite | null
+  hasType1Discount?: boolean
+}): string {
+  if (input.autoDiscountDisabled) return "Без скидки (вручную)"
+  if (input.templateId && input.template) return shortTitle(input.template)
+  if (input.templateId) return "…" // шаблон выбран, но не передан серверу (редко)
+  if (input.hasType1Discount) return "Скидка за второй абонемент (авто)"
+  return "Без скидки"
+}

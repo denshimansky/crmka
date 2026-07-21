@@ -24,7 +24,7 @@ import {
   type ClientSegmentKey,
 } from "@/lib/segmentation"
 import { PortalAccountButton } from "./portal-account-button"
-import { ClientDiscountSelect } from "./client-discount-select"
+import { discountLabel } from "./discount-label"
 import { EditableDateCell } from "./editable-cell"
 import { BonusDiscountDialog } from "./bonus-discount-dialog"
 import { QuickRenewSubscriptionDialog } from "./quick-renew-subscription-dialog"
@@ -386,24 +386,24 @@ export async function ClientCardContent({
             <span>·</span>
             <span>{client.email || "—"}</span>
             <span>·</span>
-            <ClientDiscountSelect
-              clientId={client.id}
-              initialTemplateId={client.discountTemplateId ?? null}
-              initialTemplate={
-                client.discountTemplate
+            {/* Скидка — информационно. Выбор перенесён в «Редактировать клиента». */}
+            <span className="inline-flex items-center gap-1" title="Скидка">
+              <Percent className="size-3 shrink-0" />
+              {discountLabel({
+                autoDiscountDisabled: client.autoDiscountDisabled,
+                templateId: client.discountTemplateId,
+                template: client.discountTemplate
                   ? {
-                      id: client.discountTemplate.id,
                       name: client.discountTemplate.name,
                       valueType: client.discountTemplate.valueType,
                       value: Number(client.discountTemplate.value),
                     }
-                  : null
-              }
-              hasType1Discount={activeSubscriptions.some(
-                (s) => s.discountSource === "type1",
-              )}
-              initialAutoDiscountDisabled={client.autoDiscountDisabled}
-            />
+                  : null,
+                hasType1Discount: activeSubscriptions.some(
+                  (s) => s.discountSource === "type1",
+                ),
+              })}
+            </span>
           </div>
         </div>
         <div className="text-right">
@@ -678,6 +678,18 @@ export async function ClientCardContent({
                     branchId: client.branchId,
                     assignedTo: client.assignedTo,
                     comment: client.comment,
+                    discountTemplateId: client.discountTemplateId,
+                    autoDiscountDisabled: client.autoDiscountDisabled,
+                    discountTemplate: client.discountTemplate
+                      ? {
+                          name: client.discountTemplate.name,
+                          valueType: client.discountTemplate.valueType,
+                          value: Number(client.discountTemplate.value),
+                        }
+                      : null,
+                    hasType1Discount: activeSubscriptions.some(
+                      (s) => s.discountSource === "type1",
+                    ),
                   }}
                 />
               </div>
