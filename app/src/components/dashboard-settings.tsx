@@ -11,8 +11,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { Input } from "@/components/ui/input"
-import { Settings2, RotateCcw } from "lucide-react"
+import { Settings2, RotateCcw, ChevronUp, ChevronDown } from "lucide-react"
 
 export interface WidgetConfig {
   id: string
@@ -129,14 +128,15 @@ export function DashboardSettings({
     })
   }
 
-  function setOrder(id: string, raw: string) {
-    const parsed = Number.parseInt(raw, 10)
-    if (Number.isNaN(parsed)) return
+  // Сдвиг виджета на одну позицию вверх/вниз (dir=-1/+1). Заменил редактируемое
+  // числовое поле: на мобильном оно было неюзабельным — цифру нельзя очистить
+  // (input контролируется значением index+1), а новая цифра дописывалась к
+  // старой («5»→«52»), давая большое число, которое клампилось в конец списка.
+  function move(id: string, dir: -1 | 1) {
     setLocal((prev) => {
       const idx = prev.findIndex((w) => w.id === id)
-      if (idx === -1) return prev
-      const target = Math.max(1, Math.min(prev.length, parsed)) - 1
-      if (target === idx) return prev
+      const target = idx + dir
+      if (idx === -1 || target < 0 || target >= prev.length) return prev
       const next = [...prev]
       const [item] = next.splice(idx, 1)
       next.splice(target, 0, item)
@@ -167,7 +167,7 @@ export function DashboardSettings({
         <DialogHeader>
           <DialogTitle>Настройка дашборда</DialogTitle>
           <DialogDescription>
-            Включайте/выключайте виджеты и указывайте порядковый номер.
+            Включайте/выключайте виджеты и меняйте порядок стрелками.
           </DialogDescription>
         </DialogHeader>
 
@@ -187,15 +187,31 @@ export function DashboardSettings({
                 <span className="flex-1 text-sm font-medium">
                   {widget.label}
                 </span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={local.length}
-                  value={index + 1}
-                  onChange={(e) => setOrder(widget.id, e.target.value)}
-                  className="h-8 w-14 text-center"
-                  aria-label={`Порядок: ${widget.label}`}
-                />
+                <span className="w-5 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
+                  {index + 1}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  disabled={index === 0}
+                  onClick={() => move(widget.id, -1)}
+                  aria-label={`Поднять выше: ${widget.label}`}
+                >
+                  <ChevronUp className="size-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  disabled={index === local.length - 1}
+                  onClick={() => move(widget.id, 1)}
+                  aria-label={`Опустить ниже: ${widget.label}`}
+                >
+                  <ChevronDown className="size-4" />
+                </Button>
               </div>
             )
           })}
