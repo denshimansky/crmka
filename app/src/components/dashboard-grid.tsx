@@ -52,7 +52,10 @@ export function DashboardGrid({ widgets }: DashboardGridProps) {
     const layout = WIDGET_LAYOUT[w.id] || "full"
 
     if (layout === "full") {
-      rendered.push(<div key={w.id}>{widgets[w.id]}</div>)
+      // min-w-0 — чтобы широкая таблица внутри виджета не растягивала блок за
+      // пределы <main> (у него overflow-x-hidden), а скроллилась внутри карточки
+      // (у <Table> уже есть overflow-x-auto).
+      rendered.push(<div key={w.id} className="min-w-0">{widgets[w.id]}</div>)
       consumed.add(i)
       continue
     }
@@ -70,14 +73,17 @@ export function DashboardGrid({ widgets }: DashboardGridProps) {
 
     if (partnerIdx === -1) {
       // одиночный compact — на полную ширину, чтобы не висел в полупустом ряду
-      rendered.push(<div key={w.id}>{widgets[w.id]}</div>)
+      rendered.push(<div key={w.id} className="min-w-0">{widgets[w.id]}</div>)
       consumed.add(i)
     } else {
       const partner = visibleWidgets[partnerIdx]
+      // grid-cols-1 на мобильном (minmax(0,1fr)) + min-w-0 на ячейках — без них
+      // неявная auto-колонка растягивается под ширину таблицы и виджет вылезает
+      // за <main> (overflow-x-hidden ⇒ обрезается без скролла).
       rendered.push(
-        <div key={`row-${w.id}-${partner.id}`} className="grid gap-4 lg:grid-cols-2">
-          <div>{widgets[w.id]}</div>
-          <div>{widgets[partner.id]}</div>
+        <div key={`row-${w.id}-${partner.id}`} className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="min-w-0">{widgets[w.id]}</div>
+          <div className="min-w-0">{widgets[partner.id]}</div>
         </div>
       )
       consumed.add(i)
