@@ -120,12 +120,12 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold">Касса</h1>
           <PageHelp pageKey="finance/cash" />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <MonthPicker />
           {accounts.length >= 1 && (
             <AddOperationDialog

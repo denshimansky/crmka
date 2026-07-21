@@ -1153,7 +1153,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     // layout.tsx (<main> pb-24) — здесь дублировать не нужно.
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <h1 className="text-2xl font-bold">Дашборд</h1>
           <PageHelp pageKey="dashboard" />
           <MonthPicker />

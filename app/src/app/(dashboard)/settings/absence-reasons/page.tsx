@@ -123,7 +123,7 @@ export default function AbsenceReasonsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Причины пропусков</h1>

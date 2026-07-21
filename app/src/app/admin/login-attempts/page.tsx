@@ -67,7 +67,7 @@ export default function LoginAttemptsPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <h1 className="text-2xl font-bold">Лог входов</h1>
         <Select value={days} onValueChange={(v) => { if (v) setDays(v) }}>
           <SelectTrigger className="w-40">
@@ -151,7 +151,7 @@ export default function LoginAttemptsPage() {
         <CardHeader>
           <CardTitle className="text-base">Последние попытки входа</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>

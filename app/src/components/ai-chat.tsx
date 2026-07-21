@@ -114,9 +114,11 @@ export function AiChat() {
         </button>
       )}
 
-      {/* Панель чата */}
+      {/* Панель чата. Мобилка (<sm): почти на весь экран с отступами 12px, высота
+          по вьюпорту — иначе фикс. w-[380px]/right-6 съезжал за левый край на
+          экранах уже ~404px. sm+: прежняя плавающая панель снизу справа. */}
       {open && (
-        <div className="fixed bottom-6 right-6 z-50 flex h-[520px] w-[380px] flex-col rounded-2xl border bg-background shadow-2xl">
+        <div className="fixed z-50 flex flex-col rounded-2xl border bg-background shadow-2xl inset-x-3 bottom-3 h-[75dvh] max-h-[600px] sm:inset-x-auto sm:right-6 sm:bottom-6 sm:h-[520px] sm:w-[380px]">
           {/* Хедер */}
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div className="flex items-center gap-2">

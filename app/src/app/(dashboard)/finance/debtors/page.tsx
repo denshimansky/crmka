@@ -289,7 +289,7 @@ export default async function DebtorsPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 gap-y-2">
         <h1 className="text-2xl font-bold">Должники</h1>
         <PageHelp pageKey="finance/debtors" />
         <ReportExport

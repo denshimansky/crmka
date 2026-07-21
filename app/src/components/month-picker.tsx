@@ -43,13 +43,13 @@ function MonthPickerInner() {
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       <Button variant="outline" size="icon-xs" onClick={prev}>
         <ChevronLeft className="size-3.5" />
       </Button>
       <button
         onClick={goToday}
-        className={`min-w-[160px] rounded-md border px-3 py-1 text-sm font-medium ${
+        className={`min-w-[128px] whitespace-nowrap rounded-md border px-3 py-1 text-center text-sm font-medium sm:min-w-[160px] ${
           isCurrentMonth ? "bg-primary text-primary-foreground" : "hover:bg-accent"
         }`}
       >

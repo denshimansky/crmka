@@ -481,8 +481,8 @@ export function CreateGroupDialog({
                   key={i}
                   className={
                     isDup
-                      ? "flex items-center gap-2 rounded-md border border-destructive/60 bg-destructive/5 p-1"
-                      : "flex items-center gap-2"
+                      ? "flex flex-wrap items-center gap-2 gap-y-2 rounded-md border border-destructive/60 bg-destructive/5 p-1"
+                      : "flex flex-wrap items-center gap-2 gap-y-2"
                   }
                 >
                   <Select

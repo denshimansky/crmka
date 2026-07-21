@@ -79,7 +79,7 @@ export default function PartnersPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-y-3">
         <div>
           <h1 className="text-2xl font-bold">Партнёры</h1>
           <p className="text-sm text-muted-foreground">Управление организациями-партнёрами</p>
@@ -93,7 +93,7 @@ export default function PartnersPage() {
       {loading ? (
         <div className="text-muted-foreground">Загрузка...</div>
       ) : (
-        <div className="rounded-md border">
+        <div className="rounded-md border overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>

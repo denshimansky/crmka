@@ -169,7 +169,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <h1 className="text-2xl font-bold">Зарплата</h1>
           <PageHelp pageKey="salary" />
           <MonthPicker />
@@ -233,7 +233,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
           <CardTitle className="text-base">Ведомость</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>

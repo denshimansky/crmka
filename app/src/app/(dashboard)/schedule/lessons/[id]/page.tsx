@@ -684,14 +684,14 @@ export default async function LessonCardPage({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4 gap-y-2">
         <Link href="/schedule">
           <Button variant="ghost" size="icon">
             <ArrowLeft className="size-4" />
           </Button>
         </Link>
         <div className="flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 gap-y-2">
             <h1 className="text-2xl font-bold">{lesson.group.name}</h1>
             <PageHelp pageKey="schedule/lessons/[id]" />
             <Badge variant={LESSON_STATUS_VARIANT[lesson.status] || "secondary"}>

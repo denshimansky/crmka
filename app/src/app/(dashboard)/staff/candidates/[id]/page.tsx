@@ -152,7 +152,7 @@ export default function CandidateCardPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 gap-y-2">
         <Link href="/staff/candidates">
           <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
         </Link>
@@ -206,7 +206,7 @@ export default function CandidateCardPage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-y-2">
             <CardTitle className="text-base">История встреч ({history.length})</CardTitle>
             {!isTerminal && (
               <Button variant="outline" size="sm" onClick={() => setMeetingOpen(true)}>

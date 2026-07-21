@@ -910,7 +910,7 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
 
       {/* Навигация */}
       {currentKey !== "done" && (
-        <div className="mt-4 flex items-center justify-between gap-2">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
           <Button
             type="button"
             variant="outline"

@@ -170,7 +170,7 @@ export function SalaryRateForm({ value, onChange }: SalaryRateFormProps) {
           ) : (
             <div className="space-y-1">
               {value.brackets.map((b, i) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={i} className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-muted-foreground">от</span>
                   <Input
                     type="number"

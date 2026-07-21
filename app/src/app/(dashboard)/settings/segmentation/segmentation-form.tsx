@@ -128,7 +128,7 @@ export function SegmentationForm({
       </div>
 
       <div className="space-y-3">
-        <div className="grid grid-cols-[140px_1fr_120px] items-center gap-3 text-sm">
+        <div className="grid grid-cols-[110px_1fr_96px] items-center gap-3 text-sm sm:grid-cols-[140px_1fr_120px]">
           <div className="text-muted-foreground">Сегмент</div>
           <div className="text-muted-foreground">Порог</div>
           <div />
@@ -214,7 +214,7 @@ function SegmentRow({
   hint?: string
 }) {
   return (
-    <div className="grid grid-cols-[140px_1fr_120px] items-center gap-3 rounded-md border p-3 text-sm">
+    <div className="grid grid-cols-[110px_1fr_96px] items-center gap-3 rounded-md border p-3 text-sm sm:grid-cols-[140px_1fr_120px]">
       <div className="font-medium">{label}</div>
       <div className="text-muted-foreground">{input ?? hint}</div>
       <div className="text-right text-xs text-muted-foreground">

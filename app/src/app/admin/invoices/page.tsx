@@ -78,7 +78,7 @@ export default function InvoicesPage() {
       {/* Платежи из выписки Т-Банк, которые не удалось сопоставить со счетами
           автоматически — разбираются вручную: найти счёт и отметить «Оплачен» */}
       {unmatchedOps.length > 0 && (
-        <div className="mb-6 rounded-md border border-destructive/40 bg-destructive/5 p-4">
+        <div className="mb-6 rounded-md border border-destructive/40 bg-destructive/5 p-4 overflow-x-auto">
           <h2 className="mb-2 font-semibold text-destructive">
             Неразобранные платежи из выписки ({unmatchedOps.length})
           </h2>
@@ -116,7 +116,7 @@ export default function InvoicesPage() {
       {loading ? (
         <div className="text-muted-foreground">Загрузка...</div>
       ) : (
-        <div className="rounded-md border">
+        <div className="rounded-md border overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>

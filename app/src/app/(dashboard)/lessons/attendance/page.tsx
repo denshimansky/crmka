@@ -558,7 +558,7 @@ export default async function LessonsAttendancePage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 gap-y-2">
         <Link href="/lessons" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
         </Link>

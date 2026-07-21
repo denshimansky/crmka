@@ -160,7 +160,7 @@ export default async function PotentialChurnPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Link href="/reports" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
         </Link>

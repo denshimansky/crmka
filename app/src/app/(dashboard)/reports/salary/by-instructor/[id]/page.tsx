@@ -197,7 +197,7 @@ export default async function SalaryByInstructorDetailPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link
           href={`/reports/salary/by-instructor?year=${year}&month=${month}`}
           className="text-muted-foreground hover:text-foreground"

@@ -98,7 +98,7 @@ export default function RoomBalancesPage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">{roomName}</CardTitle>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent className="p-0 overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>

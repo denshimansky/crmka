@@ -270,12 +270,12 @@ export default function PartnerDetailPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4 gap-y-3">
         <Link href="/admin/partners">
           <Button variant="ghost" size="sm"><ArrowLeft className="size-4" /></Button>
         </Link>
         <div className="flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 gap-y-2">
             <h1 className="text-2xl font-bold">{partner.name}</h1>
             <Badge variant={st.variant}>{st.label}</Badge>
             {partner.billingExempt && <Badge variant="outline">Без автосчетов</Badge>}
@@ -308,7 +308,7 @@ export default function PartnerDetailPage() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {/* Info cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Филиалы</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold">{partner._count.branches}</div></CardContent>
@@ -333,7 +333,7 @@ export default function PartnerDetailPage() {
       </div>
 
       {/* Details */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Building2 className="size-4" />Реквизиты</CardTitle>
@@ -381,13 +381,13 @@ export default function PartnerDetailPage() {
 
       {/* Подписки */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-y-2">
           <CardTitle className="flex items-center gap-2"><CreditCard className="size-4" />Подписки</CardTitle>
           <Button size="sm" onClick={() => setSubOpen(true)}>
             <Plus className="mr-2 size-4" />Создать подписку
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -423,7 +423,7 @@ export default function PartnerDetailPage() {
 
       {/* Счета */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-y-2">
           <CardTitle className="flex items-center gap-2"><FileText className="size-4" />Счета</CardTitle>
           {activeSub && (
             <Button size="sm" onClick={() => {
@@ -443,7 +443,7 @@ export default function PartnerDetailPage() {
             </Button>
           )}
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>

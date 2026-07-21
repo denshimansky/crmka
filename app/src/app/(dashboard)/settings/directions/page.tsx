@@ -41,7 +41,7 @@ export default async function DirectionsPage() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <p className="text-sm text-muted-foreground">
           Всего направлений: {directions.length}
         </p>

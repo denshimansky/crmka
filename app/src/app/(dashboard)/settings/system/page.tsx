@@ -50,7 +50,7 @@ export default async function SystemParamsPage() {
                   {org.payForAbsence ? "Да" : "Нет"}
                 </Badge>
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-y-2">
                 <span className="text-sm text-muted-foreground">Оплата пробных занятий педагогу</span>
                 <TrialPayModeSelect
                   value={org.trialPayMode}

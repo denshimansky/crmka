@@ -344,7 +344,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">ДДС</h1>
@@ -352,7 +352,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
           </div>
           <p className="text-sm text-muted-foreground">Журнал движения денег: построчно, день в день</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <MonthPicker />
           <ReportExport
             title="Журнал ДДС"

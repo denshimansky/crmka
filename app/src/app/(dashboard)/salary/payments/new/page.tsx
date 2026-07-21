@@ -609,7 +609,7 @@ function NewSalaryPaymentForm() {
         </div>
       )}
 
-      <div className="flex items-center justify-between rounded-md border bg-muted/30 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-y-3 rounded-md border bg-muted/30 px-4 py-3">
         <div>
           <span className="text-sm text-muted-foreground">Итого к выплате:</span>
           <span className="ml-2 text-xl font-bold">{formatMoney(totalAmount)}</span>

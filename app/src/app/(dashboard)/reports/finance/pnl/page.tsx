@@ -331,7 +331,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link href="/reports" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
         </Link>
@@ -355,7 +355,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
         />
       </div>
 
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <span>Период:</span>
         <Badge variant="outline">{monthName}</Badge>
         <span className="ml-2">Филиал:</span>

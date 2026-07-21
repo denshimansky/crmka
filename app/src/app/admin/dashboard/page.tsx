@@ -129,7 +129,7 @@ export default function AdminDashboardPage() {
           <CardHeader>
             <CardTitle className="text-base">Топ-10 по количеству клиентов</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>

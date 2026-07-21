@@ -197,14 +197,14 @@ export default async function GroupCardPage({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4 gap-y-2">
         <Link href="/schedule/groups">
           <Button variant="ghost" size="icon">
             <ArrowLeft className="size-4" />
           </Button>
         </Link>
         <div className="flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 gap-y-2">
             <h1 className="text-2xl font-bold">{group.name}</h1>
             <PageHelp pageKey="schedule/groups/[id]" />
             {group.deletedAt ? (

@@ -143,13 +143,13 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
+        <div className="flex flex-wrap items-center gap-4 gap-y-2">
           <h1 className="text-2xl font-bold">Оплаты</h1>
           <PageHelp pageKey="finance/payments" />
           <MonthPicker />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <RefundPaymentDialog
             clients={clients.map(c => ({ id: c.id, name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени" }))}
             accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}

@@ -92,7 +92,7 @@ function DashboardTaskRow({ task }: { task: DashboardTaskRow }) {
   }
 
   const baseRowCls =
-    "grid grid-cols-[28px_120px_1fr] items-center gap-3 rounded-md border px-3 py-2 text-sm transition-colors"
+    "grid grid-cols-[28px_120px_minmax(0,1fr)] sm:grid-cols-[28px_120px_1fr] items-center gap-3 rounded-md border px-3 py-2 text-sm transition-colors"
   const overdueCls =
     "border-red-200 bg-red-50 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/30 dark:hover:bg-red-950/50"
   const normalCls = "hover:bg-muted/40"

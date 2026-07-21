@@ -149,7 +149,7 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
       <div className="flex items-center gap-4">
         <BackButton fallbackHref="/crm/children" />
         <div className="flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold">{wardName}</h1>
             <Badge variant="secondary">{ageLabel(ward.birthDate)}</Badge>
             {activeSubscriptions.length > 0 ? (

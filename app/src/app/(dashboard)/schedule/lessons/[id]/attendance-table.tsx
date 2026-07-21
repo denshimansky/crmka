@@ -1161,11 +1161,11 @@ export function AttendanceTable({
       {/* Attendance section */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-y-2">
             <CardTitle className="text-base">
               Посещаемость ({totalMarkedCount}/{totalStudentsCount})
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {currentUserRole !== "instructor" && (
                 <AddStudentDialog
                   lessonId={lessonId}

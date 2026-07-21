@@ -339,10 +339,10 @@ export async function ClientCardContent({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton fallbackHref={backHref} />
         <div className="flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold">{fullName}</h1>
             {/* Бадж качества контакта в шапке: для активного клиента — сегмент
                 (Новый/Стандарт/…); для лида/потенциала/нецелевого — стадия

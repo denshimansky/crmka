@@ -259,7 +259,7 @@ export default function PlannedExpensesPage() {
             План vs факт по статьям расходов
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={handleCopyFromPrev} disabled={copying}>
             <Copy className="mr-2 size-4" />
             {copying ? "Копирование..." : "Скопировать с прошлого месяца"}

@@ -877,7 +877,7 @@ export default function RepsPage() {
                 </Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-0">
+            <CardContent className="px-0 overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

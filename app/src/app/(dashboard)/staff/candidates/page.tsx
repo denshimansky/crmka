@@ -100,7 +100,7 @@ export default function CandidatesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div className="flex items-center gap-3">
           <Link href="/staff">
             <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
@@ -132,7 +132,7 @@ export default function CandidatesPage() {
         </Card>
       ) : (
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>

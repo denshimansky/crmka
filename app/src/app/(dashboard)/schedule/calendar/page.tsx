@@ -205,7 +205,7 @@ export default function ProductionCalendarPage() {
       </div>
 
       {/* Year selector + month nav */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4 gap-y-2">
         <Select value={String(year)} onValueChange={(v) => { if (v) setYear(Number(v)) }}>
           <SelectTrigger className="w-[120px]">
             {year}

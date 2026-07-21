@@ -67,7 +67,7 @@ export default function AdminAnalyticsPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <h1 className="text-2xl font-bold">Аналитика использования</h1>
         <Select value={days} onValueChange={(v) => { if (v) setDays(v) }}>
           <SelectTrigger className="w-40">
@@ -159,7 +159,7 @@ export default function AdminAnalyticsPage() {
               <Clock className="size-4" />Среднее время на странице
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>

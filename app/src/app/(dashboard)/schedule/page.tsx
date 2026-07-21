@@ -483,12 +483,12 @@ export default async function SchedulePage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold">Расписание</h1>
           <PageHelp pageKey="schedule" />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/schedule/groups">
             <Button variant="outline">Группы</Button>
           </Link>
@@ -497,7 +497,7 @@ export default async function SchedulePage({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 gap-y-2">
         <div className="flex-1">
           <ScheduleWeekNav
             weekOffset={weekOffset}
@@ -516,7 +516,7 @@ export default async function SchedulePage({
 
       {/* Occupancy legend */}
       {hasLessons && (
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-4 gap-y-1 text-xs text-muted-foreground">
           <span className="font-medium">Заполняемость:</span>
           <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-green-500" /> &lt;70% — свободно</span>
           <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-yellow-500" /> 70–90% — почти заполнена</span>

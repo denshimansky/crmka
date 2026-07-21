@@ -18,7 +18,7 @@ export function ImpersonationBanner() {
   }
 
   return (
-    <div className="bg-amber-500 text-amber-950 px-4 py-2 flex items-center justify-between text-sm font-medium">
+    <div className="bg-amber-500 text-amber-950 px-4 py-2 flex flex-wrap items-center justify-between gap-y-1 text-sm font-medium">
       <div className="flex items-center gap-2">
         <ShieldAlert className="size-4" />
         <span>Режим поддержки — вы вошли как владелец организации ({impersonatedBy})</span>

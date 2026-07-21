@@ -53,7 +53,7 @@ export default async function BranchesPage() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <p className="text-sm text-muted-foreground">Всего филиалов: {branches.length}</p>
         <div className="flex gap-2">
           <CreateRoomDialog branches={branches.map((b) => ({ id: b.id, name: b.name }))} />

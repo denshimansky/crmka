@@ -281,7 +281,7 @@ export function AdminBonusContent() {
       {/* Branch overrides */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-y-2">
             <div className="flex items-center gap-2">
               <Building2 className="size-4 text-muted-foreground" />
               <CardTitle className="text-base">По филиалам</CardTitle>
@@ -382,7 +382,7 @@ export function AdminBonusContent() {
       {/* Employee overrides */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-y-2">
             <div className="flex items-center gap-2">
               <Users className="size-4 text-muted-foreground" />
               <CardTitle className="text-base">По сотрудникам</CardTitle>

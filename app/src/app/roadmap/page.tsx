@@ -393,7 +393,7 @@ export default function RoadmapPage() {
       <Card>
         <CardContent className="pt-6">
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-y-2">
               <div>
                 <p className="text-2xl font-bold">{pct}%</p>
                 <p className="text-sm text-muted-foreground">{totalDone} из {totalAll} требований PRD</p>
@@ -406,7 +406,7 @@ export default function RoadmapPage() {
             <div className="h-4 rounded-full bg-muted">
               <div className="h-4 rounded-full bg-green-500 transition-all" style={{ width: `${pct}%` }} />
             </div>
-            <div className="flex gap-4 text-xs">
+            <div className="flex flex-wrap gap-4 text-xs">
               <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full bg-green-500" /> Готово ({totalDone})</span>
               <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full bg-amber-500" /> Частично ({modules.reduce((s, m) => s + m.items.filter(i => i.status === "partial").length, 0)})</span>
               <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full bg-blue-500" /> В работе ({modules.reduce((s, m) => s + m.items.filter(i => i.status === "not_done").length, 0)})</span>
@@ -466,7 +466,7 @@ export default function RoadmapPage() {
           {phases.map((phase) => (
             <Card key={phase.name} className={phase.status === "active" ? "border-blue-200 dark:border-blue-800" : phase.status === "done" ? "opacity-75" : ""}>
               <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-y-2">
                   <CardTitle className="text-base">{phase.name}</CardTitle>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">{phase.period}</span>

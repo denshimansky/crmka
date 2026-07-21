@@ -1911,15 +1911,20 @@ export function ClientTabs({
 }) {
   return (
     <Tabs defaultValue="wards">
-      <TabsList variant="line">
-        <TabsTrigger value="wards">Подопечные</TabsTrigger>
-        <TabsTrigger value="subscriptions">Абонементы</TabsTrigger>
-        <TabsTrigger value="payments">Оплаты</TabsTrigger>
-        <TabsTrigger value="schedule">Расписание</TabsTrigger>
-        <TabsTrigger value="attendance">Посещения</TabsTrigger>
-        <TabsTrigger value="communications">Коммуникации</TabsTrigger>
-        <TabsTrigger value="history">История</TabsTrigger>
-      </TabsList>
+      {/* Мобилка: полоса вкладок фиксированной высоты (h-8) не переносится без
+          наложения — прокручиваем по горизонтали. pb-1.5 — чтобы подчёркивание
+          активной вкладки (after:bottom-[-5px]) не обрезалось overflow. */}
+      <div className="max-w-full overflow-x-auto pb-1.5">
+        <TabsList variant="line">
+          <TabsTrigger value="wards">Подопечные</TabsTrigger>
+          <TabsTrigger value="subscriptions">Абонементы</TabsTrigger>
+          <TabsTrigger value="payments">Оплаты</TabsTrigger>
+          <TabsTrigger value="schedule">Расписание</TabsTrigger>
+          <TabsTrigger value="attendance">Посещения</TabsTrigger>
+          <TabsTrigger value="communications">Коммуникации</TabsTrigger>
+          <TabsTrigger value="history">История</TabsTrigger>
+        </TabsList>
+      </div>
 
       <TabsContent value="wards">
         <Card>

@@ -88,7 +88,7 @@ export function SalaryCorrections({ year, month }: { year: number; month: number
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="rounded-md border border-amber-200">
+        <div className="rounded-md border border-amber-200 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-amber-50">

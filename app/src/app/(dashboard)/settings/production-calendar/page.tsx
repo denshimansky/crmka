@@ -204,7 +204,7 @@ export default function ProductionCalendarPage() {
 
       <Card>
         <CardContent className="p-4">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-y-2">
             <Button variant="outline" size="sm" onClick={goPrev}>
               <ChevronLeft className="size-4" />
             </Button>

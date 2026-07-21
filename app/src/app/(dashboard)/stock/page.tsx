@@ -286,12 +286,12 @@ export default function StockPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold">Склад</h1>
           <PageHelp pageKey="stock" />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {hasAnyStock && (
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
@@ -356,7 +356,7 @@ export default function StockPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base">На складе</CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               {warehouseRows.length === 0 ? (
                 <div className="flex items-center justify-center p-10 text-muted-foreground text-sm">
                   Склад пуст. Нажмите «Внести на склад».
@@ -415,7 +415,7 @@ export default function StockPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Филиал · {g.branchName}</CardTitle>
               </CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
