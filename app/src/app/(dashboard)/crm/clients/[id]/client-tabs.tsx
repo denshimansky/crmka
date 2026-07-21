@@ -33,6 +33,7 @@ import { CommunicationFeed } from "@/components/communication-feed"
 import { ClientHistory } from "./client-history"
 import { formatWardName } from "@/lib/format-name"
 import { useRoleNames } from "@/components/role-names-provider"
+import type { DiscountPreview } from "@/lib/discounts/preview-discount"
 
 interface Ward {
   id: string
@@ -1363,6 +1364,12 @@ function AddSubscriptionDialog({
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-01`
   })
 
+  // Скидки v2: предпросчёт скидки для создаваемого абонемента (баг #72 — форма
+  // показывала номинал без скидки). Считает сервер (те же правила, что применит
+  // recalcClientDiscounts после создания): тип 2 из карточки клиента или
+  // автоскидка «за второй абонемент».
+  const [discountPreview, setDiscountPreview] = useState<DiscountPreview | null>(null)
+
   // Загрузка направлений, групп, типа абонемента и шаблонов при открытии
   useEffect(() => {
     if (!open) return
@@ -1458,6 +1465,34 @@ function AddSubscriptionDialog({
     }
   }, [subscriptionType, packageTemplateId, packageTemplates])
 
+  // Предпросчёт скидки: дёргаем сервер при изменении цены/кол-ва/периода.
+  useEffect(() => {
+    if (!open) return
+    const price = Number(lessonPrice)
+    const lessons = Number(totalLessons)
+    if (!price || price <= 0 || !lessons || lessons <= 0) {
+      setDiscountPreview(null)
+      return
+    }
+    const params = new URLSearchParams({
+      clientId,
+      lessonPrice: String(price),
+      totalLessons: String(lessons),
+    })
+    if (subscriptionType === "calendar") {
+      params.set("periodYear", periodYear)
+      params.set("periodMonth", periodMonth)
+    }
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => {
+      fetch(`/api/subscriptions/discount-preview?${params.toString()}`, { signal: ctrl.signal })
+        .then(res => (res.ok ? res.json() : null))
+        .then(data => { if (data) setDiscountPreview(data as DiscountPreview) })
+        .catch(() => { /* abort/сеть — оставляем прежний предпросчёт */ })
+    }, 250)
+    return () => { clearTimeout(timer); ctrl.abort() }
+  }, [open, clientId, lessonPrice, totalLessons, periodYear, periodMonth, subscriptionType])
+
   function reset() {
     setBranchId("")
     setDirectionId("")
@@ -1471,6 +1506,7 @@ function AddSubscriptionDialog({
     setStartDate(new Date().toISOString().slice(0, 10))
     setFirstLessonDate(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`)
     setValidDays("")
+    setDiscountPreview(null)
     setError(null)
   }
 
@@ -1788,11 +1824,39 @@ function AddSubscriptionDialog({
           </div>
 
           {totalAmount > 0 && (
-            <div className="rounded-md bg-muted/50 p-3 text-sm">
-              <div className="flex justify-between font-bold">
-                <span>Стоимость:</span>
-                <span>{formatMoney(totalAmount)}</span>
-              </div>
+            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
+              {discountPreview?.hasDiscount ? (
+                <>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Стоимость без скидки:</span>
+                    <span>{formatMoney(discountPreview.totalAmount)}</span>
+                  </div>
+                  <div className="text-emerald-700 dark:text-emerald-400">
+                    <div className="flex justify-between">
+                      <span>
+                        {discountPreview.source === "type1"
+                          ? "Скидка за второй абонемент"
+                          : `Скидка «${discountPreview.templateName}»`}
+                      </span>
+                      <span>−{formatMoney(discountPreview.discountAmount)}</span>
+                    </div>
+                    <div className="text-xs opacity-80">
+                      {discountPreview.valueType === "percent"
+                        ? `${discountPreview.templateValue}% · ${formatMoney(discountPreview.discountPerLesson)}/занятие`
+                        : `${formatMoney(discountPreview.discountPerLesson)}/занятие`}
+                    </div>
+                  </div>
+                  <div className="flex justify-between font-bold border-t border-border pt-1">
+                    <span>Итого:</span>
+                    <span>{formatMoney(discountPreview.finalAmount)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-between font-bold">
+                  <span>Стоимость:</span>
+                  <span>{formatMoney(totalAmount)}</span>
+                </div>
+              )}
             </div>
           )}
 

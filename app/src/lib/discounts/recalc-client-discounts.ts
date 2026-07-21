@@ -95,10 +95,13 @@ export async function countAttendedLessons(
 }
 
 /** Скидка за занятие по шаблону, ограниченная ценой занятия (занятие не дешевле 0). */
-function perLessonByTemplate(tpl: TemplateLite, lessonPrice: Prisma.Decimal): Prisma.Decimal {
+export function perLessonByTemplate(
+  tpl: { valueType: "percent" | "fixed"; value: Prisma.Decimal | number | string },
+  lessonPrice: Prisma.Decimal,
+): Prisma.Decimal {
   const raw =
     tpl.valueType === "percent"
-      ? lessonPrice.mul(tpl.value).div(100)
+      ? lessonPrice.mul(new Prisma.Decimal(tpl.value)).div(100)
       : new Prisma.Decimal(tpl.value)
   if (raw.lessThanOrEqualTo(0)) return new Prisma.Decimal(0)
   return raw.greaterThan(lessonPrice) ? new Prisma.Decimal(lessonPrice) : raw
