@@ -377,6 +377,31 @@ export function buildNavMap(): string {
   return `КАРТА НАВИГАЦИИ CRM:\n${menuLines.join("\n")}\n\n${settingsLines.join("\n")}\n\n${pageLines.join("\n")}\n\n${faq}`
 }
 
+// ─── 1.5. РУЧНАЯ БАЗА ЗНАНИЙ (ai_faq) ──────────────────────────────────
+//
+// Активные записи ai_faq — уточнения, добавленные вручную по разбору реальных
+// диалогов (/admin/ai-review → /admin/ai-faq). Подмешиваются в СТАТИЧЕСКУЮ
+// (кэшируемую) часть промпта поверх FAQ в коде. Таблица глобальная (одна на все
+// организации), поэтому prompt cache не ломается между тенантами; правки редки —
+// разовый промах кэша при изменении базы некритичен. Пустая база → "".
+export async function buildFaqSlice(): Promise<string> {
+  // Блок необязательный: любой сбой чтения (в т.ч. ещё не применённая миграция
+  // ai_faq на свежем окружении) не должен ломать ответ ассистента — вернём "".
+  try {
+    const items = await db.aiFaq.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { question: true, answer: true },
+    })
+    if (items.length === 0) return ""
+    const blocks = items.map(f => `Вопрос: «${f.question}»\nОтвет: ${f.answer}`)
+    return `ДОПОЛНИТЕЛЬНАЯ БАЗА ЗНАНИЙ (уточнения, внесённые вручную по разбору реальных вопросов — считай их достоверными; при конфликте с общими правилами приоритет у этих уточнений):\n\n${blocks.join("\n\n")}`
+  } catch (err) {
+    console.error("[ai-context] buildFaqSlice error:", err)
+    return ""
+  }
+}
+
 // ─── 2. БАЗОВЫЙ СРЕЗ (Level 1) ─────────────────────────────────────────
 
 export async function buildBaseContext(tenantId: string, _role: string): Promise<string> {

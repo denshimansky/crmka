@@ -1200,8 +1200,8 @@ model AuditLog {
 // === ЛОГ AI-АССИСТЕНТА ===
 
 // Диалоги AI-помощника (/api/ai/chat): вопрос/ответ + модель. Сырьё для аудита
-// качества ответов и пополнения FAQ базы знаний (ai-context.ts). Пишется
-// fire-and-forget, UI нет — выборка через SQL.
+// качества ответов и пополнения базы знаний ИИ (ai_faq / ai-context.ts). Пишется
+// fire-and-forget. Просмотр и экспорт за период — /admin/ai-review.
 model AiChatLog {
   id        String   @id @default(uuid()) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
@@ -1218,6 +1218,31 @@ model AiChatLog {
 
   @@index([tenantId, createdAt])
   @@map("ai_chat_logs")
+}
+
+// === БАЗА ЗНАНИЙ AI-АССИСТЕНТА (ручные уточнения) ===
+
+// Ручная база знаний AI-помощника: короткие «вопрос → факт», которые
+// подмешиваются в системный промпт (buildFaqSlice в ai-context.ts) ПОВЕРХ
+// статичного FAQ в коде. Пополняется по разбору реальных диалогов (ai_chat_logs),
+// правится через /admin/ai-faq без деплоя. Глобальная (без tenant_id) — как база
+// знаний kb_*: факты продуктовые, одинаковы для всех организаций.
+model AiFaq {
+  id          String   @id @default(uuid()) @db.Uuid
+  question    String   // как вопрос звучит от пользователя (триггер/тема)
+  answer      String   // короткий достоверный ответ-факт для промпта
+  category    String   @default("navigation") // navigation | logic | data
+  keywords    String?  // доп. ключевые слова (через запятую), на будущее
+  isActive    Boolean  @default(true) @map("is_active")
+  source      String   @default("manual") // manual | review — откуда добавлено
+  sourceLogId String?  @map("source_log_id") @db.Uuid // из какого диалога родился (ai_chat_logs.id)
+  createdBy   String?  @map("created_by") // email/имя админа
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive])
+  @@map("ai_faq")
 }
 
 // === СПРАВОЧНИК КАНАЛОВ ПРИВЛЕЧЕНИЯ ===

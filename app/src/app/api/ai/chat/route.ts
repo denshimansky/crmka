@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { buildNavMap, buildBaseContext, buildDynamicSlice } from "@/lib/ai-context"
+import { buildNavMap, buildBaseContext, buildDynamicSlice, buildFaqSlice } from "@/lib/ai-context"
 
 const DAILY_LIMIT = 50
 
@@ -59,11 +59,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Параллельная сборка контекста: nav (синхр.), база (Level 1), динамика (Level 2)
+    // Параллельная сборка контекста: nav (синхр.), база (Level 1), динамика
+    // (Level 2), ручная база знаний ai_faq (глобальная, кэшируется вместе с nav).
     const navMap = buildNavMap()
-    const [baseContext, dynamicSlice] = await Promise.all([
+    const [baseContext, dynamicSlice, faqSlice] = await Promise.all([
       buildBaseContext(tenantId, role),
       buildDynamicSlice(message, tenantId),
+      buildFaqSlice(),
     ])
 
     // Промпт разбит на две части: staticPrompt одинаков для всех тенантов и
@@ -110,7 +112,7 @@ export async function POST(req: NextRequest) {
 Вопрос: «Какая выручка в этом месяце?» (пример: в блоке данных выручка 1 234 567 ₽, расходы 890 000 ₽)
 Ответ: «Выручка за текущий месяц — 1 234 567 ₽, расходы — 890 000 ₽, прибыль — 344 567 ₽.»
 
-${navMap}`
+${navMap}${faqSlice ? "\n\n" + faqSlice : ""}`
 
     const dynamicPrompt = `Роль пользователя: ${role === "owner" ? "владелец" : role === "manager" ? "управляющий" : role}
 Имя: ${userName}
