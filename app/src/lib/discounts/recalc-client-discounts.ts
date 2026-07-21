@@ -35,6 +35,20 @@ export interface RecalcDiscountsInput {
   createdBy?: string | null
   /** Только что созданные абонементы — единственные получатели типа 2. */
   newSubscriptionIds?: string[]
+  /**
+   * Явный per-client свитч на «авто» (PATCH карточки клиента): тип 1 применяется
+   * к абонементам ТЕКУЩЕГО месяца, минуя гейт «со следующего месяца после
+   * включения тумблера» (activatedAt+1). Гейт задуман против массового движения
+   * денег при глобальном включении тумблера — он остаётся для всех прочих
+   * триггеров (recalcAllClientsForType1, создание/отчисление/крон/массовая
+   * выписка), но осознанное переключение конкретного клиента на «авто» должно
+   * подхватывать «за второй абонемент» и в текущем месяце (решение владельца
+   * 21.07.2026: иначе снятие ручной/постоянной скидки вешает долг на оплаченный
+   * абонемент, а тип 1 не подставляется — кейс Бабюк/Волковой и др. на Dream).
+   * Бутстрап: как только тип 1 применён к текущему месяцу, дальше инвариант
+   * держится сам через monthHasType1 (см. ниже) — флаг больше не нужен.
+   */
+  type1CoversCurrentMonth?: boolean
 }
 
 export interface DiscountChange {
@@ -584,7 +598,21 @@ export async function recalcClientDiscounts(
     )
 
     // t1MinMonth = null, если шаблон выключен или ещё не включался.
-    const t1ActiveForMonth = !!t1 && t1MinMonth != null && mi >= t1MinMonth
+    // Текущий месяц входит в зону тип-1 сверх гейта activatedAt+1 в двух случаях:
+    //  1. type1CoversCurrentMonth — осознанный per-client свитч на «авто» (бутстрап);
+    //  2. monthHasType1 — в месяце УЖЕ есть живой тип-1-абонемент (значит инвариант
+    //     для этого клиента в этом месяце уже «живой» — держим его дальше без флага:
+    //     любой последующий триггер корректно добавит/снимет скидку по составу,
+    //     а не заморозит её). Оба требуют, чтобы тип 1 был включён (t1MinMonth != null).
+    const monthHasType1 = monthSubs.some(
+      (s) =>
+        (s.status === "pending" || s.status === "active") &&
+        s.discountSource === "type1",
+    )
+    const t1ActiveForMonth =
+      !!t1 &&
+      t1MinMonth != null &&
+      (mi >= t1MinMonth || input.type1CoversCurrentMonth === true || monthHasType1)
     let exemptId: string | null = null
     if (t1ActiveForMonth && roster.length > 1) {
       // Самый дорогой по totalAmount; при равенстве освобождается более ранний.

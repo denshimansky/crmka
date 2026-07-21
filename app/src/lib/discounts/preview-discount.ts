@@ -141,14 +141,10 @@ export async function previewSubscriptionDiscount(
   })
   if (!t1?.isActive || t1.activatedAt == null) return noDiscount(lessonPrice, totalLessons)
 
-  // Зона действия: период со СЛЕДУЮЩЕГО месяца после включения; прошедшие не трогаем.
   const targetMonth = monthIndex(input.periodYear, input.periodMonth)
   const t1MinMonth = monthIndex(t1.activatedAt.getFullYear(), t1.activatedAt.getMonth() + 1) + 1
   const now = new Date()
   const currentMonth = monthIndex(now.getFullYear(), now.getMonth() + 1)
-  if (targetMonth < t1MinMonth || targetMonth < currentMonth) {
-    return noDiscount(lessonPrice, totalLessons)
-  }
 
   // Состав месяца из уже существующих абонементов клиента: живые + штатно закрытые
   // с отметками. Новый абонемент добавит +1. Скидку несут все, кроме самого
@@ -164,8 +160,20 @@ export async function previewSubscriptionDiscount(
       periodMonth: input.periodMonth,
       status: { in: ["pending", "active", "closed"] },
     },
-    select: { id: true, status: true, totalAmount: true },
+    select: { id: true, status: true, totalAmount: true, discountSource: true },
   })
+
+  // Зона действия: период со СЛЕДУЮЩЕГО месяца после включения (гейт activatedAt+1).
+  // Зеркалит recalc: текущий месяц входит в зону, если у клиента в нём УЖЕ есть
+  // живой тип-1-абонемент (monthHasType1) — тогда создаваемый попадёт в живой
+  // инвариант «за второй абонемент» (случай per-client свитча на «авто» в месяц
+  // включения тумблера). Прошедшие месяцы не трогаем в любом случае.
+  const monthHasType1 = existing.some(
+    (s) => (s.status === "pending" || s.status === "active") && s.discountSource === "type1",
+  )
+  if ((targetMonth < t1MinMonth && !monthHasType1) || targetMonth < currentMonth) {
+    return noDiscount(lessonPrice, totalLessons)
+  }
 
   const closedIds = existing.filter((s) => s.status === "closed").map((s) => s.id)
   const attendedClosed = new Set<string>()

@@ -244,6 +244,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         tenantId: session.user.tenantId,
         clientId: id,
         createdBy: session.user.employeeId ?? null,
+        // Осознанный per-client свитч скидки: тип 1 «за второй абонемент»
+        // подхватывается и в текущем месяце (минуя гейт activatedAt+1). Флаг
+        // бьёт только при переходе на «авто» (template=null, скидки не запрещены):
+        // ветки типа 2 и «без скидки» выходят раньше месячного цикла — там он
+        // безвреден. Иначе снятие старой скидки вешало бы долг на оплаченный
+        // абонемент без подстановки тип 1 (баг Бабюк/Волковой, Dream 21.07.2026).
+        type1CoversCurrentMonth: true,
       })
     }
 
