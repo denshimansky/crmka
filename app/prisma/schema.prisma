@@ -1348,6 +1348,79 @@ model LoginAttempt {
   @@map("login_attempts")
 }
 
+// === БАЗА ЗНАНИЙ ===
+// Общая продуктовая справка по CRMka. Контент ЕДИНЫЙ для всех организаций —
+// поэтому БЕЗ tenantId и БЕЗ RLS (в отличие от остальных таблиц). Редактирует
+// команда через бэк-офис /admin, читают все пользователи всех организаций.
+
+model KbSection {
+  id          String    @id @default(uuid()) @db.Uuid
+  parentId    String?   @map("parent_id") @db.Uuid // NULL = раздел верхнего уровня; иначе подраздел
+  title       String
+  slug        String
+  icon        String? // имя lucide-иконки (как Direction.icon)
+  sortOrder   Int       @default(0) @map("sort_order")
+  isPublished Boolean   @default(true) @map("is_published")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  parent   KbSection?  @relation("KbSectionTree", fields: [parentId], references: [id])
+  children KbSection[] @relation("KbSectionTree")
+  articles KbArticle[]
+
+  @@index([parentId])
+  @@map("kb_sections")
+}
+
+model KbArticle {
+  id          String    @id @default(uuid()) @db.Uuid
+  sectionId   String    @map("section_id") @db.Uuid
+  title       String
+  slug        String
+  sortOrder   Int       @default(0) @map("sort_order")
+  isPublished Boolean   @default(true) @map("is_published")
+  createdBy   String?   @map("created_by") @db.Uuid // adminId редактора, без FK
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  section KbSection @relation(fields: [sectionId], references: [id])
+  blocks  KbBlock[]
+
+  @@index([sectionId])
+  @@map("kb_articles")
+}
+
+model KbBlock {
+  id        String      @id @default(uuid()) @db.Uuid
+  articleId String      @map("article_id") @db.Uuid
+  type      KbBlockType
+  text      String? // heading: текст заголовка; text: абзац (лёгкий inline-markdown)
+  level     Int? // heading: 2 | 3
+  mediaUrl  String?     @map("media_url") // image: путь загруженного файла; video: RuTube id/url
+  caption   String? // подпись к фото/видео
+  sortOrder Int         @default(0) @map("sort_order")
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  article KbArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([articleId])
+  @@map("kb_blocks")
+}
+
+model KbAsset {
+  id        String   @id @default(uuid()) @db.Uuid
+  filename  String // <uuid>.<ext> на диске
+  mimeType  String   @map("mime_type")
+  size      Int
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("kb_assets")
+}
+
 // === ENUMS ===
 
 enum Role {
@@ -1677,6 +1750,13 @@ enum AdminRole {
   support
   development
   billing
+}
+
+enum KbBlockType {
+  heading
+  text
+  image
+  video
 }
 
 enum BillingStatus {

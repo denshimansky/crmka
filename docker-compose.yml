@@ -9,6 +9,13 @@ services:
       network: host
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Каталог загрузок базы знаний внутри контейнера (см. том kb-uploads ниже).
+      KB_UPLOAD_DIR: /app/uploads
+    volumes:
+      # Фото статей базы знаний. Именованный том переживает пересборку контейнера
+      # (в отличие от файлов внутри образа при output: standalone).
+      - kb-uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -59,6 +66,7 @@ volumes:
   pgdata:
   certbot-conf:
   certbot-www:
+  kb-uploads:
 
 networks:
   internal:

@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
-  BarChart3, Building2, CreditCard, FileText, LayoutDashboard, LogOut, Receipt, Shield, ShieldAlert,
+  BarChart3, BookOpen, Building2, CreditCard, FileText, LayoutDashboard, LogOut, Receipt, Shield, ShieldAlert,
 } from "lucide-react"
 
 interface AdminUser {
@@ -20,6 +20,7 @@ const navItems = [
   { title: "Тарифы", href: "/admin/plans", icon: CreditCard },
   { title: "Счета", href: "/admin/invoices", icon: Receipt },
   { title: "Аналитика", href: "/admin/analytics", icon: BarChart3 },
+  { title: "База знаний", href: "/admin/knowledge", icon: BookOpen },
   { title: "Лог входов", href: "/admin/login-attempts", icon: ShieldAlert },
 ]
 

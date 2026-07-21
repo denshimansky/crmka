@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Filter, Phone, Calendar, CreditCard, Receipt,
   ArrowDownUp, AlertTriangle, Wallet, Package, ClipboardList, BarChart3,
   Settings, Sparkles, LogOut,
-  Baby, Ticket, ClipboardCheck, Banknote, HelpCircle,
+  Baby, Ticket, ClipboardCheck, Banknote, HelpCircle, BookOpen,
 } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import {
@@ -61,6 +61,7 @@ const otherItems: NavItem[] = [
   { title: "Отчёты", href: "/reports", icon: BarChart3, permission: "reports.view" },
   { title: "Настройки", href: "/settings", icon: Settings, permission: "settings.view" },
   { title: "Справка", href: "/help", icon: HelpCircle },
+  { title: "База знаний", href: "/knowledge", icon: BookOpen },
 ]
 
 function getInitials(name: string | null | undefined): string {

@@ -19,7 +19,7 @@ function unesc(s: string): string {
 }
 
 /** Инлайн-форматирование внутри одной строки. */
-function renderInline(raw: string, kp: string): React.ReactNode[] {
+export function renderInline(raw: string, kp: string): React.ReactNode[] {
   const text = raw.replace(/\\\*/g, ESC)
   const nodes: React.ReactNode[] = []
   const re = /\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*/g

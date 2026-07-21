@@ -67,6 +67,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   // Прочее
   staff: "Сотрудники",
   tasks: "Задачи",
+  knowledge: "База знаний",
   stock: "Склад",
   settings: "Настройки",
   "discount-templates": "Шаблоны скидок",
