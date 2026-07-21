@@ -47,6 +47,6 @@ test.describe("Модуль 9: Дашборд", () => {
     // Назад и клик на должников
     await page.goto("/")
     await page.locator("a[href='/finance/debtors']:not([data-sidebar])").click()
-    await expect(page.locator("h1")).toContainText("Должники", { timeout: 5000 })
+    await expect(page.locator("h1")).toContainText("Долг/Баланс", { timeout: 5000 })
   })
 })

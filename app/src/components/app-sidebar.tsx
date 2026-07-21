@@ -47,7 +47,7 @@ const financeItems: NavItem[] = [
   { title: "Оплаты", href: "/finance/payments", icon: CreditCard, permission: "finance.view" },
   { title: "Расходы", href: "/finance/expenses", icon: Receipt, permission: "finance.view" },
   { title: "ДДС", href: "/finance/dds", icon: ArrowDownUp, permission: "finance.result" },
-  { title: "Должники", href: "/finance/debtors", icon: AlertTriangle, permission: "finance.view" },
+  { title: "Долг/Баланс", href: "/finance/debtors", icon: AlertTriangle, permission: "finance.view" },
 ]
 
 // «Плановые расходы», «Интеграции» и «Подписка» перенесены в Настройки →

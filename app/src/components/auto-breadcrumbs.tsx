@@ -34,7 +34,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   "planned-expenses": "Плановые расходы",
   cash: "Касса",
   dds: "ДДС",
-  debtors: "Должники",
+  debtors: "Долг/Баланс",
 
   // Расписание
   schedule: "Расписание",

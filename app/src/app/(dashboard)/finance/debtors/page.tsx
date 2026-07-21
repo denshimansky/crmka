@@ -5,7 +5,7 @@ import { scopeClientByBranch } from "@/lib/client-segments"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AlertTriangle, Users } from "lucide-react"
+import { AlertTriangle, Users, Wallet } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { PageHelp } from "@/components/page-help"
@@ -22,7 +22,7 @@ function formatDate(date: Date | null): string {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
-type TabKey = "planned" | "actual"
+type TabKey = "planned" | "actual" | "balance"
 
 export default async function DebtorsPage({
   searchParams,
@@ -37,7 +37,8 @@ export default async function DebtorsPage({
   const canEdit = session.user.role !== "readonly"
 
   const sp = await searchParams
-  const tab: TabKey = sp.tab === "actual" ? "actual" : "planned"
+  const tab: TabKey =
+    sp.tab === "actual" ? "actual" : sp.tab === "balance" ? "balance" : "planned"
 
   // Подтягиваем клиентов, у которых ЕСТЬ потенциальный долг (любого типа):
   //   - есть не-отчисленный абонемент с остатком к оплате (balance>0) — кандидат
@@ -47,7 +48,8 @@ export default async function DebtorsPage({
   // Дальше отфильтруем уже в JS по выбранному tab'у.
   // Кандидаты и clientScope оба строятся на OR — объединяем через AND, иначе
   // spread перезаписал бы ключ OR и фильтр кандидатов долга терялся бы.
-  const candidates = await db.client.findMany({
+  // На вкладке «Баланс» долговые кандидаты не нужны — грузим отдельно ниже.
+  const candidates = tab === "balance" ? [] : await db.client.findMany({
     where: {
       tenantId,
       deletedAt: null,
@@ -277,42 +279,132 @@ export default async function DebtorsPage({
   const totalDebt = rows.reduce((s, r) => s + r.debt, 0)
   const overdueCount = rows.filter((r) => r.isOverdue).length
 
+  // ─── Вкладка «Баланс»: клиенты с положительным clientBalance (деньги родителя:
+  // предоплата/переплата, доступны к списанию за занятия и разовые посещения). ───
+  const balanceClients =
+    tab === "balance"
+      ? await db.client.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            AND: [
+              { clientBalance: { gt: 0 } },
+              ...(Object.keys(clientScope).length > 0 ? [clientScope] : []),
+            ],
+          },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            clientBalance: true,
+            phone: true,
+            comment: true,
+            branch: { select: { name: true } },
+            wards: {
+              select: { id: true, firstName: true, lastName: true },
+            },
+            subscriptions: {
+              where: { deletedAt: null, status: { not: "withdrawn" } },
+              select: { group: { select: { branch: { select: { name: true } } } } },
+            },
+          },
+        })
+      : []
+
+  type BalanceRow = {
+    id: string
+    name: string
+    wards: { id: string; name: string }[]
+    branchName: string
+    balance: number
+    phone: string | null
+    comment: string | null
+  }
+
+  const balanceRows: BalanceRow[] = balanceClients.map((c) => {
+    // Филиал — из групп абонементов (у клиента branchId часто пуст), фоллбэк — филиал клиента.
+    const branchSet = new Set<string>()
+    for (const s of c.subscriptions) {
+      if (s.group?.branch?.name) branchSet.add(s.group.branch.name)
+    }
+    return {
+      id: c.id,
+      name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
+      wards: c.wards.map((w) => ({
+        id: w.id,
+        name: [w.lastName, w.firstName].filter(Boolean).join(" ") || "—",
+      })),
+      branchName: branchSet.size > 0 ? Array.from(branchSet).join(", ") : c.branch?.name || "—",
+      balance: Number(c.clientBalance),
+      phone: c.phone,
+      comment: c.comment,
+    }
+  })
+  balanceRows.sort((a, b) => b.balance - a.balance)
+  const totalBalance = balanceRows.reduce((s, r) => s + r.balance, 0)
+
   const tabs: { key: TabKey; label: string; href: string }[] = [
     { key: "planned", label: "Плановый долг", href: "/finance/debtors" },
     { key: "actual", label: "Фактический долг", href: "/finance/debtors?tab=actual" },
+    { key: "balance", label: "Баланс", href: "/finance/debtors?tab=balance" },
   ]
 
   const tabDescription =
     tab === "planned"
       ? "Сколько клиенты должны доплатить по выписанным абонементам (finalAmount − оплачено) + неоплаченные разовые посещения."
-      : "Сколько клиент реально должен сейчас: отработано сверх оплаченного по абонементам + неоплаченные разовые посещения + перенесённый долг (импорт / закрытия с долгом)."
+      : tab === "actual"
+        ? "Сколько клиент реально должен сейчас: отработано сверх оплаченного по абонементам + неоплаченные разовые посещения + перенесённый долг (импорт / закрытия с долгом)."
+        : "Клиенты с положительным балансом — деньги родителя (предоплата/переплата), доступные к списанию за занятия и разовые посещения."
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2 gap-y-2">
-        <h1 className="text-2xl font-bold">Должники</h1>
+        <h1 className="text-2xl font-bold">Долг/Баланс</h1>
         <PageHelp pageKey="finance/debtors" />
-        <ReportExport
-          title={tab === "planned" ? "Должники (плановый долг)" : "Должники (фактический долг)"}
-          filename={tab === "planned" ? "debtors-planned" : "debtors-actual"}
-          columns={[
-            { header: "Клиент", key: "name", width: 25 },
-            { header: "Ребёнок", key: "children", width: 25 },
-            { header: "Филиал", key: "branchName", width: 18 },
-            { header: "Направление", key: "directions", width: 25 },
-            { header: "Долг", key: "debt", width: 14 },
-            { header: "Телефон", key: "phone", width: 18 },
-          ]}
-          rows={rows.map((r) => ({
-            name: r.name,
-            children:
-              Array.from(new Set(r.sources.map((s) => s.wardName).filter(Boolean))).join(", ") || "—",
-            branchName: r.branchName,
-            directions: r.directions,
-            debt: r.debt,
-            phone: r.phone || "—",
-          }))}
-        />
+        {tab === "balance" ? (
+          <ReportExport
+            title="Баланс клиентов"
+            filename="clients-balance"
+            columns={[
+              { header: "Клиент", key: "name", width: 25 },
+              { header: "Ребёнок", key: "children", width: 25 },
+              { header: "Филиал", key: "branchName", width: 18 },
+              { header: "Баланс", key: "balance", width: 14 },
+              { header: "Телефон", key: "phone", width: 18 },
+              { header: "Комментарий", key: "comment", width: 30 },
+            ]}
+            rows={balanceRows.map((r) => ({
+              name: r.name,
+              children: r.wards.map((w) => w.name).filter((n) => n !== "—").join(", ") || "—",
+              branchName: r.branchName,
+              balance: r.balance,
+              phone: r.phone || "—",
+              comment: r.comment || "—",
+            }))}
+          />
+        ) : (
+          <ReportExport
+            title={tab === "planned" ? "Должники (плановый долг)" : "Должники (фактический долг)"}
+            filename={tab === "planned" ? "debtors-planned" : "debtors-actual"}
+            columns={[
+              { header: "Клиент", key: "name", width: 25 },
+              { header: "Ребёнок", key: "children", width: 25 },
+              { header: "Филиал", key: "branchName", width: 18 },
+              { header: "Направление", key: "directions", width: 25 },
+              { header: "Долг", key: "debt", width: 14 },
+              { header: "Телефон", key: "phone", width: 18 },
+            ]}
+            rows={rows.map((r) => ({
+              name: r.name,
+              children:
+                Array.from(new Set(r.sources.map((s) => s.wardName).filter(Boolean))).join(", ") || "—",
+              branchName: r.branchName,
+              directions: r.directions,
+              debt: r.debt,
+              phone: r.phone || "—",
+            }))}
+          />
+        )}
       </div>
 
       <div className="border-b flex flex-wrap gap-1">
@@ -337,43 +429,136 @@ export default async function DebtorsPage({
       </div>
       <p className="text-sm text-muted-foreground -mt-2">{tabDescription}</p>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-red-50">
-              <AlertTriangle className="size-5 text-red-600" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Общий долг</p>
-              <p className="text-lg font-bold text-red-600">{formatMoney(totalDebt)}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-orange-50">
-              <Users className="size-5 text-orange-600" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Должников</p>
-              <p className="text-lg font-bold">{rows.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-red-50">
-              <AlertTriangle className="size-5 text-red-600" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Просрочено</p>
-              <p className="text-lg font-bold text-red-600">{overdueCount}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {tab === "balance" ? (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Card>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-green-50">
+                <Wallet className="size-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Общий баланс</p>
+                <p className="text-lg font-bold text-green-600">{formatMoney(totalBalance)}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-blue-50">
+                <Users className="size-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Клиентов с балансом</p>
+                <p className="text-lg font-bold">{balanceRows.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Card>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-red-50">
+                <AlertTriangle className="size-5 text-red-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Общий долг</p>
+                <p className="text-lg font-bold text-red-600">{formatMoney(totalDebt)}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-orange-50">
+                <Users className="size-5 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Должников</p>
+                <p className="text-lg font-bold">{rows.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-4 p-4">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-red-50">
+                <AlertTriangle className="size-5 text-red-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Просрочено</p>
+                <p className="text-lg font-bold text-red-600">{overdueCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-      {rows.length === 0 ? (
+      {tab === "balance" ? (
+        balanceRows.length === 0 ? (
+          <Card>
+            <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
+              Нет клиентов с балансом
+            </CardContent>
+          </Card>
+        ) : (
+          <StickyHScroll className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Клиент</TableHead>
+                  <TableHead>Ребёнок</TableHead>
+                  <TableHead>Филиал</TableHead>
+                  <TableHead className="text-right">Баланс</TableHead>
+                  <TableHead>Телефон</TableHead>
+                  <TableHead>Комментарий</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {balanceRows.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell>
+                      <Link href={`/crm/clients/${r.id}`} className="font-medium text-primary hover:underline">
+                        {r.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground align-top">
+                      {r.wards.length === 0 ? (
+                        "—"
+                      ) : (
+                        <div className="space-y-0.5">
+                          {r.wards.map((w) => (
+                            <div key={w.id} className="text-xs">
+                              <Link href={`/crm/wards/${w.id}`} className="text-primary hover:underline">
+                                {w.name}
+                              </Link>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{r.branchName}</TableCell>
+                    <TableCell className="text-right font-medium text-green-600 tabular-nums">
+                      {formatMoney(r.balance)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{r.phone || "—"}</TableCell>
+                    <TableCell>
+                      {canEdit ? (
+                        <EditableTextCell
+                          initialValue={r.comment}
+                          endpoint={{ url: `/api/clients/${r.id}`, field: "comment" }}
+                          rows={1}
+                          className="min-h-[32px] max-h-[50px] w-[200px] resize-none overflow-y-auto text-xs"
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">{r.comment || "—"}</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </StickyHScroll>
+        )
+      ) : rows.length === 0 ? (
         <Card>
           <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
             Нет должников

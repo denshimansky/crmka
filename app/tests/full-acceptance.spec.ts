@@ -289,7 +289,7 @@ test.describe("PART 2: Глубинное тестирование", () => {
       await loginOwner(page)
       await page.goto("/finance/debtors")
       await assertNoError(page)
-      await expect(page.locator("h1")).toContainText("Должники")
+      await expect(page.locator("h1")).toContainText("Долг/Баланс")
     })
   })
 

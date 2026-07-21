@@ -113,7 +113,7 @@ test.describe("Модуль 6: ДДС, Зарплата, Должники", () =
   // === ДОЛЖНИКИ ===
   test("7. Должники загружаются", async ({ page }) => {
     await page.goto("/finance/debtors")
-    await expect(page.locator("h1")).toContainText("Должники")
+    await expect(page.locator("h1")).toContainText("Долг/Баланс")
     await expect(page.locator("text=Общий долг")).toBeVisible()
     await expect(page.locator("p:has-text('Должников')")).toBeVisible()
     // Может быть таблица или "Нет должников"
@@ -145,7 +145,7 @@ test.describe("Модуль 6: ДДС, Зарплата, Должники", () =
     // Переходы работают
     const pages: [string, string][] = [
       ["/finance/dds", "ДДС"],
-      ["/finance/debtors", "Должники"],
+      ["/finance/debtors", "Долг/Баланс"],
       ["/salary", "Зарплата"],
     ]
 
