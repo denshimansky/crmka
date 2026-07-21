@@ -386,9 +386,9 @@ export async function ClientCardContent({
             <span>·</span>
             <span>{client.email || "—"}</span>
             <span>·</span>
-            {/* Скидка — информационно. Выбор перенесён в «Редактировать клиента». */}
-            <span className="inline-flex items-center gap-1" title="Скидка">
-              <Percent className="size-3 shrink-0" />
+            {/* Скидка — информационно (эффективная, не название настройки).
+                Выбор перенесён в «Редактировать клиента». */}
+            <span title="Скидка">
               {discountLabel({
                 autoDiscountDisabled: client.autoDiscountDisabled,
                 templateId: client.discountTemplateId,
