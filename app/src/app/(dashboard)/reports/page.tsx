@@ -5,6 +5,9 @@ import { Filter, TrendingDown, Calendar, CreditCard, Wallet } from "lucide-react
 import Link from "next/link"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { requiredPermissionForPath } from "@/lib/route-permissions"
+import { hasPermission, type RolePermissions } from "@/lib/permissions"
+import { getOrgUiSettings } from "@/lib/role-names"
 
 type ReportSource =
   | "clients"
@@ -88,7 +91,6 @@ const reportGroups: ReportGroup[] = [
       { name: "Посещения", href: "/reports/attendance/visits", description: "Явки, прогулы, перерасчёты по группам", source: "attendance" },
       { name: "Неотмеченные дети", href: "/reports/attendance/unmarked", description: "Занятия, где не проставлены посещения", source: "lessons" },
       { name: "Отсутствие учеников / потери выручки", href: "/reports/attendance/absence-losses", description: "Перерасчёты (потери) и прогулы со списанием по ученикам", source: "attendance" },
-      { name: "Сверка актива", href: "/reports/attendance/reconciliation", description: "Активные клиенты без оплаты и активации — «мёртвые души»", source: "clients" },
     ],
   },
   {
@@ -178,6 +180,31 @@ function ReportCard({ report, updatedAt }: { report: ReportItem; updatedAt: Date
 export default async function ReportsPage() {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const role = session.user.role
+
+  // Баг #77: показываем только те отчёты, к которым у роли есть доступ (по тем же
+  // правам, что гейтят маршруты). Пустые блоки скрываем. Owner видит всё.
+  const orgPerms =
+    role === "owner"
+      ? null
+      : (((await getOrgUiSettings(tenantId))?.rolePermissions as RolePermissions | null) ?? null)
+  const canAccess = (href: string) => {
+    const perm = requiredPermissionForPath(href)
+    return !perm || hasPermission(role, perm, orgPerms)
+  }
+  const visibleGroups: ReportGroup[] = reportGroups
+    .map((g) =>
+      g.columns
+        ? {
+            ...g,
+            columns: g.columns
+              .map((col) => col.filter((r) => canAccess(r.href)))
+              .filter((col) => col.length > 0),
+            reports: undefined,
+          }
+        : { ...g, reports: (g.reports ?? []).filter((r) => canAccess(r.href)), columns: undefined },
+    )
+    .filter((g) => (g.columns ? g.columns.length > 0 : (g.reports ?? []).length > 0))
 
   const [
     clientsAgg,
@@ -207,7 +234,7 @@ export default async function ReportsPage() {
     enrollments: enrollAgg._max.updatedAt,
   }
 
-  const totalCount = reportGroups.flatMap(groupReports).length
+  const totalCount = visibleGroups.flatMap(groupReports).length
 
   return (
     <div className="space-y-6">
@@ -222,7 +249,7 @@ export default async function ReportsPage() {
       </div>
 
       <div className="space-y-6">
-        {reportGroups.map((group) => (
+        {visibleGroups.map((group) => (
           <Card key={group.title}>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">

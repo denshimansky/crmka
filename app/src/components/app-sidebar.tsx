@@ -20,14 +20,15 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { Role } from "@prisma/client"
-import type { PermissionKey } from "@/lib/permissions"
+import { REPORT_PERMISSION_KEYS, type PermissionKey } from "@/lib/permissions"
 import { useRoleNames } from "@/components/role-names-provider"
 
 interface NavItem {
   title: string
   href: string
   icon: typeof LayoutDashboard
-  permission?: PermissionKey
+  // Массив — показывать пункт, если есть ХОТЯ БЫ ОДНО из прав (напр. «Отчёты»).
+  permission?: PermissionKey | readonly PermissionKey[]
 }
 
 const navItems: NavItem[] = [
@@ -58,7 +59,7 @@ const otherItems: NavItem[] = [
   { title: "Зарплата", href: "/salary", icon: Wallet, permission: "finance.salary" },
   { title: "Склад", href: "/stock", icon: Package, permission: "schedule.view" },
   { title: "Задачи", href: "/tasks", icon: ClipboardList, permission: "clients.view" },
-  { title: "Отчёты", href: "/reports", icon: BarChart3, permission: "reports.view" },
+  { title: "Отчёты", href: "/reports", icon: BarChart3, permission: REPORT_PERMISSION_KEYS },
   { title: "Настройки", href: "/settings", icon: Settings, permission: "settings.view" },
   { title: "Справка", href: "/help", icon: HelpCircle },
   { title: "База знаний", href: "/knowledge", icon: BookOpen },
@@ -106,7 +107,12 @@ export function AppSidebar({
   }
 
   const filterByPerm = (items: NavItem[]) =>
-    items.filter((i) => !i.permission || permissions[i.permission])
+    items.filter((i) => {
+      if (!i.permission) return true
+      const perms: readonly PermissionKey[] =
+        typeof i.permission === "string" ? [i.permission] : i.permission
+      return perms.some((p) => permissions[p])
+    })
 
   // Инструктору «Дашборд» не показываем — у него главная без виджетов.
   const visibleNavItems = filterByPerm(navItems).filter(

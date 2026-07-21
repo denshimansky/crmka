@@ -33,7 +33,6 @@ const CRM_REPORTS = [
   "student-settlements",
   "discount-audit",
   "linked-discounts",
-  "reconciliation",
   "lesson-adjustments-audit",
 ] as const
 

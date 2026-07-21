@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { getSession } from "@/lib/session"
 import { getOrgUiSettings, getRoleNames } from "@/lib/role-names"
 import { RoleNamesProvider } from "@/components/role-names-provider"
-import { hasPermission, PERMISSIONS, type PermissionKey, type RolePermissions } from "@/lib/permissions"
+import { hasPermission, PERMISSIONS, REPORT_PERMISSION_KEYS, type PermissionKey, type RolePermissions } from "@/lib/permissions"
 import { requiredPermissionForPath } from "@/lib/route-permissions"
 import { AccessDenied } from "@/components/access-denied"
 
@@ -46,6 +46,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     // Биллинг: hardcoded — только owner/manager
     if (pathname === "/billing" || pathname.startsWith("/billing/")) {
       if (!BILLING_ONLY_ROLES.has(role)) denied = true
+    } else if (pathname === "/reports") {
+      // Индекс отчётов (баг #77): доступен при любом праве на блок отчётов;
+      // сама страница фильтрует карточки по правам.
+      if (!REPORT_PERMISSION_KEYS.some((k) => effectivePermissions[k])) denied = true
     } else {
       const required = requiredPermissionForPath(pathname)
       if (required && !effectivePermissions[required]) {

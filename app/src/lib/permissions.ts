@@ -36,8 +36,12 @@ export const PERMISSIONS = [
   { key: "subscriptions.view", label: "Просмотр абонементов", group: "Абонементы" },
   { key: "subscriptions.edit", label: "Создание и редактирование абонементов", group: "Абонементы" },
 
-  // Отчёты
-  { key: "reports.view", label: "Просмотр отчётов", group: "Отчёты" },
+  // Отчёты — по блокам (баг #77): каждый блок открывается/скрывается отдельно.
+  { key: "reports.marketing", label: "Маркетинг и продажи", group: "Отчёты" },
+  { key: "reports.retention", label: "Отток и удержание", group: "Отчёты" },
+  { key: "reports.schedule", label: "Расписание и посещения", group: "Отчёты" },
+  { key: "reports.finance", label: "Финансы", group: "Отчёты" },
+  { key: "reports.salary", label: "Зарплата и педагоги", group: "Отчёты" },
 
   // Персонал
   { key: "staff.view", label: "Просмотр сотрудников", group: "Персонал" },
@@ -49,6 +53,16 @@ export const PERMISSIONS = [
 ] as const
 
 export type PermissionKey = (typeof PERMISSIONS)[number]["key"]
+
+/** Права на блоки отчётов (баг #77). Индекс /reports и пункт сайдбара «Отчёты»
+ *  доступны, если у роли есть ХОТЯ БЫ ОДНО из них. */
+export const REPORT_PERMISSION_KEYS = [
+  "reports.marketing",
+  "reports.retention",
+  "reports.schedule",
+  "reports.finance",
+  "reports.salary",
+] as const satisfies readonly PermissionKey[]
 
 // ─── Дефолтные права по ролям ───
 
@@ -90,7 +104,7 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
     "finance.refund": false,
     "subscriptions.view": true,
     "subscriptions.edit": true,
-    "reports.view": false,
+    // Отчёты по умолчанию скрыты у админа (все 5 блоков — через ALL_FALSE).
     "staff.view": true,
     "staff.edit": false,
     "settings.view": true,
@@ -111,13 +125,30 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
     "finance.view": true,
     "finance.result": true,
     "subscriptions.view": true,
-    "reports.view": true,
+    // Отчёты: как раньше при reports.view=true + finance.result=true, но без
+    // зарплатных отчётов (finance.salary у readonly был выключен).
+    "reports.marketing": true,
+    "reports.retention": true,
+    "reports.schedule": true,
+    "reports.finance": true,
     "staff.view": true,
     "settings.view": true,
   },
 }
 
 // ─── Хелпер проверки прав ───
+
+// Обратная совместимость (баг #77): раздельные права на блоки отчётов заменили
+// единый reports.view (а финансовые/зарплатные отчёты гейтились finance.result/
+// finance.salary). Пока владелец не пересохранил матрицу, новые ключи наследуют
+// значение старого — доступ сохраняется точь-в-точь, миграция БД не нужна.
+const LEGACY_REPORT_FALLBACK: Partial<Record<PermissionKey, string>> = {
+  "reports.marketing": "reports.view",
+  "reports.retention": "reports.view",
+  "reports.schedule": "reports.view",
+  "reports.finance": "finance.result",
+  "reports.salary": "finance.salary",
+}
 
 /**
  * Проверяет, имеет ли роль указанное разрешение.
@@ -134,8 +165,13 @@ export function hasPermission(
   if (role === "owner") return true
 
   // Если у организации настроены права — используем их
-  if (orgPermissions && orgPermissions[role]) {
-    return orgPermissions[role][permission] ?? DEFAULT_PERMISSIONS[role]?.[permission] ?? false
+  const custom = orgPermissions?.[role] as Record<string, boolean> | undefined
+  if (custom) {
+    if (typeof custom[permission] === "boolean") return custom[permission]
+    // Новый report-ключ ещё не сохранён — наследуем старый (см. выше).
+    const legacy = LEGACY_REPORT_FALLBACK[permission]
+    if (legacy && typeof custom[legacy] === "boolean") return custom[legacy]
+    return DEFAULT_PERMISSIONS[role]?.[permission] ?? false
   }
 
   // Иначе — дефолты

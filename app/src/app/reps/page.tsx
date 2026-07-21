@@ -354,18 +354,6 @@ const modules: Module[] = [
         formula: "Кол-во перерасчётов = COUNT(Attendance WHERE chargeAmount = 0 AND type = recalc). Сумма перерасчётов = SUM(lessonPrice) этих посещений. Кол-во прогулов = COUNT(WHERE type = absence AND chargeAmount > 0). Сумма прогулов = SUM(chargeAmount)",
         status: "ok",
       },
-      {
-        id: "ATT-14",
-        name: "Сверка актива",
-        data: [
-          { what: "Клиент: статус «в активе»", from: "Авто (funnelStatus = active_client)" },
-          { what: "Оплата за текущий месяц", from: "Диалог «Принять оплату»" },
-          { what: "Посещения со списанием (абонемент активирован)", from: "Отметка явок в attendance-table" },
-          { what: "Дата последнего посещения, дней без посещений", from: "Авто (MAX(date) по Attendance со статусом «явка»)" },
-        ],
-        formula: "Расхождение = (Client.status = active) AND (НЕТ Payment за текущий месяц для абонемента) AND (НЕТ Attendance с chargeAmount > 0 за месяц). Дней без посещений = TODAY − MAX(Attendance.date WHERE status = present)",
-        status: "ok",
-      },
     ],
   },
   {

@@ -24,10 +24,19 @@ const PATH_PERMISSIONS: Array<{ prefix: string; permission: PermissionKey }> = [
   { prefix: "/finance/dds", permission: "finance.result" },
   { prefix: "/finance", permission: "finance.view" },
 
-  // Отчёты
-  { prefix: "/reports/finance", permission: "finance.result" },
-  { prefix: "/reports/salary", permission: "finance.salary" },
-  { prefix: "/reports", permission: "reports.view" },
+  // Отчёты — по блокам (баг #77). Longest-prefix match: два churn-отчёта живут
+  // под /reports/crm, поэтому их специфичные префиксы перекрывают общий /reports/crm.
+  { prefix: "/reports/crm/subscriptions-by-instructor", permission: "reports.retention" },
+  { prefix: "/reports/crm/trial-conversion", permission: "reports.retention" },
+  { prefix: "/reports/crm", permission: "reports.marketing" },
+  { prefix: "/reports/churn", permission: "reports.retention" },
+  { prefix: "/reports/schedule", permission: "reports.schedule" },
+  { prefix: "/reports/attendance", permission: "reports.schedule" },
+  { prefix: "/reports/finance", permission: "reports.finance" },
+  { prefix: "/reports/salary", permission: "reports.salary" },
+  // Индекс /reports (точное совпадение) обрабатывается в layout — доступен при
+  // ЛЮБОМ из report-прав. Этот фоллбэк ловит только будущие подмаршруты /reports/*.
+  { prefix: "/reports", permission: "reports.marketing" },
 
   // Персонал
   { prefix: "/staff", permission: "staff.view" },
