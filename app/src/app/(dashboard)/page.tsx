@@ -678,11 +678,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <TableHeader>
               <TableRow>
                 <TableHead>Филиал</TableHead>
-                <TableHead className="text-right">Сумма абонементов</TableHead>
-                <TableHead className="text-right">Ожидаемые поступления</TableHead>
+                <TableHead className="text-right whitespace-normal">Сумма<br />абонементов</TableHead>
+                <TableHead className="text-right whitespace-normal">Ожидаемые<br />поступления</TableHead>
                 <TableHead className="text-right">Оплачено</TableHead>
                 <TableHead className="text-right">% долга</TableHead>
-                <TableHead className="text-right">Сумма скидок</TableHead>
+                <TableHead className="text-right whitespace-normal">Сумма<br />скидок</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
