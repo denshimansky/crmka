@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select"
 import { Pencil } from "lucide-react"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
-import { NO_AUTO, shortTitle, discountLabel, type DiscountTemplateLite } from "../../_components/discount-label"
+import { NO_AUTO, shortTitle, type DiscountTemplateLite } from "../../_components/discount-label"
 
 interface BranchOption {
   id: string
@@ -203,18 +203,22 @@ export function EditClientDialog({ client }: { client: ClientData }) {
     ? [selectedAssignee.lastName, selectedAssignee.firstName].filter(Boolean).join(" ") || "Без имени"
     : "Не назначен"
 
-  // Подпись триггера скидки: загруженный шаблон в приоритете (отражает текущий
-  // выбор), иначе — общий словарь (индикатор тип 1 / исходный шаблон / «Без скидки»).
+  // Подпись триггера отражает выбранную НАСТРОЙКУ (не эффективную скидку):
+  // индикатор действующей автоскидки «за второй абонемент» живёт в шапке карточки.
   const selectedTpl = discountTemplates.find((t) => t.id === discountValue)
-  const discountTriggerLabel = selectedTpl
-    ? shortTitle(selectedTpl)
-    : discountLabel({
-        autoDiscountDisabled: discountValue === NO_AUTO,
-        templateId:
-          discountValue === "none" || discountValue === NO_AUTO ? null : discountValue,
-        template: client.discountTemplate,
-        hasType1Discount: client.hasType1Discount,
-      })
+  let discountTriggerLabel: string
+  if (discountValue === NO_AUTO) {
+    discountTriggerLabel = "Отключить все скидки"
+  } else if (selectedTpl) {
+    discountTriggerLabel = shortTitle(selectedTpl)
+  } else if (discountValue !== "none" && client.discountTemplate) {
+    // Выбран шаблон, ещё не подгруженный в список (или деактивированный).
+    discountTriggerLabel = shortTitle(client.discountTemplate)
+  } else if (discountValue !== "none") {
+    discountTriggerLabel = "…"
+  } else {
+    discountTriggerLabel = "Применять автоматические скидки"
+  }
 
   return (
     <Dialog
@@ -320,10 +324,8 @@ export function EditClientDialog({ client }: { client: ClientData }) {
                 {discountTriggerLabel}
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">
-                  {client.hasType1Discount ? "Без скидки (действует автоскидка)" : "Без скидки"}
-                </SelectItem>
-                <SelectItem value={NO_AUTO}>Без скидки (вручную — запрет автоскидок)</SelectItem>
+                <SelectItem value="none">Применять автоматические скидки</SelectItem>
+                <SelectItem value={NO_AUTO}>Отключить все скидки</SelectItem>
                 {discountTemplates.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
                     {shortTitle(t)}

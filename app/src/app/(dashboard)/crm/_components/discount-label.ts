@@ -33,9 +33,11 @@ export function discountLabel(input: {
   template?: DiscountTemplateLite | null
   hasType1Discount?: boolean
 }): string {
-  if (input.autoDiscountDisabled) return "Без скидки (вручную)"
+  if (input.autoDiscountDisabled) return "Отключить все скидки"
   if (input.templateId && input.template) return shortTitle(input.template)
   if (input.templateId) return "…" // шаблон выбран, но не передан серверу (редко)
   if (input.hasType1Discount) return "Скидка за второй абонемент (авто)"
-  return "Без скидки"
+  // «Нет ручного шаблона» — но автоскидки (тип 1 «за второй абонемент»)
+  // разрешены и могут примениться. «Без скидки» вводило бы в заблуждение.
+  return "Применять автоматические скидки"
 }
