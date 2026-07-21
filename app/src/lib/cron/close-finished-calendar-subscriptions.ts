@@ -1,6 +1,6 @@
 import { db } from "@/lib/db"
 import { NON_CONSUMING_CODES } from "@/lib/subscriptions/consumed-lessons"
-import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
+import { closeSubscription } from "@/lib/subscriptions/close-subscription"
 
 /**
  * Авто-закрытие отработанных календарных абонементов.
@@ -21,18 +21,22 @@ import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deact
  * вручную через кнопку «Закрыть». Это сознательное решение (вариант A),
  * чтобы не плодить ложные срабатывания.
  *
- * При закрытии:
- *   - status='closed', endDate = последний день периода абонемента.
- *   - GroupEnrollment: если у ребёнка не осталось другого живого
- *     (pending/active) абонемента в этой группе — зачисление деактивируется
- *     (deactivateGroupEnrollmentOnWithdrawal): не продлённый ребёнок не висит
- *     в будущем расписании. Продолжающего (следующий месяц уже выписан) guard
- *     хелпера не тронет. Поздняя выписка ПОСЛЕ закрытия тоже работает: её
- *     источники включают закрытые за прошлый месяц (bulk-renew.ts), а создание
- *     абонемента реактивирует зачисление (ensure-enrollment.ts).
- *   - Балансы и шаблонные скидки НЕ пересчитываем — балaнс уже 0, скидки
- *     за 2 ребёнка/направление чувствительны к статусу абонемента и могут
- *     поломаться (см. /api/cron/check-inactive-clients).
+ * Закрытие каждого абонемента идёт через общий хелпер closeSubscription (тот же,
+ * что и ручной PATCH status=closed):
+ *   - денежная сверка (net-оплачено − списано − прошлые возвраты): переплата за
+ *     прощённые занятия (Уваж. пропуск/Перерасчёт) возвращается на баланс
+ *     родителя, даже если reprice при отметке этого не сделал (отметки до
+ *     код-фикса 07.07.2026, legacy, импорт). Раньше крон делал bare updateMany
+ *     без сверки и молча «съедал» переплату — баг карточки Лескиной;
+ *   - строка в историю клиента о закрытии и денежном итоге;
+ *   - status='closed', endDate = последний день периода абонемента;
+ *   - GroupEnrollment: если у ребёнка не осталось другого живого (pending/active)
+ *     абонемента в этой группе — зачисление деактивируется. Продолжающего
+ *     (следующий месяц уже выписан) guard хелпера не тронет. Поздняя выписка
+ *     ПОСЛЕ закрытия тоже работает: источники включают закрытые за прошлый месяц
+ *     (bulk-renew.ts), создание абонемента реактивирует зачисление.
+ *   - Шаблонные скидки отдельно НЕ пересчитываем — они чувствительны к статусу
+ *     абонемента и могут поломаться (см. /api/cron/check-inactive-clients).
  *
  * Лог: console.info по каждому закрытому абонементу для server-side audit.
  */
@@ -107,80 +111,36 @@ export async function closeFinishedCalendarSubscriptions(now: Date = new Date())
     return { closed: 0, skipped: candidates.length, enrollmentsDeactivated: 0 }
   }
 
-  // Группируем по (year, month), чтобы за один updateMany закрыть все
-  // абонементы одного периода с правильным endDate.
-  type PeriodKey = string // "YYYY-MM"
-  const byPeriod = new Map<PeriodKey, { year: number; month: number; ids: string[] }>()
-  for (const s of toClose) {
-    if (s.periodYear == null || s.periodMonth == null) continue
-    const key: PeriodKey = `${s.periodYear}-${s.periodMonth}`
-    const bucket = byPeriod.get(key) ?? { year: s.periodYear, month: s.periodMonth, ids: [] }
-    bucket.ids.push(s.id)
-    byPeriod.set(key, bucket)
-  }
-
+  // Закрываем каждый абонемент через общий хелпер closeSubscription: денежная
+  // сверка (возврат переплаты за прощённые занятия) + строка в историю клиента +
+  // status/endDate + деактивация зачисления. Каждый — в своей мини-транзакции
+  // (сверка + запись истории + чистка висящих отметок атомарны). endDate хелпер
+  // считает сам из периода (группировки по периодам для updateMany больше нет —
+  // сверка требует пер-абонементной обработки, а закрытие раз в месяц на
+  // абонемент дёшево даже на тысячах). Строки без periodYear/periodMonth
+  // фильтруем: у календарного они заполнены (см. toClose).
   let closedCount = 0
-  for (const { year, month, ids } of byPeriod.values()) {
-    // Последний день месяца в UTC: day=0 следующего месяца.
-    const endDate = new Date(Date.UTC(year, month, 0))
-    const res = await db.subscription.updateMany({
-      where: { id: { in: ids } },
-      data: { status: "closed", endDate },
-    })
-    closedCount += res.count
-
-    for (const id of ids) {
-      const sub = toClose.find((c) => c.id === id)
-      console.info(
-        `[cron:close-finished-calendar] closed subscription ${id}`,
-        {
-          tenantId: sub?.tenantId,
-          clientId: sub?.clientId,
-          wardId: sub?.wardId,
-          period: `${month}/${year}`,
-          totalLessons: sub?.totalLessons,
-          endDate: endDate.toISOString().slice(0, 10),
-        },
-      )
-    }
-  }
-
-  // Не продлённый ребёнок не должен висеть в будущем расписании: деактивируем
-  // зачисление, если живых (pending/active) абонементов в группе не осталось —
-  // guard внутри хелпера. Каждый — в своей мини-транзакции (деактивация +
-  // чистка висящих пустых отметок атомарны). Только реально закрытые
-  // (byPeriod пропускает строки без periodYear/periodMonth).
-  //
-  // Граница состава — КОНЕЦ ПЕРИОДА + 1 (1-е число следующего месяца), а не
-  // «последнее платное занятие + 1» (semantics отчисления): месяц штатно
-  // отработан, ребёнок легитимно был в составе до конца периода. Иначе
-  // финальные «Уваж. пропуск»/«Перерасчёт» (расходуют занятие без списания —
-  // именно они делают месяц закрываемым) удалялись бы чисткой хвоста, а у
-  // абонемента со 100% скидкой (ни одной платной отметки) withdrawnAt падал
-  // бы в enrolledAt — ребёнок исчезал бы из состава ВСЕХ прошлых занятий.
   let enrollmentsDeactivated = 0
   for (const sub of toClose) {
     if (sub.periodYear == null || sub.periodMonth == null) continue
-    // periodMonth 1-based: monthIndex = periodMonth указывает на следующий
-    // месяц, день 1 = endDate периода + 1 день.
-    const periodEndNext = new Date(Date.UTC(sub.periodYear, sub.periodMonth, 1))
-    const n = await db.$transaction((tx) =>
-      deactivateGroupEnrollmentOnWithdrawal(tx, {
+    const res = await db.$transaction((tx) =>
+      closeSubscription(tx, { tenantId: sub.tenantId, subscriptionId: sub.id }),
+    )
+    if (!res.closed) continue
+    closedCount++
+    enrollmentsDeactivated += res.enrollmentsDeactivated
+    console.info(
+      `[cron:close-finished-calendar] closed subscription ${sub.id}`,
+      {
         tenantId: sub.tenantId,
-        groupId: sub.groupId,
         clientId: sub.clientId,
         wardId: sub.wardId,
-        excludeSubscriptionId: sub.id,
-        scheduledBoundary: periodEndNext,
-      }),
+        period: `${sub.periodMonth}/${sub.periodYear}`,
+        totalLessons: sub.totalLessons,
+        balanceDelta: res.balanceDelta,
+        enrollmentsDeactivated: res.enrollmentsDeactivated,
+      },
     )
-    if (n > 0) {
-      enrollmentsDeactivated += n
-      console.info(
-        `[cron:close-finished-calendar] deactivated enrollment (no live subscription left) for subscription ${sub.id}`,
-        { tenantId: sub.tenantId, clientId: sub.clientId, wardId: sub.wardId, groupId: sub.groupId },
-      )
-    }
   }
 
   return { closed: closedCount, skipped: candidates.length - closedCount, enrollmentsDeactivated }

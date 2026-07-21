@@ -18,6 +18,7 @@ import { prorateScheduledWithdrawal } from "@/lib/subscriptions/prorate-schedule
 import { getLastPaidLessonDate, nextDayUtc, validateWithdrawalDate, subscriptionPeriodEnd, type WithdrawalMode } from "@/lib/subscriptions/last-paid-lesson-date"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
+import { closeSubscription } from "@/lib/subscriptions/close-subscription"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -306,6 +307,77 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ ...result.subscription, _scheduledWithdrawal: true })
   }
 
+  // Штатное закрытие (closed): период истёк, занятия отработаны. Единый хелпер
+  // closeSubscription делает денежную сверку (возврат переплаты за прощённые
+  // «Уваж. пропуск»/«Перерасчёт»), пишет строку в историю клиента, ставит
+  // status/endDate и деактивирует зачисление — тот же путь, что и cron
+  // close-finished-calendar-subscriptions. Отдельный ранний путь: закрытие —
+  // терминальное действие, с прочими правками PATCH не сочетается (кнопки в UI
+  // нет, вызов программный).
+  if (data.status === "closed") {
+    const result = await db.$transaction(async (tx) => {
+      const existing = await tx.subscription.findFirst({
+        where: { id, tenantId: session.user.tenantId, deletedAt: null },
+        select: { id: true, clientId: true, status: true },
+      })
+      if (!existing) return { code: 404 as const }
+      if (existing.status === "closed" || existing.status === "withdrawn") {
+        return { code: 400 as const, error: "Абонемент уже закрыт или отчислен" }
+      }
+      const closeRes = await closeSubscription(tx, {
+        tenantId: session.user.tenantId,
+        subscriptionId: id,
+        employeeId: session.user.employeeId ?? null,
+      })
+      // Абонемент выпал из активных — состав месяца изменился, пересчёт скидок.
+      const discountRecalc = await recalcClientDiscounts(tx, {
+        tenantId: session.user.tenantId,
+        clientId: existing.clientId,
+        createdBy: session.user.employeeId ?? null,
+      })
+      const subscription = await tx.subscription.findFirst({
+        where: { id, tenantId: session.user.tenantId },
+        include: {
+          client: { select: { id: true, firstName: true, lastName: true } },
+          direction: { select: { id: true, name: true } },
+          group: { select: { id: true, name: true } },
+        },
+      })
+      return { subscription, discountRecalc, balanceDelta: closeRes.balanceDelta }
+    })
+    if ("code" in result) {
+      return NextResponse.json(
+        { error: result.code === 404 ? "Абонемент не найден" : result.error },
+        { status: result.code },
+      )
+    }
+    const response: any = { ...result.subscription }
+    const removed = result.discountRecalc.changes.filter((c) => c.action === "removed")
+    const refundedTotal = result.discountRecalc.changes.reduce(
+      (s, c) => s + c.refundedToBalance,
+      0,
+    )
+    if (removed.length > 0) {
+      response._templateDiscountWarning = {
+        message:
+          `Автоскидка снята с ${removed.length} абонемент(ов): состав абонементов месяца изменился.` +
+          (refundedTotal > 0
+            ? ` Возвращено на баланс родителя: ${refundedTotal.toLocaleString("ru-RU")} ₽.`
+            : ""),
+        affected: removed,
+      }
+    } else if (refundedTotal > 0) {
+      response._templateDiscountWarning = {
+        message: `Пересчёт скидок: возвращено на баланс родителя ${refundedTotal.toLocaleString("ru-RU")} ₽.`,
+        affected: result.discountRecalc.changes,
+      }
+    }
+    if (result.balanceDelta !== 0) {
+      response._balanceDelta = result.balanceDelta
+    }
+    return NextResponse.json(response)
+  }
+
   // Транзакция: findFirst + update атомарно (M-5 audit fix)
   const result = await db.$transaction(async (tx) => {
     const existing = await tx.subscription.findFirst({
@@ -421,83 +493,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     }
 
-    // «Закрыть» = closed → штатное завершение, период истёк, занятия отработаны
-    // (кнопки в UI больше нет — путь для программных вызовов; основное закрытие
-    // делает cron close-finished-calendar-subscriptions):
-    //   1) посчитать дельту (paidToSub − usedAmount): переплата → +balance клиента,
-    //      долг → −balance (клиент попадёт в должников),
-    //   2) деактивировать GroupEnrollment, если у ребёнка не осталось другого
-    //      живого (pending/active) абонемента в этой группе (guard хелпера) —
-    //      как в cron, с границей состава «конец периода + 1» (месяц штатно
-    //      отработан — ребёнок в составе до конца периода; НЕ семантика
-    //      отчисления «последнее платное + 1»); продлённого ребёнка это не
-    //      трогает, а поздняя выписка вернёт ребёнка в состав (источники
-    //      включают закрытые за прошлый месяц, создание абонемента
-    //      реактивирует зачисление с сохранением истории),
-    //   3) обнулить subscription.balance, проставить endDate = последний день периода.
-    if (data.status === "closed" && existing.status !== "closed" && existing.status !== "withdrawn") {
-      // Нетто-оплачено и вычет прошлых сверок — см. ветку withdrawn выше.
-      const paidToSub = await netPaidToSubscription(tx, session.user.tenantId, id)
-      const usedAgg = await tx.attendance.aggregate({
-        where: {
-          tenantId: session.user.tenantId,
-          subscriptionId: id,
-        },
-        _sum: { chargeAmount: true },
-      })
-      const usedAmount = new Prisma.Decimal(usedAgg._sum.chargeAmount ?? 0)
-      const priorAgg = await tx.clientBalanceTransaction.aggregate({
-        where: {
-          tenantId: session.user.tenantId,
-          subscriptionId: id,
-          type: "subscription_closed_refund",
-        },
-        _sum: { amount: true },
-      })
-      const delta = paidToSub
-        .minus(usedAmount)
-        .minus(new Prisma.Decimal(priorAgg._sum.amount ?? 0))
-      balanceDelta = delta.toNumber()
-
-      if (!delta.isZero()) {
-        await applyBalanceDelta(tx, {
-          tenantId: session.user.tenantId,
-          clientId: existing.clientId,
-          delta,
-          type: "subscription_closed_refund",
-          refs: { subscriptionId: id, directionId: existing.directionId },
-          comment: delta.isPositive()
-            ? `Закрытие: возврат на баланс ${delta.toFixed(2)} ₽`
-            : `Закрытие: долг ${delta.abs().toFixed(2)} ₽`,
-          createdBy: session.user.employeeId,
-        })
-      }
-      updateData.balance = 0
-      // endDate = последний день периода (для package — сегодня).
-      if (existing.periodYear && existing.periodMonth) {
-        updateData.endDate = new Date(Date.UTC(existing.periodYear, existing.periodMonth, 0))
-      } else {
-        updateData.endDate = new Date()
-      }
-      // Деактивация зачисления (пункт 2) — ПОСЛЕ tx.subscription.update, чтобы
-      // reprice внутри чистки пустых отметок видел абонемент уже closed.
-
-      // Баг #62: как и при отчислении — закрытие частично оплаченного pending
-      // не должно оставлять заявку висеть в «Ожидаем оплату».
-      await resolveAwaitingApplicationOnSubscriptionEnd(tx, {
-        tenantId: session.user.tenantId,
-        subscription: {
-          id: existing.id,
-          clientId: existing.clientId,
-          wardId: existing.wardId,
-          directionId: existing.directionId,
-          status: existing.status,
-          activatedAt: existing.activatedAt,
-        },
-        netPaid: paidToSub,
-        employeeId: session.user.employeeId,
-      })
-    }
+    // Закрытие (status=closed) обрабатывается ранним путём выше через
+    // closeSubscription — сюда не доходит.
 
     if (data.status) {
       updateData.status = data.status
@@ -573,21 +570,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       },
     })
 
-    // Закрытие (пункт 2 ветки closed): не продлённый ребёнок не должен висеть
-    // в будущем расписании. После update — reprice в чистке видит closed и
-    // пропускает. Граница состава = конец периода + 1 (endDate вычислен в
-    // ветке closed выше).
-    if (data.status === "closed" && existing.status !== "closed" && existing.status !== "withdrawn") {
-      await deactivateGroupEnrollmentOnWithdrawal(tx, {
-        tenantId: session.user.tenantId,
-        groupId: existing.groupId,
-        clientId: existing.clientId,
-        wardId: existing.wardId,
-        excludeSubscriptionId: id,
-        scheduledBoundary: nextDayUtc(updateData.endDate as Date),
-      })
-    }
-
     // Отчисление последнего активного абонемента → клиент «Выбывший».
     // ПОСЛЕ update: текущий абонемент уже withdrawn и не попадёт в счётчик
     // активных. effectiveWithdrawalDate при withdrawn гарантированно задан
@@ -630,13 +612,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     // Скидки v2: пересчёт денег абонемента после правки цены/занятий
-    // (не для legacy и не для только что закрытых/отчисленных — у них
-    // balance уже выставлен закрытием).
+    // (не для legacy и не для только что отчисленных — у них balance уже
+    // выставлен. Закрытие сюда не доходит — обработано ранним путём.)
     if (
       priceChanged &&
       existing.discountSource !== "legacy" &&
-      data.status !== "withdrawn" &&
-      data.status !== "closed"
+      data.status !== "withdrawn"
     ) {
       await repriceSubscription(tx, {
         tenantId: session.user.tenantId,
@@ -648,7 +629,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // Скидки v2: изменение состава месяца (отчисление/аннулирование) или цены
     // (мог смениться «самый дорогой») — пересчёт скидок клиента.
     let discountRecalc: RecalcDiscountsResult = { changes: [] }
-    if (priceChanged || data.status === "withdrawn" || data.status === "closed") {
+    if (priceChanged || data.status === "withdrawn") {
       discountRecalc = await recalcClientDiscounts(tx, {
         tenantId: session.user.tenantId,
         clientId: existing.clientId,
