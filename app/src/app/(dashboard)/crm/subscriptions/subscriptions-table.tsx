@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import {
@@ -15,7 +15,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@/components/ui/select"
-import { Search, ArrowDown, ArrowUp } from "lucide-react"
+import { Search, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { cn } from "@/lib/utils"
 import { truncateGroupName } from "@/lib/format-group"
@@ -76,6 +76,63 @@ function periodLabel(row: SubscriptionRow): string {
   return `${start} – ${fmtDate(endIso)}`
 }
 
+// Ключи сортировки = столбцы таблицы. Сортировка клиентская (все строки уже
+// загружены, см. take:500 в page.tsx — реальные объёмы < 200).
+type SortKey =
+  | "ward" | "direction" | "branch" | "group"
+  | "amount" | "paid" | "period" | "discount"
+type SortDir = "asc" | "desc"
+
+/** Компаратор столбца (без учёта направления). Строки — по-русски (А-Я),
+ *  деньги — по величине, «Срок» — по дате начала. */
+function compareRows(a: SubscriptionRow, b: SubscriptionRow, key: SortKey): number {
+  switch (key) {
+    case "ward": return a.wardName.localeCompare(b.wardName, "ru")
+    case "direction": return a.directionName.localeCompare(b.directionName, "ru")
+    case "branch": return a.branchName.localeCompare(b.branchName, "ru")
+    case "group": return a.groupName.localeCompare(b.groupName, "ru")
+    case "amount": return a.finalAmount - b.finalAmount
+    case "paid": return a.paidAmount - b.paidAmount
+    case "period": return a.startDate.localeCompare(b.startDate)
+    case "discount": return a.discountLabel.localeCompare(b.discountLabel, "ru")
+  }
+}
+
+/** Кликабельный заголовок-сортировка. Стрелка вверх/вниз на активном столбце,
+ *  бледная двойная стрелка на остальных — подсказка, что столбец сортируемый. */
+function SortHeader({
+  label, colKey, sortKey, sortDir, onSort, align = "left",
+}: {
+  label: string
+  colKey: SortKey
+  sortKey: SortKey
+  sortDir: SortDir
+  onSort: (k: SortKey) => void
+  align?: "left" | "right"
+}) {
+  const active = sortKey === colKey
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(colKey)}
+      className={cn(
+        "inline-flex max-w-full items-center gap-1 overflow-hidden hover:text-foreground",
+        align === "right" && "w-full justify-end",
+      )}
+      title="Сортировать"
+    >
+      <span className="truncate">{label}</span>
+      {active ? (
+        sortDir === "asc"
+          ? <ArrowUp className="size-3 shrink-0" />
+          : <ArrowDown className="size-3 shrink-0" />
+      ) : (
+        <ArrowUpDown className="size-3 shrink-0 text-muted-foreground/40" />
+      )}
+    </button>
+  )
+}
+
 export function SubscriptionsTable({
   tab,
   tabs,
@@ -104,7 +161,36 @@ export function SubscriptionsTable({
   const searchParams = useSearchParams()
 
   const [query, setQuery] = useState(initialQuery)
+  // Клиентская сортировка по любому столбцу. По умолчанию активен «Срок» в том
+  // направлении, что пришло из URL, — это совпадает с порядком выборки на
+  // сервере (orderBy startDate). Пока пользователь не кликнул по заголовку,
+  // показываем строки в серверном порядке (`interacted=false`) — иначе при
+  // гидратации строки с одинаковой датой начала (1-е число месяца) перескочат
+  // из-за вторичного ключа и React ругнётся на несовпадение разметки.
+  const [sortKey, setSortKey] = useState<SortKey>("period")
+  const [sortDir, setSortDir] = useState<SortDir>(initialSort)
+  const [interacted, setInteracted] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function onSort(key: SortKey) {
+    setInteracted(true)
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    } else {
+      setSortKey(key)
+      setSortDir("asc")
+    }
+  }
+
+  const sortedRows = useMemo(() => {
+    if (!interacted) return rows
+    const dir = sortDir === "asc" ? 1 : -1
+    return [...rows].sort((a, b) => {
+      const c = compareRows(a, b, sortKey)
+      // Вторичный ключ — ФИО, чтобы порядок был стабильным при равных значениях.
+      return (c !== 0 ? c : a.wardName.localeCompare(b.wardName, "ru")) * dir
+    })
+  }, [rows, sortKey, sortDir, interacted])
   // Ширина столбцов: полоска-ручка на правом крае заголовка, localStorage
   // (общий модуль resizable-columns; столбцы всех вкладок одинаковые).
   const { widthOf, startResize } = useColumnWidths("subscriptions-colw", DEFAULT_WIDTHS)
@@ -131,15 +217,6 @@ export function SubscriptionsTable({
     const params = new URLSearchParams(searchParams.toString())
     if (value && value !== "all") params.set(name, value)
     else params.delete(name)
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false })
-  }
-
-  function toggleSortByPeriod() {
-    const next: "asc" | "desc" = initialSort === "asc" ? "desc" : "asc"
-    const params = new URLSearchParams(searchParams.toString())
-    // asc — дефолт; чтобы URL не пух, удаляем параметр для дефолта.
-    if (next === "asc") params.delete("sort")
-    else params.set("sort", "desc")
     router.replace(`${pathname}?${params.toString()}`, { scroll: false })
   }
 
@@ -236,42 +313,33 @@ export function SubscriptionsTable({
             <TableHeader>
               <TableRow>
                 <ResizableHead id="ward" width={widthOf("ward")} onResizeStart={startResize}>
-                  ФИО ребёнка
+                  <SortHeader label="ФИО ребёнка" colKey="ward" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 </ResizableHead>
                 <ResizableHead id="direction" width={widthOf("direction")} onResizeStart={startResize}>
-                  Направление
+                  <SortHeader label="Направление" colKey="direction" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 </ResizableHead>
                 <ResizableHead id="branch" width={widthOf("branch")} onResizeStart={startResize}>
-                  Филиал
+                  <SortHeader label="Филиал" colKey="branch" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 </ResizableHead>
                 <ResizableHead id="group" width={widthOf("group")} onResizeStart={startResize}>
-                  Группа
+                  <SortHeader label="Группа" colKey="group" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 </ResizableHead>
                 <ResizableHead id="amount" width={widthOf("amount")} onResizeStart={startResize} className="text-right">
-                  Сумма к оплате
+                  <SortHeader label="Сумма к оплате" colKey="amount" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
                 </ResizableHead>
                 <ResizableHead id="paid" width={widthOf("paid")} onResizeStart={startResize} className="text-right">
-                  Оплачено
+                  <SortHeader label="Оплачено" colKey="paid" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
                 </ResizableHead>
                 <ResizableHead id="period" width={widthOf("period")} onResizeStart={startResize}>
-                  <button
-                    type="button"
-                    onClick={toggleSortByPeriod}
-                    className="inline-flex max-w-full items-center gap-1 overflow-hidden hover:text-foreground"
-                  >
-                    Срок
-                    {initialSort === "asc"
-                      ? <ArrowUp className="size-3 shrink-0" />
-                      : <ArrowDown className="size-3 shrink-0" />}
-                  </button>
+                  <SortHeader label="Срок" colKey="period" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 </ResizableHead>
                 <ResizableHead id="discount" width={widthOf("discount")} onResizeStart={startResize}>
-                  Скидка
+                  <SortHeader label="Скидка" colKey="discount" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 </ResizableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((r) => (
+              {sortedRows.map((r) => (
                 <TableRow key={r.id} className="cursor-pointer hover:bg-muted/40">
                   <TableCell className="font-medium">
                     <Link href={`/crm/clients/${r.clientId}?tab=subscriptions`} className="hover:underline">
