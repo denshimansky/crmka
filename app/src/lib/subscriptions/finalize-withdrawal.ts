@@ -3,7 +3,11 @@ import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
-import { cleanPostWithdrawalEmptyAttendance } from "@/lib/subscriptions/deactivate-enrollment"
+import {
+  cleanPostWithdrawalEmptyAttendance,
+  deactivateGroupEnrollmentOnWithdrawal,
+} from "@/lib/subscriptions/deactivate-enrollment"
+import { nextDayUtc } from "@/lib/subscriptions/last-paid-lesson-date"
 import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
 
 type Tx = Prisma.TransactionClient | PrismaClient
@@ -26,8 +30,11 @@ type Tx = Prisma.TransactionClient | PrismaClient
  * delta = нетто-оплачено − Σ Attendance.chargeAmount − уже применённые сверки.
  *   delta > 0 → возврат на баланс; delta < 0 → долг на баланс; balance → 0.
  *
- * НЕ трогает GroupEnrollment — при отложенном отчислении зачисление
- * деактивируется в момент планирования (withdrawnAt = X+1).
+ * GroupEnrollment: при постановке отложенного отчисления зачисление
+ * деактивируется в момент планирования (withdrawnAt = X+1). Здесь дополнительно
+ * подстраховываемся — идемпотентно деактивируем ещё раз (план мог не сработать
+ * или зачисление реактивировалось): иначе отчисленный ребёнок продолжает висеть
+ * в будущих посещениях, и его отмечают разовым (баг Низаметдиновой, 07.2026).
  */
 export async function applyWithdrawalSettlement(
   tx: Tx,
@@ -101,6 +108,19 @@ export async function applyWithdrawalSettlement(
     select: { groupId: true, wardId: true },
   })
   if (subRow) {
+    // Страховочная деактивация зачисления (граница = дата отчисления + 1, та же,
+    // что при планировании). Идемпотентна: если уже деактивировано —
+    // findMany(isActive:true) внутри хелпера ничего не найдёт (no-op); guard не
+    // тронет ребёнка с другим живым (pending/active) абонементом группы.
+    await deactivateGroupEnrollmentOnWithdrawal(tx, {
+      tenantId,
+      groupId: subRow.groupId,
+      clientId: subscription.clientId,
+      wardId: subRow.wardId,
+      excludeSubscriptionId: subscription.id,
+      scheduledBoundary: nextDayUtc(withdrawalDate),
+    })
+
     const enr = await tx.groupEnrollment.findFirst({
       where: {
         tenantId,
