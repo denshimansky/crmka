@@ -176,10 +176,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             id: true,
             title: true,
             dueDate: true,
+            createdAt: true,
             clientId: true,
             client: { select: { firstName: true, lastName: true } },
           },
-          orderBy: { dueDate: "asc" },
+          // Сортируем по дате создания (новые сверху), чтобы только что
+          // созданная ручная задача гарантированно попадала в выборку и не
+          // вытеснялась старыми просроченными при take. Порядок отображения
+          // (просроченные сверху) задаёт DashboardTasksTable.
+          orderBy: { createdAt: "desc" },
           take: 15,
         })
 
@@ -208,6 +213,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         .trim(),
       eventDate: eventDateIso,
       isOverdue: dueIso < todayIso,
+      createdAt: t.createdAt.toISOString(),
       clientId: t.clientId,
       clientName: t.client
         ? [t.client.lastName, t.client.firstName].filter(Boolean).join(" ")

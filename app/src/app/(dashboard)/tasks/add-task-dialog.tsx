@@ -9,7 +9,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
-import { Plus } from "lucide-react"
+import { ClientCombobox } from "@/components/client-combobox"
+import { Plus, X } from "lucide-react"
 
 interface EmployeeOption { id: string; name: string }
 interface ClientOption { id: string; name: string }
@@ -43,7 +44,6 @@ export function AddTaskDialog({ employees, clients }: { employees: EmployeeOptio
   }
 
   const selEmp = employees.find(e => e.id === assignedTo)
-  const selCl = clients.find(c => c.id === clientId)
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
@@ -69,13 +69,28 @@ export function AddTaskDialog({ employees, clients }: { employees: EmployeeOptio
           </div>
           <div className="space-y-1.5">
             <Label>Клиент</Label>
-            <Select value={clientId} onValueChange={v => { if (v !== null) setClientId(v) }}>
-              <SelectTrigger className="w-full">{selCl ? selCl.name : "Без привязки"}</SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Без привязки</SelectItem>
-                {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2">
+              <ClientCombobox
+                options={clients}
+                value={clientId}
+                onChange={setClientId}
+                placeholder="Без привязки — начните вводить фамилию"
+                className="flex-1"
+              />
+              {clientId && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setClientId("")}
+                  title="Убрать привязку к клиенту"
+                  aria-label="Убрать привязку к клиенту"
+                  className="shrink-0"
+                >
+                  <X className="size-4" />
+                </Button>
+              )}
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label>Описание</Label>

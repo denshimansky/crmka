@@ -12,6 +12,8 @@ export interface DashboardTaskRow {
   eventDate: string
   /** Просрочена ли задача (dueDate раньше «сегодня»). */
   isOverdue: boolean
+  /** ISO-строка даты создания задачи — для сортировки «новые сверху». */
+  createdAt: string
   /** Клиент задачи — для перехода в карточку (если задача привязана к клиенту). */
   clientId?: string | null
   /** ФИО клиента (для подсветки кликабельного имени в заголовке). */
@@ -138,10 +140,14 @@ function DashboardTaskRow({ task }: { task: DashboardTaskRow }) {
 
 export function DashboardTasksTable({ tasks }: { tasks: DashboardTaskRow[] }) {
   const sorted = useMemo(() => {
-    // Просроченные сверху; внутри групп — по дате события (раньше = выше).
+    // Просроченные сверху (внутри — раньше просроченные = выше). Среди
+    // непросроченных (срок сегодня) — новые сверху, чтобы только что созданная
+    // задача была на виду, а не тонула под авто-задачами «Уточнить „Не был"» со
+    // старыми датами события в заголовке.
     return [...tasks].sort((a, b) => {
       if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1
-      return a.eventDate.localeCompare(b.eventDate)
+      if (a.isOverdue) return a.eventDate.localeCompare(b.eventDate)
+      return b.createdAt.localeCompare(a.createdAt)
     })
   }, [tasks])
 
