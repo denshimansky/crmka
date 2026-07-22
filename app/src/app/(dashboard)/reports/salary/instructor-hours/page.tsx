@@ -1,8 +1,8 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ReportShell, ReportStatus, useReportData } from "@/components/report-scaffold"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { useRoleNames } from "@/components/role-names-provider"
 
 interface Row {
@@ -12,10 +12,26 @@ interface Row {
   byDay: Record<string, number>
 }
 
+/** Компактная дата для шапки столбца: «дд.мм». */
+function fmtDay(iso: string): string {
+  const d = new Date(iso)
+  return `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+}
+
+/** Часы в ячейке: округление до 0,1; ноль — пусто (столбцов много). */
+function fmtHours(v: number): string {
+  return v === 0 ? "" : String(Math.round(v * 10) / 10)
+}
+
 export default function InstructorHoursReportPage() {
   const roleNames = useRoleNames()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/instructor-hours")
   const totalHours = Number(metadata?.totalHours ?? 0)
+
+  // Столбцы-дни — объединение всех дней, где хоть у одного педагога были часы.
+  const days = [...new Set(data.flatMap((r) => Object.keys(r.byDay)))].sort()
+  // Итог по каждому дню — сумма по всем педагогам.
+  const totalsPerDay = days.map((d) => data.reduce((s, r) => s + (r.byDay[d] ?? 0), 0))
 
   return (
     <ReportShell
@@ -27,30 +43,56 @@ export default function InstructorHoursReportPage() {
         <CardContent className="p-0">
           <ReportStatus loading={loading} error={error} empty={data.length === 0} />
           {!loading && !error && data.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{roleNames.instructor}</TableHead>
-                  <TableHead className="text-right">Дней с занятиями</TableHead>
-                  <TableHead className="text-right">Всего часов</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.map((r) => (
-                  <TableRow key={r.instructorId}>
-                    <TableCell className="font-medium">{r.instructorName}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {Object.keys(r.byDay).length}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">{r.totalHours} ч</TableCell>
-                  </TableRow>
-                ))}
-                <TableRow className="border-t-2 font-bold">
-                  <TableCell colSpan={2}>Итого</TableCell>
-                  <TableCell className="text-right">{Math.round(totalHours * 10) / 10} ч</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+            <StickyHScroll>
+              <div className="overflow-x-auto" data-sticky-scroller="">
+                <table className="w-full border-collapse text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2 text-left font-medium whitespace-nowrap">
+                        {roleNames.instructor}
+                      </th>
+                      {days.map((d) => (
+                        <th
+                          key={d}
+                          className="px-2 py-2 text-center text-xs font-normal text-muted-foreground whitespace-nowrap"
+                        >
+                          {fmtDay(d)}
+                        </th>
+                      ))}
+                      <th className="px-3 py-2 text-center font-medium whitespace-nowrap">Итого</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.map((r) => (
+                      <tr key={r.instructorId} className="border-t">
+                        <td className="sticky left-0 z-10 bg-background px-3 py-1.5 font-medium whitespace-nowrap">
+                          {r.instructorName}
+                        </td>
+                        {days.map((d) => (
+                          <td key={d} className="px-2 py-1.5 text-center tabular-nums">
+                            {fmtHours(r.byDay[d] ?? 0)}
+                          </td>
+                        ))}
+                        <td className="px-3 py-1.5 text-center font-bold tabular-nums whitespace-nowrap">
+                          {Math.round(r.totalHours * 10) / 10} ч
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="border-t-2 bg-muted/30 font-bold">
+                      <td className="sticky left-0 z-10 bg-muted/30 px-3 py-1.5 whitespace-nowrap">Итого</td>
+                      {totalsPerDay.map((v, i) => (
+                        <td key={i} className="px-2 py-1.5 text-center tabular-nums">
+                          {fmtHours(v)}
+                        </td>
+                      ))}
+                      <td className="px-3 py-1.5 text-center tabular-nums whitespace-nowrap">
+                        {Math.round(totalHours * 10) / 10} ч
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </StickyHScroll>
           )}
         </CardContent>
       </Card>

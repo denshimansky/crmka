@@ -397,7 +397,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
               <ArrowUpCircle className="size-5 text-red-600" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Выбытия</p>
+              <p className="text-xs text-muted-foreground">Расходы</p>
               <p className="text-lg font-bold text-red-600">{formatMoney(-totalOutflow)}</p>
             </div>
           </CardContent>
