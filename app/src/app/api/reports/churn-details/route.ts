@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
               instructor: { select: { firstName: true, lastName: true } },
             },
           },
+          withdrawalReason: { select: { name: true } },
         },
       },
     },
@@ -89,6 +90,7 @@ export async function GET(req: NextRequest) {
             .join(" ")
         : null,
       withdrawalDate: c.subscriptions[0]?.withdrawalDate?.toISOString() || null,
+      reason: c.subscriptions[0]?.withdrawalReason?.name || null,
     }))
     .sort((a, b) => (b.withdrawalDate || "").localeCompare(a.withdrawalDate || ""))
 

@@ -148,8 +148,8 @@ export default async function SalaryByInstructorPage({ searchParams }: { searchP
           </CardContent>
         </Card>
       ) : (
-        <div className="rounded-md border">
-          <Table>
+        <div className="w-fit max-w-full rounded-md border">
+          <Table className="w-auto">
             <TableHeader>
               <TableRow>
                 <TableHead>{roleNames.instructor}</TableHead>

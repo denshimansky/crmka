@@ -15,15 +15,6 @@ function formatDate(date: Date | null): string {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
-const WITHDRAWAL_REASONS: Record<string, string> = {
-  no_interest: "Потерял интерес",
-  financial: "Финансовые причины",
-  moved: "Переезд",
-  schedule: "Не подходит расписание",
-  quality: "Качество услуг",
-  other: "Другое",
-}
-
 export default async function ChurnDetailsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
@@ -62,6 +53,7 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
           withdrawalDate: true,
           direction: { select: { name: true } },
           group: { select: { instructor: { select: { firstName: true, lastName: true } } } },
+          withdrawalReason: { select: { name: true } },
         },
       },
     },
@@ -103,6 +95,7 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
         direction,
         instructor,
         withdrawalDate: sub?.withdrawalDate ?? null,
+        reason: sub?.withdrawalReason?.name || "—",
       }
     })
     .sort((a, b) => (b.withdrawalDate?.getTime() ?? 0) - (a.withdrawalDate?.getTime() ?? 0))
@@ -213,6 +206,7 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
                 <TableHead>Направление</TableHead>
                 <TableHead>{roleNames.instructor}</TableHead>
                 <TableHead>Дата выбытия</TableHead>
+                <TableHead>Причина отчисления</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -227,6 +221,7 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
                   <TableCell>{r.direction}</TableCell>
                   <TableCell className="text-muted-foreground">{r.instructor}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(r.withdrawalDate)}</TableCell>
+                  <TableCell className="text-muted-foreground">{r.reason}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

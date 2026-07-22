@@ -41,11 +41,11 @@ export default function ChurnByInstructorReportPage() {
       pageKey="reports/churn/by-instructor"
       actions={toggle}
     >
-      <Card>
+      <Card className="w-fit max-w-full">
         <CardContent className="p-0">
           <ReportStatus loading={loading} error={error} empty={data.length === 0} />
           {!loading && !error && data.length > 0 && (
-            <Table>
+            <Table className="w-auto">
               <TableHeader>
                 <TableRow>
                   <TableHead>{groupBy === "instructor" ? roleNames.instructor : "Филиал"}</TableHead>
