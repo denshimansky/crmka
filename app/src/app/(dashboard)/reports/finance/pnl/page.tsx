@@ -244,6 +244,20 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     })
     .sort((a, b) => b.revenue - a.revenue)
 
+  // === % распределения финреза (встроено из бывшего отдельного отчёта) ===
+  // Доля каждой статьи (ЗП + расходы по категориям) в выручке. В отличие от
+  // старого отдельного отчёта, ЗП и расходы здесь уже учитывают выбранный филиал.
+  const distributionArticles = [
+    { category: "ЗП инструкторов", amount: totalSalaryAccrued },
+    ...Array.from(expenseByCategory.entries()).map(([name, v]) => ({ category: name, amount: v.amount })),
+  ]
+    .filter((a) => a.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+    .map((a) => ({
+      ...a,
+      percentOfRevenue: revenue > 0 ? Math.round((a.amount / revenue) * 1000) / 10 : 0,
+    }))
+
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   const monthKey = `${year}-${String(month).padStart(2, "0")}`
@@ -414,12 +428,12 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
         </Card>
       </div>
 
-      <Card>
+      <Card className="w-fit max-w-full">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Отчёт P&L</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
+          <Table className="w-auto">
             <TableBody>
               {pnlRows.map((row, i) => {
                 if (row.label === "") return <TableRow key={i}><TableCell colSpan={2} className="h-2 p-0" /></TableRow>
@@ -460,6 +474,36 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
           </Table>
         </CardContent>
       </Card>
+
+      {/* % распределения финреза — встроено из бывшего отдельного отчёта */}
+      {distributionArticles.length > 0 && (
+        <Card className="w-fit max-w-full">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">% распределения финреза</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">Доля каждой статьи расходов и ЗП в выручке</p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="w-auto">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Статья</TableHead>
+                  <TableHead className="text-right">Сумма</TableHead>
+                  <TableHead className="text-right">% от выручки</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {distributionArticles.map((a) => (
+                  <TableRow key={a.category}>
+                    <TableCell className="font-medium">{a.category}</TableCell>
+                    <TableCell className="text-right">{formatMoney(a.amount)}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">{a.percentOfRevenue}%</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {/* FIN-16: Распределение постоянных расходов по направлениям */}
       {directionEntries.length > 0 && fixedExpenses > 0 && (

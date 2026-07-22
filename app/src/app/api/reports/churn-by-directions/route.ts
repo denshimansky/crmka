@@ -2,15 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
 
-/** 2.4. Отток по направлениям (и филиалам) */
+/** 2.4. Отток по направлениям и филиалам — дерево: Общее → филиалы → направления. */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
-  const { session, dateRange, searchParams } = result.ctx
+  const { session, dateRange } = result.ctx
   const { tenantId } = session
   const { dateFrom, dateTo } = dateRange
-  const branchId = searchParams.get("branchId")
-  const groupBy = searchParams.get("groupBy") || "direction" // direction | branch
 
   const year = dateFrom.getUTCFullYear()
   const month = dateFrom.getUTCMonth() + 1
@@ -18,14 +16,17 @@ export async function GET(req: NextRequest) {
   const prevYear = prevDate.getUTCFullYear()
   const prevMonth = prevDate.getUTCMonth() + 1
 
-  // Active subscriptions = had charges both prev and current month
-  const subWhere: any = { tenantId, deletedAt: null }
-  if (branchId) subWhere.group = { branchId }
-
+  // Активные = абонементы прошлого месяца. Отток = те, по кому в текущем месяце нет
+  // нового абонемента того же клиента и направления.
   const prevSubs = await db.subscription.findMany({
-    where: { ...subWhere, periodYear: prevYear, periodMonth: prevMonth, status: { in: ["active", "closed"] } },
+    where: {
+      tenantId,
+      deletedAt: null,
+      periodYear: prevYear,
+      periodMonth: prevMonth,
+      status: { in: ["active", "closed"] },
+    },
     select: {
-      id: true,
       clientId: true,
       directionId: true,
       direction: { select: { name: true } },
@@ -34,44 +35,72 @@ export async function GET(req: NextRequest) {
   })
 
   const curSubs = await db.subscription.findMany({
-    where: { ...subWhere, periodYear: year, periodMonth: month },
+    where: { tenantId, deletedAt: null, periodYear: year, periodMonth: month },
     select: { clientId: true, directionId: true },
   })
-
   const renewedSet = new Set(curSubs.map((s) => `${s.clientId}:${s.directionId}`))
 
-  // Group key function
-  const getKey = (s: typeof prevSubs[0]) =>
-    groupBy === "branch"
-      ? s.group.branch.name
-      : s.direction.name
-
-  const groups = new Map<string, { active: number; churned: number; completedCourse: number }>()
+  interface Agg {
+    active: number
+    churned: number
+  }
+  const total: Agg = { active: 0, churned: 0 }
+  const branchMap = new Map<
+    string,
+    { name: string; agg: Agg; dirs: Map<string, { name: string; agg: Agg }> }
+  >()
 
   for (const s of prevSubs) {
-    const key = getKey(s)
-    const prev = groups.get(key) || { active: 0, churned: 0, completedCourse: 0 }
-    prev.active += 1
-    if (!renewedSet.has(`${s.clientId}:${s.directionId}`)) {
-      prev.churned += 1
+    const churned = !renewedSet.has(`${s.clientId}:${s.directionId}`)
+    total.active += 1
+    if (churned) total.churned += 1
+
+    const branchId = s.group?.branchId ?? "none"
+    const branchName = s.group?.branch?.name ?? "Без филиала"
+    let b = branchMap.get(branchId)
+    if (!b) {
+      b = { name: branchName, agg: { active: 0, churned: 0 }, dirs: new Map() }
+      branchMap.set(branchId, b)
     }
-    groups.set(key, prev)
+    b.agg.active += 1
+    if (churned) b.agg.churned += 1
+
+    let d = b.dirs.get(s.directionId)
+    if (!d) {
+      d = { name: s.direction.name, agg: { active: 0, churned: 0 } }
+      b.dirs.set(s.directionId, d)
+    }
+    d.agg.active += 1
+    if (churned) d.agg.churned += 1
   }
 
-  const data = [...groups.entries()]
-    .map(([name, v]) => ({
-      name,
-      activeSubscriptions: v.active,
-      churned: v.churned,
-      churnRate: pct(v.churned, v.active),
-      completedCourse: v.completedCourse,
+  const node = (id: string, name: string, agg: Agg) => ({
+    id,
+    name,
+    activeSubscriptions: agg.active,
+    churned: agg.churned,
+    churnRate: pct(agg.churned, agg.active),
+  })
+
+  const branches = [...branchMap.entries()]
+    .map(([id, b]) => ({
+      ...node(id, b.name, b.agg),
+      directions: [...b.dirs.entries()]
+        .map(([did, d]) => node(did, d.name, d.agg))
+        .sort((a, z) => z.churnRate - a.churnRate),
     }))
-    .sort((a, b) => b.churnRate - a.churnRate)
+    .sort((a, z) => z.churnRate - a.churnRate)
 
   return NextResponse.json({
-    data,
+    data: {
+      total: {
+        activeSubscriptions: total.active,
+        churned: total.churned,
+        churnRate: pct(total.churned, total.active),
+      },
+      branches,
+    },
     metadata: {
-      groupBy,
       dateFrom: dateFrom.toISOString(),
       dateTo: dateTo.toISOString(),
     },

@@ -110,7 +110,6 @@ const reportGroups: ReportGroup[] = [
       { name: "Доход от новых / упущенный по выбывшим", href: "/reports/finance/new-client-income", description: "Доход новых клиентов против упущенной выручки по выбывшим", source: "attendance" },
       { name: "Финрез по группам (формат C)", href: "/reports/finance/pnl-group", description: "Прибыльность каждой группы с распределением расходов", source: "attendance" },
       { name: "Остатки оплаченных занятий", href: "/reports/finance/remaining-lessons", description: "Сколько занятий осталось по абонементам и баланс на сегодня", source: "subscriptions" },
-      { name: "% распределения финреза", href: "/reports/finance/financial-distribution", description: "Доля каждой статьи расходов и ЗП в выручке", source: "attendance" },
       { name: "Действующие скидки", href: "/reports/finance/linked-discounts", description: "Абонементы с активной скидкой (снимок)", source: "subscriptions" },
       { name: "Контроль корректировок занятий", href: "/reports/finance/lesson-adjustments-audit", description: "Аудит: кто менял стоимость отметок", source: "attendance" },
       { name: "Контроль скидок", href: "/reports/finance/discount-audit", description: "Аудит: кто и когда создавал скидки", source: "subscriptions" },

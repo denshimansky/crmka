@@ -68,7 +68,6 @@ const FINANCE_REPORTS = [
   "pnl-group",
   "cash-flow",
   "cash-balance",
-  "financial-distribution",
   "debtors",
   "profit-forecast",
 ] as const
