@@ -53,17 +53,24 @@ export function CreateApplicationDialog({
   size = "sm",
   buttonClassName,
   triggerLabel = "Создать заявку",
+  onCreated,
+  callCampaignItemId,
 }: {
   /** Карточка клиента: клиент известен заранее, поле выбора клиента не показываем. */
   clientId?: string
   /** Подопечные известного клиента (режим карточки). */
   wards?: WardLite[]
+  /** Создание из обзвона: привязать заявку к позиции обзвона (атрибуция воронки). */
+  callCampaignItemId?: string
   /** Режим «Продажи»: клиент не задан, выбираем поиском из этого списка. */
   clients?: ClientComboboxOption[]
   variant?: "default" | "outline" | "ghost" | "secondary"
   size?: "sm" | "default"
   buttonClassName?: string
   triggerLabel?: string
+  /** Вызывается после успешного создания заявки (например, чтобы отметить
+   *  позицию обзвона). Получает созданную заявку. */
+  onCreated?: (application: { id: string; clientId: string }) => void
 }) {
   const router = useRouter()
   // Режим поиска клиента: клиент заранее не задан, выбираем из списка.
@@ -190,6 +197,7 @@ export function CreateApplicationDialog({
           branchId,
           directionId,
           comment: comment.trim() || undefined,
+          callCampaignItemId,
         }),
       })
       if (!res.ok) {
@@ -197,10 +205,12 @@ export function CreateApplicationDialog({
         setError(data.error || "Ошибка при создании заявки")
         return
       }
+      const created = await res.json().catch(() => null)
       setOpen(false)
       window.dispatchEvent(
         new CustomEvent("crm:applications-changed", { detail: { clientId } }),
       )
+      if (created?.id && clientId) onCreated?.({ id: created.id, clientId })
       router.refresh()
     } catch {
       setError("Ошибка сети")

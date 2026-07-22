@@ -25,12 +25,23 @@ export async function GET(req: NextRequest) {
       name: true,
       status: true,
       createdAt: true,
-      totalItems: true,
-      completedItems: true,
       items: {
         select: {
           status: true,
-          result: true,
+          // Заявки, созданные из этой позиции обзвона (кнопка «Создать заявку»).
+          // Через них тянем всю воронку: пробное и продажа заявки атрибутируются
+          // к обзвону, из которого она выросла.
+          applications: {
+            where: { deletedAt: null },
+            select: {
+              processedToStatus: true,
+              // Пробное = хотя бы одно неотменённое пробное занятие по заявке.
+              trialLessons: {
+                where: { status: { not: "cancelled" } },
+                select: { id: true },
+              },
+            },
+          },
         },
       },
     },
@@ -39,10 +50,12 @@ export async function GET(req: NextRequest) {
   const data = campaigns.map((c) => {
     const total = c.items.length
     const processed = c.items.filter((i) => i.status !== "pending").length
-    const trialScheduled = c.items.filter((i) => i.result === "trial_scheduled").length
-    const sales = c.items.filter((i) => i.result === "sale").length
-    const noAnswer = c.items.filter((i) => i.result === "no_answer").length
-    const refused = c.items.filter((i) => i.result === "refused").length
+    // Заявки, выросшие из обзвона, и их дальнейшая судьба в воронке продаж.
+    const apps = c.items.flatMap((i) => i.applications)
+    const applications = apps.length
+    const trialScheduled = apps.filter((a) => a.trialLessons.length > 0).length
+    // Продажа = заявка закрыта как «Купил» (по ней оплачен абонемент).
+    const sales = apps.filter((a) => a.processedToStatus === "won").length
 
     return {
       campaignId: c.id,
@@ -51,11 +64,11 @@ export async function GET(req: NextRequest) {
       createdAt: c.createdAt.toISOString(),
       total,
       processed,
+      applications,
       trialScheduled,
       sales,
-      noAnswer,
-      refused,
       processedRate: pct(processed, total),
+      applicationConversion: pct(applications, processed),
       trialConversion: pct(trialScheduled, processed),
       saleConversion: pct(sales, processed),
     }

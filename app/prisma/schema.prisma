@@ -1057,8 +1057,10 @@ model CallCampaignItem {
   createdAt  DateTime       @default(now()) @map("created_at")
   updatedAt  DateTime       @updatedAt @map("updated_at")
 
-  campaign CallCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  client   Client       @relation(fields: [clientId], references: [id])
+  campaign     CallCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  client       Client        @relation(fields: [clientId], references: [id])
+  // Заявки, созданные из этой позиции обзвона (кнопка «Создать заявку»).
+  applications Application[]
 
   @@index([campaignId])
   @@map("call_campaign_items")
@@ -2013,9 +2015,17 @@ model Application {
   processor    Employee?     @relation("ApplicationProcessor", fields: [processedBy], references: [id])
   trialLessons TrialLesson[]
 
+  // Заявка, созданная прямо из кампании обзвона (кнопка «Создать заявку»).
+  // Даёт отчёту «Эффективность обзвонов» тянуть за заявкой её пробные и продажу —
+  // атрибуция всей воронки к обзвону. onDelete: SetNull — удаление позиции обзвона
+  // не удаляет заявку.
+  callCampaignItemId String?           @map("call_campaign_item_id") @db.Uuid
+  callCampaignItem   CallCampaignItem? @relation(fields: [callCampaignItemId], references: [id], onDelete: SetNull)
+
   @@index([tenantId, status])
   @@index([tenantId, clientId, status])
   @@index([tenantId, status, stage])
+  @@index([callCampaignItemId])
   @@map("applications")
 }
 

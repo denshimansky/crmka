@@ -50,7 +50,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           // кто попадает в возрастной фильтр кампании, чтобы возраст в таблице
           // соответствовал критерию отбора.
           wards: {
-            select: { firstName: true, lastName: true, birthDate: true },
+            select: { id: true, firstName: true, lastName: true, birthDate: true },
             orderBy: { birthDate: "asc" },
           },
         },
@@ -100,6 +100,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       status: i.status,
       comment: i.comment,
       result: i.result,
+      wards: i.client.wards.map((w) => ({ id: w.id, firstName: w.firstName, lastName: w.lastName })),
     }
   })
 

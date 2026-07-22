@@ -91,6 +91,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           callback: "Перезвонить",
           completed: "Завершён",
         }
+        // Коды результата → человекочитаемые метки для истории коммуникаций.
+        const resultLabels: Record<string, string> = {
+          application: "Создана заявка",
+          trial_scheduled: "Записан на пробное",
+          sale: "Продажа",
+          no_answer: "Не дозвонились",
+          refused: "Отказ",
+        }
+        const resultText = data.result ? (resultLabels[data.result] ?? data.result) : undefined
 
         await tx.communication.create({
           data: {
@@ -99,7 +108,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             type: "call_campaign_result",
             channel: "phone",
             direction: "outgoing",
-            content: [statusLabels[data.status] || data.status, data.result, data.comment].filter(Boolean).join(" — "),
+            content: [statusLabels[data.status] || data.status, resultText, data.comment].filter(Boolean).join(" — "),
             metadata: {
               campaignId: id,
               campaignName: campaign?.name,

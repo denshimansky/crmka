@@ -11,11 +11,13 @@ interface Row {
   createdAt: string
   total: number
   processed: number
+  applications: number
   trialScheduled: number
   sales: number
   noAnswer: number
   refused: number
   processedRate: number
+  applicationConversion: number
   trialConversion: number
   saleConversion: number
 }
@@ -45,6 +47,8 @@ export default function CallEfficiencyReportPage() {
                   <TableHead className="text-right">Всего</TableHead>
                   <TableHead className="text-right">Отработано</TableHead>
                   <TableHead className="text-right">% отработки</TableHead>
+                  <TableHead className="text-right">Заявки</TableHead>
+                  <TableHead className="text-right">Конв. в заявку</TableHead>
                   <TableHead className="text-right">Пробные</TableHead>
                   <TableHead className="text-right">Конв. в пробное</TableHead>
                   <TableHead className="text-right">Продажи</TableHead>
@@ -58,6 +62,8 @@ export default function CallEfficiencyReportPage() {
                     <TableCell className="text-right">{r.total}</TableCell>
                     <TableCell className="text-right">{r.processed}</TableCell>
                     <TableCell className="text-right text-muted-foreground">{r.processedRate}%</TableCell>
+                    <TableCell className="text-right font-medium text-amber-600">{r.applications}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">{r.applicationConversion}%</TableCell>
                     <TableCell className="text-right">{r.trialScheduled}</TableCell>
                     <TableCell className="text-right text-muted-foreground">{r.trialConversion}%</TableCell>
                     <TableCell className="text-right font-medium text-blue-600">{r.sales}</TableCell>

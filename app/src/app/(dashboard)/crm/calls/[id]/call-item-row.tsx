@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { TableCell, TableRow } from "@/components/ui/table"
 import { Phone, Check } from "lucide-react"
 import Link from "next/link"
+import { CreateApplicationDialog } from "@/app/(dashboard)/crm/_components/create-application-dialog"
 
 export interface CallItem {
   id: string
@@ -20,6 +21,8 @@ export interface CallItem {
   status: string
   comment: string | null
   result: string | null
+  /** Подопечные клиента — для кнопки «Создать заявку» прямо из обзвона. */
+  wards: { id: string; firstName: string; lastName: string | null }[]
 }
 
 export const CALL_STATUS_LABELS: Record<string, string> = {
@@ -30,6 +33,22 @@ export const CALL_STATUS_LABELS: Record<string, string> = {
   completed: "Завершён",
 }
 const STATUS_LABELS = CALL_STATUS_LABELS
+
+/** Коды результата обзвона → метки для отображения в строке. */
+const RESULT_LABELS: Record<string, string> = {
+  application: "Создана заявка",
+  trial_scheduled: "Записан на пробное",
+  sale: "Продажа",
+  no_answer: "Не дозвонились",
+  refused: "Отказ",
+}
+
+/** Текст ячейки «Комментарий»: сначала комментарий, иначе метка результата. */
+function commentText(item: CallItem): string {
+  if (item.comment) return item.comment
+  if (item.result) return RESULT_LABELS[item.result] ?? item.result
+  return "—"
+}
 
 /** Русское склонение «год/года/лет» после числа. */
 function ruYears(n: number): string {
@@ -69,6 +88,29 @@ export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: 
     finally { setLoading(false) }
   }
 
+  // Заявка создана прямо из обзвона: помечаем контакт обработанным и ставим
+  // result="application" — так звонок попадает в столбец «Заявки» отчёта
+  // «Эффективность обзвонов». Существующий комментарий не трогаем (undefined в
+  // PATCH → Prisma пропускает поле).
+  async function markApplicationCreated() {
+    setLoading(true)
+    try {
+      await fetch(`/api/call-campaigns/${campaignId}/items`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemId: item.id,
+          status: item.status === "pending" ? "called" : item.status,
+          comment: comment || undefined,
+          result: "application",
+        }),
+      })
+      setShowForm(false)
+      router.refresh()
+    } catch { /* ignore */ }
+    finally { setLoading(false) }
+  }
+
   return (
     <>
       <TableRow className={item.status !== "pending" ? "opacity-60" : ""}>
@@ -86,12 +128,12 @@ export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: 
             {STATUS_LABELS[item.status] || item.status}
           </Badge>
         </TableCell>
-        <TableCell className="max-w-[200px] truncate text-muted-foreground">{item.comment || item.result || "—"}</TableCell>
+        <TableCell className="max-w-[200px] truncate text-muted-foreground">{commentText(item)}</TableCell>
         <TableCell>
           {item.status === "pending" ? (
             <Button size="sm" variant="outline" onClick={() => setShowForm(!showForm)}>
               <Phone className="mr-1 size-3" />
-              Позвонить
+              Результат
             </Button>
           ) : (
             <Check className="size-4 text-green-500" />
@@ -101,7 +143,7 @@ export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: 
       {showForm && (
         <TableRow>
           <TableCell colSpan={8}>
-            <div className="flex items-center gap-2 py-1">
+            <div className="flex flex-wrap items-center gap-2 py-1">
               <Input
                 placeholder="Комментарий"
                 value={comment}
@@ -112,6 +154,16 @@ export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: 
               <Button size="sm" variant="outline" onClick={() => saveResult("no_answer")} disabled={loading}>Не ответил</Button>
               <Button size="sm" variant="outline" onClick={() => saveResult("callback")} disabled={loading}>Перезвонить</Button>
               <Button size="sm" variant="secondary" onClick={() => saveResult("completed")} disabled={loading}>Завершён</Button>
+              <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+              <CreateApplicationDialog
+                clientId={item.clientId}
+                wards={item.wards}
+                callCampaignItemId={item.id}
+                variant="default"
+                size="sm"
+                triggerLabel="Создать заявку"
+                onCreated={markApplicationCreated}
+              />
             </div>
           </TableCell>
         </TableRow>

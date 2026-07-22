@@ -18,6 +18,9 @@ const createSchema = z.object({
   branchId: z.string().uuid("Не выбран филиал"),
   directionId: z.string().uuid("Не выбрано направление"),
   comment: z.string().optional(),
+  // Заявка создаётся из кампании обзвона — привязываем к позиции обзвона для
+  // атрибуции воронки (отчёт «Эффективность обзвонов»).
+  callCampaignItemId: z.string().uuid().optional(),
 })
 
 export async function GET(req: NextRequest) {
@@ -91,6 +94,18 @@ export async function POST(req: NextRequest) {
   if (!branch) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
   if (!direction) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
 
+  // Привязка к обзвону: позиция должна быть своей (tenant) и относиться к тому же
+  // клиенту, иначе заявку могли бы прицепить к чужому звонку. При несоответствии
+  // просто не привязываем (заявку всё равно создаём).
+  let callCampaignItemId: string | undefined
+  if (data.callCampaignItemId) {
+    const item = await db.callCampaignItem.findFirst({
+      where: { id: data.callCampaignItemId, tenantId, clientId: data.clientId },
+      select: { id: true },
+    })
+    callCampaignItemId = item?.id
+  }
+
   // ADM-04: создавать заявку можно только в свой филиал.
   const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
   const scope = branchScopeFromSession(allowedBranchIds)
@@ -131,6 +146,7 @@ export async function POST(req: NextRequest) {
         branchId: data.branchId,
         directionId: data.directionId,
         comment: data.comment,
+        callCampaignItemId,
         createdBy: session.user.employeeId ?? undefined,
       },
       include: {
