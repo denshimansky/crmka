@@ -168,7 +168,10 @@ export async function applyWithdrawalSettlement(
   await recalcClientDiscounts(tx, { tenantId, clientId: subscription.clientId, createdBy })
 
   // Не осталось активных абонементов → клиент «Выбывший».
-  await churnClientIfNoActiveSubscription(tx, tenantId, subscription.clientId, withdrawalDate)
+  await churnClientIfNoActiveSubscription(tx, tenantId, subscription.clientId, withdrawalDate, {
+    employeeId: createdBy,
+    reason: "withdrawal",
+  })
 
   return { balanceDelta: delta.toNumber() }
 }

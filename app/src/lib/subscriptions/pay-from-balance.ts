@@ -12,7 +12,7 @@
 import { db } from "@/lib/db"
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
-import { reactivateChurnedClient } from "@/lib/clients/reactivate-churned"
+import { recordClientStatusChange } from "@/lib/clients/status-history"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 
 type Tx = Prisma.TransactionClient | PrismaClient
@@ -94,7 +94,7 @@ export async function payFromBalance(
 
     const client = await t.client.findFirst({
       where: { id: sub.clientId, tenantId: input.tenantId, deletedAt: null },
-      select: { id: true, clientBalance: true },
+      select: { id: true, clientBalance: true, funnelStatus: true, clientStatus: true },
     })
     if (!client) throw new PayFromBalanceError(404, "Клиент не найден")
     const clientBal = new Prisma.Decimal(client.clientBalance)
@@ -153,10 +153,30 @@ export async function payFromBalance(
       },
     })
 
-    if (becameActive) {
-      // Активация абонемента «Выбывшего» — клиент вернулся (Баг #5).
-      await reactivateChurnedClient(t, input.tenantId, sub.clientId)
+    // Оплата абонемента (на ЛЮБУЮ сумму, не обязательно полную) переводит
+    // клиента в «Активный клиент» — правило, согласованное с методологией:
+    // покупка = актив. Простое пополнение баланса (/api/payments, вебхук ЮKassa)
+    // статус НЕ меняет. Условие через ИЛИ — срабатывает, пока клиент не
+    // полностью «active_client + active», поэтому заодно возвращает выбывшего
+    // (Баг #5) и лечит рассинхрон. ЧС не трогаем: снимает только владелец.
+    const notFullyActive =
+      client.funnelStatus !== "active_client" || client.clientStatus !== "active"
+    if (notFullyActive && client.funnelStatus !== "blacklisted") {
+      await t.client.update({
+        where: { id: sub.clientId },
+        data: { funnelStatus: "active_client", clientStatus: "active", withdrawalDate: null },
+      })
+      await recordClientStatusChange(t, {
+        tenantId: input.tenantId,
+        clientId: sub.clientId,
+        employeeId: input.createdBy,
+        funnel: { old: client.funnelStatus, new: "active_client" },
+        client: { old: client.clientStatus, new: "active" },
+        reason: "subscription_payment",
+      })
+    }
 
+    if (becameActive) {
       // Зачисление в группу → «оплачено» (и для взрослого абонемента wardId=null,
       // который не попадает в ward-ветку ниже).
       await t.groupEnrollment.updateMany({

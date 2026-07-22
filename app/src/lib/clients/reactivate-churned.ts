@@ -1,4 +1,8 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
+import {
+  recordClientStatusChange,
+  type ClientStatusChangeReason,
+} from "@/lib/clients/status-history"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -19,10 +23,20 @@ export async function reactivateChurnedClient(
   t: Tx,
   tenantId: string,
   clientId: string,
+  opts?: { employeeId?: string | null; reason?: ClientStatusChangeReason },
 ): Promise<boolean> {
   const res = await t.client.updateMany({
     where: { id: clientId, tenantId, deletedAt: null, clientStatus: "churned" },
     data: { clientStatus: "active", withdrawalDate: null },
   })
+  if (res.count > 0) {
+    await recordClientStatusChange(t, {
+      tenantId,
+      clientId,
+      employeeId: opts?.employeeId ?? null,
+      client: { old: "churned", new: "active" },
+      reason: opts?.reason ?? "reactivated",
+    })
+  }
   return res.count > 0
 }

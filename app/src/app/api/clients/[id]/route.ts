@@ -6,6 +6,7 @@ import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
 import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
+import { recordClientStatusChange } from "@/lib/clients/status-history"
 import { z } from "zod"
 
 // PATCH — частичное обновление: отсутствующее в теле поле должно остаться
@@ -275,6 +276,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         removedApplications.push({ id: app.id, stage: app.stage, ...res })
       }
     }
+
+    // История карточки: смена статуса воронки/клиента (ручная правка).
+    await recordClientStatusChange(tx, {
+      tenantId: session.user.tenantId,
+      clientId: id,
+      employeeId: session.user.employeeId,
+      funnel: { old: existing.funnelStatus, new: updated.funnelStatus },
+      client: { old: existing.clientStatus, new: updated.clientStatus },
+      reason: "manual",
+    })
     return updated
   })
 
@@ -288,8 +299,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         action: "update",
         entityType: "Client",
         entityId: id,
+        // funnelStatus фиксирует recordClientStatusChange выше — здесь только
+        // детализация выведенных из воронки заявок (не дублируем событие ленты).
         changes: {
-          funnelStatus: { old: existing.funnelStatus, new: data.funnelStatus },
           applicationsRemovedFromFunnel: removedApplications,
         },
       },

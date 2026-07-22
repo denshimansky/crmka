@@ -35,8 +35,8 @@ export async function GET(req: NextRequest) {
     return details && (details.chargeAmount || details.charge_amount)
   })
 
-  // Get employee names
-  const empIds = [...new Set(filtered.map((l) => l.employeeId))]
+  // Get employee names (employeeId nullable — системные записи без сотрудника)
+  const empIds = [...new Set(filtered.map((l) => l.employeeId).filter((id): id is string => id !== null))]
   const employees = empIds.length > 0
     ? await db.employee.findMany({
         where: { id: { in: empIds } },
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
     return {
       auditId: l.id,
       date: l.createdAt.toISOString(),
-      changedBy: empMap.get(l.employeeId) || "Неизвестный",
+      changedBy: (l.employeeId ? empMap.get(l.employeeId) : null) || "Неизвестный",
       clientName: att
         ? [att.client.lastName, att.client.firstName].filter(Boolean).join(" ")
         : "Неизвестный",

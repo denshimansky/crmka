@@ -37,7 +37,10 @@ export async function activateSubscription(
   })
 
   // Активация абонемента «Выбывшего» — клиент вернулся (Баг #5).
-  await reactivateChurnedClient(t, tenantId, sub.clientId)
+  await reactivateChurnedClient(t, tenantId, sub.clientId, {
+    employeeId: createdBy,
+    reason: "reactivated",
+  })
 
   // Зачисление в группу → «оплачено». Делаем ДО раннего выхода по wardId:
   // взрослый абонемент (wardId=null) тоже имеет зачисление и должен сняться

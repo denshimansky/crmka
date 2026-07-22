@@ -6,7 +6,6 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
-import { reactivateChurnedClient } from "@/lib/clients/reactivate-churned"
 import { requirePermission } from "@/lib/api-permissions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
@@ -199,21 +198,19 @@ export async function POST(req: NextRequest) {
       createdBy: session.user.employeeId,
     })
 
-    // Если первая оплата — переводим клиента в active_client
+    // Дата первой оплаты/продажи — маркер «клиент внёс деньги» (для отчётов).
+    // Статус в «Актив» здесь НЕ меняем: простое пополнение баланса не делает
+    // клиента активом. Перевод в актив вешается на оплату абонемента
+    // (pay-from-balance, на любую сумму) или платное занятие — согласовано с
+    // методологией. Возврат выбывшего — там же, при оплате абонемента.
     if (isFirstPayment) {
       await tx.client.update({
         where: { id: data.clientId },
         data: {
-          funnelStatus: "active_client",
-          clientStatus: "active",
           firstPaymentDate: new Date(data.date),
           saleDate: new Date(data.date),
         },
       })
-    } else {
-      // Повторная оплата «Выбывшего» — клиент вернулся (Баг #5):
-      // раньше статус возвращала только первая оплата.
-      await reactivateChurnedClient(tx, session.user.tenantId, data.clientId)
     }
 
     return p

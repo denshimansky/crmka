@@ -243,6 +243,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       session.user.tenantId,
       subscription.clientId,
       withdrawAt,
+      { employeeId: session.user.employeeId, reason: "withdrawal" },
     )
 
     // Скидки v2: отчисленный выпадает из состава месяца — пересчёт скидок

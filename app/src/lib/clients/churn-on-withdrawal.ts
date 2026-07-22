@@ -1,4 +1,8 @@
 import { type Prisma, type PrismaClient } from "@prisma/client"
+import {
+  recordClientStatusChange,
+  type ClientStatusChangeReason,
+} from "@/lib/clients/status-history"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -29,6 +33,7 @@ export async function churnClientIfNoActiveSubscription(
   tenantId: string,
   clientId: string,
   withdrawalDate: Date,
+  opts?: { employeeId?: string | null; reason?: ClientStatusChangeReason },
 ): Promise<boolean> {
   const activeLeft = await t.subscription.count({
     where: { tenantId, clientId, status: "active", deletedAt: null },
@@ -38,5 +43,14 @@ export async function churnClientIfNoActiveSubscription(
     where: { id: clientId, tenantId, deletedAt: null, clientStatus: "active" },
     data: { clientStatus: "churned", withdrawalDate },
   })
+  if (res.count > 0) {
+    await recordClientStatusChange(t, {
+      tenantId,
+      clientId,
+      employeeId: opts?.employeeId ?? null,
+      client: { old: "active", new: "churned" },
+      reason: opts?.reason ?? "withdrawal",
+    })
+  }
   return res.count > 0
 }

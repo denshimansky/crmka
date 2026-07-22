@@ -580,6 +580,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         session.user.tenantId,
         existing.clientId,
         effectiveWithdrawalDate ?? new Date(),
+        { employeeId: session.user.employeeId, reason: "withdrawal" },
       )
     }
 

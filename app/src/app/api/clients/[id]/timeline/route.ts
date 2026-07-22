@@ -4,6 +4,10 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { formatWardName } from "@/lib/format-name"
+import {
+  CLIENT_STATUS_CHANGE_REASON_LABELS,
+  type ClientStatusChangeReason,
+} from "@/lib/clients/status-history"
 
 // Точные типы результатов findMany c include — нужны, чтобы в ward-режиме
 // (когда мы возвращаем пустой массив вместо запроса) типизация сохранилась.
@@ -695,6 +699,14 @@ export async function GET(
       continue
     }
 
+    // Причина смены (first_payment/paid_lesson/cron_inactive/…) — суффикс к событию.
+    const reasonRaw = typeof changes.reason === "string" ? (changes.reason as ClientStatusChangeReason) : null
+    const reasonLabel = reasonRaw ? CLIENT_STATUS_CHANGE_REASON_LABELS[reasonRaw] ?? null : null
+    // Автор: сотрудник, либо «Система» для авто-событий (крон/вебхук/автоактивация).
+    const author = log.employee
+      ? [log.employee.lastName, log.employee.firstName].filter(Boolean).join(" ")
+      : "Система"
+
     const statusFields = ["funnelStatus", "clientStatus"]
     for (const field of statusFields) {
       const c = changes[field] as { old?: unknown; new?: unknown } | undefined
@@ -702,10 +714,8 @@ export async function GET(
       const oldVal = c.old as string | null
       const newVal = c.new as string | null
       if (oldVal === newVal) continue
-      const author = log.employee
-        ? [log.employee.lastName, log.employee.firstName].filter(Boolean).join(" ")
-        : null
       const label = (v: string | null) => (v ? STATUS_LABELS[v] || v : "—")
+      const transition = `${label(oldVal)} → ${label(newVal)}`
       events.push({
         id: `audit-${log.id}-${field}`,
         kind: "status_change",
@@ -714,8 +724,8 @@ export async function GET(
           field === "funnelStatus"
             ? "Смена статуса в воронке"
             : "Смена статуса клиента",
-        description: `${label(oldVal)} → ${label(newVal)}`,
-        meta: { author, field },
+        description: reasonLabel ? `${transition} · ${reasonLabel}` : transition,
+        meta: { author, field, reason: reasonRaw },
       })
     }
   }

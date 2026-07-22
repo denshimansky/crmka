@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
+import { recordClientStatusChange } from "@/lib/clients/status-history"
 
 /**
  * Закрывает зависшую заявку «Ожидаем оплату» при завершении жизни абонемента
@@ -93,7 +94,11 @@ export async function resolveAwaitingApplicationOnSubscriptionEnd(
   // clientStatus nullable (у чистых лидов NULL), а SQL `<> 'active'` NULL не
   // матчит — нужен явный OR с null, иначе основная аудитория (лиды) пропускается.
   if (outcome === "potential") {
-    await tx.client.updateMany({
+    const before = await tx.client.findUnique({
+      where: { id: sub.clientId },
+      select: { funnelStatus: true },
+    })
+    const res = await tx.client.updateMany({
       where: {
         id: sub.clientId,
         tenantId,
@@ -101,6 +106,15 @@ export async function resolveAwaitingApplicationOnSubscriptionEnd(
       },
       data: { funnelStatus: "potential" },
     })
+    if (res.count > 0 && before) {
+      await recordClientStatusChange(tx, {
+        tenantId,
+        clientId: sub.clientId,
+        employeeId: opts.employeeId ?? null,
+        funnel: { old: before.funnelStatus, new: "potential" },
+        reason: "subscription_ended_unpaid",
+      })
+    }
   }
   await recomputeWardSalesStage(tx, tenantId, sub.wardId, opts.at ?? new Date())
 }

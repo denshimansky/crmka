@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
+import { recordClientStatusChange } from "@/lib/clients/status-history"
 import { readSheet, normPhone, normName, indexClientsByNormPhone } from "./parse-xlsx"
 import { parseStatus, toDbStatus, topStatus, type LeadStatus } from "./status-map"
 import { splitParentFio } from "./surname-gender"
@@ -467,6 +468,14 @@ export async function syncLeads(
             lastBranchId: setLastBranchId ? resolvedBranchId : undefined,
           },
         })
+        await recordClientStatusChange(tx, {
+          tenantId: opts.tenantId,
+          clientId: existing.id,
+          employeeId: opts.createdBy ?? null,
+          funnel: { old: existing.funnelStatus, new: mergedDb.funnelStatus },
+          client: { old: existing.clientStatus, new: mergedDb.clientStatus },
+          reason: "import",
+        })
         if (setBranchId || setLastBranchId) branchAssigned++
         // Терминальный статус из файла (Архив/ЧС) выводит активные заявки
         // клиента из воронки — тот же инвариант, что movingToTerminal в
@@ -547,6 +556,14 @@ export async function syncLeads(
             createdBy: opts.createdBy ?? undefined,
           },
           select: { id: true },
+        })
+        await recordClientStatusChange(tx, {
+          tenantId: opts.tenantId,
+          clientId: created.id,
+          employeeId: opts.createdBy ?? null,
+          funnel: { old: null, new: dbStatus.funnelStatus },
+          client: { old: null, new: dbStatus.clientStatus ?? null },
+          reason: "import",
         })
         clientId = created.id
         clientsCreated++

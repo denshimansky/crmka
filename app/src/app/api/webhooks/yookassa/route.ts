@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
-import { reactivateChurnedClient } from "@/lib/clients/reactivate-churned"
 
 /**
  * YooKassa webhook handler (FIN-21)
@@ -256,20 +255,18 @@ async function handlePaymentSucceeded(
       refs: { paymentId: created.id, subscriptionId: null },
     })
 
-    // Если первая оплата — переводим клиента в active_client
+    // Онлайн-оплата — тоже только зачисление на баланс родителя (списание в
+    // абонемент — отдельный шаг pay-from-balance). Статус в «Актив» здесь НЕ
+    // меняем: перевод вешается на оплату абонемента или платное занятие. Ставим
+    // лишь маркер даты первой оплаты/продажи для отчётов.
     if (isFirstPayment) {
       await tx.client.update({
         where: { id: clientId },
         data: {
-          funnelStatus: "active_client",
-          clientStatus: "active",
           firstPaymentDate: paymentDate,
           saleDate: paymentDate,
         },
       })
-    } else {
-      // Повторная оплата «Выбывшего» — клиент вернулся (Баг #5).
-      await reactivateChurnedClient(tx, tenantId, clientId)
     }
   })
 

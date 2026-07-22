@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
+import { reactivateChurnedClient } from "@/lib/clients/reactivate-churned"
+import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 
 export const runtime = "nodejs"
 export const maxDuration = 120
@@ -29,14 +31,21 @@ export async function POST(req: NextRequest) {
   // churned при активных абонементах); возникает, когда клиента выбыли при
   // pending-абонементах, а повторная оплата/активация не возвращала статус.
   // Возвращаем таких в активные.
-  const reactivated = await db.client.updateMany({
+  const toReactivate = await db.client.findMany({
     where: {
       deletedAt: null,
       clientStatus: "churned",
       subscriptions: { some: { status: "active", deletedAt: null } },
     },
-    data: { clientStatus: "active", withdrawalDate: null },
+    select: { id: true, tenantId: true },
   })
+  let reactivatedCount = 0
+  for (const c of toReactivate) {
+    // Через хелпер — пишет событие в историю карточки (автор «Система»).
+    if (await reactivateChurnedClient(db, c.tenantId, c.id, { reason: "cron_reactivated" })) {
+      reactivatedCount++
+    }
+  }
 
   const thresholdDays = 30
   const threshold = new Date()
@@ -90,23 +99,28 @@ export async function POST(req: NextRequest) {
       ok: true,
       checked: candidates.length,
       churned: 0,
-      reactivated: reactivated.count,
+      reactivated: reactivatedCount,
     })
   }
 
-  await db.client.updateMany({
-    where: { id: { in: toChurn } },
-    data: {
-      clientStatus: "churned",
-      withdrawalDate: new Date(),
-    },
-  })
+  // Через хелпер по каждому — заодно пишет событие в историю карточки (автор
+  // «Система», причина «неактивность»).
+  const tenantByClient = new Map(candidates.map((c) => [c.id, c.tenantId]))
+  const churnDate = new Date()
+  let churnedCount = 0
+  for (const id of toChurn) {
+    const tenantId = tenantByClient.get(id)
+    if (!tenantId) continue
+    if (await churnClientIfNoActiveSubscription(db, tenantId, id, churnDate, { reason: "cron_inactive" })) {
+      churnedCount++
+    }
+  }
 
   return NextResponse.json({
     ok: true,
     checked: candidates.length,
-    churned: toChurn.length,
-    reactivated: reactivated.count,
+    churned: churnedCount,
+    reactivated: reactivatedCount,
     thresholdDays,
   })
 }

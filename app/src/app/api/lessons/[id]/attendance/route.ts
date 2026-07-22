@@ -23,6 +23,7 @@ import { isConsumingAttendanceType } from "@/lib/subscriptions/consumed-lessons"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
+import { recordClientStatusChange } from "@/lib/clients/status-history"
 import {
   branchScopeFromSession,
   canAccessBranch,
@@ -641,9 +642,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           })
         }
 
-        // Lead→Client conversion: первое платное посещение конвертирует лида
+        // Lead→Client conversion: платное посещение делает клиента активным.
+        // Условие через ИЛИ — срабатывает, пока клиент не полностью «Активный
+        // клиент + active», поэтому лечит и рассинхрон (напр. Архив+active).
+        // ЧС не трогаем: снять бан может только владелец вручную.
         const client = await tx.client.findUnique({ where: { id: data.clientId } })
-        if (client && client.funnelStatus !== "active_client" && client.clientStatus !== "active") {
+        const notFullyActive =
+          !!client && (client.funnelStatus !== "active_client" || client.clientStatus !== "active")
+        if (client && notFullyActive && client.funnelStatus !== "blacklisted") {
           await tx.client.update({
             where: { id: data.clientId },
             data: {
@@ -653,6 +659,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
               // покупателем (используется воронкой продаж и отчётами конверсии).
               ...(client.firstPaidLessonDate ? {} : { firstPaidLessonDate: lesson.date }),
             },
+          })
+          await recordClientStatusChange(tx, {
+            tenantId,
+            clientId: data.clientId,
+            employeeId,
+            funnel: { old: client.funnelStatus, new: "active_client" },
+            client: { old: client.clientStatus, new: "active" },
+            reason: "paid_lesson",
           })
         }
       }
@@ -763,8 +777,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           comment: newChargeAmount.lt(oneOffBase) ? "Разовое посещение (со скидкой)" : "Разовое посещение",
         })
 
-        // Lead→Client конверсия как и в обычной отметке.
-        if (oneOffClient && oneOffClient.funnelStatus !== "active_client" && oneOffClient.clientStatus !== "active") {
+        // Lead→Client конверсия как и в обычной отметке (ИЛИ-условие лечит
+        // рассинхрон; ЧС не трогаем).
+        const oneOffNotFullyActive =
+          !!oneOffClient &&
+          (oneOffClient.funnelStatus !== "active_client" || oneOffClient.clientStatus !== "active")
+        if (oneOffClient && oneOffNotFullyActive && oneOffClient.funnelStatus !== "blacklisted") {
           await tx.client.update({
             where: { id: data.clientId },
             data: {
@@ -772,6 +790,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
               clientStatus: "active",
               ...(oneOffClient.firstPaidLessonDate ? {} : { firstPaidLessonDate: lesson.date }),
             },
+          })
+          await recordClientStatusChange(tx, {
+            tenantId,
+            clientId: data.clientId,
+            employeeId,
+            funnel: { old: oneOffClient.funnelStatus, new: "active_client" },
+            client: { old: oneOffClient.clientStatus, new: "active" },
+            reason: "paid_lesson",
           })
         }
       }
@@ -1220,7 +1246,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             comment: oneOffCharge.lt(oneOffBase) ? "Разовое посещение (со скидкой)" : "Разовое посещение",
           })
 
-          if (oneOffClient && oneOffClient.funnelStatus !== "active_client" && oneOffClient.clientStatus !== "active") {
+          const oneOffNotFullyActive =
+            !!oneOffClient &&
+            (oneOffClient.funnelStatus !== "active_client" || oneOffClient.clientStatus !== "active")
+          if (oneOffClient && oneOffNotFullyActive && oneOffClient.funnelStatus !== "blacklisted") {
             await tx.client.update({
               where: { id: oneOffClient.id },
               data: {
@@ -1228,6 +1257,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                 clientStatus: "active",
                 ...(oneOffClient.firstPaidLessonDate ? {} : { firstPaidLessonDate: lesson.date }),
               },
+            })
+            await recordClientStatusChange(tx, {
+              tenantId,
+              clientId: oneOffClient.id,
+              employeeId,
+              funnel: { old: oneOffClient.funnelStatus, new: "active_client" },
+              client: { old: oneOffClient.clientStatus, new: "active" },
+              reason: "paid_lesson",
             })
           }
         }

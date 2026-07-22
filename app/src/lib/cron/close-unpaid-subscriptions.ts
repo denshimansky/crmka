@@ -5,6 +5,7 @@ import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
+import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 
 /**
  * Авто-закрытие неоплаченных абонементов.
@@ -152,15 +153,12 @@ export async function closeUnpaidSubscriptions(now: Date = new Date()) {
             db.payment.count({ where: { tenantId: t.id, clientId } }),
           ])
           if (activeSubsLeft === 0 && paymentsCount > 0) {
-            const res = await db.client.updateMany({
-              where: {
-                id: clientId,
-                tenantId: t.id,
-                clientStatus: "active",
-              },
-              data: { clientStatus: "churned", withdrawalDate: today },
+            // Через хелпер — заодно пишет событие в историю карточки (автор
+            // «Система», причина «неактивность»).
+            const churned = await churnClientIfNoActiveSubscription(db, t.id, clientId, today, {
+              reason: "cron_inactive",
             })
-            churnedClients += res.count
+            if (churned) churnedClients++
           }
           // Скидки v2: закрытый без отметок аннулирован и выпадает из состава
           // месяца — пересчитываем скидки оставшихся абонементов клиента.

@@ -1179,7 +1179,9 @@ model AccountOperation {
 model AuditLog {
   id                 String   @id @default(uuid()) @db.Uuid
   tenantId           String   @map("tenant_id") @db.Uuid
-  employeeId         String   @map("employee_id") @db.Uuid
+  // NULL — системное действие без сотрудника-инициатора (кроны, вебхук оплаты,
+  // автоактивация абонемента). В истории карточки отображается как «Система».
+  employeeId         String?  @map("employee_id") @db.Uuid
   action             String // create | update | delete
   entityType         String   @map("entity_type") // Attendance, Payment, Expense...
   entityId           String   @map("entity_id") @db.Uuid
@@ -1190,7 +1192,7 @@ model AuditLog {
   createdAt          DateTime @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [tenantId], references: [id])
-  employee     Employee     @relation(fields: [employeeId], references: [id])
+  employee     Employee?    @relation(fields: [employeeId], references: [id])
 
   @@index([tenantId, entityType, entityId])
   @@index([tenantId, createdAt])

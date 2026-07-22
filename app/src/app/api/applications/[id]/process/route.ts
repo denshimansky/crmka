@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { z } from "zod"
 import { createTrialLessonForClient } from "@/lib/services/trial-lesson"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
+import { recordClientStatusChange } from "@/lib/clients/status-history"
 
 const trialPayloadSchema = z.object({
   groupId: z.string().uuid().optional(),
@@ -111,6 +112,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       await tx.client.update({
         where: { id: application.clientId },
         data: { funnelStatus: newFunnelStatus },
+      })
+      await recordClientStatusChange(tx, {
+        tenantId,
+        clientId: application.clientId,
+        employeeId: employeeId ?? null,
+        funnel: { old: application.client.funnelStatus, new: newFunnelStatus },
+        reason: "application_processed",
       })
     }
     // Эта заявка ушла из воронки. Зеркало Ward.salesStage пересчитываем как максимум

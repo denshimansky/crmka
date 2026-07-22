@@ -4,7 +4,8 @@ type AuditAction = "create" | "update" | "delete"
 
 interface AuditParams {
   tenantId: string
-  employeeId: string
+  // null — системное действие без сотрудника (крон, вебхук, автоактивация)
+  employeeId: string | null
   action: AuditAction
   entityType: string
   entityId: string
