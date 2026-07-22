@@ -38,15 +38,30 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Missing params: report, field, month" }, { status: 400 })
   }
 
-  const [yearStr, monthStr] = monthParam.split("-")
-  const year = Number(yearStr)
-  const month = Number(monthStr)
-  if (!year || !month) {
+  // Период drill-down: одиночный month (YYYY-MM) ИЛИ диапазон from/to (P&L за
+  // произвольный период). from/to переопределяют month; from>to — меняем местами.
+  const parseYm = (v: string | null): { year: number; month: number } | null => {
+    if (v && /^\d{4}-\d{2}$/.test(v)) {
+      const [y, m] = v.split("-").map(Number)
+      if (y && m >= 1 && m <= 12) return { year: y, month: m }
+    }
+    return null
+  }
+  const single = parseYm(monthParam)
+  if (!single) {
     return NextResponse.json({ error: "Invalid month format" }, { status: 400 })
   }
+  let fromYm = parseYm(searchParams.get("from")) ?? single
+  let toYm = parseYm(searchParams.get("to")) ?? fromYm
+  if (toYm.year * 12 + toYm.month < fromYm.year * 12 + fromYm.month) {
+    const t = fromYm
+    fromYm = toYm
+    toYm = t
+  }
+  const isRange = fromYm.year !== toYm.year || fromYm.month !== toYm.month
 
-  const monthStart = new Date(Date.UTC(year, month - 1, 1))
-  const monthEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
+  const monthStart = new Date(Date.UTC(fromYm.year, fromYm.month - 1, 1))
+  const monthEnd = new Date(Date.UTC(toYm.year, toYm.month, 0, 23, 59, 59, 999))
 
   try {
     let columns: string[] = []
@@ -135,7 +150,7 @@ export async function GET(req: NextRequest) {
       }
       const detail: DetailRow[] = []
       for (const e of expenses) {
-        const inPeriod = expenseAmountInWindow(e, year, month, year, month)
+        const inPeriod = expenseAmountInWindow(e, fromYm.year, fromYm.month, toYm.year, toYm.month)
         if (inPeriod === 0) continue
         detail.push({
           date: e.date,
@@ -148,7 +163,7 @@ export async function GET(req: NextRequest) {
       }
       detail.sort((a, b) => b.amountInPeriod - a.amountInPeriod)
 
-      columns = ["Дата платежа", "Категория", "Полная сумма", "В этом месяце", "Признание", "Комментарий"]
+      columns = ["Дата платежа", "Категория", "Полная сумма", isRange ? "В периоде" : "В этом месяце", "Признание", "Комментарий"]
       rows = detail.map(d => [
         formatDate(d.date),
         d.category,

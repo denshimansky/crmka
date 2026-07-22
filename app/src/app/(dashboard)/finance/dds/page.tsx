@@ -72,14 +72,21 @@ interface JournalRow {
   href?: string // для перехода в исходник
 }
 
-const KIND_LABELS: Record<JournalKind, { label: string; classes: string }> = {
+// ДДС сводится к трём типам движения денег: Приход / Расход / Перемещение.
+// Детализация (ЗП, возврат, инкассация, выемка…) остаётся в колонке «Категория».
+type DdsType = "income" | "expense" | "transfer"
+const DDS_TYPE_LABELS: Record<DdsType, { label: string; classes: string }> = {
   income: { label: "Приход", classes: "bg-green-100 text-green-800" },
-  refund: { label: "Возврат", classes: "bg-orange-100 text-orange-800" },
   expense: { label: "Расход", classes: "bg-red-100 text-red-800" },
-  salary: { label: "ЗП", classes: "bg-purple-100 text-purple-800" },
-  transfer: { label: "Перевод", classes: "bg-blue-100 text-blue-800" },
-  withdrawal: { label: "Выемка", classes: "bg-amber-100 text-amber-800" },
-  encashment: { label: "Инкассация", classes: "bg-cyan-100 text-cyan-800" },
+  transfer: { label: "Перемещение", classes: "bg-blue-100 text-blue-800" },
+}
+// Внутренние kind'ы журнала → три типа ДДС. Выемка собственника — деньги,
+// уходящие из компании (Расход); перевод и инкассация — движение между своими
+// счетами (Перемещение).
+function ddsTypeOf(kind: JournalKind): DdsType {
+  if (kind === "income") return "income"
+  if (kind === "transfer" || kind === "encashment") return "transfer"
+  return "expense"
 }
 
 export default async function DdsJournalPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -183,7 +190,10 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
         : p.subscription?.direction.name
           ? `Оплата абонемента: ${p.subscription.direction.name}`
           : p.incomeCategory?.name ?? METHOD_LABELS[p.method] ?? "Поступление"
-    const amount = p.type === "refund" ? -Number(p.amount) : Number(p.amount)
+    // Возврат хранится отрицательной суммой (refund-роут пишет −amount) — берём
+    // −|amount|, чтобы в ДДС он был Расходом (минус), а не «+» из-за двойного
+    // отрицания прежней формулы.
+    const amount = p.type === "refund" ? -Math.abs(Number(p.amount)) : Number(p.amount)
     rows.push({
       id: `payment:${p.id}`,
       kind: p.type === "refund" ? "refund" : "income",
@@ -277,7 +287,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
   }
 
   if (kindFilter && kindFilter !== "all") {
-    filteredRows = filteredRows.filter(r => r.kind === kindFilter)
+    filteredRows = filteredRows.filter(r => ddsTypeOf(r.kind) === kindFilter)
   }
 
   filteredRows.sort((a, b) => a.date.getTime() - b.date.getTime())
@@ -289,7 +299,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
     if (!monthSummary[p.accountId]) continue
     // transfer_in — внутреннее списание с баланса, счёт не двигается.
     if (p.type === "transfer_in") continue
-    if (p.type === "refund") monthSummary[p.accountId].outgoing += Number(p.amount)
+    if (p.type === "refund") monthSummary[p.accountId].outgoing += Math.abs(Number(p.amount))
     else monthSummary[p.accountId].incoming += Number(p.amount)
   }
   for (const e of expenses) {
@@ -322,7 +332,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
   // === Данные для экспорта (по одной строке журнала) ===
   const exportRows = filteredRows.map(r => ({
     date: formatDate(r.date),
-    kind: KIND_LABELS[r.kind].label,
+    kind: DDS_TYPE_LABELS[ddsTypeOf(r.kind)].label,
     category: r.category,
     counterparty: r.counterparty,
     account: r.account,
@@ -456,13 +466,13 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
         <Link href={filterHref({ kind: undefined })}>
           <Badge variant={!kindFilter || kindFilter === "all" ? "default" : "outline"}>Все ({rows.length})</Badge>
         </Link>
-        {(["income", "expense", "salary", "transfer", "refund", "withdrawal", "encashment"] as JournalKind[]).map(k => {
-          const count = rows.filter(r => r.kind === k).length
+        {(["income", "expense", "transfer"] as DdsType[]).map(t => {
+          const count = rows.filter(r => ddsTypeOf(r.kind) === t).length
           if (count === 0) return null
           return (
-            <Link key={k} href={filterHref({ kind: kindFilter === k ? undefined : k })}>
-              <Badge variant={kindFilter === k ? "default" : "outline"}>
-                {KIND_LABELS[k].label} ({count})
+            <Link key={t} href={filterHref({ kind: kindFilter === t ? undefined : t })}>
+              <Badge variant={kindFilter === t ? "default" : "outline"}>
+                {DDS_TYPE_LABELS[t].label} ({count})
               </Badge>
             </Link>
           )
@@ -506,34 +516,44 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRows.map(r => (
-                    <TableRow key={r.id}>
-                      <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(r.date)}</TableCell>
-                      <TableCell>
-                        <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${KIND_LABELS[r.kind].classes}`}>
-                          {KIND_LABELS[r.kind].label}
-                        </span>
-                      </TableCell>
-                      <TableCell className="font-medium">{r.category}</TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {r.counterpartyHref ? (
-                          <Link href={r.counterpartyHref} className="hover:underline hover:text-foreground">
-                            {r.counterparty}
-                          </Link>
-                        ) : (
-                          r.counterparty
-                        )}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{r.account}</TableCell>
-                      <TableCell className={`text-right font-medium ${r.amount > 0 ? "text-green-600" : r.amount < 0 ? "text-red-600" : ""}`}>
-                        {formatMoney(r.amount)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{r.responsible}</TableCell>
-                      <TableCell className="max-w-[240px] truncate text-muted-foreground" title={r.comment}>
-                        {r.comment || "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {filteredRows.map(r => {
+                    const t = ddsTypeOf(r.kind)
+                    const amountCls =
+                      t === "income" ? "text-green-600" : t === "expense" ? "text-red-600" : "text-blue-600"
+                    // Перемещение — движение между своими счетами: показываем без ± знака.
+                    const amountText =
+                      t === "transfer"
+                        ? new Intl.NumberFormat("ru-RU").format(Math.abs(Math.round(r.amount * 100) / 100)) + " ₽"
+                        : formatMoney(r.amount)
+                    return (
+                      <TableRow key={r.id}>
+                        <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(r.date)}</TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${DDS_TYPE_LABELS[t].classes}`}>
+                            {DDS_TYPE_LABELS[t].label}
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-medium">{r.category}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {r.counterpartyHref ? (
+                            <Link href={r.counterpartyHref} className="hover:underline hover:text-foreground">
+                              {r.counterparty}
+                            </Link>
+                          ) : (
+                            r.counterparty
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{r.account}</TableCell>
+                        <TableCell className={`text-right font-medium ${amountCls}`}>
+                          {amountText}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{r.responsible}</TableCell>
+                        <TableCell className="max-w-[240px] truncate text-muted-foreground" title={r.comment}>
+                          {r.comment || "—"}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </StickyHScroll>

@@ -2,7 +2,6 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
-import { oneOffDebtByClient } from "@/lib/one-off-debt"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -111,49 +110,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   })
   const monthExpenses = Number(monthExpensesData._sum.amount || 0)
 
-  // Должники (плановый долг): клиенты с непогашенным остатком по не-отчисленным
-  // абонементам (balance>0) + неоплаченные разовые посещения (минусовой
-  // clientBalance в части personal_lesson_charge). Совпадает с вкладкой
-  // «Плановый долг» страницы /finance/debtors, куда ведёт виджет.
-  // Перенесённый/импортный долг (остаток минуса clientBalance) сюда НЕ входит —
-  // он виден на вкладке «Фактический долг».
-  const debtors = await db.client.findMany({
-    where: {
-      tenantId,
-      deletedAt: null,
-      subscriptions: {
-        some: {
-          deletedAt: null,
-          status: { not: "withdrawn" },
-          balance: { gt: 0 },
-        },
-      },
-    },
-    select: {
-      id: true,
-      subscriptions: {
-        where: {
-          deletedAt: null,
-          status: { not: "withdrawn" },
-          balance: { gt: 0 },
-        },
-        select: { balance: true },
-      },
-    },
-  })
-  const negBalanceClients = await db.client.findMany({
-    where: { tenantId, deletedAt: null, clientBalance: { lt: 0 } },
-    select: { id: true, clientBalance: true },
-  })
-  const oneOffDebtMap = await oneOffDebtByClient(tenantId, negBalanceClients)
-  const debtorIds = new Set<string>(debtors.map((d) => d.id))
-  for (const id of oneOffDebtMap.keys()) debtorIds.add(id)
-  const debtorCount = debtorIds.size
-  const totalDebt =
-    debtors.reduce(
-      (s, d) => s + d.subscriptions.reduce((acc, sub) => acc + Number(sub.balance), 0),
-      0,
-    ) + [...oneOffDebtMap.values()].reduce((s, v) => s + v, 0)
+  // Должники за выбранный месяц (debtorCount / totalDebt) считаются ниже из того
+  // же набора абонементов, что и виджет «Ожидаемые поступления средств»
+  // (expectedSubs) — чтобы карточка «Должники» на дашборде совпадала с ним по
+  // сумме. См. блок «Ожидаемые поступления средств».
 
   // Задачи на сегодня (и просроченные). Для админа/менеджера/владельца — все
   // задачи тенанта; для прочих ролей (инструктор, readonly) — только свои.
@@ -339,6 +299,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       finalAmount: true,
       discountAmount: true,
       balance: true,
+      client: { select: { id: true } },
       group: { select: { branch: { select: { id: true, name: true } } } },
     },
   })
@@ -388,6 +349,18 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     }),
     { subAmount: 0, expected: 0, paid: 0, discount: 0 }
   )
+
+  // Должники за выбранный месяц: активные клиенты с непогашенным остатком
+  // (balance>0) по абонементам этого месяца. totalDebt по построению равен
+  // «Ожидаемым поступлениям» (incomeTotals.expected) — одна и та же сумма
+  // остатка к оплате за месяц, поэтому карточка «Должники» совпадает с виджетом.
+  const monthDebtorIds = new Set<string>()
+  for (const s of expectedSubs) {
+    if (Number(s.balance) > 0) monthDebtorIds.add(s.client.id)
+  }
+  const debtorCount = monthDebtorIds.size
+  const totalDebt = incomeTotals.expected
+
   const incomePct = (part: number, total: number) =>
     total > 0 ? Math.round((part / total) * 100) : 0
   const fmtIncome = (n: number) =>
@@ -663,7 +636,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base">
-          <Link href="/finance/debtors" className="hover:underline">
+          <Link href={`/reports/finance/expected-income?year=${year}&month=${month}`} className="hover:underline">
             Ожидаемые поступления средств
           </Link>
         </CardTitle>

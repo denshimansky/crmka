@@ -1,5 +1,5 @@
 import { PageHelp } from "@/components/page-help"
-import { MonthPicker } from "@/components/month-picker"
+import { PnlPeriodPicker } from "@/components/pnl-period-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
@@ -26,9 +26,32 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const tenantId = session.user.tenantId
 
   const params = await searchParams
-  const { year, month } = getMonthFromParams(params)
-  const monthStart = new Date(Date.UTC(year, month - 1, 1))
-  const monthEnd = new Date(Date.UTC(year, month, 0))
+  // Период отчёта — произвольный диапазон месяцев from/to (YYYY-MM). Обратная
+  // совместимость: одиночный месяц year/month (старые ссылки, дашборд, drill-down).
+  // Амортизация/раскладка расходов работают по месяцам, поэтому период — тоже
+  // помесячный (не по дням). from > to — меняем местами.
+  const single = getMonthFromParams(params)
+  const parseYm = (v: string | string[] | undefined, fy: number, fm: number) => {
+    if (typeof v === "string" && /^\d{4}-\d{2}$/.test(v)) {
+      const [y, m] = v.split("-").map(Number)
+      if (m >= 1 && m <= 12) return { year: y, month: m }
+    }
+    return { year: fy, month: fm }
+  }
+  let fromYm = parseYm(params.from, single.year, single.month)
+  let toYm = parseYm(params.to, fromYm.year, fromYm.month)
+  if (toYm.year * 12 + toYm.month < fromYm.year * 12 + fromYm.month) {
+    const t = fromYm
+    fromYm = toYm
+    toYm = t
+  }
+  const isRange = fromYm.year !== toYm.year || fromYm.month !== toYm.month
+  const fromKey = `${fromYm.year}-${String(fromYm.month).padStart(2, "0")}`
+  const toKey = `${toYm.year}-${String(toYm.month).padStart(2, "0")}`
+  // monthStart/monthEnd теперь охватывают весь период (начало from-месяца — конец
+  // to-месяца); остальной код считает по этому диапазону без изменений.
+  const monthStart = new Date(Date.UTC(fromYm.year, fromYm.month - 1, 1))
+  const monthEnd = new Date(Date.UTC(toYm.year, toYm.month, 0))
   const branchFilter = typeof params.branch === "string" ? params.branch : undefined
 
   // Список филиалов для табов «Общий | Филиал A | ...»
@@ -130,7 +153,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       categoryName: e.category.name,
       isSalary: e.category.isSalary,
       isVariable: e.category.isVariable,
-      amount: expenseAmountInWindow(e, year, month, year, month),
+      amount: expenseAmountInWindow(e, fromYm.year, fromYm.month, toYm.year, toYm.month),
       directDirectionId: e.branches.find((b) => b.directionId)?.directionId ?? null,
     }))
     .filter((s) => s.amount > 0)
@@ -258,9 +281,14 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       percentOfRevenue: revenue > 0 ? Math.round((a.amount / revenue) * 1000) / 10 : 0,
     }))
 
-  const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const fmtMonthYear = (y: number, m: number) =>
+    new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const monthName = isRange
+    ? `${fmtMonthYear(fromYm.year, fromYm.month)} — ${fmtMonthYear(toYm.year, toYm.month)}`
+    : fmtMonthYear(fromYm.year, fromYm.month)
 
-  const monthKey = `${year}-${String(month).padStart(2, "0")}`
+  // Ключ периода для экспорта/drill-down: один месяц или диапазон.
+  const periodKey = isRange ? `${fromKey}_${toKey}` : fromKey
 
   // Строки P&L. drillField + drillCategoryId/drillIncomeCategoryId → drill-down.
   type PnlRow = {
@@ -337,8 +365,8 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
 
   function branchHref(bId: string | undefined): string {
     const sp = new URLSearchParams()
-    sp.set("year", String(year))
-    sp.set("month", String(month))
+    sp.set("from", fromKey)
+    sp.set("to", toKey)
     if (bId) sp.set("branch", bId)
     return `?${sp.toString()}`
   }
@@ -356,10 +384,10 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
           </div>
           <p className="text-sm text-muted-foreground">Выручка + Прочие доходы − Расходы − ЗП = Прибыль</p>
         </div>
-        <MonthPicker />
+        <PnlPeriodPicker />
         <ReportExport
           title={`Финансовый результат (P&L) — ${activeBranchName}`}
-          filename={`pnl-${monthKey}${branchFilter ? `-${branchFilter.slice(0, 8)}` : ""}`}
+          filename={`pnl-${periodKey}${branchFilter ? `-${branchFilter.slice(0, 8)}` : ""}`}
           columns={[
             { header: "Показатель", key: "label", width: 40 },
             { header: "Сумма", key: "amount", width: 18 },
@@ -454,13 +482,17 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
                           amount={formatMoney(row.amount)}
                           report="pnl"
                           field={row.drillField}
-                          month={monthKey}
+                          month={fromKey}
                           title={`Детализация: ${row.label.trim()}${branchFilter ? ` — ${activeBranchName}` : ""}`}
                           className={row.color}
                           extraParams={{
                             categoryId: row.drillCategoryId,
                             incomeCategoryId: row.drillIncomeCategoryId,
                             branchId: branchFilter,
+                            // Диапазон периода: drill-down считает по нему (from/to
+                            // переопределяют одиночный month).
+                            from: fromKey,
+                            to: toKey,
                           }}
                         />
                       ) : (
