@@ -122,6 +122,28 @@ export function perLessonByTemplate(
 }
 
 /**
+ * Вариант A — симметрия пересчёта. Сколько долга АКТИВНОГО абонемента докрыть с
+ * баланса родителя после пересчёта: пересчёт возвращает переплату на баланс, но
+ * недоплату вешает долгом и обратно НИКОГДА не дотягивает — у предоплаченного
+ * клиента это давало фантомный долг при живом плюсе на балансе (кейс Арискиной
+ * и др. на Dream, 22.07.2026). Гасим до доступного плюса; pending НЕ трогаем —
+ * там долг = «ждём оплату», молча списывать с баланса нельзя. Чистая функция.
+ */
+export function debtCoverageFromBalance(
+  status: string,
+  newBalance: Prisma.Decimal,
+  clientBalance: Prisma.Decimal,
+): Prisma.Decimal {
+  if (status !== "active") return new Prisma.Decimal(0)
+  // greaterThan(0), НЕ isPositive(): у Prisma.Decimal isPositive() истинно и для
+  // нуля (знак ≥ 0), из-за чего покрытие срабатывало на нулевом долге/балансе.
+  if (newBalance.lessThanOrEqualTo(0) || clientBalance.lessThanOrEqualTo(0)) {
+    return new Prisma.Decimal(0)
+  }
+  return Prisma.Decimal.min(newBalance, clientBalance)
+}
+
+/**
  * Денежный пересчёт абонемента под заданную скидку за занятие:
  * finalAmount = снимок списаний + остаток × эффективная цена; переплата →
  * возврат на баланс (discount_refund) + сторно-платёж; недоплата → долг.
@@ -210,6 +232,57 @@ async function recomputeMoney(
         comment: "Возврат по перерасчёту абонемента",
         createdBy,
       })
+    }
+  }
+
+  // Вариант A (симметрия): если после пересчёта у АКТИВНОГО абонемента остался
+  // долг, а у родителя есть деньги на балансе — докрываем долг с баланса (как
+  // «Оплатить с баланса»: transfer_in + transfer_to_subscription, мимо кассы и
+  // ДДС). Иначе возврат по пересчёту «убегал» на баланс, оставляя фантомный долг
+  // при живом плюсе. pending не трогаем (долг = «ждём оплату»).
+  if (newBalance.greaterThan(0) && sub.status === "active") {
+    const clientRow = await t.client.findUnique({
+      where: { id: sub.clientId },
+      select: { clientBalance: true },
+    })
+    const cover = debtCoverageFromBalance(
+      sub.status,
+      newBalance,
+      new Prisma.Decimal(clientRow?.clientBalance ?? 0),
+    )
+    if (cover.greaterThan(0)) {
+      const account = await t.financialAccount.findFirst({
+        where: { tenantId, isActive: true, deletedAt: null },
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+      })
+      if (account) {
+        const payment = await t.payment.create({
+          data: {
+            tenantId,
+            clientId: sub.clientId,
+            subscriptionId: sub.id,
+            accountId: account.id,
+            amount: cover,
+            type: "transfer_in",
+            method: "bank_transfer",
+            date: new Date(),
+            comment: "Автопокрытие долга с баланса (пересчёт)",
+            createdBy: createdBy ?? null,
+          },
+          select: { id: true },
+        })
+        await applyBalanceDelta(t, {
+          tenantId,
+          clientId: sub.clientId,
+          delta: cover.negated(),
+          type: "transfer_to_subscription",
+          refs: { subscriptionId: sub.id, paymentId: payment.id, directionId: sub.directionId },
+          comment: "Автопокрытие долга с баланса (пересчёт)",
+          createdBy,
+        })
+        newBalance = newBalance.minus(cover)
+      }
     }
   }
 

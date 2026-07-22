@@ -96,6 +96,9 @@ function makeTx(opts: {
         discountTemplateId: null,
         autoDiscountDisabled: false,
       }),
+      // Вариант A автопокрытия долга читает баланс родителя; здесь он 0 —
+      // покрытие не срабатывает, ветка скидок проверяется как прежде.
+      findUnique: async () => ({ clientBalance: 0 }),
     },
     discountTemplate: {
       // Единственный вызов в этой ветке — системный шаблон тип 1.

@@ -16,7 +16,10 @@ import {
   consumedTypeWhereFor,
   isConsumingAttendanceType,
 } from "../lib/subscriptions/consumed-lessons"
-import { repriceSubscription } from "../lib/discounts/recalc-client-discounts"
+import {
+  repriceSubscription,
+  debtCoverageFromBalance,
+} from "../lib/discounts/recalc-client-discounts"
 
 const D = (v: number | string) => new Prisma.Decimal(v)
 
@@ -63,6 +66,8 @@ interface MockOpts {
   chargedCount?: number
   /** Σ оплачено (transfer_in + refund<0). */
   paid?: number
+  /** Баланс родителя (для варианта A — автопокрытие долга active-абонемента). */
+  clientBalance?: number
 }
 
 function makeTx(opts: MockOpts) {
@@ -126,10 +131,10 @@ function makeTx(opts: MockOpts) {
       aggregate: async (_args: any) => ({ _sum: { amount: D(0) } }),
     },
     client: {
-      update: async (_args: any) => ({}),
+      update: async (_args: any) => ({ clientBalance: D(opts.clientBalance ?? 0) }),
       updateMany: async (_args: any) => ({ count: 0 }),
-      findUnique: async (_args: any) => ({ id: "c1", clientBalance: D(0) }),
-      findFirst: async (_args: any) => ({ id: "c1", clientBalance: D(0) }),
+      findUnique: async (_args: any) => ({ id: "c1", clientBalance: D(opts.clientBalance ?? 0) }),
+      findFirst: async (_args: any) => ({ id: "c1", clientBalance: D(opts.clientBalance ?? 0) }),
     },
     groupEnrollment: {
       updateMany: async (_args: any) => ({ count: 1 }),
@@ -279,5 +284,100 @@ describe("repriceSubscription — consumed-семантика", () => {
     const data = calls.subUpdate[0].data
     assert.equal(Number(data.finalAmount), 7600, "пакет не дешевеет от пропуска")
     assert.equal(calls.paymentCreate.length, 0, "возврата нет")
+  })
+})
+
+// ─── Вариант A: симметричное автопокрытие долга с баланса ───
+
+describe("debtCoverageFromBalance", () => {
+  it("active + долг + плюс на балансе → min(долг, баланс)", () => {
+    assert.equal(Number(debtCoverageFromBalance("active", D(1300), D(3750))), 1300)
+    assert.equal(Number(debtCoverageFromBalance("active", D(1300), D(700))), 700)
+  })
+
+  it("нет долга / нет баланса / переплата → 0", () => {
+    assert.equal(Number(debtCoverageFromBalance("active", D(0), D(3750))), 0)
+    assert.equal(Number(debtCoverageFromBalance("active", D(1300), D(0))), 0)
+    assert.equal(Number(debtCoverageFromBalance("active", D(-100), D(3750))), 0)
+  })
+
+  it("pending НЕ гасим с баланса (долг = «ждём оплату»)", () => {
+    assert.equal(Number(debtCoverageFromBalance("pending", D(1300), D(3750))), 0)
+  })
+})
+
+describe("repriceSubscription — вариант A (автопокрытие долга)", () => {
+  it("долг active-абонемента докрывается с баланса родителя (нет фантомного долга)", async () => {
+    // final 3800 (все 4 списаны), оплачено 2850 → долг 950; на балансе 5000 →
+    // докрываем 950: transfer_in +950, balance абонемента 0.
+    const { tx, calls } = makeTx({
+      sub: {
+        id: "s1", clientId: "c1", wardId: null, groupId: "g1", directionId: "d1",
+        type: "calendar", status: "active",
+        lessonPrice: D(950), totalLessons: 4, totalAmount: D(3800),
+        chargedAmount: D(3800), discountPerLesson: D(0), discountSource: "none",
+      },
+      consumedCount: 4, chargedCount: 4, paid: 2850, clientBalance: 5000,
+    })
+    await repriceSubscription(tx as any, { tenantId: "t", subscriptionId: "s1" })
+    const data = calls.subUpdate[0].data
+    assert.equal(Number(data.finalAmount), 3800)
+    assert.equal(Number(data.balance), 0, "долг докрыт с баланса")
+    const cover = calls.paymentCreate.find((p) => Number(p.data.amount) === 950)
+    assert.ok(cover, "transfer_in автопокрытия создан")
+    assert.equal(cover.data.type, "transfer_in")
+    assert.equal(cover.data.comment, "Автопокрытие долга с баланса (пересчёт)")
+    const bt = calls.balanceTx.find((b) => b.data?.type === "transfer_to_subscription")
+    assert.ok(bt, "списание с баланса transfer_to_subscription создано")
+    assert.equal(Number(bt.data.amount), -950)
+  })
+
+  it("баланса меньше долга → покрываем частично, остаток — реальный долг", async () => {
+    // Долг 950, на балансе только 400 → докрываем 400, остаётся долг 550.
+    const { tx, calls } = makeTx({
+      sub: {
+        id: "s1", clientId: "c1", wardId: null, groupId: "g1", directionId: "d1",
+        type: "calendar", status: "active",
+        lessonPrice: D(950), totalLessons: 4, totalAmount: D(3800),
+        chargedAmount: D(3800), discountPerLesson: D(0), discountSource: "none",
+      },
+      consumedCount: 4, chargedCount: 4, paid: 2850, clientBalance: 400,
+    })
+    await repriceSubscription(tx as any, { tenantId: "t", subscriptionId: "s1" })
+    const data = calls.subUpdate[0].data
+    assert.equal(Number(data.balance), 550, "покрыт частично, остаток — долг")
+    assert.equal(Number(calls.paymentCreate[0].data.amount), 400)
+  })
+
+  it("pending с долгом НЕ гасится с баланса даже при живом плюсе", async () => {
+    const { tx, calls } = makeTx({
+      sub: {
+        id: "s1", clientId: "c1", wardId: null, groupId: "g1", directionId: "d1",
+        type: "calendar", status: "pending",
+        lessonPrice: D(950), totalLessons: 4, totalAmount: D(3800),
+        chargedAmount: D(0), discountPerLesson: D(0), discountSource: "none",
+      },
+      consumedCount: 0, chargedCount: 0, paid: 0, clientBalance: 5000,
+    })
+    await repriceSubscription(tx as any, { tenantId: "t", subscriptionId: "s1" })
+    const data = calls.subUpdate[0].data
+    assert.equal(Number(data.balance), 3800, "pending остаётся с долгом")
+    assert.equal(calls.paymentCreate.length, 0, "автопокрытия нет")
+  })
+
+  it("нет денег на балансе → долг остаётся (как раньше)", async () => {
+    const { tx, calls } = makeTx({
+      sub: {
+        id: "s1", clientId: "c1", wardId: null, groupId: "g1", directionId: "d1",
+        type: "calendar", status: "active",
+        lessonPrice: D(950), totalLessons: 4, totalAmount: D(3800),
+        chargedAmount: D(3800), discountPerLesson: D(0), discountSource: "none",
+      },
+      consumedCount: 4, chargedCount: 4, paid: 2850, clientBalance: 0,
+    })
+    await repriceSubscription(tx as any, { tenantId: "t", subscriptionId: "s1" })
+    const data = calls.subUpdate[0].data
+    assert.equal(Number(data.balance), 950, "без баланса долг остаётся")
+    assert.equal(calls.paymentCreate.length, 0, "автопокрытия нет")
   })
 })
