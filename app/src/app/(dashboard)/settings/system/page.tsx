@@ -4,14 +4,12 @@ import { Card, CardContent } from "@/components/ui/card"
 import { PageHelp } from "@/components/page-help"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
-import { TrialPayModeSelect } from "./trial-pay-mode-select"
 
 export default async function SystemParamsPage() {
   const session = await getSession()
   const org = await db.organization.findUnique({
     where: { id: session.user.tenantId },
     select: {
-      trialPayMode: true,
       attendanceDeadline: true,
       debtLimit: true,
       salaryDay1: true,
@@ -42,13 +40,6 @@ export default async function SystemParamsPage() {
         <CardContent className="p-6">
           {org ? (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-y-2">
-                <span className="text-sm text-muted-foreground">Оплата пробных занятий педагогу</span>
-                <TrialPayModeSelect
-                  value={org.trialPayMode}
-                  canEdit={session.user.role === "owner" || session.user.role === "manager"}
-                />
-              </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Дедлайн отметки посещений</span>
                 <span className="text-sm font-medium">{org.attendanceDeadline} дн.</span>

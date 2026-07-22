@@ -643,6 +643,9 @@ model SalaryRate {
   ratePerLesson     Decimal?     @map("rate_per_lesson") @db.Decimal(12, 2)
   fixedPerShift     Decimal?     @map("fixed_per_shift") @db.Decimal(12, 2)
   percentOfPayments Decimal?     @map("percent_of_payments") @db.Decimal(5, 2)
+  // Оплата педагогу за пробное занятие (перенесено из настройки организации):
+  // none — не платить, paid_only — только за платные пробные, all — за любые.
+  trialPayMode      String       @default("none") @map("trial_pay_mode")
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at")
 

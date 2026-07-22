@@ -100,3 +100,33 @@ export async function resolveRate(
 
   return null
 }
+
+/**
+ * Режим оплаты пробного занятия педагогу — из ЛИЧНОЙ ставки педагога (перенесено
+ * из настройки организации). Приоритет: ставка по направлению → дефолтная →
+ * "none" (нет личной ставки — за пробное не платим). Групповую ставку тут не
+ * учитываем: настройка живёт в личной ставке педагога.
+ *
+ * Значения: "none" | "paid_only" | "all".
+ */
+export async function resolveTrialPayMode(
+  db: DB,
+  input: { tenantId: string; employeeId: string; directionId: string | null },
+): Promise<string> {
+  if (input.directionId) {
+    const exception = await db.salaryRate.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        employeeId: input.employeeId,
+        directionId: input.directionId,
+      },
+      select: { trialPayMode: true },
+    })
+    if (exception) return exception.trialPayMode
+  }
+  const personalDefault = await db.salaryRate.findFirst({
+    where: { tenantId: input.tenantId, employeeId: input.employeeId, directionId: null },
+    select: { trialPayMode: true },
+  })
+  return personalDefault?.trialPayMode ?? "none"
+}

@@ -12,7 +12,7 @@ import {
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { calcRefund } from "@/lib/balance/calc-refund"
-import { resolveRate } from "@/lib/salary/resolve-rate"
+import { resolveRate, resolveTrialPayMode } from "@/lib/salary/resolve-rate"
 import { calcPay } from "@/lib/salary/calc-pay"
 import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
 import { reallocateLessonPay, lessonPaySnapshot } from "@/lib/salary/reallocate-lesson-pay"
@@ -254,11 +254,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     data.subscriptionId = virtualMakeup.subscriptionId
   }
 
-  // Fetch org setting for trial lesson instructor pay + subscription type
+  // Fetch org setting for subscription type.
   const org = await db.organization.findUnique({
     where: { id: tenantId },
-    select: { trialPayMode: true, subscriptionType: true },
+    select: { subscriptionType: true },
   })
+
+  // Режим оплаты пробных — из ставки педагога этого занятия (перенесено из
+  // настройки организации). Резолвим один раз на занятие.
+  const trialEffInstructorId = lesson.substituteInstructorId || lesson.instructorId
+  const trialMode = lesson.isTrial && trialEffInstructorId
+    ? await resolveTrialPayMode(db, {
+        tenantId,
+        employeeId: trialEffInstructorId,
+        directionId: lesson.group.directionId,
+      })
+    : "none"
 
   // Тип дня без начисления педагогу (Уваж. пропуск, Перерасчёт и т.п.) —
   // галочка «Оплата инструктору» не имеет смысла и принудительно снимается,
@@ -483,8 +494,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // - all       → pay regardless
     // Fail-closed: неизвестное значение режима = не платим.
     if (lesson.isTrial && Number(instructorPayAmount) > 0) {
-      const mode = org?.trialPayMode ?? "none"
-      const allowPay = mode === "all" || (mode === "paid_only" && Number(chargeAmount) > 0)
+      const allowPay = trialMode === "all" || (trialMode === "paid_only" && Number(chargeAmount) > 0)
       if (!allowPay) {
         instructorPayAmount = new Prisma.Decimal(0)
       }
@@ -972,11 +982,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     directionId: lesson.group.directionId,
   })
 
-  // Fetch org setting for trial lesson instructor pay
-  const orgBulk = await db.organization.findUnique({
-    where: { id: tenantId },
-    select: { trialPayMode: true },
-  })
+  // Режим оплаты пробных — из ставки педагога этого занятия (перенесено из
+  // настройки организации). Резолвим один раз на занятие.
+  const bulkTrialMode = lesson.isTrial
+    ? await resolveTrialPayMode(db, {
+        tenantId,
+        employeeId: effectiveInstructorId,
+        directionId: lesson.group.directionId,
+      })
+    : "none"
 
   // === Предзагрузка existing attendances (batch вместо N+1) ===
   const existingAttendances = await db.attendance.findMany({
@@ -1053,8 +1067,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
       // Trial lesson instructor pay logic (same as single attendance, fail-closed)
       if (lesson.isTrial && Number(instructorPayAmount) > 0) {
-        const mode = orgBulk?.trialPayMode ?? "none"
-        const allowPay = mode === "all" || (mode === "paid_only" && Number(chargeAmount) > 0)
+        const allowPay = bulkTrialMode === "all" || (bulkTrialMode === "paid_only" && Number(chargeAmount) > 0)
         if (!allowPay) {
           instructorPayAmount = new Prisma.Decimal(0)
         }
@@ -1182,8 +1195,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             currentChargeAmount: oneOffCharge,
           })
           if (lesson.isTrial && Number(instructorPayAmount) > 0) {
-            const mode = orgBulk?.trialPayMode ?? "none"
-            const allowPay = mode === "all" || (mode === "paid_only" && oneOffCharge.gt(0))
+            const allowPay = bulkTrialMode === "all" || (bulkTrialMode === "paid_only" && oneOffCharge.gt(0))
             if (!allowPay) instructorPayAmount = new Prisma.Decimal(0)
           }
         }

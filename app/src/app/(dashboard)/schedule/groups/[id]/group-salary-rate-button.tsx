@@ -37,6 +37,8 @@ function rateToForm(r: GroupRate): RateFormValue {
     ratePerLesson: r.ratePerLesson ? Number(r.ratePerLesson) : null,
     fixedPerShift: r.fixedPerShift ? Number(r.fixedPerShift) : null,
     percentOfPayments: r.percentOfPayments ? Number(r.percentOfPayments) : null,
+    // У групповой ставки нет оплаты за пробное — заполняем для типа, в UI скрыто.
+    trialPayMode: "none",
     brackets: r.brackets.map((b) => ({
       minStudents: b.minStudents,
       ratePerLesson: Number(b.ratePerLesson),
@@ -144,7 +146,7 @@ export function GroupSalaryRateButton({ groupId, groupName }: { groupId: string;
                   Текущая ставка перекрывает личные настройки педагогов.
                 </div>
               )}
-              <SalaryRateForm value={form} onChange={setForm} />
+              <SalaryRateForm value={form} onChange={setForm} hideTrialPay />
             </div>
           )}
 

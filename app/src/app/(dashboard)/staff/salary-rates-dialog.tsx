@@ -18,9 +18,11 @@ import { Pencil, Plus, Trash2, Wallet } from "lucide-react"
 import {
   SalaryRateForm,
   SCHEME_LABELS,
+  TRIAL_PAY_LABELS,
   emptyRate,
   type RateFormValue,
   type SchemeKey,
+  type TrialPayMode,
 } from "@/components/salary/salary-rate-form"
 
 interface RateRow {
@@ -32,6 +34,7 @@ interface RateRow {
   ratePerLesson: string | null
   fixedPerShift: string | null
   percentOfPayments: string | null
+  trialPayMode: string | null
   brackets: { minStudents: number; ratePerLesson: string }[]
 }
 
@@ -47,6 +50,7 @@ function rowToForm(r: RateRow): RateFormValue {
     ratePerLesson: r.ratePerLesson ? Number(r.ratePerLesson) : null,
     fixedPerShift: r.fixedPerShift ? Number(r.fixedPerShift) : null,
     percentOfPayments: r.percentOfPayments ? Number(r.percentOfPayments) : null,
+    trialPayMode: (r.trialPayMode as TrialPayMode) || "none",
     brackets: r.brackets.map((b) => ({
       minStudents: b.minStudents,
       ratePerLesson: Number(b.ratePerLesson),
@@ -61,6 +65,9 @@ function shortSummary(r: RateRow): string {
   if (r.fixedPerShift) parts.push(`+${Number(r.fixedPerShift)}₽ фикс`)
   if (r.percentOfPayments) parts.push(`${Number(r.percentOfPayments)}%`)
   if (r.brackets.length) parts.push(`${r.brackets.length} строк`)
+  if (r.trialPayMode && r.trialPayMode !== "none") {
+    parts.push(`пробные: ${TRIAL_PAY_LABELS[r.trialPayMode as TrialPayMode] ?? r.trialPayMode}`)
+  }
   return parts.join(" · ")
 }
 
@@ -140,6 +147,7 @@ export function SalaryRatesDialog({
         ratePerLesson: form.ratePerLesson,
         fixedPerShift: form.fixedPerShift,
         percentOfPayments: form.percentOfPayments,
+        trialPayMode: form.trialPayMode,
         brackets: form.brackets,
       }
       const isEdit = editing !== "new" && editing !== null

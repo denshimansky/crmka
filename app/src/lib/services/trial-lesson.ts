@@ -3,6 +3,7 @@ import { Prisma, type TrialLesson } from "@prisma/client"
 import { getRoleNames } from "@/lib/role-names"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { findRoomOccupant, roomOccupiedMessage } from "@/lib/schedule/room-conflict"
+import { resolveTrialPayMode } from "@/lib/salary/resolve-rate"
 
 export type CreateTrialLessonInput = {
   clientId: string
@@ -87,14 +88,12 @@ export async function createTrialLessonForClient(
 
   const date = new Date(input.scheduledDate)
 
-  const org = await db.organization.findUnique({
-    where: { id: tenantId },
-    select: { trialPayMode: true },
-  })
-
   let lessonId: string | null = null
   let storedDirectionId: string | null = null
   let storedInstructorId: string | null = null
+  // Педагог пробного — для режима оплаты пробных из его ставки. У группового
+  // пробного это педагог группового занятия, у индивидуального — выбранный.
+  let trialInstructorId: string | null = null
   let storedRoomId: string | null = null
   let storedStartTime: string | null = null
   let storedDuration: number | null = null
@@ -142,6 +141,7 @@ export async function createTrialLessonForClient(
     }
     lessonId = lesson.id
     effectiveDirectionId = group.directionId
+    trialInstructorId = lesson.substituteInstructorId || lesson.instructorId
   } else {
     if (!input.directionId) {
       return { ok: false, error: "Для индивидуального пробного нужно направление", status: 400 }
@@ -214,6 +214,7 @@ export async function createTrialLessonForClient(
     storedStartTime = input.startTime
     storedDuration = input.durationMinutes ?? direction.lessonDuration ?? 60
     effectiveDirectionId = input.directionId
+    trialInstructorId = input.instructorId
   }
 
   let reminderAssigneeId: string | null = client.assignedTo ?? userEmployeeId ?? null
@@ -292,14 +293,22 @@ export async function createTrialLessonForClient(
     }
   }
 
-  // Дефолт флага «оплата педагогу» — из режима организации: all — платим за
-  // любое пробное; paid_only — только если у направления задана цена пробного
-  // (бесплатное пробное → флаг снят); none — не платим. На конкретном пробном
-  // флаг переключается вручную в карточке занятия — режим задаёт лишь дефолт.
+  // Дефолт флага «оплата педагогу» — из режима оплаты пробных в СТАВКЕ педагога:
+  // all — платим за любое пробное; paid_only — только если у направления задана
+  // цена пробного (бесплатное пробное → флаг снят); none — не платим. На
+  // конкретном пробном флаг переключается вручную в карточке занятия — режим
+  // задаёт лишь дефолт.
+  const trialPayMode = trialInstructorId
+    ? await resolveTrialPayMode(db, {
+        tenantId,
+        employeeId: trialInstructorId,
+        directionId: effectiveDirectionId,
+      })
+    : "none"
   let defaultInstructorPay = false
-  if (org?.trialPayMode === "all") {
+  if (trialPayMode === "all") {
     defaultInstructorPay = true
-  } else if (org?.trialPayMode === "paid_only" && effectiveDirectionId) {
+  } else if (trialPayMode === "paid_only" && effectiveDirectionId) {
     const dir = await db.direction.findFirst({
       where: { id: effectiveDirectionId, tenantId },
       select: { trialPrice: true, trialFree: true },

@@ -20,6 +20,20 @@ export const SCHEME_LABELS: Record<SchemeKey, string> = {
   floating_by_students: "Плавающая (по числу учеников)",
 }
 
+export type TrialPayMode = "none" | "paid_only" | "all"
+
+export const TRIAL_PAY_LABELS: Record<TrialPayMode, string> = {
+  none: "Не платить",
+  paid_only: "Только платные",
+  all: "Все пробные",
+}
+
+const TRIAL_PAY_HINTS: Record<TrialPayMode, string> = {
+  none: "ЗП за пробные не начисляется",
+  paid_only: "Начисляется, если у направления задана цена пробного",
+  all: "Начисляется за любое пробное, включая бесплатные",
+}
+
 export interface Bracket {
   minStudents: number
   ratePerLesson: number
@@ -31,6 +45,7 @@ export interface RateFormValue {
   ratePerLesson: number | null
   fixedPerShift: number | null
   percentOfPayments: number | null
+  trialPayMode: TrialPayMode
   brackets: Bracket[]
 }
 
@@ -41,6 +56,7 @@ export function emptyRate(scheme: SchemeKey = "per_student"): RateFormValue {
     ratePerLesson: null,
     fixedPerShift: null,
     percentOfPayments: null,
+    trialPayMode: "none",
     brackets: [],
   }
 }
@@ -48,6 +64,8 @@ export function emptyRate(scheme: SchemeKey = "per_student"): RateFormValue {
 interface SalaryRateFormProps {
   value: RateFormValue
   onChange: (v: RateFormValue) => void
+  /** Скрыть блок «Оплата за пробное» (у групповой ставки его нет). */
+  hideTrialPay?: boolean
 }
 
 function numInput(v: number | null): string {
@@ -59,7 +77,7 @@ function parseNum(s: string): number | null {
   return Number.isNaN(n) ? null : n
 }
 
-export function SalaryRateForm({ value, onChange }: SalaryRateFormProps) {
+export function SalaryRateForm({ value, onChange, hideTrialPay }: SalaryRateFormProps) {
   const patch = (p: Partial<RateFormValue>) => onChange({ ...value, ...p })
 
   function addBracket() {
@@ -207,6 +225,24 @@ export function SalaryRateForm({ value, onChange }: SalaryRateFormProps) {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {!hideTrialPay && (
+        <div className="space-y-1.5 border-t pt-4">
+          <Label>Оплата за пробное занятие</Label>
+          <select
+            value={value.trialPayMode}
+            onChange={(e) => patch({ trialPayMode: e.target.value as TrialPayMode })}
+            className="h-9 w-full rounded border bg-background px-3 text-sm"
+          >
+            {(Object.keys(TRIAL_PAY_LABELS) as TrialPayMode[]).map((k) => (
+              <option key={k} value={k}>
+                {TRIAL_PAY_LABELS[k]}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">{TRIAL_PAY_HINTS[value.trialPayMode]}</p>
         </div>
       )}
     </div>

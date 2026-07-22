@@ -38,6 +38,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ratePerLesson: parsed.data.ratePerLesson ?? null,
         fixedPerShift: parsed.data.fixedPerShift ?? null,
         percentOfPayments: parsed.data.percentOfPayments ?? null,
+        trialPayMode: parsed.data.trialPayMode ?? undefined,
       },
     })
     // Полное переписывание матрицы: удаляем все старые брекеты и создаём новые,

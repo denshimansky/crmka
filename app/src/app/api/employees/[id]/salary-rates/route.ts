@@ -83,6 +83,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       ratePerLesson: parsed.data.ratePerLesson ?? null,
       fixedPerShift: parsed.data.fixedPerShift ?? null,
       percentOfPayments: parsed.data.percentOfPayments ?? null,
+      trialPayMode: parsed.data.trialPayMode ?? "none",
       brackets: parsed.data.brackets
         ? {
             create: parsed.data.brackets.map((b) => ({

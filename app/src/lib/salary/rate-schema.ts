@@ -20,6 +20,8 @@ export const baseRateSchema = z.object({
   ratePerLesson: z.number().min(0).nullable().optional(),
   fixedPerShift: z.number().min(0).nullable().optional(),
   percentOfPayments: z.number().min(0).max(100).nullable().optional(),
+  // Оплата педагогу за пробное занятие: none / paid_only / all.
+  trialPayMode: z.enum(["none", "paid_only", "all"]).optional(),
   brackets: z.array(bracketSchema).optional(),
 })
 
