@@ -51,7 +51,10 @@ export default function RemainingLessonsReportPage() {
                     </TableCell>
                     <TableCell className="text-sm">{r.direction}</TableCell>
                     <TableCell className="text-sm">{r.group}</TableCell>
-                    <TableCell className="text-right">{r.totalLessons}</TableCell>
+                    {/* «Всего» — эффективное число занятий (отхожено + остаток):
+                        несписывающий расход (уваж. пропуск/перерасчёт) вернул деньги
+                        на баланс и выпал из абонемента, поэтому Всего − Отхожено = Остаток. */}
+                    <TableCell className="text-right">{r.attendedLessons + r.remainingLessons}</TableCell>
                     <TableCell className="text-right">{r.attendedLessons}</TableCell>
                     <TableCell className="text-right font-medium">{r.remainingLessons}</TableCell>
                     <TableCell className={`text-right ${r.balanceToday < 0 ? "text-red-600" : ""}`}>

@@ -937,7 +937,12 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                       {paid > 0 ? formatMoney(paid) : "—"}
                     </TableCell>
                     <TableCell className="text-right text-sm">
-                      {usedLessons} / {s.totalLessons}
+                      {/* Знаменатель — эффективное число занятий: отработанные +
+                          остаток. Несписывающий расход (уваж. пропуск/перерасчёт)
+                          возвращает деньги на баланс и выпадает из абонемента,
+                          поэтому «второе число» уменьшается на такие занятия
+                          (usedLessons + remaining = totalLessons − выпавшие). */}
+                      {usedLessons} / {usedLessons + remainingLessons}
                     </TableCell>
                     <TableCell className={`text-right text-sm font-medium ${remainingLessons === 0 ? "text-muted-foreground" : ""}`}>
                       {remainingLessons}
