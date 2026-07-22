@@ -1,7 +1,6 @@
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { PageHelp } from "@/components/page-help"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
@@ -12,7 +11,6 @@ export default async function SystemParamsPage() {
   const org = await db.organization.findUnique({
     where: { id: session.user.tenantId },
     select: {
-      payForAbsence: true,
       trialPayMode: true,
       attendanceDeadline: true,
       debtLimit: true,
@@ -44,12 +42,6 @@ export default async function SystemParamsPage() {
         <CardContent className="p-6">
           {org ? (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Оплата инструктору за прогул</span>
-                <Badge variant={org.payForAbsence ? "default" : "secondary"}>
-                  {org.payForAbsence ? "Да" : "Нет"}
-                </Badge>
-              </div>
               <div className="flex flex-wrap items-center justify-between gap-y-2">
                 <span className="text-sm text-muted-foreground">Оплата пробных занятий педагогу</span>
                 <TrialPayModeSelect
