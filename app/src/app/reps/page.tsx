@@ -541,16 +541,6 @@ const modules: Module[] = [
         status: "ok",
       },
       {
-        id: "FIN-31",
-        name: "Контроль корректировок занятий (аудит)",
-        data: [
-          { what: "Аудит-лог: изменения суммы списания в посещениях", from: "Авто: logAudit(...) вызывается в POST/DELETE /api/lessons/[id]/attendance при любой отметке/смене/сбросе" },
-          { what: "Кто изменил, когда, было / стало", from: "Авто из AuditLog (employeeId, createdAt, changes JSON)" },
-        ],
-        formula: "SELECT AuditLog WHERE entity = Attendance AND field = chargeAmount. Разница = новое значение − старое. Период по changedAt",
-        status: "ok",
-      },
-      {
         id: "FIN-32",
         name: "Контроль скидок (аудит)",
         data: [
