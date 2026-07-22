@@ -342,6 +342,12 @@ model Client {
   // NULL = у клиента никогда не было абонементов либо это поле ещё не
   // проставлено (трактуется как «видят все» в archived/blacklisted).
   lastBranchId            String?           @map("last_branch_id") @db.Uuid
+  // Второй из двух последних РАЗНЫХ филиалов абонементов (баг #79). Вместе с
+  // lastBranchId даёт мультифилиальную видимость: клиент виден админам обоих
+  // филиалов. Обновляется при выписке абонемента (см. lib/subscriptions/
+  // client-branches.ts): новый филиал ≠ lastBranchId → prev = старый last.
+  // NULL = у клиента был только один филиал (или поле ещё не бэкфилл-нуто).
+  prevBranchId            String?           @map("prev_branch_id") @db.Uuid
   nextContactDate         DateTime?         @map("next_contact_date") @db.Date
   blacklistReason         String?           @map("blacklist_reason")
   blacklistedBy           String?           @map("blacklisted_by") @db.Uuid
@@ -397,6 +403,7 @@ model Client {
   @@index([tenantId, clientStatus])
   @@index([tenantId, phone])
   @@index([tenantId, lastBranchId])
+  @@index([tenantId, prevBranchId])
   @@map("clients")
 }
 

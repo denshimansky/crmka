@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { recomputeClientBranchesFromHistory } from "@/lib/subscriptions/client-branches"
 
 const mergeSchema = z.object({
   sourceId: z.string().uuid("sourceId должен быть UUID"),
@@ -138,6 +139,10 @@ export async function POST(req: NextRequest) {
     // Баланс: сумма балансов
     const newBalance = Number(target.clientBalance) + Number(source.clientBalance)
 
+    // Баг #79: после переноса абонементов источника пересчитываем два последних
+    // РАЗНЫХ филиала из объединённой истории — иначе видимость по филиалам врёт.
+    const mergedBranches = await recomputeClientBranchesFromHistory(tx, targetId)
+
     await tx.client.update({
       where: { id: targetId },
       data: {
@@ -146,6 +151,7 @@ export async function POST(req: NextRequest) {
         moneyLtv: Number(paymentsSum._sum.amount || 0),
         monthsLtv: uniqueMonths.size,
         totalSubscriptionsCount: subsCount,
+        ...mergedBranches,
       },
     })
 

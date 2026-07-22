@@ -216,19 +216,37 @@ describe("scopeClientByBranch (сегментная видимость)", () => 
     assert.deepEqual(scopeClientByBranch(scope), {})
   })
 
-  it("limited → OR из 9 сегментов", () => {
+  it("limited → OR из 10 сегментов (баг #79 — правило двух филиалов)", () => {
     const scope = branchScopeFromSession([BR_A])
     const result = scopeClientByBranch(scope) as { OR: object[] }
     // 1. Лид + branchId(IN OR NULL)
-    // 2. Живой абонемент (pending/active) + subscriptions.some
+    // 2. Живой абонемент (pending/active) — все филиалы
     // 3. Активная заявка в scope-филиале
-    // 4. Активный клиент без живого абонемента + branchId(IN OR NULL)
-    // 5. Выбывший + lastBranchId
-    // 6. Потенциал + applications
-    // 7. Архив + lastBranchId(IN OR NULL)
-    // 8. ЧС + lastBranchId(IN OR NULL)
-    // 9. Нецелевой (без ограничения)
-    assert.equal(result.OR.length, 9)
+    // 4. Два последних РАЗНЫХ филиала абонементов (last/prev) — безусловно
+    // 5. Активный без истории абонементов + branchId(IN OR NULL)
+    // 6. Выбывший без истории + branchId(IN OR NULL)
+    // 7. Потенциал + applications
+    // 8. Архив без истории → все
+    // 9. ЧС без истории → все
+    // 10. Нецелевой (без ограничения)
+    assert.equal(result.OR.length, 10)
+  })
+
+  // Баг #79: безусловное правило «два последних РАЗНЫХ филиала» — клиент виден
+  // админам обоих своих филиалов (last/prev в scope) независимо от сегмента.
+  it("сегмент «два филиала» — lastBranchId ИЛИ prevBranchId в scope, без условия по статусу", () => {
+    const scope = branchScopeFromSession([BR_A])
+    const result = scopeClientByBranch(scope) as { OR: any[] }
+    const twoBranch = result.OR.find(
+      (c) =>
+        Array.isArray(c.OR) &&
+        c.OR.length === 2 &&
+        c.OR.some((b: any) => Array.isArray(b.lastBranchId?.in)) &&
+        c.OR.some((b: any) => Array.isArray(b.prevBranchId?.in)) &&
+        !("funnelStatus" in c) &&
+        !("clientStatus" in c),
+    )
+    assert.ok(twoBranch)
   })
 
   it("сегмент «нецелевой» — без branch-условия", () => {
@@ -295,18 +313,19 @@ describe("scopeClientByBranch (сегментная видимость)", () => 
     assert.equal("clientStatus" in withApp, false)
   })
 
-  it("сегмент «активный клиент без живого абонемента» — branchId IN OR IS NULL", () => {
+  // Баг #79: «активный без истории абонементов» — оба денормализованных филиала
+  // NULL (клиент с абонементами покрыт правилом двух филиалов). Фолбэк на
+  // Client.branchId (NULL → видят все).
+  it("сегмент «активный без истории» — оба филиала NULL, фолбэк branchId IN OR IS NULL", () => {
     const scope = branchScopeFromSession([BR_A])
     const result = scopeClientByBranch(scope) as { OR: any[] }
-    const activeNoSub = result.OR.find((c) => c.funnelStatus === "active_client")
-    assert.ok(activeNoSub)
-    // Ровно «нет живого абонемента» — иначе клиент виден по филиалу группы.
-    assert.deepEqual(activeNoSub.subscriptions.none.status, {
-      in: ["pending", "active"],
-    })
-    const [statusOr, branchOr] = activeNoSub.AND
+    const active = result.OR.find((c) => c.funnelStatus === "active_client")
+    assert.ok(active)
+    assert.equal(active.lastBranchId, null)
+    assert.equal(active.prevBranchId, null)
+    const [statusOr, branchOr] = active.AND
     // Работающие клиенты: clientStatus active ИЛИ NULL (API не гарантирует
-    // пару funnelStatus/clientStatus); выбывшими управляет правило 5.
+    // пару funnelStatus/clientStatus); выбывшими управляет правило «выбывший».
     assert.ok(statusOr.OR.some((s: any) => s.clientStatus === "active"))
     assert.ok(statusOr.OR.some((s: any) => s.clientStatus === null))
     assert.ok(branchOr.OR.some((b: any) => b.branchId === null))
@@ -320,31 +339,43 @@ describe("scopeClientByBranch (сегментная видимость)", () => 
   // Регрессия: перевод в архив ставит funnelStatus=archived и ОБНУЛЯЕТ
   // clientStatus (movingToArchived в PATCH /api/clients/[id]) — правило,
   // смотревшее только на clientStatus=archived, не матчило ни одного
-  // реального архивного клиента, и весь архив был невидим филиальным админам.
-  it("сегмент «архив» — по funnelStatus ИЛИ clientStatus; lastBranchId IN OR IS NULL", () => {
+  // реального архивного клиента. Баг #79: архив С историей абонементов покрыт
+  // правилом двух филиалов; здесь — архив БЕЗ истории (оба филиала NULL) → все.
+  it("сегмент «архив без истории» — funnelStatus/clientStatus archived + оба филиала NULL", () => {
     const scope = branchScopeFromSession([BR_A])
     const result = scopeClientByBranch(scope) as { OR: any[] }
     const archived = result.OR.find((c) =>
       c.AND?.some((p: any) => p.OR?.some((s: any) => s.funnelStatus === "archived")),
     )
     assert.ok(archived)
-    const [statusOr, branchOr] = archived.AND
+    const statusOr = archived.AND.find((p: any) => p.OR)
     assert.ok(statusOr.OR.some((s: any) => s.clientStatus === "archived"))
-    assert.ok(branchOr.OR.some((b: any) => b.lastBranchId === null))
+    const noHistory = archived.AND.find((p: any) => "lastBranchId" in p)
+    assert.equal(noHistory.lastBranchId, null)
+    assert.equal(noHistory.prevBranchId, null)
   })
 
-  // Решение владельца 14.07.2026: выбывший без филиала виден всем, а не только
-  // владельцу. lastBranchId=NULL (абонементов не было — разовые) → фолбэк на
-  // Client.branchId, совсем без филиала → видят все.
-  it("сегмент «выбывший» — lastBranchId IN scope; NULL → по branchId (NULL → все)", () => {
+  // Баг #79: выбывший С историей абонементов виден по правилу двух филиалов
+  // (last/prev). Здесь — выбывший БЕЗ истории (оба филиала NULL) → фолбэк на
+  // Client.branchId (NULL → видят все, решение владельца 14.07.2026).
+  it("сегмент «выбывший без истории» — оба филиала NULL, фолбэк branchId (NULL → все)", () => {
     const scope = branchScopeFromSession([BR_A])
     const result = scopeClientByBranch(scope) as { OR: any[] }
     const churned = result.OR.find((c) => c.clientStatus === "churned")
     assert.ok(churned)
-    assert.deepEqual(churned.OR[0], { lastBranchId: { in: [BR_A] } })
-    const fallback = churned.OR[1].AND
-    assert.deepEqual(fallback[0], { lastBranchId: null })
-    assert.ok(fallback[1].OR.some((b: any) => b.branchId === null))
-    assert.ok(fallback[1].OR.some((b: any) => Array.isArray(b.branchId?.in)))
+    assert.equal(churned.lastBranchId, null)
+    assert.equal(churned.prevBranchId, null)
+    assert.ok(churned.OR.some((b: any) => b.branchId === null))
+    assert.ok(churned.OR.some((b: any) => Array.isArray(b.branchId?.in)))
+  })
+
+  // Баг #79: ЧС С историей — правило двух филиалов; БЕЗ истории → все.
+  it("сегмент «ЧС без истории» — blacklisted + оба филиала NULL → все", () => {
+    const scope = branchScopeFromSession([BR_A])
+    const result = scopeClientByBranch(scope) as { OR: any[] }
+    const bl = result.OR.find((c) => c.funnelStatus === "blacklisted")
+    assert.ok(bl)
+    assert.equal(bl.lastBranchId, null)
+    assert.equal(bl.prevBranchId, null)
   })
 })

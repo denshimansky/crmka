@@ -6,6 +6,7 @@ import { rateLimitTenant } from "@/lib/rate-limit"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
+import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
 import { z } from "zod"
@@ -285,14 +286,16 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // ADM-04: денормализуем филиал последнего абонемента + считаем общее
-    // количество купленных абонементов (нужно для сегмента «Нет/N абонементов»).
-    // clientBalance НЕ трогаем — это реальные деньги клиента; долг живёт
-    // только на стороне Subscription.balance до момента «Оплатить с баланса».
+    // ADM-04 + баг #79: денормализуем два последних РАЗНЫХ филиала абонементов
+    // (мультифилиальная видимость) + считаем общее количество купленных
+    // абонементов (нужно для сегмента «Нет/N абонементов»). clientBalance НЕ
+    // трогаем — это реальные деньги клиента; долг живёт только на стороне
+    // Subscription.balance до момента «Оплатить с баланса».
+    const branches = await computeIssuedBranches(tx, data.clientId, group.branchId)
     await tx.client.update({
       where: { id: data.clientId },
       data: {
-        lastBranchId: group.branchId,
+        ...branches,
         totalSubscriptionsCount: { increment: 1 },
       },
     })

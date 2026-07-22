@@ -69,24 +69,21 @@ const NO_ACTIVE_APP: Prisma.ClientWhereInput = {
   applications: { none: { status: "active", deletedAt: null } },
 }
 
-// Фильтр по филиалу зеркалит колонку «Филиал» таблицы: филиал клиента →
-// филиал группы действующего абонемента → филиал последнего абонемента
-// (lastBranchId — когда активного абонемента нет).
+// Фильтр по филиалу зеркалит колонку «Филиал» таблицы (баг #79 —
+// мультифилиальность): живой абонемент в филиале ИЛИ один из двух последних
+// РАЗНЫХ филиалов абонементов (last/prev) ИЛИ — если истории абонементов нет —
+// «домашний» Client.branchId.
 function branchColumnWhere(branchId: string): Prisma.ClientWhereInput {
   return {
     OR: [
-      { branchId },
       {
-        branchId: null,
         subscriptions: {
           some: { status: "active", deletedAt: null, group: { branchId } },
         },
       },
-      {
-        branchId: null,
-        subscriptions: { none: { status: "active", deletedAt: null } },
-        lastBranchId: branchId,
-      },
+      { lastBranchId: branchId },
+      { prevBranchId: branchId },
+      { lastBranchId: null, prevBranchId: null, branchId },
     ],
   }
 }
@@ -312,14 +309,24 @@ export default async function ContactsPage({
       socialLink: c.socialLink,
       segment,
       channelName: c.channel?.name ?? null,
-      // Филиал строки: свой филиал клиента → филиалы ВСЕХ активных
-      // абонементов (через запятую — зеркалит фильтр по филиалу) → филиал
-      // последнего абонемента (выбывшие/архив).
+      // Филиал строки (баг #79 — мультифилиальность): два последних РАЗНЫХ
+      // филиала абонементов (last, prev) ∪ филиалы всех живых абонементов,
+      // через запятую. Обычно ≤2. Если истории абонементов нет — «домашний»
+      // Client.branchId. Порядок: последний, предыдущий, затем прочие живые.
       branchName:
-        c.branch?.name ??
-        ([...new Set(c.subscriptions.map((s) => s.group?.branch?.name).filter(Boolean))].join(", ") ||
-          null) ??
-        (c.lastBranchId ? branchNames.get(c.lastBranchId) ?? null : null),
+        (() => {
+          const ids = [
+            ...new Set(
+              [
+                c.lastBranchId,
+                c.prevBranchId,
+                ...c.subscriptions.map((s) => s.group?.branch?.id),
+              ].filter((v): v is string => Boolean(v)),
+            ),
+          ]
+          if (ids.length === 0) return c.branch?.name ?? null
+          return ids.map((id) => branchNames.get(id)).filter(Boolean).join(", ") || null
+        })(),
       funnelStatus: c.funnelStatus,
       clientStatus: c.clientStatus,
       comment: c.comment,

@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
+import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 
 const moveSchema = z.object({
   applicationId: z.string().uuid().optional(),
@@ -234,13 +235,14 @@ export async function POST(
       newSubscriptionIds: [subscription.id],
     })
 
-    // ADM-04: денормализуем филиал последнего абонемента + счётчик абонементов.
-    // clientBalance не трогаем: долг живёт на Subscription.balance до момента
-    // «Оплатить с баланса».
+    // ADM-04 + баг #79: денормализуем два последних РАЗНЫХ филиала абонементов
+    // + счётчик абонементов. clientBalance не трогаем: долг живёт на
+    // Subscription.balance до момента «Оплатить с баланса».
+    const branches = await computeIssuedBranches(tx, ward.clientId, group.branchId)
     await tx.client.update({
       where: { id: ward.clientId },
       data: {
-        lastBranchId: group.branchId,
+        ...branches,
         totalSubscriptionsCount: { increment: 1 },
       },
     })

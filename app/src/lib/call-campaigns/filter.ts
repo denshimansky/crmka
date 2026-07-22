@@ -225,7 +225,9 @@ export function buildCampaignClientWhere(
     and.push({
       OR: [
         { branchId },
+        // Баг #79 — два последних РАЗНЫХ филиала абонементов (мультифилиальность).
         { lastBranchId: branchId },
+        { prevBranchId: branchId },
         { applications: { some: { status: "active", deletedAt: null, branchId } } },
         { enrollments: { some: { deletedAt: null, group: { branchId } } } },
         {

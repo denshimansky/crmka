@@ -25,6 +25,7 @@ import { Prisma } from "@prisma/client"
 import { countLessonsForGroup } from "@/lib/schedule/count-lessons"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
+import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 
 export interface BulkRenewInput {
   tenantId: string
@@ -417,12 +418,15 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
         select: { id: true },
       })
       createdSubs.push({ subId: sub.id, clientId: c.clientId })
-      // ADM-04: денормализуем филиал последнего абонемента + счётчик абонементов.
+      // ADM-04 + баг #79: денормализуем два последних РАЗНЫХ филиала абонементов
+      // + счётчик. Чтение внутри tx видит апдейты прошлых итераций того же
+      // клиента (два ребёнка → два абонемента), поэтому сдвиг чейнится верно.
       // clientBalance НЕ трогаем — долг живёт только на Subscription.balance.
+      const branches = await computeIssuedBranches(tx, c.clientId, c.branchId)
       await tx.client.update({
         where: { id: c.clientId },
         data: {
-          lastBranchId: c.branchId,
+          ...branches,
           totalSubscriptionsCount: { increment: 1 },
         },
       })
