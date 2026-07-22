@@ -95,6 +95,29 @@ export function normPhone(raw: string | null | undefined): string {
   return String(raw).replace(/\D/g, "")
 }
 
+// Сопоставление клиентов БД с нормализованными телефонами из файла импорта.
+// Client.phone хранится «как ввели» (POST /api/clients пишет v.trim() без
+// нормализации): «+79998887766», «8 999 888-77-66» и т.п. Телефоны из файла уже
+// нормализованы normPhone (только цифры), поэтому номер клиента тоже приводим к
+// этому виду и матчим по нему — иначе «+7…» из БД никогда не совпадёт с «7…» из
+// файла (остаток не синхронизируется / клиент дублируется при импорте). wanted —
+// множество нужных нормализованных номеров: клиентов не из файла пропускаем, чтобы
+// не строить карту по всей базе. При нескольких клиентах с одним номером побеждает
+// первый в переданном порядке (вызывающий сортирует по createdAt asc → берётся
+// старейший клиент детерминированно).
+export function indexClientsByNormPhone<T extends { phone: string | null }>(
+  clients: T[],
+  wanted: Set<string>,
+): Map<string, T> {
+  const map = new Map<string, T>()
+  for (const c of clients) {
+    const norm = normPhone(c.phone)
+    if (!norm || !wanted.has(norm)) continue
+    if (!map.has(norm)) map.set(norm, c)
+  }
+  return map
+}
+
 export function normName(raw: string | null | undefined): string {
   if (raw === null || raw === undefined) return ""
   return String(raw).trim().toLowerCase().replace(/\s+/g, " ")

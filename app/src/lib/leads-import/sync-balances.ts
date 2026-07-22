@@ -7,7 +7,7 @@
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
-import { readSheet, normPhone } from "./parse-xlsx"
+import { readSheet, normPhone, indexClientsByNormPhone } from "./parse-xlsx"
 
 function normColKey(s: string): string {
   return s.trim().toLowerCase().replace(/ё/g, "е").replace(/_/g, " ").replace(/\s+/g, " ")
@@ -158,9 +158,14 @@ export async function syncBalances(
     return { ok: false, reason: "empty_file", detectedHeaders: parsed.detectedHeaders }
   }
 
-  const phones = [...parsed.byPhone.keys()]
+  const wantedPhones = new Set(parsed.byPhone.keys())
+  // Матчим по нормализованному телефону (см. indexClientsByNormPhone): точный
+  // `phone: { in: phones }` промахивался мимо клиентов с «+7…»/пробелами/дефисами.
+  // Тянем всех клиентов тенанта с непустым телефоном; orderBy createdAt — чтобы при
+  // дублях номера остаток детерминированно доставался старейшему клиенту.
   const existingClients = await db.client.findMany({
-    where: { tenantId: opts.tenantId, deletedAt: null, phone: { in: phones } },
+    where: { tenantId: opts.tenantId, deletedAt: null, phone: { not: null } },
+    orderBy: { createdAt: "asc" },
     select: {
       id: true,
       phone: true,
@@ -169,7 +174,7 @@ export async function syncBalances(
       clientBalance: true,
     },
   })
-  const existingByPhone = new Map(existingClients.map((c) => [c.phone ?? "", c]))
+  const existingByPhone = indexClientsByNormPhone(existingClients, wantedPhones)
 
   const missingInDb: MissingClient[] = []
   const updatedClients: UpdatedClient[] = []

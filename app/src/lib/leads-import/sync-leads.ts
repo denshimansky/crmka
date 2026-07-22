@@ -5,7 +5,7 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
-import { readSheet, normPhone, normName } from "./parse-xlsx"
+import { readSheet, normPhone, normName, indexClientsByNormPhone } from "./parse-xlsx"
 import { parseStatus, toDbStatus, topStatus, type LeadStatus } from "./status-map"
 import { splitParentFio } from "./surname-gender"
 
@@ -369,10 +369,16 @@ export async function syncLeads(
   }
 
   // Тянем существующих клиентов тенанта по телефонам — для edge case merge.
-  const phones = [...byPhone.values()].map((g) => g.phone).filter(Boolean)
-  const existingClients = phones.length
+  // Матчим по нормализованному номеру (indexClientsByNormPhone): Client.phone в БД
+  // хранится «как ввели» (+7…/пробелы/дефисы), а group.phone нормализован normPhone.
+  // Точный `phone: { in: phones }` промахивался мимо «+7…»-клиентов → повторный
+  // импорт плодил дубли вместо merge. orderBy createdAt — при дублях номера мёржим
+  // в старейшего клиента детерминированно.
+  const wantedPhones = new Set([...byPhone.values()].map((g) => g.phone).filter(Boolean))
+  const existingClients = wantedPhones.size
     ? await db.client.findMany({
-        where: { tenantId: opts.tenantId, deletedAt: null, phone: { in: phones } },
+        where: { tenantId: opts.tenantId, deletedAt: null, phone: { not: null } },
+        orderBy: { createdAt: "asc" },
         select: {
           id: true,
           phone: true,
@@ -387,7 +393,7 @@ export async function syncLeads(
         },
       })
     : []
-  const existingByPhone = new Map(existingClients.map((c) => [c.phone ?? "", c]))
+  const existingByPhone = indexClientsByNormPhone(existingClients, wantedPhones)
 
   const warnings: string[] = [...collectedWarnings]
   const withoutPhone: CreatedWithoutPhone[] = []
