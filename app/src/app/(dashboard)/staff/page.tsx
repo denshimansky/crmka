@@ -43,7 +43,8 @@ export default async function StaffPage() {
           include: { branch: { select: { id: true, name: true } } },
         },
       },
-      orderBy: { lastName: "asc" },
+      // Архивированные (isActive:false) — вниз списка, чтобы не мешали.
+      orderBy: [{ isActive: "desc" }, { lastName: "asc" }],
     }),
     db.branch.findMany({
       where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
@@ -106,7 +107,7 @@ export default async function StaffPage() {
                     .join(", ")
 
                   return (
-                    <TableRow key={emp.id}>
+                    <TableRow key={emp.id} className={emp.isActive ? undefined : "opacity-60"}>
                       <TableCell className="font-medium">{fullName}</TableCell>
                       <TableCell className="font-mono text-xs">{emp.login}</TableCell>
                       <TableCell>
@@ -124,8 +125,8 @@ export default async function StaffPage() {
                         {formatDate(emp.birthDate)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={emp.isActive ? "default" : "secondary"}>
-                          {emp.isActive ? "Активен" : "Неактивен"}
+                        <Badge variant={emp.isActive ? "default" : "outline"}>
+                          {emp.isActive ? "Активен" : "В архиве"}
                         </Badge>
                       </TableCell>
                       {canEdit && (

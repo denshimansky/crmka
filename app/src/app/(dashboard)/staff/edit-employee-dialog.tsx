@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select, SelectTrigger, SelectContent, SelectItem,
 } from "@/components/ui/select"
-import { Pencil } from "lucide-react"
+import { Pencil, Archive, ArchiveRestore } from "lucide-react"
 import { useRoleNames } from "@/components/role-names-provider"
 
 const ASSIGNABLE_ROLES = ["manager", "admin", "instructor", "readonly"] as const
@@ -45,6 +45,9 @@ interface Employee {
   employeeBranches: { branch: Branch }[]
 }
 
+// Архив = isActive:false. Сотрудник уходит вниз списка и не может войти
+// в аккаунт, пока владелец/управляющий не разархивирует его.
+
 export function EditEmployeeDialog({
   employee,
   branches,
@@ -57,6 +60,7 @@ export function EditEmployeeDialog({
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [archiving, setArchiving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const roleNames = useRoleNames()
@@ -134,6 +138,29 @@ export function EditEmployeeDialog({
       setError("Ошибка сети")
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleArchive(archived: boolean) {
+    setError(null)
+    setArchiving(true)
+    try {
+      const res = await fetch(`/api/employees/${employee.id}/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Не удалось изменить статус")
+        return
+      }
+      setOpen(false)
+      router.refresh()
+    } catch {
+      setError("Ошибка сети")
+    } finally {
+      setArchiving(false)
     }
   }
 
@@ -281,6 +308,46 @@ export function EditEmployeeDialog({
               <Label>Новый пароль (оставьте пустым, чтобы не менять)</Label>
               <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Мин. 6 символов" autoComplete="new-password" />
             </div>
+
+            {!isOwner && (
+              <fieldset className="space-y-2 rounded-md border p-3">
+                <legend className="px-1 text-sm font-medium">Архив</legend>
+                {employee.isActive ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Для уволенных сотрудников. Архивированный уходит вниз списка и не
+                      может войти в аккаунт, пока его не разархивируют.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="text-destructive hover:text-destructive"
+                      disabled={archiving}
+                      onClick={() => handleArchive(true)}
+                    >
+                      <Archive className="size-4" />
+                      {archiving ? "Архивирование..." : "Архивировать"}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Сотрудник в архиве — вход в аккаунт заблокирован. Разархивируйте,
+                      чтобы вернуть доступ.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={archiving}
+                      onClick={() => handleArchive(false)}
+                    >
+                      <ArchiveRestore className="size-4" />
+                      {archiving ? "Возврат..." : "Разархивировать"}
+                    </Button>
+                  </>
+                )}
+              </fieldset>
+            )}
           </div>
 
           <DialogFooter className="mt-4">
