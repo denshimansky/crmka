@@ -25,6 +25,8 @@ export async function GET(req: NextRequest) {
       comment: true,
       createdBy: true,
       createdAt: true,
+      // Название скидки — из шаблона, по которому применена (у исторических NULL).
+      template: { select: { name: true } },
       subscription: {
         select: {
           client: { select: { id: true, firstName: true, lastName: true, branchId: true } },
@@ -61,6 +63,7 @@ export async function GET(req: NextRequest) {
     direction: d.subscription.direction.name,
     branch: d.subscription.group.branch.name,
     type: d.type,
+    templateName: d.template?.name ?? null,
     value: Number(d.value),
     valueType: d.valueType,
     calculatedAmount: Number(d.calculatedAmount),

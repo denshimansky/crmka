@@ -14,10 +14,20 @@ interface Row {
   direction: string
   branch: string
   type: string
+  templateName: string | null
   value: number
   valueType: string
   calculatedAmount: number
   comment: string | null
+}
+
+// Тип скидки для аудита: автоматическая (система), ручная (выбор в карточке),
+// разовая (одноразовая). linked — легаси-автоскидки старой логики.
+const DISCOUNT_TYPE_LABELS: Record<string, string> = {
+  second_subscription: "Автоматическая",
+  linked: "Автоматическая",
+  permanent: "Ручная",
+  one_time: "Разовая",
 }
 
 export default function DiscountAuditReportPage() {
@@ -43,6 +53,8 @@ export default function DiscountAuditReportPage() {
                   <TableHead>Клиент</TableHead>
                   <TableHead>Направление</TableHead>
                   <TableHead>Филиал</TableHead>
+                  <TableHead>Название скидки</TableHead>
+                  <TableHead>Тип</TableHead>
                   <TableHead className="text-right">Размер</TableHead>
                   <TableHead className="text-right">Сумма</TableHead>
                   <TableHead>Комментарий</TableHead>
@@ -58,6 +70,8 @@ export default function DiscountAuditReportPage() {
                     </TableCell>
                     <TableCell className="text-sm">{r.direction}</TableCell>
                     <TableCell className="text-sm">{r.branch}</TableCell>
+                    <TableCell className="text-sm">{r.templateName || "—"}</TableCell>
+                    <TableCell className="text-sm">{DISCOUNT_TYPE_LABELS[r.type] || r.type}</TableCell>
                     <TableCell className="text-right text-sm">
                       {r.valueType === "percent" ? `${r.value}%` : fmtMoney(r.value)}
                     </TableCell>
@@ -66,7 +80,7 @@ export default function DiscountAuditReportPage() {
                   </TableRow>
                 ))}
                 <TableRow className="border-t-2 font-bold">
-                  <TableCell colSpan={6}>Итого ({total})</TableCell>
+                  <TableCell colSpan={8}>Итого ({total})</TableCell>
                   <TableCell className="text-right text-orange-600">{fmtMoney(totalAmount)}</TableCell>
                   <TableCell />
                 </TableRow>
