@@ -1095,7 +1095,7 @@ function PaymentsTab({ clientId }: { clientId: string }) {
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Оплаты ({payments.length})</CardTitle>
+          <CardTitle className="text-base">Списания с баланса ({payments.length})</CardTitle>
           <Button variant="outline" size="sm" onClick={openRefundDialog}>
             <Undo2 className="mr-1 size-3.5" />
             Возврат
@@ -1106,7 +1106,7 @@ function PaymentsTab({ clientId }: { clientId: string }) {
         {loadingPayments ? (
           <p className="text-sm text-muted-foreground py-4 text-center">Загрузка...</p>
         ) : payments.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">Нет оплат</p>
+          <p className="text-sm text-muted-foreground py-4 text-center">Нет списаний с баланса</p>
         ) : (
           <Table>
             <TableHeader>
@@ -1987,7 +1987,7 @@ export function ClientTabs({
         <TabsList variant="line">
           <TabsTrigger value="wards">Подопечные</TabsTrigger>
           <TabsTrigger value="subscriptions">Абонементы</TabsTrigger>
-          <TabsTrigger value="payments">Оплаты</TabsTrigger>
+          <TabsTrigger value="payments">Списания с баланса</TabsTrigger>
           <TabsTrigger value="schedule">Расписание</TabsTrigger>
           <TabsTrigger value="attendance">Посещения</TabsTrigger>
           <TabsTrigger value="communications">Коммуникации</TabsTrigger>

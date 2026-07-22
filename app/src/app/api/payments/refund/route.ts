@@ -6,6 +6,7 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { logClientNote } from "@/lib/communications/log-note"
 import { z } from "zod"
 
 const refundSchema = z.object({
@@ -131,6 +132,20 @@ export async function POST(req: NextRequest) {
     changes: { type: { new: "refund" }, amount: { new: -data.amount }, method: { new: data.method }, clientId: { new: data.clientId } },
     req,
   })
+
+  // Комментарий к возврату (введённый оператором) → заметка в ленту
+  // коммуникаций (best-effort: возврат уже проведён). Дефолт «Возврат средств»
+  // на записи Payment не логируем — только реальный текст причины.
+  if (data.comment) {
+    try {
+      await logClientNote(db, {
+        tenantId: session.user.tenantId,
+        clientId: data.clientId,
+        content: `Возврат ${data.amount} ₽ — ${data.comment}`,
+        employeeId: session.user.employeeId,
+      })
+    } catch { /* заметка не критична */ }
+  }
 
   return NextResponse.json(payment, { status: 201 })
 }

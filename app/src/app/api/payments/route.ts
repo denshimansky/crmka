@@ -6,6 +6,7 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { logClientNote } from "@/lib/communications/log-note"
 import { requirePermission } from "@/lib/api-permissions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
@@ -243,6 +244,20 @@ export async function POST(req: NextRequest) {
         entityId: data.clientId,
       },
     })
+  }
+
+  // Комментарий к оплате → заметка в ленту коммуникаций (best-effort: оплата
+  // уже проведена, сбой заметки не должен ронять ответ). Прочий доход без
+  // клиента ленты не имеет.
+  if (data.clientId && data.comment) {
+    try {
+      await logClientNote(db, {
+        tenantId: session.user.tenantId,
+        clientId: data.clientId,
+        content: `Оплата ${data.amount} ₽ — ${data.comment}`,
+        employeeId: session.user.employeeId,
+      })
+    } catch { /* заметка не критична */ }
   }
 
   return NextResponse.json(payment, { status: 201 })

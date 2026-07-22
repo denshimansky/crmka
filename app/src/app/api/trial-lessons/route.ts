@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { z } from "zod"
 import { createTrialLessonForClient } from "@/lib/services/trial-lesson"
+import { logClientNote } from "@/lib/communications/log-note"
 import { db } from "@/lib/db"
 
 // Два режима записи пробного:
@@ -128,6 +129,20 @@ export async function POST(req: NextRequest) {
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status })
+  }
+
+  // Комментарий к пробному → заметка в ленту коммуникаций (best-effort:
+  // пробное уже создано). Дата — в человекочитаемом виде ДД.ММ.ГГГГ.
+  if (parsed.data.comment?.trim()) {
+    const dateLabel = parsed.data.scheduledDate.split("-").reverse().join(".")
+    try {
+      await logClientNote(db, {
+        tenantId: session.user.tenantId,
+        clientId: parsed.data.clientId,
+        content: `Пробное ${dateLabel} — ${parsed.data.comment.trim()}`,
+        employeeId: session.user.employeeId,
+      })
+    } catch { /* заметка не критична */ }
   }
 
   return NextResponse.json(result.trial, { status: 201 })

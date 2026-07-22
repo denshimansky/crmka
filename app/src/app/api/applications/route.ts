@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
+import { logClientNote } from "@/lib/communications/log-note"
 import { z } from "zod"
 import type { Prisma } from "@prisma/client"
 import {
@@ -177,6 +178,19 @@ export async function POST(req: NextRequest) {
         },
       },
     })
+  }
+
+  // Комментарий к заявке → заметка в ленту коммуникаций (best-effort: заявка
+  // уже создана). Направление в тексте — чтобы заметка была самодостаточной.
+  if (data.comment?.trim()) {
+    try {
+      await logClientNote(db, {
+        tenantId,
+        clientId: data.clientId,
+        content: `Заявка «${application.direction.name}» — ${data.comment.trim()}`,
+        employeeId: session.user.employeeId,
+      })
+    } catch { /* заметка не критична */ }
   }
 
   return NextResponse.json(application, { status: 201 })

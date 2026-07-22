@@ -261,24 +261,16 @@ export default async function TrialConversionReportPage({
               <TableHeader>
                 <TableRow>
                   <TableHead>{roleNames.instructor}</TableHead>
-                  <TableHead className="text-right">Пробных записано</TableHead>
                   <TableHead className="text-right">Пришли</TableHead>
-                  <TableHead className="text-right">Не пришли</TableHead>
-                  <TableHead className="text-right">% явок</TableHead>
                   <TableHead className="text-right">Купили</TableHead>
-                  <TableHead className="text-right">Конверсия</TableHead>
+                  <TableHead className="text-right">% Конверсии</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((r) => (
                   <TableRow key={r.instructorId}>
                     <TableCell className="font-medium">{r.name}</TableCell>
-                    <TableCell className="text-right font-medium">{r.recorded}</TableCell>
                     <TableCell className="text-right text-green-600 font-medium">{r.attended}</TableCell>
-                    <TableCell className="text-right text-orange-600">{r.noShow}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {r.attended + r.noShow > 0 ? `${r.attendanceRate}%` : "—"}
-                    </TableCell>
                     <TableCell className="text-right text-blue-600 font-medium">{r.sales}</TableCell>
                     <TableCell className="text-right font-bold">
                       {r.attended > 0 ? `${r.conversionRate}%` : "—"}

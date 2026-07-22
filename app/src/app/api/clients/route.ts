@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client"
 import { branchScopeFromSession, isUnscoped } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
+import { logClientNote } from "@/lib/communications/log-note"
 
 const createSchema = z.object({
   firstName: z.string().min(1, "Имя обязательно").optional(),
@@ -253,6 +254,19 @@ export async function POST(req: NextRequest) {
   // автозадачу «Позвонить» немедленно (как при инлайн-редактировании даты).
   if (data.nextContactDate) {
     await ensureContactDateTaskForClient(session.user.tenantId, client.id)
+  }
+
+  // Комментарий, указанный при создании, → заметка в ленту коммуникаций
+  // (best-effort: клиент уже создан, сбой заметки не должен ронять ответ).
+  if (data.comment) {
+    try {
+      await logClientNote(db, {
+        tenantId: session.user.tenantId,
+        clientId: client.id,
+        content: `Комментарий добавлен:\n${data.comment}`,
+        employeeId: session.user.employeeId,
+      })
+    } catch { /* заметка не критична */ }
   }
 
   return NextResponse.json(client, { status: 201 })

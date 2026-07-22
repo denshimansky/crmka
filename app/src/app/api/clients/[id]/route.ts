@@ -7,6 +7,7 @@ import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
 import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
 import { recordClientStatusChange } from "@/lib/clients/status-history"
+import { logClientNote } from "@/lib/communications/log-note"
 import { z } from "zod"
 
 // PATCH — частичное обновление: отсутствующее в теле поле должно остаться
@@ -286,6 +287,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       client: { old: existing.clientStatus, new: updated.clientStatus },
       reason: "manual",
     })
+
+    // Общий комментарий клиента → заметка в ленту коммуникаций при любом
+    // изменении (добавление/правка/очистка, со старым→новым). Внутри той же
+    // транзакции — откат правки откатывает и запись. Раньше поле молча
+    // перезаписывалось, и прежнее значение терялось без следа.
+    if (data.comment !== undefined) {
+      const oldComment = existing.comment?.trim() || ""
+      const newComment = updated.comment?.trim() || ""
+      if (oldComment !== newComment) {
+        const noteContent = !oldComment
+          ? `Комментарий добавлен:\n${newComment}`
+          : !newComment
+            ? `Комментарий удалён:\n«${oldComment}»`
+            : `Комментарий изменён:\n«${oldComment}»\n→ «${newComment}»`
+        await logClientNote(tx, {
+          tenantId: session.user.tenantId,
+          clientId: id,
+          content: noteContent,
+          employeeId: session.user.employeeId,
+        })
+      }
+    }
     return updated
   })
 
