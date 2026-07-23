@@ -173,7 +173,6 @@ const SETTINGS_HUB: { tab: string; items: { label: string; path: string }[] }[] 
       { label: "Права ролей", path: "/settings/role-permissions" },
       { label: "Производственный календарь", path: "/settings/production-calendar" },
       { label: "Автотриггеры задач", path: "/settings/tasks" },
-      { label: "Параметры системы", path: "/settings/system" },
       { label: "Абонементы (модель + автозакрытие)", path: "/settings/subscription-model" },
     ],
   },

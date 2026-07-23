@@ -17,7 +17,6 @@ import {
   LogOut,
   Layers,
   Info,
-  Sliders,
   Tag,
   Gift,
   Upload,
@@ -33,7 +32,7 @@ interface Tile {
   title: string
   description: string
   icon: React.ComponentType<{ className?: string }>
-  /** Подсветка для «системных» плиток (Параметры системы, Абонементы) */
+  /** Подсветка для «системной» плитки (Абонементы) */
   accent?: boolean
   /** Скрываем, если false */
   show?: boolean
@@ -80,13 +79,6 @@ export default async function SettingsPage() {
       title: "Автотриггеры задач",
       description: "Какие задачи создаются автоматически и с какой даты",
       icon: Bell,
-    },
-    {
-      href: "/settings/system",
-      title: "Параметры системы",
-      description: "Оплата прогула/пробных, дедлайны, лимит долга, дни выплат ЗП",
-      icon: Sliders,
-      accent: true,
     },
     {
       href: "/settings/subscription-model",
