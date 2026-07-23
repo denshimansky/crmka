@@ -1,28 +1,29 @@
 /**
- * Гейтинг виджетов дашборда по правам роли. Виджет (и отдельная карточка-метрика)
- * показывается только если у роли есть доступ к связанному разделу/отчёту — тем
- * же правом, что закрывает саму страницу в route-permissions.ts.
+ * Гейтинг виджетов дашборда: показ (`show`) + кликабельность ссылки (`link`).
  *
- * Баг: администратор видел ВСЕ виджеты дашборда, включая закрытые для него
- * отчёты и финрезультат («Воронка», «Ожидаемые поступления», «Прогноз прибыли»,
- * «Заполняемость», «Отработанные абонементы», карточка «Доходы»).
+ * Решение владельца 23.07.2026 — у админа (по умолчанию без reports.* и
+ * finance.result) дашборд должен содержать операционные виджеты, но:
+ *   • отчётные виджеты (Воронка/Активные абонементы/Заполняемость/Отработанные)
+ *     показываются ВСЕГДА, а заголовок делинкуется, если отчёт закрыт;
+ *   • финансовые/отчётные виджеты со `show` (KPI-строка, Ожидаемые поступления,
+ *     Прогноз прибыли, Остатки денег, Плановые расходы) у админа скрыты, а у
+ *     ролей с доступом (владелец/управляющий/«только чтение») — видны и кликабельны.
  */
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import { hasPermission } from "../lib/permissions"
 import {
-  DASHBOARD_WIDGET_PERMISSIONS,
+  DASHBOARD_WIDGET_GATES,
   STAT_CARD_PERMISSIONS,
 } from "../lib/dashboard/widget-permissions"
 import { requiredPermissionForPath } from "../lib/route-permissions"
 
 // Тип роли берём из сигнатуры hasPermission — без импорта Role из @prisma/client.
 type Role = Parameters<typeof hasPermission>[0]
+const role = (r: string) => r as Role
 
-// Ссылка каждого виджета (как в page.tsx) — источник истины для сверки:
-// право виджета обязано совпасть с правом, гейтящим страницу по этой ссылке.
-// null — у виджета нет прямой ссылки на страницу (`stats` — композит,
-// `birthdays` — данные детей-клиентов без отдельной страницы).
+// Ссылка каждого виджета (как в page.tsx). Для отчётных виджетов с делинком
+// (`link != null`) право ссылки обязано совпасть с правом страницы по route-permissions.
 const WIDGET_LINKS: Record<string, string | null> = {
   stats: null,
   tasks: "/tasks",
@@ -46,18 +47,36 @@ const STAT_LINKS: Record<keyof typeof STAT_CARD_PERMISSIONS, string> = {
   debtors: "/finance/debtors",
 }
 
-// Роли, которым отдаётся дашборд с виджетами (педагог получает упрощённую
-// главную и здесь не участвует).
-const role = (r: string) => r as Role
+// Показан ли виджет роли (show=null → всегда).
+const shown = (r: string, id: string) => {
+  const g = DASHBOARD_WIDGET_GATES[id]
+  return g.show == null || hasPermission(role(r), g.show)
+}
+// Кликабелен ли заголовок-ссылка на отчёт (link=null → всегда/нет ссылки).
+const linkClickable = (r: string, id: string) => {
+  const g = DASHBOARD_WIDGET_GATES[id]
+  return g.link == null || hasPermission(role(r), g.link)
+}
+const statVisible = (r: string, key: keyof typeof STAT_CARD_PERMISSIONS) =>
+  hasPermission(role(r), STAT_CARD_PERMISSIONS[key])
 
-describe("Виджеты дашборда: право виджета совпадает с правом связанной страницы", () => {
-  it("каждый виджет со ссылкой гейтится тем же правом, что и его страница", () => {
-    for (const [id, link] of Object.entries(WIDGET_LINKS)) {
-      if (link == null) continue
+describe("Структура гейтов виджетов", () => {
+  it("гейты покрывают ровно те же id, что и карта ссылок", () => {
+    assert.deepEqual(
+      Object.keys(DASHBOARD_WIDGET_GATES).sort(),
+      Object.keys(WIDGET_LINKS).sort(),
+    )
+  })
+
+  it("право ссылки делинк-виджета совпадает с правом его страницы", () => {
+    for (const [id, g] of Object.entries(DASHBOARD_WIDGET_GATES)) {
+      if (g.link == null) continue
+      const link = WIDGET_LINKS[id]
+      assert.ok(link, `у делинк-виджета "${id}" должна быть ссылка`)
       assert.equal(
-        DASHBOARD_WIDGET_PERMISSIONS[id],
-        requiredPermissionForPath(link),
-        `виджет "${id}" (${link}) должен гейтиться правом страницы`,
+        g.link,
+        requiredPermissionForPath(link!),
+        `виджет "${id}" (${link}) — право ссылки должно совпасть с правом страницы`,
       )
     }
   })
@@ -71,61 +90,52 @@ describe("Виджеты дашборда: право виджета совпа�
       )
     }
   })
-
-  it("карты покрывают одни и те же виджеты (нет рассинхрона id)", () => {
-    assert.deepEqual(
-      Object.keys(DASHBOARD_WIDGET_PERMISSIONS).sort(),
-      Object.keys(WIDGET_LINKS).sort(),
-    )
-  })
 })
 
-// Итоговая видимость: показываем виджет, если у роли есть его право
-// (null-право у `stats` — всегда показываем контейнер, карточки решают сами).
-const widgetVisible = (r: string, id: string) => {
-  const perm = DASHBOARD_WIDGET_PERMISSIONS[id]
-  return perm == null || hasPermission(role(r), perm)
-}
-const statVisible = (r: string, key: keyof typeof STAT_CARD_PERMISSIONS) =>
-  hasPermission(role(r), STAT_CARD_PERMISSIONS[key])
+describe("Дашборд администратора (дефолтные права)", () => {
+  const HIDDEN = ["stats", "expectedIncome", "profitForecast", "cashBalances", "plannedExpenses"]
+  const VISIBLE = ["tasks", "missedTrials", "unmarked", "birthdays", "funnel", "activeSubs", "capacity", "workedSubs"]
+  const DELINKED = ["funnel", "activeSubs", "capacity", "workedSubs"]
 
-describe("Дашборд администратора: закрытые разделы скрыты (дефолтные права)", () => {
-  it("скрыты отчётные/финрез-виджеты", () => {
-    for (const id of ["funnel", "expectedIncome", "profitForecast", "capacity", "workedSubs", "activeSubs"]) {
-      assert.equal(widgetVisible("admin", id), false, `виджет "${id}" должен быть скрыт у админа`)
+  it("скрыты финансовые/отчётные виджеты со `show`", () => {
+    for (const id of HIDDEN) {
+      assert.equal(shown("admin", id), false, `виджет "${id}" должен быть скрыт у админа`)
     }
   })
 
-  it("видны доступные админу виджеты", () => {
-    for (const id of ["tasks", "unmarked", "missedTrials", "cashBalances", "birthdays", "plannedExpenses"]) {
-      assert.equal(widgetVisible("admin", id), true, `виджет "${id}" должен быть виден админу`)
+  it("показаны операционные и отчётные (без `show`) виджеты", () => {
+    for (const id of VISIBLE) {
+      assert.equal(shown("admin", id), true, `виджет "${id}" должен быть виден админу`)
     }
   })
 
-  it("карточка «Доходы» (finance.result) скрыта, остальные видны", () => {
-    assert.equal(statVisible("admin", "income"), false)
-    assert.equal(statVisible("admin", "activeSubscriptions"), true)
-    assert.equal(statVisible("admin", "expenses"), true)
-    assert.equal(statVisible("admin", "debtors"), true)
+  it("отчётные виджеты показаны, но заголовок НЕ кликабелен (делинк)", () => {
+    for (const id of DELINKED) {
+      assert.equal(shown("admin", id), true, `"${id}" показан`)
+      assert.equal(linkClickable("admin", id), false, `"${id}" — ссылка на отчёт неактивна`)
+    }
+  })
+
+  it("операционные ссылки (задачи/пробники/расписание) активны", () => {
+    for (const id of ["tasks", "missedTrials", "unmarked"]) {
+      assert.equal(linkClickable("admin", id), true, `"${id}" — ссылка активна`)
+    }
   })
 })
 
 describe("Дашборд владельца/управляющего/только-чтение (дефолтные права)", () => {
-  it("owner и manager видят все виджеты и все карточки", () => {
-    for (const r of ["owner", "manager"]) {
-      for (const id of Object.keys(DASHBOARD_WIDGET_PERMISSIONS)) {
-        assert.equal(widgetVisible(r, id), true, `${r}: "${id}" должен быть виден`)
-      }
-      for (const key of Object.keys(STAT_CARD_PERMISSIONS) as (keyof typeof STAT_CARD_PERMISSIONS)[]) {
-        assert.equal(statVisible(r, key), true, `${r}: карточка "${key}" должна быть видна`)
+  it("owner, manager, readonly видят ВСЕ виджеты и все ссылки кликабельны", () => {
+    for (const r of ["owner", "manager", "readonly"]) {
+      for (const id of Object.keys(DASHBOARD_WIDGET_GATES)) {
+        assert.equal(shown(r, id), true, `${r}: виджет "${id}" должен быть виден`)
+        assert.equal(linkClickable(r, id), true, `${r}: ссылка "${id}" должна быть активна`)
       }
     }
   })
 
-  it("readonly видит все текущие виджеты (ни один не требует reports.salary)", () => {
-    for (const id of Object.keys(DASHBOARD_WIDGET_PERMISSIONS)) {
-      assert.equal(widgetVisible("readonly", id), true, `readonly: "${id}" должен быть виден`)
+  it("readonly видит все карточки KPI-строки (в т.ч. «Доходы»)", () => {
+    for (const key of Object.keys(STAT_CARD_PERMISSIONS) as (keyof typeof STAT_CARD_PERMISSIONS)[]) {
+      assert.equal(statVisible("readonly", key), true, `readonly: карточка "${key}" видна`)
     }
-    assert.equal(statVisible("readonly", "income"), true)
   })
 })

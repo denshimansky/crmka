@@ -5,7 +5,7 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { hasPermission, type PermissionKey, type RolePermissions } from "@/lib/permissions"
 import { getOrgUiSettings } from "@/lib/role-names"
-import { DASHBOARD_WIDGET_PERMISSIONS, STAT_CARD_PERMISSIONS } from "@/lib/dashboard/widget-permissions"
+import { DASHBOARD_WIDGET_GATES, STAT_CARD_PERMISSIONS } from "@/lib/dashboard/widget-permissions"
 import { taskVisibilityWhere } from "@/lib/tasks/task-visibility"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -91,6 +91,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     orgPerms = (org?.rolePermissions as RolePermissions | null) ?? null
   }
   const can = (perm: PermissionKey) => hasPermission(session.user.role, perm, orgPerms)
+
+  // Заголовок отчётного виджета: если у роли есть доступ к отчёту — ссылка,
+  // иначе просто текст (виджет с данными показываем, но перехода в отчёт нет).
+  const reportTitle = (linkPerm: PermissionKey, href: string, text: string) =>
+    can(linkPerm) ? (
+      <Link href={href} className="hover:underline">{text}</Link>
+    ) : (
+      <span>{text}</span>
+    )
 
   const { year, month } = getMonthFromParams(await searchParams)
   const now = new Date()
@@ -628,7 +637,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base">
-          <Link href="/reports/crm/funnel" className="hover:underline">Воронка продаж</Link>
+          {reportTitle("reports.marketing", "/reports/crm/funnel", "Воронка продаж")}
         </CardTitle>
         <p className="text-xs text-muted-foreground">
           За месяц, включая перетекающие заявки — детали в отчёте
@@ -817,9 +826,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base">
-          <Link href="/reports/finance/revenue" className="hover:underline">
-            Отработанные абонементы
-          </Link>
+          {reportTitle("reports.finance", "/reports/finance/revenue", "Отработанные абонементы")}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -896,9 +903,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base">
-          <Link href="/reports/crm/active-subs-dynamics" className="hover:underline">
-            Активные абонементы
-          </Link>
+          {reportTitle("reports.marketing", "/reports/crm/active-subs-dynamics", "Активные абонементы")}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -995,9 +1000,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <CardTitle className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2">
             <BarChart3 className="size-5 text-muted-foreground" />
-            <Link href="/reports/schedule/capacity" className="hover:underline">
-              Заполняемость групп
-            </Link>
+            {reportTitle("reports.schedule", "/reports/schedule/capacity", "Заполняемость групп")}
           </span>
           <Badge variant="secondary">{groupCapacity.length}</Badge>
         </CardTitle>
@@ -1148,11 +1151,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     </Card>
   )
 
-  // Право доступа для каждого виджета: DASHBOARD_WIDGET_PERMISSIONS хранит тот
-  // же ключ, что гейтит связанную страницу (см. route-permissions.ts). Виджет
-  // без доступа к разделу не отдаём в грид вовсе — чтобы админ (по умолчанию без
-  // finance.result и reports.*) не видел закрытые для него отчёты/финрез на
-  // дашборде. `stats` там null — фильтруется поштучно по карточкам (см. выше).
+  // Гейтинг виджетов (DASHBOARD_WIDGET_GATES, решение 23.07.2026):
+  //  • `show` — право на показ виджета; null → показываем всегда. Отчётные
+  //    виджеты (Воронка/Активные абонементы/Заполняемость/Отработанные) показаны
+  //    всегда, но их заголовок делинкуется по `link` (см. reportTitle выше).
+  //  • Финансовые/отчётные виджеты со `show` (KPI-строка, Ожидаемые поступления,
+  //    Прогноз прибыли, Остатки денег, Плановые расходы) у админа (без
+  //    finance.result/reports.finance) скрыты; у ролей с доступом — видны.
   const allWidgets: Record<string, ReactNode> = {
     // Если у роли не осталось ни одной доступной карточки — виджет пуст.
     stats: stats.length > 0 ? statsWidget : null,
@@ -1173,8 +1178,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const widgets: Record<string, ReactNode> = {}
   for (const [id, node] of Object.entries(allWidgets)) {
     if (node == null) continue
-    const perm = DASHBOARD_WIDGET_PERMISSIONS[id]
-    if (perm && !can(perm)) continue
+    const gate = DASHBOARD_WIDGET_GATES[id]
+    if (gate?.show && !can(gate.show)) continue
     widgets[id] = node
   }
   const allowedWidgetIds = Object.keys(widgets)
