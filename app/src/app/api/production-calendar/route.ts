@@ -3,6 +3,10 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import {
+  reconcileDayToNonWorking,
+  reconcileDayToWorking,
+} from "@/lib/schedule/reconcile-calendar-day"
 
 const createSchema = z.object({
   date: z.string().min(1, "Укажите дату"),
@@ -51,12 +55,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
   const data = parsed.data
+  const dayDate = new Date(data.date)
+  const tenantId = session.user.tenantId
+  const createdBy = session.user.employeeId ?? null
+
+  // Прежнее состояние дня по «рабочести»: нет записи или isWorking=true → рабочий;
+  // isWorking=false → нерабочий. Нужно, чтобы поймать смену состояния и
+  // реконсилить расписание/абонементы (правило заказчика).
+  const prior = await db.productionCalendar.findUnique({
+    where: { tenantId_date: { tenantId, date: dayDate } },
+    select: { isWorking: true },
+  })
+  const wasNonWorking = prior?.isWorking === false
+  const nowNonWorking = data.isWorking === false
 
   const item = await db.productionCalendar.upsert({
     where: {
       tenantId_date: {
-        tenantId: session.user.tenantId,
-        date: new Date(data.date),
+        tenantId,
+        date: dayDate,
       },
     },
     update: {
@@ -64,12 +81,25 @@ export async function POST(req: NextRequest) {
       comment: data.comment,
     },
     create: {
-      tenantId: session.user.tenantId,
-      date: new Date(data.date),
+      tenantId,
+      date: dayDate,
       isWorking: data.isWorking,
       comment: data.comment,
     },
   })
 
-  return NextResponse.json(item, { status: 201 })
+  // Реконсиляция ПОСЛЕ апсёрта (генератор рабочего дня должен видеть новое
+  // состояние календаря). Только при реальной смене «рабочести» — правка одного
+  // комментария ничего не пересчитывает.
+  let reconcile:
+    | { deleted: number; subscriptionsUpdated: number }
+    | { created: number; subscriptionsUpdated: number }
+    | undefined
+  if (!wasNonWorking && nowNonWorking) {
+    reconcile = await reconcileDayToNonWorking(db, { tenantId, date: dayDate, createdBy })
+  } else if (wasNonWorking && !nowNonWorking) {
+    reconcile = await reconcileDayToWorking(db, { tenantId, date: dayDate, createdBy })
+  }
+
+  return NextResponse.json({ ...item, reconcile }, { status: 201 })
 }

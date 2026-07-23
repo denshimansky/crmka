@@ -3,6 +3,10 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import {
+  reconcileDayToNonWorking,
+  reconcileDayToWorking,
+} from "@/lib/schedule/reconcile-calendar-day"
 
 const updateSchema = z.object({
   isWorking: z.boolean().optional(),
@@ -41,8 +45,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   })
   if (!existing) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
 
+  const tenantId = session.user.tenantId
+  const createdBy = session.user.employeeId ?? null
+  const wasNonWorking = existing.isWorking === false
+  const nowNonWorking = (parsed.data.isWorking ?? existing.isWorking) === false
+
   const item = await db.productionCalendar.update({ where: { id }, data: parsed.data })
-  return NextResponse.json(item)
+
+  // Смена «рабочести» дня → реконсиляция расписания/абонементов (после апдейта).
+  let reconcile:
+    | { deleted: number; subscriptionsUpdated: number }
+    | { created: number; subscriptionsUpdated: number }
+    | undefined
+  if (!wasNonWorking && nowNonWorking) {
+    reconcile = await reconcileDayToNonWorking(db, { tenantId, date: existing.date, createdBy })
+  } else if (wasNonWorking && !nowNonWorking) {
+    reconcile = await reconcileDayToWorking(db, { tenantId, date: existing.date, createdBy })
+  }
+
+  return NextResponse.json({ ...item, reconcile })
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -59,5 +80,17 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!existing) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
 
   await db.productionCalendar.delete({ where: { id } })
-  return NextResponse.json({ ok: true })
+
+  // Очистка записи возвращает день в рабочие. Если он был нерабочим — воссоздать
+  // занятия дня и пересчитать абонементы (после удаления записи календаря).
+  let reconcile: { created: number; subscriptionsUpdated: number } | undefined
+  if (existing.isWorking === false) {
+    reconcile = await reconcileDayToWorking(db, {
+      tenantId: session.user.tenantId,
+      date: existing.date,
+      createdBy: session.user.employeeId ?? null,
+    })
+  }
+
+  return NextResponse.json({ ok: true, reconcile })
 }

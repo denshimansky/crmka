@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { reconcileDayToNonWorking } from "@/lib/schedule/reconcile-calendar-day"
 
 const schema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Формат даты: YYYY-MM-DD"),
@@ -15,8 +16,19 @@ export async function POST(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+  // Как одиночное удаление занятия (та же операция «удалить + пересчитать»):
+  // owner/manager/admin. Раньше guard'а не было — теперь действие удаляет
+  // занятия и двигает деньги, поэтому ограничиваем.
+  if (
+    session.user.role !== "owner" &&
+    session.user.role !== "manager" &&
+    session.user.role !== "admin"
+  ) {
+    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 })
+  }
 
-  const tenantId = (session.user as any).tenantId
+  const tenantId = session.user.tenantId
+  const createdBy = session.user.employeeId ?? null
   const body = await req.json()
   const parsed = schema.safeParse(body)
   if (!parsed.success) {
@@ -29,25 +41,31 @@ export async function POST(req: NextRequest) {
   const { date, branchId, reason } = parsed.data
   const targetDate = new Date(date + "T00:00:00.000Z")
 
-  const where: any = {
+  // Удаляем занятия дня без реальных отметок и пересчитываем абонементы
+  // (переплата возвращается на баланс клиента, долг — начисляется). Правило
+  // заказчика: «Отменить день» приводит абонементы в соответствие расписанию.
+  const result = await reconcileDayToNonWorking(db, {
     tenantId,
     date: targetDate,
-    status: "scheduled",
-  }
-  if (branchId) {
-    where.group = { branchId }
-  }
-
-  const result = await db.lesson.updateMany({
-    where,
-    data: {
-      status: "cancelled",
-      cancelReason: reason,
-    },
+    branchId: branchId ?? null,
+    createdBy,
   })
 
+  // Отмена по всей организации (без филиала) — помечаем день нерабочим в
+  // производственном календаре с причиной, чтобы повторная генерация не вернула
+  // занятия обратно. При отмене по одному филиалу календарь (общий по орг) не
+  // трогаем — это частичная отмена дня.
+  if (!branchId) {
+    await db.productionCalendar.upsert({
+      where: { tenantId_date: { tenantId, date: targetDate } },
+      update: { isWorking: false, comment: reason },
+      create: { tenantId, date: targetDate, isWorking: false, comment: reason },
+    })
+  }
+
   return NextResponse.json({
-    cancelled: result.count,
+    deleted: result.deleted,
+    subscriptionsUpdated: result.subscriptionsUpdated,
     date,
     reason,
   })

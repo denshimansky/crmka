@@ -79,7 +79,11 @@ export function CancelDayDialog({ defaultDate, branches }: CancelDayDialogProps)
       }
 
       const data = await res.json()
-      setResult(`Отменено занятий: ${data.cancelled}`)
+      const parts = [`Удалено занятий: ${data.deleted}`]
+      if (data.subscriptionsUpdated > 0) {
+        parts.push(`пересчитано абонементов: ${data.subscriptionsUpdated}`)
+      }
+      setResult(parts.join(", "))
       router.refresh()
     } catch {
       setError("Ошибка сети")
@@ -106,7 +110,9 @@ export function CancelDayDialog({ defaultDate, branches }: CancelDayDialogProps)
           <DialogHeader>
             <DialogTitle>Массовая отмена занятий</DialogTitle>
             <DialogDescription>
-              Отмените все занятия за выбранную дату (праздник, карантин и т.д.)
+              Занятия за дату удаляются, абонементы пересчитываются: переплата
+              возвращается на баланс клиента, долг — пересчитывается. Без выбора
+              филиала день помечается нерабочим в производственном календаре.
             </DialogDescription>
           </DialogHeader>
 
