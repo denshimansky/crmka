@@ -23,7 +23,7 @@ export default function LeadsByDayReportPage() {
   return (
     <ReportShell
       title="Лиды по дням"
-      subtitle="Созданные заявки (абонементы) по дням месяца"
+      subtitle="Новые лиды (вошедшие в воронку) по дням месяца"
       pageKey="reports/crm/leads-by-day"
     >
       <Card>
@@ -52,7 +52,7 @@ export default function LeadsByDayReportPage() {
                   <tbody>
                     <tr className="border-t">
                       <td className="sticky left-0 z-10 bg-background px-3 py-1.5 font-medium whitespace-nowrap">
-                        Создано заявок
+                        Создано лидов
                       </td>
                       {data.map((r) => (
                         <td key={r.date} className="px-2 py-1.5 text-center tabular-nums">

@@ -26,7 +26,7 @@ export default function LeadsByChannelReportPage() {
   return (
     <ReportShell
       title="Лиды по каналам"
-      subtitle="Созданные заявки (лиды) по каналам привлечения и дням месяца"
+      subtitle="Новые лиды (вошедшие в воронку) по каналам привлечения и дням месяца"
       pageKey="reports/crm/leads-by-channel"
     >
       <Card>
