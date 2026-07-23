@@ -93,6 +93,11 @@ model Organization {
   roleDisplayNames    Json?    @map("role_display_names")
   rolePermissions     Json?    @map("role_permissions")
   onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  // Валюта расчёта (только отображение символа/формата — без пересчёта сумм по курсу).
+  // Дефолт — рубль РФ. currencyChosen=false у новых организаций → на дашборде
+  // показываем разовый запрос валюты; существующие проставлены true миграцией.
+  currency            String   @default("RUB")
+  currencyChosen      Boolean  @default(false) @map("currency_chosen")
 
   // Тип абонемента (один на компанию). Выбирается в wizard, блокируется после первого абонемента.
   subscriptionType              SubscriptionType? @map("subscription_type")

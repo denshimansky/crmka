@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { getSession } from "@/lib/session"
 import { getOrgUiSettings, getRoleNames } from "@/lib/role-names"
 import { RoleNamesProvider } from "@/components/role-names-provider"
+import { CurrencyProvider } from "@/components/currency-provider"
 import { hasPermission, PERMISSIONS, REPORT_PERMISSION_KEYS, type PermissionKey, type RolePermissions } from "@/lib/permissions"
 import { requiredPermissionForPath } from "@/lib/route-permissions"
 import { AccessDenied } from "@/components/access-denied"
@@ -23,13 +24,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const headerStore = await headers()
   const pathname = headerStore.get("x-pathname") || "/"
 
-  // Кастомизированная матрица прав и названия ролей — один cached-запрос
-  // (getOrgUiSettings) на весь рендер: нужен и гарду, и сайдбару, и провайдеру.
+  // Кастомизированная матрица прав, названия ролей и валюта — один cached-запрос
+  // (getOrgUiSettings) на весь рендер: нужен и гарду, и сайдбару, и провайдерам.
+  const orgUi = await getOrgUiSettings(tenantId)
   let orgPerms: RolePermissions | null = null
   if (role !== "owner") {
-    const org = await getOrgUiSettings(tenantId)
-    orgPerms = (org?.rolePermissions as RolePermissions | null) ?? null
+    orgPerms = (orgUi?.rolePermissions as RolePermissions | null) ?? null
   }
+  const currency = orgUi?.currency ?? "RUB"
 
   // Кастомные названия ролей — для сайдбара и всех клиентских компонентов (через контекст)
   const roleNames = await getRoleNames(tenantId)
@@ -60,6 +62,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <RoleNamesProvider value={roleNames}>
+    <CurrencyProvider value={currency}>
     <SidebarProvider>
       <AppSidebar permissions={effectivePermissions} />
       <SidebarInset>
@@ -80,6 +83,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <PageTracking />
       <AiChat />
     </SidebarProvider>
+    </CurrencyProvider>
     </RoleNamesProvider>
   )
 }

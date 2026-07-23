@@ -1,6 +1,6 @@
 import { getSession } from "@/lib/session"
 import { Card, CardContent } from "@/components/ui/card"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { SettingsTabs } from "./settings-tabs"
 import {
   Building2,
   MapPin,
@@ -168,6 +168,8 @@ export default async function SettingsPage() {
       title: "Интеграции",
       description: "Подключение внешних сервисов — почта, телефония, платёжки",
       icon: Plug,
+      // Скрыто до готовности интеграций (страница остаётся доступной по прямой ссылке).
+      show: false,
     },
     {
       href: "/billing",
@@ -185,20 +187,10 @@ export default async function SettingsPage() {
         <PageHelp pageKey="settings" />
       </div>
 
-      <Tabs defaultValue="org">
-        <TabsList>
-          <TabsTrigger value="org">Организация</TabsTrigger>
-          <TabsTrigger value="personnel">Персональные</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="org">
-          <TileGrid tiles={orgTiles} />
-        </TabsContent>
-
-        <TabsContent value="personnel">
-          <TileGrid tiles={personalTiles} />
-        </TabsContent>
-      </Tabs>
+      <SettingsTabs
+        orgContent={<TileGrid tiles={orgTiles} />}
+        personnelContent={<TileGrid tiles={personalTiles} />}
+      />
     </div>
   )
 }

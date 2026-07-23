@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Pencil } from "lucide-react"
 import { DIRECTION_ICONS, DEFAULT_DIRECTION_ICON } from "@/lib/direction-icons"
+import { useCurrencySymbol } from "@/components/currency-provider"
 import { cn } from "@/lib/utils"
 
 interface DirectionData {
@@ -28,6 +29,7 @@ interface DirectionData {
 
 export function EditDirectionDialog({ direction }: { direction: DirectionData }) {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -117,7 +119,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label>Стоимость занятия, ₽ *</Label>
+                <Label>Стоимость занятия, {sym} *</Label>
                 <Input type="number" step="0.01" min="0" value={lessonPrice} onChange={(e) => setLessonPrice(e.target.value)} placeholder="400" />
               </div>
               <div>
@@ -133,14 +135,14 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
               </label>
               {!trialFree && (
                 <div>
-                  <Label>Стоимость пробного, ₽</Label>
+                  <Label>Стоимость пробного, {sym}</Label>
                   <Input type="number" step="0.01" min="0" value={trialPrice} onChange={(e) => setTrialPrice(e.target.value)} placeholder="500" />
                 </div>
               )}
             </div>
 
             <div>
-              <Label>Стоимость разового посещения, ₽</Label>
+              <Label>Стоимость разового посещения, {sym}</Label>
               <Input
                 type="number"
                 step="0.01"

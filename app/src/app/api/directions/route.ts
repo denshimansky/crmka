@@ -45,6 +45,20 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data
 
+  // Запрет дубликатов по названию (без учёта регистра) среди активных
+  // (не архивных) направлений организации.
+  const dup = await db.direction.findFirst({
+    where: {
+      tenantId: session.user.tenantId,
+      deletedAt: null,
+      name: { equals: data.name, mode: "insensitive" },
+    },
+    select: { id: true },
+  })
+  if (dup) {
+    return NextResponse.json({ error: "Направление с таким названием уже существует" }, { status: 409 })
+  }
+
   const direction = await db.direction.create({
     data: {
       tenantId: session.user.tenantId,

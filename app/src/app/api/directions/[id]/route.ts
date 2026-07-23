@@ -36,6 +36,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const existing = await db.direction.findFirst({ where: { id, tenantId: session.user.tenantId } })
   if (!existing) return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
 
+  // Запрет дубликатов по названию (без учёта регистра) при переименовании.
+  if (parsed.data.name) {
+    const dup = await db.direction.findFirst({
+      where: {
+        tenantId: session.user.tenantId,
+        deletedAt: null,
+        id: { not: id },
+        name: { equals: parsed.data.name, mode: "insensitive" },
+      },
+      select: { id: true },
+    })
+    if (dup) {
+      return NextResponse.json({ error: "Направление с таким названием уже существует" }, { status: 409 })
+    }
+  }
+
   const direction = await db.direction.update({ where: { id }, data: parsed.data })
   return NextResponse.json(direction)
 }

@@ -5,6 +5,8 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { hasPermission, type PermissionKey, type RolePermissions } from "@/lib/permissions"
 import { getOrgUiSettings } from "@/lib/role-names"
+import { formatMoney as fmtMoney, currencySymbol } from "@/lib/currency"
+import { CurrencyPrompt } from "@/components/currency-prompt"
 import { DASHBOARD_WIDGET_GATES, STAT_CARD_PERMISSIONS } from "@/lib/dashboard/widget-permissions"
 import { taskVisibilityWhere } from "@/lib/tasks/task-visibility"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -33,10 +35,6 @@ import { computeUpcomingBirthdays } from "@/lib/dashboard/upcoming-birthdays"
 import { computePlannedExpensesWithFact } from "@/lib/finance/planned-expenses"
 import { computeSalesFunnel, summarizeSalesFunnel } from "@/lib/reports/sales-funnel"
 import { branchScopeFromSession, scopeFinancialAccount } from "@/lib/branch-scope"
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
-}
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
@@ -85,12 +83,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // доступ к этому разделу (то же право, что гейтит саму страницу). Иначе
   // виджет (и отдельные карточки-метрики) не отображаем. getOrgUiSettings
   // обёрнут в React cache — повторного запроса к БД после layout не будет.
+  const orgUi = await getOrgUiSettings(tenantId)
   let orgPerms: RolePermissions | null = null
   if (session.user.role !== "owner") {
-    const org = await getOrgUiSettings(tenantId)
-    orgPerms = (org?.rolePermissions as RolePermissions | null) ?? null
+    orgPerms = (orgUi?.rolePermissions as RolePermissions | null) ?? null
   }
   const can = (perm: PermissionKey) => hasPermission(session.user.role, perm, orgPerms)
+
+  // Валюта расчёта организации (отображение символа/формата). Локальный
+  // formatMoney теперь форматирует в валюте организации.
+  const currency = orgUi?.currency ?? "RUB"
+  const currencyChosen = orgUi?.currencyChosen ?? true
+  const formatMoney = (amount: number) => fmtMoney(amount, currency)
+  // Новой организации (валюта ещё не выбрана) показываем разовый запрос валюты —
+  // только владельцу/управляющему, которые могут её сохранить.
+  const showCurrencyPrompt =
+    !currencyChosen && (session.user.role === "owner" || session.user.role === "manager")
 
   // Заголовок отчётного виджета: если у роли есть доступ к отчёту — ссылка,
   // иначе просто текст (виджет с данными показываем, но перехода в отчёт нет).
@@ -552,8 +560,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     plannedTotalPlanned > 0
       ? ((plannedDeviation / plannedTotalPlanned) * 100).toFixed(1)
       : "0"
-  // Деньги в виджете — как на странице: без округления, с символом ₽.
-  const fmtPlanMoney = (n: number) => new Intl.NumberFormat("ru-RU").format(n) + " ₽"
+  // Деньги в виджете — как на странице: без округления, с символом валюты.
+  const fmtPlanMoney = (n: number) => new Intl.NumberFormat("ru-RU").format(n) + " " + currencySymbol(currency)
 
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
@@ -1188,6 +1196,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     // Нижний отступ под плавающую кнопку AI-ассистента задаётся глобально в
     // layout.tsx (<main> pb-24) — здесь дублировать не нужно.
     <div className="space-y-6">
+      {showCurrencyPrompt && <CurrencyPrompt initial={currency} />}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <h1 className="text-2xl font-bold">Дашборд</h1>

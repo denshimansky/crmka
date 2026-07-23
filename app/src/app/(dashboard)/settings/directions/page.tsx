@@ -7,22 +7,23 @@ import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { CreateDirectionDialog } from "../create-direction-dialog"
 import { EditDirectionDialog } from "../edit-direction-dialog"
+import { ArchiveDirectionButton, RestoreDirectionButton } from "../direction-archive-buttons"
 import { getDirectionIcon } from "@/lib/direction-icons"
+import { getOrgUiSettings } from "@/lib/role-names"
+import { currencySymbol } from "@/lib/currency"
+import type { Direction } from "@prisma/client"
 
 export default async function DirectionsPage() {
   const session = await getSession()
+  const orgUi = await getOrgUiSettings(session.user.tenantId)
+  const sym = currencySymbol(orgUi?.currency)
 
-  const org = await db.organization.findUnique({
-    where: { id: session.user.tenantId },
-    select: {
-      directions: {
-        where: { deletedAt: null },
-        orderBy: { sortOrder: "asc" },
-      },
-    },
+  const all = await db.direction.findMany({
+    where: { tenantId: session.user.tenantId },
+    orderBy: { sortOrder: "asc" },
   })
-
-  const directions = org?.directions ?? []
+  const directions = all.filter((d) => d.deletedAt == null)
+  const archived = all.filter((d) => d.deletedAt != null)
 
   return (
     <div className="space-y-6">
@@ -56,63 +57,88 @@ export default async function DirectionsPage() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {directions.map((dir) => {
-            const DirIcon = getDirectionIcon(dir.icon)
-            return (
-              <Card key={dir.id}>
-                <CardContent className="relative p-5">
-                  <div className="absolute right-3 top-3">
-                    <EditDirectionDialog
-                      direction={{
-                        id: dir.id,
-                        name: dir.name,
-                        lessonPrice: String(dir.lessonPrice),
-                        lessonDuration: dir.lessonDuration,
-                        trialPrice: dir.trialPrice ? String(dir.trialPrice) : null,
-                        trialFree: dir.trialFree,
-                        singleVisitPrice: dir.singleVisitPrice ? String(dir.singleVisitPrice) : null,
-                        color: dir.color,
-                        icon: dir.icon,
-                      }}
-                    />
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <div
-                      className="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                      style={{
-                        backgroundColor: dir.color ? `${dir.color}20` : undefined,
-                        color: dir.color ?? undefined,
-                      }}
-                    >
-                      <DirIcon className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h3 className="truncate font-medium">{dir.name}</h3>
-                      <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                        <p>
-                          Цена: <span className="font-medium text-foreground">{Number(dir.lessonPrice).toLocaleString("ru-RU")} ₽</span>
-                        </p>
-                        <p>
-                          Длительность: <span className="font-medium text-foreground">{dir.lessonDuration} мин.</span>
-                        </p>
-                        {dir.trialFree ? (
-                          <p>
-                            Пробное: <Badge variant="secondary" className="ml-1">Бесплатно</Badge>
-                          </p>
-                        ) : dir.trialPrice ? (
-                          <p>
-                            Пробное: <span className="font-medium text-foreground">{Number(dir.trialPrice).toLocaleString("ru-RU")} ₽</span>
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          })}
+          {directions.map((dir) => (
+            <DirectionCard key={dir.id} dir={dir} sym={sym} />
+          ))}
+        </div>
+      )}
+
+      {archived.length > 0 && (
+        <div className="space-y-3 pt-2">
+          <h2 className="text-sm font-medium text-muted-foreground">
+            Архив ({archived.length})
+          </h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {archived.map((dir) => (
+              <DirectionCard key={dir.id} dir={dir} sym={sym} archived />
+            ))}
+          </div>
         </div>
       )}
     </div>
+  )
+}
+
+function DirectionCard({ dir, sym, archived = false }: { dir: Direction; sym: string; archived?: boolean }) {
+  const DirIcon = getDirectionIcon(dir.icon)
+  return (
+    <Card className={archived ? "opacity-70" : undefined}>
+      <CardContent className="relative p-5">
+        <div className="absolute right-3 top-3 flex items-center gap-0.5">
+          {archived ? (
+            <RestoreDirectionButton id={dir.id} />
+          ) : (
+            <>
+              <EditDirectionDialog
+                direction={{
+                  id: dir.id,
+                  name: dir.name,
+                  lessonPrice: String(dir.lessonPrice),
+                  lessonDuration: dir.lessonDuration,
+                  trialPrice: dir.trialPrice ? String(dir.trialPrice) : null,
+                  trialFree: dir.trialFree,
+                  singleVisitPrice: dir.singleVisitPrice ? String(dir.singleVisitPrice) : null,
+                  color: dir.color,
+                  icon: dir.icon,
+                }}
+              />
+              <ArchiveDirectionButton id={dir.id} name={dir.name} />
+            </>
+          )}
+        </div>
+        <div className="flex items-start gap-3">
+          <div
+            className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+            style={{
+              backgroundColor: dir.color ? `${dir.color}20` : undefined,
+              color: dir.color ?? undefined,
+            }}
+          >
+            <DirIcon className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate font-medium">{dir.name}</h3>
+            <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+              <p>
+                Цена: <span className="font-medium text-foreground">{Number(dir.lessonPrice).toLocaleString("ru-RU")} {sym}</span>
+              </p>
+              <p>
+                Длительность: <span className="font-medium text-foreground">{dir.lessonDuration} мин.</span>
+              </p>
+              <p>
+                Стоимость пробного:{" "}
+                {dir.trialFree ? (
+                  <Badge variant="secondary" className="ml-1">Бесплатно</Badge>
+                ) : dir.trialPrice ? (
+                  <span className="font-medium text-foreground">{Number(dir.trialPrice).toLocaleString("ru-RU")} {sym}</span>
+                ) : (
+                  <span className="italic">не задана</span>
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { ParentPortalSettingsForm } from "./parent-portal-settings-form"
 import { InstructorPhonesToggle } from "./instructor-phones-toggle"
+import { CurrencySettingForm } from "./currency-setting-form"
 
 export default async function OrganizationInfoPage() {
   const session = await getSession()
@@ -18,6 +19,7 @@ export default async function OrganizationInfoPage() {
       phone: true,
       email: true,
       instructorsSeePhones: true,
+      currency: true,
       portalSlug: true,
       portalOfferUrl: true,
       portalPrivacyPolicyUrl: true,
@@ -78,6 +80,10 @@ export default async function OrganizationInfoPage() {
           )}
         </CardContent>
       </Card>
+
+      {org && canEditPortal && (
+        <CurrencySettingForm initial={org.currency} />
+      )}
 
       {org && session.user.role === "owner" && (
         <InstructorPhonesToggle initial={org.instructorsSeePhones} />

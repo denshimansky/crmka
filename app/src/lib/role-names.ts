@@ -12,7 +12,12 @@ import { resolveRoleDisplayNames } from "@/lib/roles"
 export const getOrgUiSettings = cache(async (tenantId: string) => {
   return db.organization.findUnique({
     where: { id: tenantId },
-    select: { roleDisplayNames: true, rolePermissions: true },
+    select: {
+      roleDisplayNames: true,
+      rolePermissions: true,
+      currency: true,
+      currencyChosen: true,
+    },
   })
 })
 

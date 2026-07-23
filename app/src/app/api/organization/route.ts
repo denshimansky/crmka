@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { PORTAL_SLUG_REGEX } from "@/lib/portal-slug"
+import { isSupportedCurrency } from "@/lib/currency"
 
 // URL-поле настроек: валидный URL, пустая строка = «очистить» (пишем null)
 const portalUrlField = z
@@ -31,6 +32,10 @@ const updateSchema = z.object({
     .optional(),
   rolePermissions: z.record(z.record(z.boolean())).optional(),
   onboardingCompleted: z.boolean().optional(),
+  // Валюта расчёта (отображение символа/формата). currencyChosen=true снимает
+  // разовый запрос валюты на дашборде у новой организации.
+  currency: z.string().refine(isSupportedCurrency, "Неизвестная валюта").optional(),
+  currencyChosen: z.boolean().optional(),
   subscriptionType: z.enum(["calendar", "fixed", "package"]).optional(),
   packageDefaultValidDays: z.number().int().min(1).max(3650).optional(),
   packageExpiryNotifyDaysBefore: z.number().int().min(0).max(60).optional(),
