@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  ArrowLeft, Building2, CreditCard, FileText, KeyRound, LogIn, Pencil, Plus, Users,
+  ArrowLeft, Building2, CircleSlash, CreditCard, FileText, KeyRound, LogIn, Pencil, Plus, Users,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -97,6 +97,9 @@ export default function PartnerDetailPage() {
   const [editForm, setEditForm] = useState({ name: "", legalName: "", inn: "", phone: "", email: "", contactPerson: "" })
   const [subOpen, setSubOpen] = useState(false)
   const [subForm, setSubForm] = useState({ planId: "", branchCount: "1", startDate: new Date().toISOString().slice(0, 10) })
+  const [changePlanOpen, setChangePlanOpen] = useState(false)
+  const [changePlanForm, setChangePlanForm] = useState({ subscriptionId: "", planId: "", branchCount: "1" })
+  const [zeroing, setZeroing] = useState(false)
   const [invoiceOpen, setInvoiceOpen] = useState(false)
   const [invoiceForm, setInvoiceForm] = useState({ subscriptionId: "", periodStart: "", periodEnd: "", dueDate: "" })
   const [saving, setSaving] = useState(false)
@@ -164,6 +167,48 @@ export default function PartnerDetailPage() {
       fetchPartner()
     } catch { setError("Ошибка сети") }
     finally { setSaving(false) }
+  }
+
+  // Сменить тариф действующей подписки: меняем план и/или число филиалов,
+  // сумма/мес пересчитывается на сервере по сетке выбранного тарифа.
+  const openChangePlan = (s: Subscription) => {
+    setChangePlanForm({ subscriptionId: s.id, planId: s.plan.id, branchCount: String(s.branchCount) })
+    setError("")
+    setChangePlanOpen(true)
+  }
+
+  const handleChangePlan = async () => {
+    setError("")
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/admin/subscriptions/${changePlanForm.subscriptionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planId: changePlanForm.planId,
+          branchCount: parseInt(changePlanForm.branchCount) || 1,
+        }),
+      })
+      if (!res.ok) { const d = await res.json(); setError(d.error); return }
+      setChangePlanOpen(false)
+      fetchPartner()
+    } catch { setError("Ошибка сети") }
+    finally { setSaving(false) }
+  }
+
+  // Обнулить тариф: перевод внутренней/тестовой базы на нулевой план (0 ₽) +
+  // отключение автосчетов — организация уходит из MRR и прогнозов бэк-офиса.
+  const handleZeroTariff = async () => {
+    if (!partner) return
+    if (!confirm("Перевести партнёра на нулевой тариф (0 ₽) и отключить автосчета? База перестанет учитываться в MRR и прогнозах. Тариф позже можно вернуть кнопкой «Сменить тариф».")) return
+    setZeroing(true)
+    setError("")
+    try {
+      const res = await fetch(`/api/admin/partners/${id}/zero-tariff`, { method: "POST" })
+      if (!res.ok) { const d = await res.json(); setError(d.error || "Не удалось обнулить тариф"); return }
+      fetchPartner()
+    } catch { setError("Ошибка сети") }
+    finally { setZeroing(false) }
   }
 
   const handleCreateInvoice = async () => {
@@ -297,6 +342,15 @@ export default function PartnerDetailPage() {
           {partner.billingExempt ? "Включить автосчета" : "Отключить автосчета"}
         </Button>
         <Button
+          variant="outline"
+          size="sm"
+          onClick={handleZeroTariff}
+          disabled={zeroing}
+          title="Нулевой тариф 0 ₽ + отключить автосчета — для внутренних/тестовых баз (не учитываются в MRR и прогнозах)"
+        >
+          <CircleSlash className="mr-2 size-4" />{zeroing ? "Обнуление..." : "Обнулить тариф"}
+        </Button>
+        <Button
           variant={partner.billingStatus === "blocked" ? "default" : "destructive"}
           size="sm"
           onClick={handleBlockToggle}
@@ -397,6 +451,7 @@ export default function PartnerDetailPage() {
                 <TableHead>Следующая оплата</TableHead>
                 <TableHead>Дата начала</TableHead>
                 <TableHead>Статус</TableHead>
+                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -410,11 +465,18 @@ export default function PartnerDetailPage() {
                     <TableCell>{new Date(s.nextPaymentDate).toLocaleDateString("ru")}</TableCell>
                     <TableCell>{new Date(s.startDate).toLocaleDateString("ru")}</TableCell>
                     <TableCell><Badge variant={ss.variant}>{ss.label}</Badge></TableCell>
+                    <TableCell className="text-right">
+                      {s.status !== "cancelled" && (
+                        <Button size="sm" variant="outline" onClick={() => openChangePlan(s)}>
+                          <Pencil className="mr-2 size-3.5" />Сменить тариф
+                        </Button>
+                      )}
+                    </TableCell>
                   </TableRow>
                 )
               })}
               {partner.billingSubscriptions.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-4">Нет подписок</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-4">Нет подписок</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -570,6 +632,45 @@ export default function PartnerDetailPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setSubOpen(false)}>Отмена</Button>
             <Button onClick={handleCreateSub} disabled={saving || !subForm.planId}>{saving ? "Создание..." : "Создать"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог смены тарифа действующей подписки */}
+      <Dialog open={changePlanOpen} onOpenChange={setChangePlanOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Сменить тариф</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Тарифный план *</Label>
+              <Select value={changePlanForm.planId} onValueChange={(v) => setChangePlanForm({ ...changePlanForm, planId: v || "" })}>
+                <SelectTrigger>
+                  {changePlanForm.planId ? plans.find((p) => p.id === changePlanForm.planId)?.name : <span className="text-muted-foreground">Выберите план</span>}
+                </SelectTrigger>
+                <SelectContent>
+                  {plans.filter((p) => (p as any).isActive !== false).map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} — {p.priceTiers && Object.keys(p.priceTiers).length
+                        ? `от ${Math.min(...Object.values(p.priceTiers)).toLocaleString("ru")} ₽/мес (сетка)`
+                        : `${Number(p.pricePerBranch).toLocaleString("ru")} ₽/филиал`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Кол-во филиалов</Label>
+              <Input type="number" min={1} value={changePlanForm.branchCount} onChange={(e) => setChangePlanForm({ ...changePlanForm, branchCount: e.target.value })} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Сумма/мес пересчитается по сетке выбранного тарифа. Для внутренних/тестовых
+              баз выберите нулевой тариф (0 ₽) — или используйте кнопку «Обнулить тариф».
+            </p>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setChangePlanOpen(false)}>Отмена</Button>
+            <Button onClick={handleChangePlan} disabled={saving || !changePlanForm.planId}>{saving ? "Сохранение..." : "Сохранить"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

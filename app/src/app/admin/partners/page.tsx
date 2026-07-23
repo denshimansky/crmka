@@ -5,7 +5,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table, TableBody, TableCell, TableHeader, TableRow,
 } from "@/components/ui/table"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -13,7 +13,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
-import { Plus, Building2, Eye } from "lucide-react"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
+import {
+  ResizableHead,
+  RESIZABLE_TABLE_CLASS,
+  useColumnWidths,
+} from "@/components/resizable-columns"
+import { Plus, Eye } from "lucide-react"
 
 interface Partner {
   id: string
@@ -38,6 +44,25 @@ const BILLING_STATUS_MAP: Record<string, { label: string; variant: "default" | "
   blocked: { label: "Заблокирован", variant: "destructive" },
 }
 
+// Стартовые ширины столбцов (px). Ширину любого можно перетащить за полоску на
+// правом крае заголовка — сохраняется в localStorage (модуль resizable-columns).
+// «Организация» рассчитана на название; длинное юрлицо под ним обрезается
+// многоточием и не растягивает столбец.
+const DEFAULT_WIDTHS: Record<string, number> = {
+  org: 220,
+  inn: 130,
+  owner: 170,
+  branches: 90,
+  employees: 110,
+  clients: 90,
+  directions: 120,
+  subs: 130,
+  ai: 110,
+  plan: 190,
+  status: 120,
+  actions: 64,
+}
+
 export default function PartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,6 +70,9 @@ export default function PartnersPage() {
   const [form, setForm] = useState({ name: "", legalName: "", inn: "", phone: "", email: "", contactPerson: "", ownerLastName: "", ownerFirstName: "", ownerLogin: "", ownerPassword: "", ownerEmail: "" })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+
+  // Ширина столбцов: полоска-ручка на правом крае заголовка, localStorage.
+  const { widthOf, startResize } = useColumnWidths("admin-partners-colw", DEFAULT_WIDTHS)
 
   const fetchPartners = () => {
     fetch("/api/admin/partners")
@@ -93,22 +121,22 @@ export default function PartnersPage() {
       {loading ? (
         <div className="text-muted-foreground">Загрузка...</div>
       ) : (
-        <div className="rounded-md border overflow-x-auto">
-          <Table>
+        <StickyHScroll className="rounded-md border">
+          <Table className={RESIZABLE_TABLE_CLASS}>
             <TableHeader>
               <TableRow>
-                <TableHead>Организация</TableHead>
-                <TableHead>ИНН</TableHead>
-                <TableHead>Владелец</TableHead>
-                <TableHead>Филиалы</TableHead>
-                <TableHead>Сотрудники</TableHead>
-                <TableHead>Клиенты</TableHead>
-                <TableHead>Направления</TableHead>
-                <TableHead>Акт. абонементы</TableHead>
-                <TableHead>ИИ-запросы</TableHead>
-                <TableHead>Тариф</TableHead>
-                <TableHead>Статус</TableHead>
-                <TableHead></TableHead>
+                <ResizableHead id="org" width={widthOf("org")} onResizeStart={startResize}>Организация</ResizableHead>
+                <ResizableHead id="inn" width={widthOf("inn")} onResizeStart={startResize}>ИНН</ResizableHead>
+                <ResizableHead id="owner" width={widthOf("owner")} onResizeStart={startResize}>Владелец</ResizableHead>
+                <ResizableHead id="branches" width={widthOf("branches")} onResizeStart={startResize}>Филиалы</ResizableHead>
+                <ResizableHead id="employees" width={widthOf("employees")} onResizeStart={startResize}>Сотрудники</ResizableHead>
+                <ResizableHead id="clients" width={widthOf("clients")} onResizeStart={startResize}>Клиенты</ResizableHead>
+                <ResizableHead id="directions" width={widthOf("directions")} onResizeStart={startResize}>Направления</ResizableHead>
+                <ResizableHead id="subs" width={widthOf("subs")} onResizeStart={startResize}>Акт. абонементы</ResizableHead>
+                <ResizableHead id="ai" width={widthOf("ai")} onResizeStart={startResize}>ИИ-запросы</ResizableHead>
+                <ResizableHead id="plan" width={widthOf("plan")} onResizeStart={startResize}>Тариф</ResizableHead>
+                <ResizableHead id="status" width={widthOf("status")} onResizeStart={startResize}>Статус</ResizableHead>
+                <ResizableHead id="actions" width={widthOf("actions")} onResizeStart={startResize}> </ResizableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -119,8 +147,8 @@ export default function PartnersPage() {
                 return (
                   <TableRow key={p.id}>
                     <TableCell>
-                      <div className="font-medium">{p.name}</div>
-                      {p.legalName && <div className="text-xs text-muted-foreground">{p.legalName}</div>}
+                      <div className="truncate font-medium" title={p.name}>{p.name}</div>
+                      {p.legalName && <div className="truncate text-xs text-muted-foreground" title={p.legalName}>{p.legalName}</div>}
                     </TableCell>
                     <TableCell className="text-sm">{p.inn || "—"}</TableCell>
                     <TableCell className="text-sm">
@@ -132,7 +160,7 @@ export default function PartnersPage() {
                     <TableCell>{p._count.directions}</TableCell>
                     <TableCell>{p.activeSubscriptions}</TableCell>
                     <TableCell>{p._count.aiChatLogs}</TableCell>
-                    <TableCell className="text-sm">
+                    <TableCell className="text-sm" title={sub ? `${sub.plan.name} — ${Number(sub.monthlyAmount).toLocaleString("ru")} ₽` : ""}>
                       {sub ? (
                         <span>{sub.plan.name} — {Number(sub.monthlyAmount).toLocaleString("ru")} ₽</span>
                       ) : (
@@ -161,7 +189,7 @@ export default function PartnersPage() {
               )}
             </TableBody>
           </Table>
-        </div>
+        </StickyHScroll>
       )}
 
       {/* Диалог создания */}

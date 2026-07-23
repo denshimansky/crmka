@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getAdminSession } from "@/lib/admin-auth"
+import { findOrCreateZeroPlan } from "@/lib/billing/zero-plan"
 import bcrypt from "bcryptjs"
 
 // POST /api/admin/seed — создать суперадмина + тариф (одноразовый endpoint)
@@ -47,6 +48,11 @@ export async function POST(req: NextRequest) {
       },
     })
   }
+
+  // Служебный нулевой тариф (0 ₽) — для внутренних и тестовых баз, чтобы они не
+  // попадали в MRR и прогнозы. На проде заводится лениво при первом «обнулении»,
+  // здесь — чтобы был доступен сразу после сида.
+  await findOrCreateZeroPlan()
 
   // Подписки для всех организаций без подписки
   const orgs = await db.organization.findMany({
