@@ -40,6 +40,36 @@ export async function getLastPaidLessonDate(
 }
 
 /**
+ * Нормализует таймстамп к полночи UTC (@db.Date). createdAt абонемента — полный
+ * DateTime; дата отчисления хранится как @db.Date, поэтому приводим к дате.
+ */
+export function toUtcDateOnly(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+}
+
+/**
+ * Дата отчисления абонемента по правилу заказчика (единая точка):
+ *   — дата последнего ПЛАТНОГО занятия (Attendance.chargeAmount > 0), если оно есть;
+ *   — иначе (платных занятий не было) — дата создания абонемента (createdAt).
+ *
+ * `hadPaidLessons=false` означает, что абонемент так и не начал платно
+ * заниматься — такой НЕ считается оттоком (отчёты оттока/выбытия фильтруют по
+ * `chargedAmount > 0`, эквивалент «было платное занятие»).
+ *
+ * Ручной ввод даты отчисления убран — дата всегда вычисляется здесь.
+ */
+export async function resolveWithdrawalDate(
+  tx: Tx,
+  tenantId: string,
+  subscriptionId: string,
+  createdAt: Date,
+): Promise<{ date: Date; hadPaidLessons: boolean }> {
+  const last = await getLastPaidLessonDate(tx, tenantId, subscriptionId)
+  if (last) return { date: last, hadPaidLessons: true }
+  return { date: toUtcDateOnly(createdAt), hadPaidLessons: false }
+}
+
+/**
  * Следующий календарный день (полночь UTC). Используется для GroupEnrollment.
  * withdrawnAt: при дате отчисления D ставим withdrawnAt = D+1, чтобы занятие в
  * день D осталось в составе, а более поздние — выпали (фильтр withdrawnAt > date).

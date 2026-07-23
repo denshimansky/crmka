@@ -55,7 +55,10 @@ export async function GET(req: NextRequest) {
   const monthBuckets: Record<number, number> = {}
   for (const c of churned) {
     const saleDate = c.saleDate || c.firstPaymentDate || c.firstPaidLessonDate
-    const lastPaidDate = lastPaidMap.get(c.id) || c.withdrawalDate
+    // Без платных занятий (нет в lastPaidMap) клиента не бакетируем: абонемент без
+    // платных занятий не считается оттоком (правило заказчика). Раньше был фоллбэк
+    // на withdrawalDate — теперь такой клиент исключается.
+    const lastPaidDate = lastPaidMap.get(c.id)
     if (!saleDate || !lastPaidDate) continue
 
     const diffMs = lastPaidDate.getTime() - saleDate.getTime()

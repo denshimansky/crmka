@@ -5,7 +5,7 @@ import { db } from "@/lib/db"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
-import { getLastPaidLessonDate, validateWithdrawalDate, subscriptionPeriodEnd } from "@/lib/subscriptions/last-paid-lesson-date"
+import { getLastPaidLessonDate, subscriptionPeriodEnd, resolveWithdrawalDate } from "@/lib/subscriptions/last-paid-lesson-date"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
@@ -23,8 +23,8 @@ const refundSchema = z.object({
   method: z.string().optional(),
   comment: z.string().max(500).optional(),
   withdrawalReasonId: z.string().uuid().optional(),
-  // Дата отчисления (ISO). Если не передана — берём дату последнего платного занятия.
-  withdrawalDate: z.string().optional(),
+  // Дата отчисления вычисляется автоматически (последнее платное занятие, иначе
+  // дата создания) — от клиента не принимается.
 })
 
 /**
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
-  const { comment, withdrawalReasonId, withdrawalDate } = parsed.data
+  const { comment, withdrawalReasonId } = parsed.data
 
   // Закрытие через refund переводит абонемент в withdrawn — причина обязательна.
   if (!withdrawalReasonId) {
@@ -98,35 +98,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return { error: "Закрытие возможно только для активного или ожидающего абонемента", status: 400 }
     }
 
-    // Дата отчисления = переданная вручную ИЛИ дата последнего платного занятия.
-    // Нет ни того, ни другого → нет платных посещений: запрещаем (как в PATCH).
-    let withdrawAt: Date
-    if (withdrawalDate) {
-      const override = new Date(withdrawalDate)
-      const check = validateWithdrawalDate(override, subscription.startDate, new Date(), subscriptionPeriodEnd(subscription))
-      if (check.error) {
-        return { error: check.error, status: 400 }
-      }
-      // Будущая дата = отложенное отчисление — это путь PATCH-диалога «Отчислить».
-      // POST /refund — немедленное закрытие с возвратом, будущую дату не обслуживает.
-      if (check.mode === "scheduled") {
-        return {
-          error: "Для отчисления будущей датой используйте «Отчислить» в карточке абонемента.",
-          status: 400,
-        }
-      }
-      withdrawAt = override
-    } else {
-      const lastPaid = await getLastPaidLessonDate(tx, session.user.tenantId, id)
-      if (!lastPaid) {
-        return {
-          error:
-            "У абонемента нет платных посещений — отчислить автоматически нельзя. Укажите дату отчисления вручную.",
-          status: 400,
-        }
-      }
-      withdrawAt = lastPaid
-    }
+    // Дата отчисления вычисляется автоматически: последнее платное занятие, а если
+    // платных занятий не было — дата создания абонемента (в отток не попадает).
+    const withdrawAt = (
+      await resolveWithdrawalDate(tx, session.user.tenantId, id, subscription.createdAt)
+    ).date
 
     const paidToSub = await netPaidToSubscription(tx, session.user.tenantId, id)
     const usedAgg = await tx.attendance.aggregate({

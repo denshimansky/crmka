@@ -343,7 +343,6 @@ function WithdrawSubscriptionDialog({
   const [reasons, setReasons] = useState<WithdrawalReasonOption[]>([])
   const [reasonId, setReasonId] = useState<string>("")
   const [comment, setComment] = useState<string>("")
-  const [withdrawalDate, setWithdrawalDate] = useState<string>("")
 
   async function loadPreview() {
     setLoadingPreview(true)
@@ -356,8 +355,6 @@ function WithdrawSubscriptionDialog({
       if (res.ok) {
         const data = await res.json()
         setPreview(data)
-        // Предзаполняем дату отчисления последним платным занятием (если есть).
-        setWithdrawalDate(data.lastPaidDate ?? "")
       } else {
         const data = await res.json().catch(() => ({}))
         setError(data.error || "Ошибка загрузки данных")
@@ -381,17 +378,12 @@ function WithdrawSubscriptionDialog({
       setError(null)
       setReasonId("")
       setComment("")
-      setWithdrawalDate("")
     }
   }
 
   async function handleWithdraw() {
     if (!reasonId) {
       setError("Укажите причину отчисления")
-      return
-    }
-    if (!withdrawalDate) {
-      setError("Укажите дату отчисления")
       return
     }
     setLoading(true)
@@ -403,7 +395,6 @@ function WithdrawSubscriptionDialog({
         body: JSON.stringify({
           status: "withdrawn",
           withdrawalReasonId: reasonId,
-          withdrawalDate,
           withdrawalComment: comment.trim() || undefined,
         }),
       })
@@ -424,10 +415,6 @@ function WithdrawSubscriptionDialog({
       setLoading(false)
     }
   }
-
-  // Будущая дата → отложенное отчисление: финальный расчёт по факту на дату X,
-  // поэтому прогноз возврата сейчас не показываем (он неизвестен до X).
-  const isScheduled = !!preview && !!withdrawalDate && withdrawalDate > preview.today
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
@@ -495,37 +482,26 @@ function WithdrawSubscriptionDialog({
                 <span className="text-muted-foreground">Отработано (стоимость):</span>
                 <span>{formatMoney(preview.usedAmount)}</span>
               </div>
-              {!isScheduled && (
-                <>
-                  <hr className="my-1 border-orange-200 dark:border-orange-800" />
-                  <div className="flex justify-between font-bold text-base">
-                    <span>{preview.balanceDelta >= 0 ? "На баланс клиента:" : "В долг клиента:"}</span>
-                    <span className={preview.balanceDelta >= 0 ? "text-orange-600" : "text-red-600"}>
-                      {preview.balanceDelta > 0
-                        ? `+${formatMoney(preview.balanceDelta)}`
-                        : preview.balanceDelta < 0
-                          ? `−${formatMoney(Math.abs(preview.balanceDelta))}`
-                          : "0 ₽"}
-                    </span>
-                  </div>
-                </>
-              )}
+              <hr className="my-1 border-orange-200 dark:border-orange-800" />
+              <div className="flex justify-between font-bold text-base">
+                <span>{preview.balanceDelta >= 0 ? "На баланс клиента:" : "В долг клиента:"}</span>
+                <span className={preview.balanceDelta >= 0 ? "text-orange-600" : "text-red-600"}>
+                  {preview.balanceDelta > 0
+                    ? `+${formatMoney(preview.balanceDelta)}`
+                    : preview.balanceDelta < 0
+                      ? `−${formatMoney(Math.abs(preview.balanceDelta))}`
+                      : "0 ₽"}
+                </span>
+              </div>
             </div>
 
             <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3 text-sm text-yellow-800 dark:text-yellow-200 space-y-1.5">
               <p>
-                Ребёнок будет <b>отчислен из группы</b> указанной датой: на занятиях
-                по эту дату включительно он остаётся в составе, а из более поздних
-                пропадёт (прошедшие посещения сохранятся).
+                Ребёнок будет <b>отчислен из группы</b>: на последнем платном занятии
+                он остаётся в составе, а из более поздних пропадёт (прошедшие
+                посещения сохранятся).
               </p>
-              {isScheduled ? (
-                <p>
-                  Дата в будущем — отчисление <b>запланируется</b>. Ребёнок ходит до
-                  этой даты, занятия списываются по факту. Итоговый возврат/долг
-                  рассчитается <b>в этот день</b> по фактическим посещениям (остаток
-                  за непосещённые занятия вернётся на баланс).
-                </p>
-              ) : preview.balanceDelta > 0 ? (
+              {preview.balanceDelta > 0 ? (
                 <p>
                   Переплата <b>{formatMoney(preview.balanceDelta)}</b> вернётся на баланс
                   родителя — он сможет потратить её на следующий абонемент.
@@ -543,31 +519,21 @@ function WithdrawSubscriptionDialog({
             </div>
 
             <div className="space-y-1.5">
-              <Label>
-                Дата отчисления <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                type="date"
-                value={withdrawalDate}
-                min={preview.startDate}
-                max={preview.periodEnd}
-                onChange={(e) => setWithdrawalDate(e.target.value)}
-              />
-              {isScheduled ? (
-                <p className="text-xs text-blue-600 dark:text-blue-400">
-                  Дата в будущем — отчисление будет <b>запланировано</b> на этот день.
-                  Ребёнок ходит до него, расчёт — в этот день по факту посещений.
-                </p>
-              ) : preview.hasPaidAttendance ? (
-                <p className="text-xs text-muted-foreground">
-                  По умолчанию — дата последнего платного занятия. После неё ученик
-                  не показывается в составе группы. Можно изменить (в т.ч. на будущую —
-                  тогда отчисление запланируется).
-                </p>
+              <Label>Дата отчисления</Label>
+              {preview.hasPaidAttendance && preview.lastPaidDate ? (
+                <>
+                  <p className="text-sm font-medium">
+                    {new Date(preview.lastPaidDate).toLocaleDateString("ru-RU")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Назначается автоматически — дата последнего платного занятия.
+                    После неё ученик не показывается в составе группы.
+                  </p>
+                </>
               ) : (
                 <p className="text-xs text-amber-600 dark:text-amber-500">
-                  У абонемента нет платных посещений — дата по правилу «последнее
-                  платное» не определяется. Укажите дату отчисления вручную.
+                  У абонемента нет платных занятий — датой отчисления будет дата
+                  создания абонемента. Такой абонемент не попадёт в отток.
                 </p>
               )}
             </div>
@@ -621,17 +587,15 @@ function WithdrawSubscriptionDialog({
               <Button
                 variant="destructive"
                 onClick={handleWithdraw}
-                disabled={loading || !reasonId || !withdrawalDate}
+                disabled={loading || !reasonId}
               >
                 {loading
                   ? "Обработка…"
-                  : isScheduled
-                    ? `Запланировать отчисление на ${new Date(withdrawalDate).toLocaleDateString("ru-RU")}`
-                    : preview.balanceDelta > 0
-                      ? `Отчислить и вернуть ${formatMoney(preview.balanceDelta)}`
-                      : preview.balanceDelta < 0
-                        ? `Отчислить с долгом ${formatMoney(Math.abs(preview.balanceDelta))}`
-                        : "Отчислить"}
+                  : preview.balanceDelta > 0
+                    ? `Отчислить и вернуть ${formatMoney(preview.balanceDelta)}`
+                    : preview.balanceDelta < 0
+                      ? `Отчислить с долгом ${formatMoney(Math.abs(preview.balanceDelta))}`
+                      : "Отчислить"}
               </Button>
             </DialogFooter>
           </div>

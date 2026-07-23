@@ -45,6 +45,8 @@ export async function GET(req: NextRequest) {
       tenantId,
       deletedAt: null,
       withdrawalDate: { gte: dateFrom, lte: dateTo },
+      // Абонемент без платных занятий не считается оттоком (правило заказчика).
+      chargedAmount: { gt: 0 },
     },
     select: {
       group: {

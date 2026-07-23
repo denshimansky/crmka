@@ -21,6 +21,9 @@ export async function GET(req: NextRequest) {
     deletedAt: null,
     status: "withdrawn",
     withdrawalDate: { gte: dateFrom, lte: dateTo },
+    // Абонемент без платных занятий не считается оттоком (правило заказчика):
+    // его дата отчисления = дата создания, в отток он не попадает.
+    chargedAmount: { gt: 0 },
   }
   if (directionId) subWhere.directionId = directionId
 

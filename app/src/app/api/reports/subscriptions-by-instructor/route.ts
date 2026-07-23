@@ -93,8 +93,10 @@ export async function GET(req: NextRequest) {
       s.client.saleDate <= dateTo
     if (isNew) d.new_subs += 1
 
-    // Churned
+    // Churned. Абонемент без платных списаний (chargedAmount = 0) не считается
+    // оттоком (правило заказчика): его дата отчисления = дата создания.
     const isChurned =
+      hasCharge &&
       s.withdrawalDate &&
       s.withdrawalDate >= dateFrom &&
       s.withdrawalDate <= dateTo

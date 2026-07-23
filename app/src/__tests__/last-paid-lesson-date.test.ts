@@ -12,6 +12,8 @@ import {
   nextDayUtc,
   validateWithdrawalDate,
   subscriptionPeriodEnd,
+  resolveWithdrawalDate,
+  toUtcDateOnly,
 } from "../lib/subscriptions/last-paid-lesson-date"
 
 type FindFirstArgs = { where: Record<string, any>; orderBy?: any; select?: any }
@@ -47,6 +49,41 @@ describe("getLastPaidLessonDate", () => {
     const { tx } = makeTx(null)
     const res = await getLastPaidLessonDate(tx as any, "t", "sub1")
     assert.equal(res, null)
+  })
+})
+
+describe("toUtcDateOnly", () => {
+  it("обнуляет время до полночи UTC", () => {
+    assert.equal(
+      toUtcDateOnly(new Date("2026-05-01T23:59:59.000Z")).toISOString(),
+      "2026-05-01T00:00:00.000Z",
+    )
+  })
+})
+
+describe("resolveWithdrawalDate", () => {
+  it("есть платные занятия → дата последнего платного, hadPaidLessons=true", async () => {
+    const date = new Date("2026-06-15T00:00:00.000Z")
+    const { tx } = makeTx({ lesson: { date } })
+    const res = await resolveWithdrawalDate(
+      tx as any,
+      "t",
+      "sub1",
+      new Date("2026-05-01T09:30:00.000Z"),
+    )
+    assert.deepEqual(res, { date, hadPaidLessons: true })
+  })
+
+  it("нет платных занятий → дата создания (полночь UTC), hadPaidLessons=false", async () => {
+    const { tx } = makeTx(null)
+    const res = await resolveWithdrawalDate(
+      tx as any,
+      "t",
+      "sub1",
+      new Date("2026-05-01T09:30:00.000Z"),
+    )
+    assert.equal(res.hadPaidLessons, false)
+    assert.equal(res.date.toISOString(), "2026-05-01T00:00:00.000Z")
   })
 })
 
