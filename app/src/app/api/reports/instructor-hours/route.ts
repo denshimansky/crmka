@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext } from "@/lib/report-helpers"
 
-/** 6.3. Часы педагогов по дням */
+/** 6.3. Часы инструкторов по дням */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
       substituteInstructor: { select: { firstName: true, lastName: true } },
       attendances: {
         // Факт посещения — по флагу типа (partOfFact), а не по коду "present":
-        // кастомные «присутственные» типы тоже дают педагогу час. Маркер
+        // кастомные «присутственные» типы тоже дают инструктору час. Маркер
         // «Отработка» (makeup) — не сам факт, а ссылка на реальную отработку
         // (present в другой группе), иначе час задвоится.
         where: { attendanceType: { partOfFact: true, code: { not: "makeup" } } },

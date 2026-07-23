@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, safeDivide, pct } from "@/lib/report-helpers"
 
-/** 7.5. Сколько денег приносит педагог */
+/** 7.5. Сколько денег приносит инструктор */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
@@ -38,12 +38,12 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  // Агрегируем по паре (педагог × филиал). Педагог может вести в нескольких
+  // Агрегируем по паре (инструктор × филиал). Инструктор может вести в нескольких
   // филиалах, а расходы каждого филиала распределяются пропорционально выручке
-  // (постоянные) и занятиям (переменные) ИМЕННО в этом филиале. Раньше педагог
+  // (постоянные) и занятиям (переменные) ИМЕННО в этом филиале. Раньше инструктор
   // привязывался к одному филиалу (по первому занятию) — его выручка из второго
   // филиала выпадала из знаменателя, и постоянные расходы концентрировались на
-  // оставшихся педагогах того филиала.
+  // оставшихся инструкторах того филиала.
   type Cell = {
     instrId: string
     name: string
@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
 
   // Expenses per branch
   const expenses = await db.expense.findMany({
-    // «Не учитывать в финрезе» — исключаем из расчёта рентабельности педагогов.
+    // «Не учитывать в финрезе» — исключаем из расчёта рентабельности инструкторов.
     where: { tenantId, deletedAt: null, date: { gte: dateFrom, lte: dateTo }, recognitionMode: { not: "not_in_pnl" } },
     select: {
       amount: true,
@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Сворачиваем ячейки (педагог × филиал) в строки по педагогу: доля расходов
+  // Сворачиваем ячейки (инструктор × филиал) в строки по инструктору: доля расходов
   // каждого филиала считается отдельно и суммируется.
   type Agg = { name: string; revenue: number; salary: number; varShare: number; fixShare: number }
   const instrAgg = new Map<string, Agg>()

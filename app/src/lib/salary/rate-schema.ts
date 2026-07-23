@@ -20,7 +20,7 @@ export const baseRateSchema = z.object({
   ratePerLesson: z.number().min(0).nullable().optional(),
   fixedPerShift: z.number().min(0).nullable().optional(),
   percentOfPayments: z.number().min(0).max(100).nullable().optional(),
-  // Оплата педагогу за пробное занятие: none / paid_only / all.
+  // Оплата инструктору за пробное занятие: none / paid_only / all.
   trialPayMode: z.enum(["none", "paid_only", "all"]).optional(),
   brackets: z.array(bracketSchema).optional(),
 })
@@ -50,7 +50,7 @@ export function validateForScheme(data: RateInput): string | null {
         return "В матрице два порога с одинаковым количеством детей — уберите дубль"
       }
       // Матрица обязана покрывать все количества от 1: иначе занятия с числом
-      // детей ниже минимального порога молча дают педагогу 0₽ (решение
+      // детей ниже минимального порога молча дают инструктору 0₽ (решение
       // владельца 10.07.2026). Если за такие занятия платить не нужно —
       // владелец явно указывает ставку 0.
       const minThreshold = Math.min(...mins)

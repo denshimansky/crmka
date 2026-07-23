@@ -28,7 +28,7 @@ type CreateTrialLessonOptions = {
    * Перенос: id старого scheduled-пробного, которое нужно отменить В ТОЙ ЖЕ
    * транзакции, что и создание нового. Убирает окно «старое отменили — новое
    * не создалось» (клиентский cancel→create терял пробное при ошибке создания).
-   * Комментарий/подтверждение/флаг оплаты педагогу переносятся со старого.
+   * Комментарий/подтверждение/флаг оплаты инструктору переносятся со старого.
    */
   rescheduleOfTrialLessonId?: string
 }
@@ -91,8 +91,8 @@ export async function createTrialLessonForClient(
   let lessonId: string | null = null
   let storedDirectionId: string | null = null
   let storedInstructorId: string | null = null
-  // Педагог пробного — для режима оплаты пробных из его ставки. У группового
-  // пробного это педагог группового занятия, у индивидуального — выбранный.
+  // Инструктор пробного — для режима оплаты пробных из его ставки. У группового
+  // пробного это инструктор группового занятия, у индивидуального — выбранный.
   let trialInstructorId: string | null = null
   let storedRoomId: string | null = null
   let storedStartTime: string | null = null
@@ -147,7 +147,7 @@ export async function createTrialLessonForClient(
       return { ok: false, error: "Для индивидуального пробного нужно направление", status: 400 }
     }
     if (!input.instructorId) {
-      return { ok: false, error: "Для индивидуального пробного нужно выбрать педагога", status: 400 }
+      return { ok: false, error: "Для индивидуального пробного нужно выбрать инструктора", status: 400 }
     }
     if (!input.startTime) {
       return { ok: false, error: "Для индивидуального пробного нужно время", status: 400 }
@@ -293,7 +293,7 @@ export async function createTrialLessonForClient(
     }
   }
 
-  // Дефолт флага «оплата педагогу» — из режима оплаты пробных в СТАВКЕ педагога:
+  // Дефолт флага «оплата инструктору» — из режима оплаты пробных в СТАВКЕ инструктора:
   // all — платим за любое пробное; paid_only — только если у направления задана
   // цена пробного (бесплатное пробное → флаг снят); none — не платим. На
   // конкретном пробном флаг переключается вручную в карточке занятия — режим

@@ -342,10 +342,10 @@ export function AbsencesView({
             <SelectTrigger className="w-[220px]">
               {instructorId
                 ? filterOptions.instructors.find((i) => i.id === instructorId)?.name || "—"
-                : "Все педагоги"}
+                : "Все инструкторы"}
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL_VALUE}>Все педагоги</SelectItem>
+              <SelectItem value={ALL_VALUE}>Все инструкторы</SelectItem>
               {filterOptions.instructors.map((i) => (
                 <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
               ))}

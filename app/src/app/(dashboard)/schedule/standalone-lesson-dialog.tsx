@@ -188,7 +188,7 @@ export function StandaloneLessonDialog({ defaultDate }: { defaultDate: string })
               onChange={(e) => setInstructorId(e.target.value)}
               className="h-9 w-full rounded border bg-background px-3 text-sm"
             >
-              <option value="">— выберите педагога —</option>
+              <option value="">— выберите инструктора —</option>
               {instructors.map((i) => (
                 <option key={i.id} value={i.id}>
                   {[i.lastName, i.firstName].filter(Boolean).join(" ") || "Без имени"}

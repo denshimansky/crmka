@@ -737,7 +737,7 @@ function SettingsTab({
               <Label>{roleNames.instructor}</Label>
               <Select value={infoInstructorId} onValueChange={(v) => { if (v) setInfoInstructorId(v) }}>
                 <SelectTrigger className="w-full">
-                  {infoInstructorId ? (() => { const i = instructors.find((i) => i.id === infoInstructorId); return i ? `${i.lastName} ${i.firstName}` : "" })() : <span className="text-muted-foreground">Выберите педагога</span>}
+                  {infoInstructorId ? (() => { const i = instructors.find((i) => i.id === infoInstructorId); return i ? `${i.lastName} ${i.firstName}` : "" })() : <span className="text-muted-foreground">Выберите инструктора</span>}
                 </SelectTrigger>
                 <SelectContent>
                   {(() => {

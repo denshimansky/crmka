@@ -10,7 +10,7 @@ const createSchema = z.object({
   branchId: z.string().uuid("Некорректный филиал"),
   roomId: z.string().uuid("Некорректный кабинет"),
   directionId: z.string().uuid("Некорректное направление"),
-  instructorId: z.string().uuid("Некорректный педагог"),
+  instructorId: z.string().uuid("Некорректный инструктор"),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата в формате YYYY-MM-DD"),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, "Время в формате HH:MM"),
   durationMinutes: z.number().int().min(1).max(600).default(60),

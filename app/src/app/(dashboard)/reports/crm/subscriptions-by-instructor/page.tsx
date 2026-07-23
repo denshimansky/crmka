@@ -35,13 +35,13 @@ export default function SubscriptionsByInstructorReportPage() {
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/subscriptions-by-instructor")
   const num = (k: string) => Number((metadata as Record<string, unknown> | null)?.[k] ?? 0)
 
-  // Выбранный педагог для просмотра списка выбывших (drill-down, баг #22).
+  // Выбранный инструктор для просмотра списка выбывших (drill-down, баг #22).
   const [churnedView, setChurnedView] = useState<{ name: string; list: ChurnedClient[] } | null>(null)
 
   return (
     <ReportShell
-      title="Сводный по абонементам в разрезе педагогов"
-      subtitle="Активные, новые, выбывшие абонементы и активные на конец месяца — по педагогам"
+      title="Сводный по абонементам в разрезе инструкторов"
+      subtitle="Активные, новые, выбывшие абонементы и активные на конец месяца — по инструкторам"
       pageKey="reports/crm/subscriptions-by-instructor"
     >
       <Card>

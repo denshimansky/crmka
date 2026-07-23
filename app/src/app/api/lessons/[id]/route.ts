@@ -54,7 +54,7 @@ async function checkLessonAccess(
 }
 
 // Отсутствующее в body поле обязано остаться undefined («не трогаем»), а не
-// схлопываться в null: иначе любой частичный PATCH (замена педагога, отмена,
+// схлопываться в null: иначе любой частичный PATCH (замена инструктора, отмена,
 // перенос, сохранение только темы) затирал остальные текстовые поля в NULL.
 const optionalTrimmed = z.any().transform(v => {
   if (v === undefined) return undefined
@@ -398,7 +398,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       )
     }
 
-    // Конфликт: педагог или кабинет уже заняты в новой дате/времени.
+    // Конфликт: инструктор или кабинет уже заняты в новой дате/времени.
     const effectiveInstructorId = existing.substituteInstructorId || existing.instructorId
     const candidates = await db.lesson.findMany({
       where: {
@@ -438,7 +438,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         first.instructorId === effectiveInstructorId ||
         first.substituteInstructorId === effectiveInstructorId
       const reason = sameInstructor
-        ? `педагог уже занят (${[first.instructor.lastName, first.instructor.firstName].filter(Boolean).join(" ") || "—"})`
+        ? `инструктор уже занят (${[first.instructor.lastName, first.instructor.firstName].filter(Boolean).join(" ") || "—"})`
         : `кабинет «${first.group.room?.name || "—"}» уже занят`
       return NextResponse.json(
         {
@@ -504,7 +504,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         include: { attendanceType: { select: { chargePercent: true } } },
       })
 
-      // Эффективный педагог занятия — для корректировки ЗП при выплате.
+      // Эффективный инструктор занятия — для корректировки ЗП при выплате.
       const effectiveInstructorId = existing.substituteInstructorId || existing.instructorId
       // Затронутые абонементы — для пересчёта finalAmount/balance после отката.
       const touchedSubIds = new Set<string>()

@@ -24,8 +24,8 @@ export default function SalaryInstructorsReportPage() {
 
   return (
     <ReportShell
-      title="Расчёты с педагогами"
-      subtitle="Начислено, премии, штрафы, выплачено и остаток к выплате по педагогам за месяц"
+      title="Расчёты с инструкторами"
+      subtitle="Начислено, премии, штрафы, выплачено и остаток к выплате по инструкторам за месяц"
       pageKey="reports/salary/salary-instructors"
     >
       <Card>

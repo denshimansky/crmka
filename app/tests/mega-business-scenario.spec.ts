@@ -9,7 +9,7 @@ import { test, expect, type Page } from "@playwright/test"
  * Персонажи:
  * - 2 филиала, 4 кабинета (по 2, ёмкость 8)
  * - 3 направления: Танцы (800₽), Рисование (600₽), Английский (700₽)
- * - 4 педагога (по 2 на филиал)
+ * - 4 инструктора (по 2 на филиал)
  * - 6 групп (по 2 направления на филиал)
  * - 10 родителей, 14 подопечных:
  *   — Иванова Мария: 3 ребёнка (Ваня, Маша, Даша) → скидка многодетность
@@ -210,7 +210,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
   })
 
   // ============================================================
-  // ЧАСТЬ 1: ИНФРАСТРУКТУРА (направления, педагоги, группы, счета)
+  // ЧАСТЬ 1: ИНФРАСТРУКТУРА (направления, инструкторы, группы, счета)
   // ============================================================
 
   safeTest("ЧАСТЬ 1.1: Настройки — проверяем что организация загружается", async (page) => {
@@ -258,7 +258,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     }
   })
 
-  safeTest("ЧАСТЬ 1.3: Педагоги — создать 4 шт через API", async (page) => {
+  safeTest("ЧАСТЬ 1.3: Инструкторы — создать 4 шт через API", async (page) => {
     await login(page)
 
     const instructors = [
@@ -284,13 +284,13 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
         if (res.ok()) {
           const data = await res.json()
           createdIds.employeeIds.push(data.id)
-          log(`Педагог ${instr.last} ${instr.first}`, "OK", `id: ${data.id}`)
+          log(`Инструктор ${instr.last} ${instr.first}`, "OK", `id: ${data.id}`)
         } else {
           const err = await res.text().catch(() => "")
-          log(`Педагог ${instr.last} ${instr.first}`, "BUG", `status ${res.status()}: ${err.slice(0, 100)}`)
+          log(`Инструктор ${instr.last} ${instr.first}`, "BUG", `status ${res.status()}: ${err.slice(0, 100)}`)
         }
       } catch (e: any) {
-        log(`Педагог ${instr.last} ${instr.first}`, "BUG", e.message?.slice(0, 100))
+        log(`Инструктор ${instr.last} ${instr.first}`, "BUG", e.message?.slice(0, 100))
       }
     }
   })
@@ -299,8 +299,8 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
     await login(page)
 
     // 6 групп: 3 направления × 2 филиала
-    // Филиал 1 (idx 0): Танцы, Рисование, Английский — кабинеты 0,1, педагоги 0,1
-    // Филиал 2 (idx 1): Танцы, Рисование, Английский — кабинеты 2,3, педагоги 2,3
+    // Филиал 1 (idx 0): Танцы, Рисование, Английский — кабинеты 0,1, инструкторы 0,1
+    // Филиал 2 (idx 1): Танцы, Рисование, Английский — кабинеты 2,3, инструкторы 2,3
     const groups = [
       { name: `Танцы-МлФ1-${TS}`,      dirIdx: 0, branchIdx: 0, roomIdx: 0, instrIdx: 0, day: 0 },
       { name: `Рисование-СрФ1-${TS}`,  dirIdx: 1, branchIdx: 0, roomIdx: 1, instrIdx: 1, day: 1 },
@@ -1013,7 +1013,7 @@ test.describe.serial("Mega-тест: Полный бизнес-сценарий 
       { name: "P&L", url: "/reports/finance/pnl", check: "P&L" },
       { name: "Выручка", url: "/reports/finance/revenue", check: "Выручка" },
       { name: "Посещения", url: "/reports/attendance/visits", check: "Посещения" },
-      { name: "По педагогам", url: "/reports/salary/by-instructor", check: "педагог" },
+      { name: "По инструкторам", url: "/reports/salary/by-instructor", check: "инструктор" },
       { name: "Отток", url: "/reports/churn/details", check: "тток" },
       { name: "Свободные места", url: "/reports/schedule/capacity", check: "вободные" },
     ]

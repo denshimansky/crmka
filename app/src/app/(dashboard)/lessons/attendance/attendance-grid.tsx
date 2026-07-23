@@ -236,7 +236,7 @@ export function AttendanceGrid({
   }
 
   // Отметка пробного — отдельный эндпоинт: статус пробного ведёт побочные эффекты
-  // (Attendance с isTrial, этап заявки, ЗП педагога). Обычная отметка тут не годится.
+  // (Attendance с isTrial, этап заявки, ЗП инструктора). Обычная отметка тут не годится.
   async function markTrial(
     cellKey: string,
     trialId: string,
@@ -354,10 +354,10 @@ export function AttendanceGrid({
             <SelectTrigger className="w-[220px]">
               {instructorId
                 ? filterOptions.instructors.find((i) => i.id === instructorId)?.name || "—"
-                : "Все педагоги"}
+                : "Все инструкторы"}
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL_VALUE}>Все педагоги</SelectItem>
+              <SelectItem value={ALL_VALUE}>Все инструкторы</SelectItem>
               {filterOptions.instructors.map((i) => (
                 <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
               ))}

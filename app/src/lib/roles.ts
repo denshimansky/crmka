@@ -4,7 +4,7 @@ export const DEFAULT_ROLE_DISPLAY_NAMES: Record<Role, string> = {
   owner: "Владелец",
   manager: "Управляющий",
   admin: "Администратор",
-  instructor: "Педагог",
+  instructor: "Инструктор",
   readonly: "Только чтение",
 }
 

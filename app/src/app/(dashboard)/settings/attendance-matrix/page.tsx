@@ -64,13 +64,13 @@ const LOCKED_ALLOWED: ReadonlySet<FlagKey> = new Set<FlagKey>([
 ])
 
 const FLAG_COLUMNS: { key: FlagKey; label: string; hint: string }[] = [
-  { key: "availableToInstructor", label: "Доступно педагогу", hint: "Педагог может сам выбрать этот статус в карточке занятия" },
+  { key: "availableToInstructor", label: "Доступно инструктору", hint: "Инструктор может сам выбрать этот статус в карточке занятия" },
   { key: "availableToAdmin", label: "Доступно админу", hint: "Администратор может выбрать этот статус в карточке занятия" },
   { key: "partOfPlan", label: "План", hint: "Учитывается в плановом расписании" },
   { key: "partOfFact", label: "Факт", hint: "Засчитывается как фактическое посещение" },
   { key: "partOfForecast", label: "Прогноз", hint: "Входит в прогноз выручки/списаний" },
   { key: "chargesSubscription", label: "Списание оплаты", hint: "Списывается занятие/деньги с клиента" },
-  { key: "paysInstructor", label: "Начисление педагогу", hint: "Начисляется оплата инструктору" },
+  { key: "paysInstructor", label: "Начисление инструктору", hint: "Начисляется оплата инструктору" },
 ]
 
 export default function AttendanceMatrixPage() {
@@ -263,7 +263,7 @@ export default function AttendanceMatrixPage() {
             <PageHelp pageKey="settings/attendance-matrix" />
           </div>
           <p className="text-sm text-muted-foreground">
-            Настройка матрицы статусов «Тип дня» в карточке занятия: что списывается с клиента и начисляется педагогу
+            Настройка матрицы статусов «Тип дня» в карточке занятия: что списывается с клиента и начисляется инструктору
           </p>
         </div>
         <Button onClick={openCreate}>

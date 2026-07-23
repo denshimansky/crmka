@@ -26,7 +26,7 @@ export default function ChurnByInstructorReportPage() {
     <div className="flex items-center gap-2 text-sm">
       <span className="text-muted-foreground">Разрез:</span>
       <button onClick={() => setGroupBy("instructor")}>
-        <Badge variant={groupBy === "instructor" ? "default" : "outline"}>Педагоги</Badge>
+        <Badge variant={groupBy === "instructor" ? "default" : "outline"}>Инструкторы</Badge>
       </button>
       <button onClick={() => setGroupBy("branch")}>
         <Badge variant={groupBy === "branch" ? "default" : "outline"}>Филиалы</Badge>
@@ -36,7 +36,7 @@ export default function ChurnByInstructorReportPage() {
 
   return (
     <ReportShell
-      title="Конверсия оттока по педагогам"
+      title="Конверсия оттока по инструкторам"
       subtitle="% оттока = выбывшие / активные абонементы за месяц"
       pageKey="reports/churn/by-instructor"
       actions={toggle}

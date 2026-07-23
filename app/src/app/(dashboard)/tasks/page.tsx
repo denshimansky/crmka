@@ -16,7 +16,7 @@ export default async function TasksPage() {
   const employeeId = session.user.employeeId ?? null
 
   // Создавать/генерировать задачи может тот, кто редактирует клиентов
-  // (владелец/управляющий/администратор). Педагог и «только чтение» — не могут.
+  // (владелец/управляющий/администратор). Инструктор и «только чтение» — не могут.
   const org = await db.organization.findUnique({
     where: { id: tenantId },
     select: { rolePermissions: true },
@@ -41,7 +41,7 @@ export default async function TasksPage() {
     data: { deletedAt: new Date() },
   })
 
-  // Педагог/«только чтение» видят только свои задачи (assignedTo = я);
+  // Инструктор/«только чтение» видят только свои задачи (assignedTo = я);
   // управленцы — все задачи организации. См. lib/tasks/task-visibility.ts.
   const tasks = await db.task.findMany({
     where: {

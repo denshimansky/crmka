@@ -22,14 +22,10 @@ const updateSchema = z.object({
   salaryDay1: z.number().min(1).max(28).optional(),
   salaryDay2: z.number().min(1).max(31).optional(),
   payForAbsence: z.boolean().optional(),
-  // Видят ли педагоги (instructor) телефоны клиентов
+  // Видят ли инструкторы (instructor) телефоны клиентов
   instructorsSeePhones: z.boolean().optional(),
   attendanceDeadline: z.number().min(1).max(90).optional(),
-  // Только известные роли, названия до 50 символов; trim и отбрасывание
-  // пустых значений — при сохранении (пустое = «использовать дефолт»)
-  roleDisplayNames: z
-    .record(z.enum(["owner", "manager", "admin", "instructor", "readonly"]), z.string().max(50))
-    .optional(),
+  // Названия ролей зафиксированы и не редактируются (roleDisplayNames убран из API).
   rolePermissions: z.record(z.record(z.boolean())).optional(),
   onboardingCompleted: z.boolean().optional(),
   // Валюта расчёта (отображение символа/формата). currencyChosen=true снимает
@@ -93,16 +89,6 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
   const data = parsed.data
-
-  // Названия ролей: trim, пустые значения выбрасываем — пустое поле в форме
-  // означает «использовать дефолтное название», а не хранить ""
-  if (data.roleDisplayNames) {
-    data.roleDisplayNames = Object.fromEntries(
-      Object.entries(data.roleDisplayNames)
-        .map(([role, name]) => [role, name.trim()])
-        .filter(([, name]) => name !== ""),
-    ) as typeof data.roleDisplayNames
-  }
 
   // Пустая строка URL-поля документа = очистить (null)
   const portalData: Record<string, string | null> = {}

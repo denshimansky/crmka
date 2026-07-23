@@ -57,7 +57,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     }
   }
 
-  // Инструктору (педагогу) дашборд с виджетами не показываем — это управленческая
+  // Инструктору (инструктору) дашборд с виджетами не показываем — это управленческая
   // сводка. Отдаём простую главную со ссылками на его рабочие поверхности. Выходим
   // до загрузки данных виджетов — не считаем и не отдаём лишнего.
   if (session.user.role === "instructor") {
@@ -395,12 +395,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     n > 0 ? new Intl.NumberFormat("ru-RU").format(Math.round(n)) : "—"
 
   // === ПРОГНОЗ ПРИБЫЛИ (reports-logic §7.1, упрощённый под дашборд) ===
-  // Прибыль = Сумма абонементов − Прогноз ЗП педагогов − Переменные расходы
+  // Прибыль = Сумма абонементов − Прогноз ЗП инструкторов − Переменные расходы
   // − Прогноз постоянных платежей. «Сумма абонементов» — тот же subAmount,
   // что в виджете «Ожидаемые поступления». ЗП — оклад или ставка×занятия
   // (см. helper). Переменные расходы — плановые расходы переменных категорий
   // БЕЗ ЗП-категорий (PlannedExpense, isVariable=true, isSalary=false): ЗП
-  // педагогов уже учтена отдельным столбцом (считается из расписания), поэтому
+  // инструкторов уже учтена отдельным столбцом (считается из расписания), поэтому
   // категории ЗП исключаем, чтобы не задвоить. Постоянные платежи — плановые
   // расходы постоянных категорий (PlannedExpense, isVariable=false),
   // «заполняется вручную раз в месяц».
@@ -974,7 +974,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <TableRow>
                 <TableHead>Месяц</TableHead>
                 <TableHead className="text-right whitespace-normal">Сумма<br />абонементов</TableHead>
-                <TableHead className="text-right whitespace-normal">Прогноз зарплаты<br />педагогов</TableHead>
+                <TableHead className="text-right whitespace-normal">Прогноз зарплаты<br />инструкторов</TableHead>
                 <TableHead className="text-right whitespace-normal">Переменные<br />расходы</TableHead>
                 <TableHead className="text-right whitespace-normal">Прогноз постоянных<br />платежей</TableHead>
                 <TableHead className="text-right whitespace-normal">Прогноз<br />прибыли</TableHead>

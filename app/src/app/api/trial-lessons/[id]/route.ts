@@ -251,7 +251,7 @@ export async function PATCH(
 
     if (effectiveStatus === "attended") {
       // Attendance пробного общая для дублей TrialLesson на одном занятии (ключ —
-      // lesson+client+ward, не trialId). Оплату педагогу не понижаем, если у
+      // lesson+client+ward, не trialId). Оплату инструктору не понижаем, если у
       // другого attended-дубля она включена: иначе отметка второго пробного с
       // выключенной оплатой затёрла бы уже начисленную ЗП первого.
       const otherAttendedPaid = await tx.trialLesson.count({
@@ -329,7 +329,7 @@ export async function PATCH(
       // при дублях TrialLesson одного лида на одном занятии (перенос занятия со
       // старой scheduledDate, слияние клиентов, легаси) сброс одного пробного не
       // должен стирать явку, созданную другим attended-пробным, — иначе тихо
-      // пропадают явка и ЗП педагога при зелёном статусе в сетке.
+      // пропадают явка и ЗП инструктора при зелёном статусе в сетке.
       const otherAttendedSameLesson = await tx.trialLesson.findMany({
         where: {
           tenantId,

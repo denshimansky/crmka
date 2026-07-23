@@ -341,7 +341,7 @@ export async function GET(
         directionName,
         wardName ? `подопечный: ${wardName}` : null,
         `на ${t.scheduledDate.toLocaleDateString("ru-RU")}`,
-        instructorName ? `педагог: ${instructorName}` : null,
+        instructorName ? `инструктор: ${instructorName}` : null,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -352,7 +352,7 @@ export async function GET(
     const trialOutcomeDescription = [
       directionName,
       wardName ? `подопечный: ${wardName}` : null,
-      instructorName ? `педагог: ${instructorName}` : null,
+      instructorName ? `инструктор: ${instructorName}` : null,
     ]
       .filter(Boolean)
       .join(" · ")

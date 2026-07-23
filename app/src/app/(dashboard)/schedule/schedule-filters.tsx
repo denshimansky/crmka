@@ -45,7 +45,7 @@ interface LessonData {
   isTrial?: boolean
   /** Индивидуальное пробное: клик открывает диалог деталей вместо карточки занятия. */
   trial?: TrialCardInfo
-  /** На занятии назначена замена — instructor содержит замещающего педагога. */
+  /** На занятии назначена замена — instructor содержит замещающего инструктора. */
   isSubstitute?: boolean
   group: {
     name: string

@@ -19,7 +19,7 @@ export const PERMISSIONS = [
   { key: "clients.delete", label: "Удаление клиентов", group: "Клиенты" },
 
   // Задачи — отдельное право, чтобы раздел «Задачи» не был жёстко привязан к
-  // просмотру клиентов (педагог видит свои задачи, но не всю клиентскую базу).
+  // просмотру клиентов (инструктор видит свои задачи, но не всю клиентскую базу).
   { key: "tasks.view", label: "Просмотр задач", group: "Задачи" },
 
   // Расписание
@@ -28,7 +28,7 @@ export const PERMISSIONS = [
   { key: "attendance.mark", label: "Отметка посещений", group: "Расписание" },
 
   // Склад — отдельное право, чтобы скрыть склад у ролей, у которых есть
-  // расписание, но нет склада (педагог).
+  // расписание, но нет склада (инструктор).
   { key: "warehouse.view", label: "Просмотр склада", group: "Склад" },
 
   // Финансы
@@ -49,7 +49,7 @@ export const PERMISSIONS = [
   { key: "reports.retention", label: "Отток и удержание", group: "Отчёты" },
   { key: "reports.schedule", label: "Расписание и посещения", group: "Отчёты" },
   { key: "reports.finance", label: "Финансы", group: "Отчёты" },
-  { key: "reports.salary", label: "Зарплата и педагоги", group: "Отчёты" },
+  { key: "reports.salary", label: "Зарплата и инструкторы", group: "Отчёты" },
 
   // Персонал
   { key: "staff.view", label: "Просмотр сотрудников", group: "Персонал" },
@@ -122,7 +122,7 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
   },
   instructor: {
     ...ALL_FALSE,
-    // Педагог НЕ видит клиентскую базу (Клиенты/Продажи/Дети/Абонементы/Обзвон)
+    // Инструктор НЕ видит клиентскую базу (Клиенты/Продажи/Дети/Абонементы/Обзвон)
     // и склад — только своё расписание, свои занятия, свои задачи и свою ЗП.
     "tasks.view": true, // видит раздел «Задачи», но только свои (see api/tasks)
     "schedule.view": true,
@@ -159,8 +159,8 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
 //   • tasks.view выделен из clients.view (раздел «Задачи» жил под просмотром клиентов).
 //   • warehouse.view выделен из schedule.view (склад жил под просмотром расписания).
 // ВАЖНО: fallback работает только для организаций с СОХРАНЁННОЙ кастомной матрицей.
-// Для организаций на дефолтах действуют DEFAULT_PERMISSIONS (там педагог уже без
-// clients.view/склада) — именно так изменение видимости педагога и вступает в силу.
+// Для организаций на дефолтах действуют DEFAULT_PERMISSIONS (там инструктор уже без
+// clients.view/склада) — именно так изменение видимости инструктора и вступает в силу.
 const LEGACY_PERMISSION_FALLBACK: Partial<Record<PermissionKey, string>> = {
   "reports.marketing": "reports.view",
   "reports.retention": "reports.view",

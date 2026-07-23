@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
 
-/** 3.3. Конверсия пробных по педагогам */
+/** 3.3. Конверсия пробных по инструкторам */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     tenantId,
     scheduledDate: { gte: dateFrom, lte: dateTo },
     status: "attended",
-    groupId: { not: null }, // отчёт по педагогам — только групповые пробные
+    groupId: { not: null }, // отчёт по инструкторам — только групповые пробные
   }
   if (branchId) trialWhere.group = { branchId }
 

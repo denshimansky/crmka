@@ -2,7 +2,6 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { PageHelp } from "@/components/page-help"
 import { RolePermissionsMatrix } from "./role-permissions-matrix"
-import { RoleDisplayNamesForm } from "../role-display-names-form"
 
 export default async function RolePermissionsPage() {
   const session = await getSession()
@@ -20,11 +19,8 @@ export default async function RolePermissionsPage() {
       </div>
       <p className="text-sm text-muted-foreground">
         Настройте, какие действия доступны каждой роли в вашей организации.
-        Владелец всегда имеет полный доступ.
+        Владелец всегда имеет полный доступ. Названия ролей фиксированы и не изменяются.
       </p>
-      <RoleDisplayNamesForm
-        initialValues={(org?.roleDisplayNames as Record<string, string>) ?? {}}
-      />
       <RolePermissionsMatrix
         isOwner={isOwner}
         roleDisplayNames={(org?.roleDisplayNames as Record<string, string>) ?? {}}

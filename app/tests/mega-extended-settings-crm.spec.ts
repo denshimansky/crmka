@@ -7,7 +7,7 @@ import { test, expect, type Page } from "@playwright/test"
  * Используем demo-пользователя owner / demo123.
  *
  * Части:
- *  8 — Settings sub-pages (каналы, причины, шаблоны скидок, права ролей, названия ролей, интеграции)
+ *  8 — Settings sub-pages (каналы, причины, шаблоны скидок, права ролей, интеграции)
  *  9 — CRM features (быстрый лид, дубликаты, сортировка, редактирование клиента, импорт)
  * 17 — UI features (breadcrumbs, справка, настройки дашборда, колокольчик)
  */
@@ -241,104 +241,8 @@ test.describe.serial("Mega-тест (расширение): Настройки, 
     }
   })
 
-  safeTest("8.5: Настройки — изменить название роли «Педагог» → «Тренер»", async (page) => {
-    await login(page)
-    await page.goto("/settings")
-    await page.waitForLoadState("domcontentloaded")
-    await page.waitForTimeout(1500)
-
-    try {
-      // RoleDisplayNamesForm находится на вкладке «Организация» (defaultValue="org")
-      // Убедимся что вкладка «Организация» активна
-      const orgTab = page.locator("button[role='tab']:has-text('Организация')")
-      if (await orgTab.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await orgTab.click()
-        await page.waitForTimeout(500)
-      }
-
-      // Прокручиваем к секции «Названия ролей» (h2 внутри Card)
-      const roleHeading = page.locator("h2:has-text('Названия ролей')")
-      if (!await roleHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
-        // Прокручиваем вниз — форма может быть за пределами viewport
-        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
-        await page.waitForTimeout(500)
-      }
-
-      const roleSection = await roleHeading.isVisible({ timeout: 5000 }).catch(() => false)
-      if (!roleSection) {
-        log("8.5 Названия ролей — секция", "BUG", "Не найдена на странице настроек")
-        return
-      }
-      log("8.5 Названия ролей — секция найдена", "OK")
-
-      // RoleDisplayNamesForm: каждая строка — div.flex > Label + Input
-      // Label содержит дефолтное название, Input имеет placeholder с тем же текстом
-      // Ищем input с placeholder «Педагог» (самый надёжный селектор)
-      const inputByPlaceholder = page.locator("input[placeholder='Педагог']")
-      // Прокручиваем к нему
-      if (await inputByPlaceholder.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await inputByPlaceholder.scrollIntoViewIfNeeded()
-      } else {
-        // Fallback: label «Педагог» рядом с input в том же flex-контейнере
-        const pedagogRow = page.locator("label:has-text('Педагог')").locator("..").locator("input")
-        if (await pedagogRow.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await pedagogRow.scrollIntoViewIfNeeded()
-        }
-      }
-
-      const input = await inputByPlaceholder.isVisible({ timeout: 2000 }).catch(() => false)
-        ? inputByPlaceholder
-        : page.locator("label:has-text('Педагог')").locator("..").locator("input")
-
-      if (!await input.isVisible({ timeout: 2000 }).catch(() => false)) {
-        log("8.5 Поле роли «Педагог»", "BUG", "Не найден ни placeholder, ни label+input")
-        return
-      }
-
-      // Сначала сбрасываем на дефолт, чтобы гарантировать изменение
-      const currentValue = await input.inputValue()
-      if (currentValue === "Тренер") {
-        // Уже "Тренер" от прошлого прогона — сначала вернём "Педагог"
-        await input.clear()
-        await input.fill("Педагог")
-        await page.waitForTimeout(300)
-        const resetBtn = page.locator("button:has-text('Сохранить')").first()
-        if (await resetBtn.isEnabled({ timeout: 2000 }).catch(() => false)) {
-          await resetBtn.click()
-          await page.waitForTimeout(1500)
-        }
-      }
-
-      await input.clear()
-      await input.fill("Тренер")
-      await page.waitForTimeout(300)
-
-      // Кнопка «Сохранить» — ищем ближайшую после секции ролей
-      const saveBtn = page.locator("button:has-text('Сохранить')").first()
-      if (await saveBtn.isEnabled({ timeout: 3000 }).catch(() => false)) {
-        await saveBtn.click()
-      } else {
-        log("8.5 Кнопка «Сохранить» для ролей", "BUG", "Кнопка disabled — изменение не обнаружено формой")
-        return
-      }
-      await page.waitForTimeout(2000)
-
-      const saved = await page.locator("text=Сохранено").isVisible({ timeout: 3000 }).catch(() => false)
-      log("8.5 Переименование «Педагог» → «Тренер»", saved ? "OK" : "BUG", saved ? undefined : "Индикатор «Сохранено» не появился")
-
-      // Возвращаем обратно
-      await input.clear()
-      await input.fill("Педагог")
-      await page.waitForTimeout(300)
-      const saveBtnAgain = page.locator("button:has-text('Сохранить')").first()
-      if (await saveBtnAgain.isEnabled({ timeout: 1000 }).catch(() => false)) {
-        await saveBtnAgain.click()
-        await page.waitForTimeout(1000)
-      }
-    } catch (e: any) {
-      log("8.5 Названия ролей", "BUG", e.message?.slice(0, 150))
-    }
-  })
+  // 8.5 (переименование роли «Инструктор» → «Тренер») удалён: названия ролей
+  // зафиксированы, форма редактирования названий убрана со страницы прав ролей.
 
   safeTest("8.6: Интеграции — страница загружается", async (page) => {
     await login(page)

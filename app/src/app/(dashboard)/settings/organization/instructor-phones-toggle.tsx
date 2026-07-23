@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Check, Loader2 } from "lucide-react"
 
-// Переключатель «Педагоги видят телефоны клиентов» (Настройки → Организация).
+// Переключатель «Инструкторы видят телефоны клиентов» (Настройки → Организация).
 // По умолчанию у роли instructor телефоны замаскированы; владелец может открыть.
 // Сохраняет через PATCH /api/organization { instructorsSeePhones }.
 export function InstructorPhonesToggle({ initial }: { initial: boolean }) {
@@ -46,11 +46,11 @@ export function InstructorPhonesToggle({ initial }: { initial: boolean }) {
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <Label htmlFor="instructorsSeePhones" className="text-base font-medium">
-              Педагоги видят телефоны клиентов
+              Инструкторы видят телефоны клиентов
             </Label>
             <p className="text-sm text-muted-foreground">
-              По умолчанию телефоны учеников и родителей у роли «педагог» скрыты (•••••).
-              Включите, чтобы педагоги видели номера. Управляющий и администратор видят их всегда.
+              По умолчанию телефоны учеников и родителей у роли «инструктор» скрыты (•••••).
+              Включите, чтобы инструкторы видели номера. Управляющий и администратор видят их всегда.
               Изменение применяется в течение нескольких минут.
             </p>
             {error && <p className="text-sm text-destructive">{error}</p>}

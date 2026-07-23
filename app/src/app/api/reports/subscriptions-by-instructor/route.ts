@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext } from "@/lib/report-helpers"
 
-/** 7.6. Сводный по абонементам в разрезе педагогов */
+/** 7.6. Сводный по абонементам в разрезе инструкторов */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error

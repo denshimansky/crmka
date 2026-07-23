@@ -28,14 +28,14 @@ export default function InstructorHoursReportPage() {
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/instructor-hours")
   const totalHours = Number(metadata?.totalHours ?? 0)
 
-  // Столбцы-дни — объединение всех дней, где хоть у одного педагога были часы.
+  // Столбцы-дни — объединение всех дней, где хоть у одного инструктора были часы.
   const days = [...new Set(data.flatMap((r) => Object.keys(r.byDay)))].sort()
-  // Итог по каждому дню — сумма по всем педагогам.
+  // Итог по каждому дню — сумма по всем инструкторам.
   const totalsPerDay = days.map((d) => data.reduce((s, r) => s + (r.byDay[d] ?? 0), 0))
 
   return (
     <ReportShell
-      title="Часы педагогов по дням"
+      title="Часы инструкторов по дням"
       subtitle="Отработанные часы за месяц (занятие с хотя бы 1 явкой; 30 мин = 0,5 ч)"
       pageKey="reports/salary/instructor-hours"
     >

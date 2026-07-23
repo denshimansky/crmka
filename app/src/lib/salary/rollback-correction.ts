@@ -18,7 +18,7 @@ export interface RollbackCorrectionInput {
 /**
  * Ф-аудит/корректировка ЗП при откате отметки.
  *
- * Контекст: педагогу могла быть уже выплачена ЗП по периоду занятия
+ * Контекст: инструктору могла быть уже выплачена ЗП по периоду занятия
  * (SalaryPayment с employeeId+period). Если в этой выплате участвовала
  * сумма из удаляемой/откатываемой отметки — после её снятия `accrued`
  * уменьшится, а `paid` останется прежним → в отчёте «Зарплата» возникает
@@ -26,7 +26,7 @@ export interface RollbackCorrectionInput {
  *
  * Решение: создаём SalaryAdjustment(type=bonus) в том же периоде на сумму
  * откатанной ЗП. Бизнес-смысл: «компенсация: занятие удалено после выплаты,
- * деньги уже у педагога — учли как премию, чтобы баланс сошёлся».
+ * деньги уже у инструктора — учли как премию, чтобы баланс сошёлся».
  *
  * Используем existing enum `bonus` (без миграции), но в comment явно помечаем
  * `[Авто-корректировка]` — это видно владельцу в /salary → корректировки.
@@ -44,7 +44,7 @@ export async function maybeRollbackPaidSalary(
   const periodYear = input.lessonDate.getFullYear()
   const periodMonth = input.lessonDate.getMonth() + 1
 
-  // Была ли выплата по этому периоду этому педагогу? Любая, даже частичная.
+  // Была ли выплата по этому периоду этому инструктору? Любая, даже частичная.
   const payment = await tx.salaryPayment.findFirst({
     where: {
       tenantId: input.tenantId,

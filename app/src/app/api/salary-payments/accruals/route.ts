@@ -25,7 +25,7 @@ import { requirePermission } from "@/lib/api-permissions"
  * направлению отдаётся `paid` (строки выплат этого направления) и
  * `remaining = amount − paid`. Выплаты без направления целиком относятся к
  * премиям−штрафам (`adjPaid`, `adjRemaining = bonuses − penalties − adjPaid`) —
- * та же семантика, что у карточки педагога (lib/salary/instructor-detail.ts),
+ * та же семантика, что у карточки инструктора (lib/salary/instructor-detail.ts),
  * чтобы разбивка остатка в двух местах CRM совпадала. Отрицательные
  * компоненты (штраф больше премии, переплата по направлению, выплата «мимо»
  * направления) построчным неттингом не ловятся — поэтому клиент обязан
@@ -168,7 +168,7 @@ export async function GET(req: NextRequest) {
 
       // Выплаты без направления целиком идут в счёт премий−штрафов; начисление
       // «Без направления» (окладник без defaultDirection) ими не гасится —
-      // как в buildInstructorSalaryDetail (карточка педагога).
+      // как в buildInstructorSalaryDetail (карточка инструктора).
       const adjPaid = paidByEmpDir.get(`${emp.id}:null`) || 0
       const adjNet = bonuses - penalties
 

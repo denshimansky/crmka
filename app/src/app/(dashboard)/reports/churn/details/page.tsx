@@ -27,7 +27,7 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
   // Отток считаем по ВЫБЫВШИМ АБОНЕМЕНТАМ за выбранный месяц
   // (Subscription.withdrawalDate = дата последнего платного занятия), а не по
   // Client.withdrawalDate (его кроны ставят датой запуска). Так фильтр периода
-  // (MonthPicker) работает, а отчёт согласован с «Оттоком по педагогам» и спекой.
+  // (MonthPicker) работает, а отчёт согласован с «Оттоком по инструкторам» и спекой.
   const subWhere: any = {
     deletedAt: null,
     status: "withdrawn",

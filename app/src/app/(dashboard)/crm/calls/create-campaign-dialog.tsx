@@ -38,7 +38,7 @@ const CLIENT_STATUS_OPTIONS = [
   { value: "nontarget", label: "Нецелевой" },
 ]
 
-// unmarked_lesson создаётся без clientId (задача педагогу про занятие) —
+// unmarked_lesson создаётся без clientId (задача инструктору про занятие) —
 // через Client.tasks клиентов не находит, в обзвоне чекбокс был бы мёртвым.
 const CALL_TRIGGERS = MANAGED_TRIGGERS.filter((t) => t !== "unmarked_lesson")
 

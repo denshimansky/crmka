@@ -44,7 +44,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 // PUT /api/groups/[id]/salary-rate — upsert: создать или обновить ставку группы.
-// Если ставка группы задана — перебивает личные ставки всех педагогов при расчёте ЗП.
+// Если ставка группы задана — перебивает личные ставки всех инструкторов при расчёте ЗП.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -108,7 +108,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   return NextResponse.json(result)
 }
 
-// DELETE /api/groups/[id]/salary-rate — снять ставку группы, вернуться к личным ставкам педагогов.
+// DELETE /api/groups/[id]/salary-rate — снять ставку группы, вернуться к личным ставкам инструкторов.
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

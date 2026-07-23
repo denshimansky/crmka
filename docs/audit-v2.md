@@ -57,7 +57,7 @@
 | CRM-24 | Отчёт «Непродлённые абонементы» | MVP | DONE | /api/reports/not-renewed |
 | CRM-25 | Отчёт «Средний чек» | MVP | DONE | /api/reports/avg-check |
 | CRM-26 | Отчёт «Средняя стоимость абонемента» | MVP | DONE | /api/reports/avg-subscription-cost |
-| CRM-27 | Отчёт «Конверсия оттока по педагогам» | MVP | DONE | /api/reports/churn-by-instructors |
+| CRM-27 | Отчёт «Конверсия оттока по инструкторам» | MVP | DONE | /api/reports/churn-by-instructors |
 | CRM-28 | Отчёт «Отток по месяцам» | MVP | DONE | /api/reports/churn-by-months |
 | CRM-29 | Отчёт «Отток по направлениям и филиалам» | MVP | DONE | /api/reports/churn-by-directions |
 | CRM-30 | Отчёт «Лиды по дням» | MVP | DONE | /api/reports/leads-by-day |
@@ -66,8 +66,8 @@
 | CRM-33 | Отчёт «Эффективность обзвонов» | MVP | DONE | /api/reports/call-efficiency |
 | CRM-34 | Отчёт «Загруженность центра» | MVP | DONE | /api/reports/center-load |
 | CRM-35 | Отчёт «Продажи менеджеров по каналам» | MVP | DONE | /api/reports/sales-by-channel |
-| CRM-36 | Отчёт «Сводный по абонементам в разрезе педагогов» | MVP | DONE | /api/reports/subscriptions-by-instructor |
-| CRM-37 | Отчёт «Сколько денег приносит педагог» | MVP | DONE | /api/reports/instructor-profitability |
+| CRM-36 | Отчёт «Сводный по абонементам в разрезе инструкторов» | MVP | DONE | /api/reports/subscriptions-by-instructor |
+| CRM-37 | Отчёт «Сколько денег приносит инструктор» | MVP | DONE | /api/reports/instructor-profitability |
 | CRM-38 | Отчёт «Детализация пробников» | MVP | DONE | /api/reports/trial-details |
 
 ## Модуль Расписание
@@ -190,9 +190,9 @@
 | SAL-11b | Корректировки прошлых периодов | MVP | PARTIAL | Закрытие периода есть, отображение корректировок не подтверждено |
 | SAL-12 | Мотивация админа: бонусная система | MVP | DONE | AdminBonusSettings |
 | SAL-15 | Отчёт «Прогноз сдельной оплаты» | MVP | DONE | /api/reports/salary-forecast |
-| SAL-16 | Отчёт «Часы педагогов по дням» | MVP | DONE | /api/reports/instructor-hours |
-| SAL-17 | Отчёт «Средняя ЗП педагогов» | MVP | DONE | /api/reports/avg-salary |
-| SAL-18 | Отчёт «Расчёты с педагогами» | MVP | DONE | /api/reports/salary-instructors |
+| SAL-16 | Отчёт «Часы инструкторов по дням» | MVP | DONE | /api/reports/instructor-hours |
+| SAL-17 | Отчёт «Средняя ЗП инструкторов» | MVP | DONE | /api/reports/avg-salary |
+| SAL-18 | Отчёт «Расчёты с инструкторами» | MVP | DONE | /api/reports/salary-instructors |
 
 ## Модуль Дашборд + задачи
 

@@ -29,7 +29,7 @@ function whyZero(args: {
 }): string | null {
   if (args.salary > 0) return null
   if (args.isTrial && args.trialPayMode === "none") {
-    return "пробное — по ставке педагога за пробные не платят"
+    return "пробное — по ставке инструктора за пробные не платят"
   }
   if (!args.rateConfigured) {
     return "ставка не настроена"
@@ -64,7 +64,7 @@ export default async function SalaryByInstructorDetailPage({
   })
   if (!instructor) notFound()
 
-  // Все занятия за месяц, где этот сотрудник — основной педагог ИЛИ заменяющий.
+  // Все занятия за месяц, где этот сотрудник — основной инструктор ИЛИ заменяющий.
   // ЗП считается заменяющему, если он указан, иначе основному (resolveRate ниже).
   const lessons = await db.lesson.findMany({
     where: {
@@ -100,7 +100,7 @@ export default async function SalaryByInstructorDetailPage({
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
   })
 
-  // Только занятия, где этот сотрудник — эффективный педагог (с учётом замены).
+  // Только занятия, где этот сотрудник — эффективный инструктор (с учётом замены).
   const effectiveLessons = lessons.filter((l) => {
     const eff = l.substituteInstructorId || l.instructorId
     return eff === instructorId
@@ -120,7 +120,7 @@ export default async function SalaryByInstructorDetailPage({
   })
   const rateByDirection = new Map(rates.filter((r) => r.directionId).map((r) => [r.directionId!, r]))
   const defaultRate = rates.find((r) => !r.directionId) ?? null
-  // Режим оплаты пробных — из ставки педагога по направлению занятия (исключение
+  // Режим оплаты пробных — из ставки инструктора по направлению занятия (исключение
   // → дефолтная → «none»), как в resolveTrialPayMode.
   const trialModeForDirection = (directionId: string): string =>
     (rateByDirection.get(directionId) ?? defaultRate)?.trialPayMode ?? "none"
@@ -260,7 +260,7 @@ export default async function SalaryByInstructorDetailPage({
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="p-4 text-sm">
             В этом месяце {totalTrials} {totalTrials === 1 ? "пробное" : "пробных"}. Оплата за
-            пробные задаётся в ставке педагога («Сотрудники → карточка педагога → ставки ЗП →
+            пробные задаётся в ставке инструктора («Сотрудники → карточка инструктора → ставки ЗП →
             Оплата за пробное»): за часть из них ЗП не начисляется или начисляется только за платные.
           </CardContent>
         </Card>

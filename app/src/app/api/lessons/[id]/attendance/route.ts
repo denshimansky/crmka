@@ -103,11 +103,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
 
-  // Доступ роли к типу: педагог → availableToInstructor, админ → availableToAdmin.
+  // Доступ роли к типу: инструктор → availableToInstructor, админ → availableToAdmin.
   // Управляющий и владелец видят/ставят всё.
   if (role === "instructor" && !attendanceType.availableToInstructor) {
     return NextResponse.json(
-      { error: `Тип «${attendanceType.name}» не доступен педагогу. Обратитесь к администратору.` },
+      { error: `Тип «${attendanceType.name}» не доступен инструктору. Обратитесь к администратору.` },
       { status: 403 }
     )
   }
@@ -211,7 +211,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // Ф7: Виртуальная отработка — на ЭТО занятие назначена отработка с другого
   // (более раннего) занятия. На L1 живёт Attendance с code=makeup_scheduled и
   // scheduledMakeupLessonId=текущему lessonId. Здесь, на L2, ребёнок появляется
-  // как виртуальная строка. Педагог ставит «Был» (создаём реальную отработку,
+  // как виртуальная строка. Инструктор ставит «Был» (создаём реальную отработку,
   // списываем с абонемента L1) или «Не был» (задача админу переназначить).
   const virtualMakeup = await db.attendance.findFirst({
     where: {
@@ -260,7 +260,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     select: { subscriptionType: true },
   })
 
-  // Режим оплаты пробных — из ставки педагога этого занятия (перенесено из
+  // Режим оплаты пробных — из ставки инструктора этого занятия (перенесено из
   // настройки организации). Резолвим один раз на занятие.
   const trialEffInstructorId = lesson.substituteInstructorId || lesson.instructorId
   const trialMode = lesson.isTrial && trialEffInstructorId
@@ -271,7 +271,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       })
     : "none"
 
-  // Тип дня без начисления педагогу (Уваж. пропуск, Перерасчёт и т.п.) —
+  // Тип дня без начисления инструктору (Уваж. пропуск, Перерасчёт и т.п.) —
   // галочка «Оплата инструктору» не имеет смысла и принудительно снимается,
   // что бы ни прислал клиент (по умолчанию schema шлёт true).
   const instructorPayEnabled = attendanceType.paysInstructor
@@ -516,7 +516,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // удаляла очистка ниже, и ТОЛЬКО финансово пустую (charge=0 И ЗП=0). Но с
       // включённой «Оплатой инструктору за прогул» no_show несёт ЗП>0 → под
       // очистку не попадал: появлялась ВТОРАЯ отметка, а старый «Не был» (с ЗП)
-      // висел в реестре «Пропусков» и продолжал платить педагогу. Решение —
+      // висел в реестре «Пропусков» и продолжал платить инструктору. Решение —
       // ПЕРЕИСПОЛЬЗОВАТЬ такую строку: обновляем её на месте (перецепив на
       // резолвнутый абонемент), а не плодим дубль. ЗП и списание пересчитаются
       // штатно ниже (update + reallocateLessonPay + repriceSubscription).
@@ -917,11 +917,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
 
-  // Доступ роли к типу: педагог → availableToInstructor, админ → availableToAdmin.
+  // Доступ роли к типу: инструктор → availableToInstructor, админ → availableToAdmin.
   // Управляющий и владелец видят/ставят всё.
   if (role === "instructor" && !attendanceType.availableToInstructor) {
     return NextResponse.json(
-      { error: `Тип «${attendanceType.name}» не доступен педагогу. Обратитесь к администратору.` },
+      { error: `Тип «${attendanceType.name}» не доступен инструктору. Обратитесь к администратору.` },
       { status: 403 }
     )
   }
@@ -973,7 +973,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   )
 
   // Резолв ставки ЗП через единую утилиту: приоритет — GroupSalaryRate
-  // группы → личное исключение по направлению → дефолт педагога.
+  // группы → личное исключение по направлению → дефолт инструктора.
   const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
   const resolvedRate = await resolveRate(db, {
     tenantId,
@@ -982,7 +982,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     directionId: lesson.group.directionId,
   })
 
-  // Режим оплаты пробных — из ставки педагога этого занятия (перенесено из
+  // Режим оплаты пробных — из ставки инструктора этого занятия (перенесено из
   // настройки организации). Резолвим один раз на занятие.
   const bulkTrialMode = lesson.isTrial
     ? await resolveTrialPayMode(db, {
@@ -1185,7 +1185,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           oneOffCharge = oneOffPriceWithDiscount(oneOffBase, oneOffClient?.discountTemplate ?? null)
         }
 
-        // ЗП педагога — от суммы разового списания (как в одиночной отметке)
+        // ЗП инструктора — от суммы разового списания (как в одиночной отметке)
         if (effectiveType.paysInstructor && resolvedRate) {
           instructorPayAmount = await calcPay(tx, {
             rate: resolvedRate,
@@ -1411,7 +1411,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   // Снятие отметки «Был» на отработке — только админ+.
-  // ЗП могла быть уже выплачена педагогу; решение об откате принимает старший.
+  // ЗП могла быть уже выплачена инструктору; решение об откате принимает старший.
   if (
     existing.isMakeup &&
     Number(existing.chargeAmount) > 0 &&
@@ -1530,7 +1530,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       createdBy: employeeId,
     })
     if (!realloc.handled && Number(existing.instructorPayAmount) > 0) {
-      // Ф-аудит: если педагогу уже выплатили ЗП за этот период, компенсируем
+      // Ф-аудит: если инструктору уже выплатили ЗП за этот период, компенсируем
       // удаление через SalaryAdjustment, иначе у него «висит» переплата.
       const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
       await maybeRollbackPaidSalary(tx, {

@@ -333,7 +333,7 @@ export default async function SchedulePage({
   )
 
   // Collect unique instructors — на занятии с заменой преподаёт замещающий,
-  // поэтому в фильтр попадает фактический педагог (замена ⟶ основной).
+  // поэтому в фильтр попадает фактический инструктор (замена ⟶ основной).
   const instructorMap = new Map<string, { id: string; firstName: string | null; lastName: string }>()
   for (const lesson of lessons) {
     const eff = lesson.substituteInstructor ?? lesson.instructor
@@ -391,7 +391,7 @@ export default async function SchedulePage({
     : ""
 
   // Serialize lessons for client component (Date -> string)
-  // На занятии с заменой показываем замещающего педагога, а не основного.
+  // На занятии с заменой показываем замещающего инструктора, а не основного.
   const serializedLessons = lessons.map((l) => {
     const eff = l.substituteInstructor ?? l.instructor
     return {

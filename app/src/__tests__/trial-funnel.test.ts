@@ -71,7 +71,7 @@ describe("Пробные: одна заявка = одно активное пр
     assert.ok(appRes.status === 200 || appRes.status === 201, `заявка создана: ${JSON.stringify(appRes.data)}`)
     applicationId = appRes.data.id
 
-    // Индивидуальное пробное (без группы): направление + педагог + кабинет + время
+    // Индивидуальное пробное (без группы): направление + инструктор + кабинет + время
     const trialBody = (date: string, time: string) => ({
       clientId,
       wardId,

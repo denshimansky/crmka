@@ -23,8 +23,8 @@ export default function InstructorProfitabilityReportPage() {
 
   return (
     <ReportShell
-      title="Сколько денег приносит педагог"
-      subtitle="Выручка − ЗП − переменные − доля постоянных расходов = прибыльность педагога"
+      title="Сколько денег приносит инструктор"
+      subtitle="Выручка − ЗП − переменные − доля постоянных расходов = прибыльность инструктора"
       pageKey="reports/salary/instructor-profitability"
     >
       <Card>

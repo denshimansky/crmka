@@ -102,7 +102,7 @@ export function GroupSalaryRateButton({ groupId, groupName }: { groupId: string;
   }
 
   async function handleRemove() {
-    if (!confirm("Снять ставку группы? Расчёт ЗП вернётся к личным ставкам педагогов.")) return
+    if (!confirm("Снять ставку группы? Расчёт ЗП вернётся к личным ставкам инструкторов.")) return
     try {
       const res = await fetch(`/api/groups/${groupId}/salary-rate`, { method: "DELETE" })
       if (res.ok) {
@@ -127,7 +127,7 @@ export function GroupSalaryRateButton({ groupId, groupName }: { groupId: string;
           <DialogHeader>
             <DialogTitle>Ставка группы «{groupName}»</DialogTitle>
             <DialogDescription>
-              Если задана, перекрывает личные ставки всех педагогов, включая замещающего, на занятиях этой группы.
+              Если задана, перекрывает личные ставки всех инструкторов, включая замещающего, на занятиях этой группы.
             </DialogDescription>
           </DialogHeader>
 
@@ -143,7 +143,7 @@ export function GroupSalaryRateButton({ groupId, groupName }: { groupId: string;
               {rate && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Badge variant="outline">Действует</Badge>
-                  Текущая ставка перекрывает личные настройки педагогов.
+                  Текущая ставка перекрывает личные настройки инструкторов.
                 </div>
               )}
               <SalaryRateForm value={form} onChange={setForm} hideTrialPay />

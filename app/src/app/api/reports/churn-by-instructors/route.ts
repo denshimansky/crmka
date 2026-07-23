@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, safeDivide, pct } from "@/lib/report-helpers"
 
-/** 2.2. Конверсия оттока по педагогам */
+/** 2.2. Конверсия оттока по инструкторам */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
   // флаг в базе почти не проставляется (выбывает отдельный абонемент, а не весь
   // клиент), поэтому отчёт показывал нули, хотя абонементы выбывали. Считаем по
   // абонементам — согласованно со знаменателем (активные абонементы) и с отчётом
-  // «Сводный по абонементам в разрезе педагогов» (баг #35).
+  // «Сводный по абонементам в разрезе инструкторов» (баг #35).
   const churnedSubs = await db.subscription.findMany({
     where: {
       tenantId,
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
       instrActive.set(iId, prev)
     }
 
-    // Count churned subscriptions by instructor (по группе абонемента). Педагога
+    // Count churned subscriptions by instructor (по группе абонемента). Инструктора
     // с оттоком, но без активных абонементов в периоде, тоже включаем.
     const instrChurned = new Map<string, number>()
     for (const s of churnedSubs) {

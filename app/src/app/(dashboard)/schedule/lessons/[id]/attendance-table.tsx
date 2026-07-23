@@ -261,7 +261,7 @@ interface AttendanceTableProps {
   instructors?: InstructorOption[]
   currentUserRole?: string
   /** Может ли пользователь открывать карточки клиентов/подопечных (/crm).
-   *  Педагог — нет: имена ростера показываем текстом, без ссылок в закрытый раздел. */
+   *  Инструктор — нет: имена ростера показываем текстом, без ссылок в закрытый раздел. */
   canViewClients?: boolean
   /** Скрытая разовая группа (Group.isOneTime=true) — для модалки «Добавить ученика». */
   groupIsOneTime?: boolean
@@ -459,7 +459,7 @@ export function AttendanceTable({
     const uniqueKey = student.enrollmentId
     setLoadingStudentId(uniqueKey)
 
-    // Тип дня без начисления педагогу → галочка «Оплата инструктору»
+    // Тип дня без начисления инструктору → галочка «Оплата инструктору»
     // снимается автоматически (сервер тоже нормализует).
     const markType = attendanceTypes.find((t) => t.id === attendanceTypeId)
     const payEnabled = markType?.paysInstructor === false ? false : instructorPayEnabled
@@ -598,13 +598,13 @@ export function AttendanceTable({
   // Toggle instructor pay
   async function toggleInstructorPay(student: StudentData) {
     if (!student.attendance) return
-    // Тип без начисления педагогу — переключать нечего (чекбокс задизейблен).
+    // Тип без начисления инструктору — переключать нечего (чекбокс задизейблен).
     if (!typePaysInstructor(student.attendance.attendanceTypeId)) return
     const newEnabled = !student.attendance.instructorPayEnabled
     await markAttendance(student, student.attendance.attendanceTypeId, newEnabled)
   }
 
-  // Есть ли у типа дня начисление педагогу (для неизвестного типа — true,
+  // Есть ли у типа дня начисление инструктору (для неизвестного типа — true,
   // чтобы не блокировать чекбокс на исторических данных).
   function typePaysInstructor(attendanceTypeId: string): boolean {
     const type = attendanceTypes.find((t) => t.id === attendanceTypeId)
@@ -1369,7 +1369,7 @@ function MakeupChangeWarningDialog({
 
         <div className="space-y-3 p-4 text-sm">
           <div className="rounded-md bg-amber-100 px-3 py-2 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
-            <strong>Внимание:</strong> ЗП за это занятие могла быть уже выплачена педагогу.
+            <strong>Внимание:</strong> ЗП за это занятие могла быть уже выплачена инструктору.
             После изменения проверьте ведомости — возможно, потребуется ручная корректировка.
           </div>
           <div className="text-muted-foreground">

@@ -34,7 +34,7 @@ export interface TrialCardInfo {
   instructorId: string | null
   roomId: string | null
   roomName: string
-  /** Филиал кабинета пробного — по нему фильтруются кабинеты/педагоги при переносе. */
+  /** Филиал кабинета пробного — по нему фильтруются кабинеты/инструкторы при переносе. */
   branchId: string | null
 }
 
@@ -60,7 +60,7 @@ function fmtDate(iso: string): string {
 
 /**
  * Клик по карточке индивидуального пробного в расписании: диалог с деталями
- * (дата/время/педагог/кабинет) + отметка «Был / Не пришёл» + перенос + ссылка
+ * (дата/время/инструктор/кабинет) + отметка «Был / Не пришёл» + перенос + ссылка
  * на карточку клиента. У индивидуального пробного нет сущности занятия и
  * карточки занятия — этот диалог единственное место отметки из расписания
  * (баг #60). Перенос атомарный: POST /api/trial-lessons с
@@ -161,7 +161,7 @@ export function TrialDetailsDialog({
       instructorId === (trial.instructorId || "") &&
       roomId === (trial.roomId || "")
     ) {
-      return setError("Изменений нет — поменяйте дату, время, педагога или кабинет.")
+      return setError("Изменений нет — поменяйте дату, время, инструктора или кабинет.")
     }
     setSubmitting(true)
     try {
@@ -314,7 +314,7 @@ export function TrialDetailsDialog({
                   </SelectTrigger>
                   <SelectContent>
                     {(() => {
-                      // Педагоги филиала пробного (по кабинету); текущий выбранный
+                      // Инструкторы филиала пробного (по кабинету); текущий выбранный
                       // показываем, даже если он из другого филиала.
                       const filtered = filterEmployeesByBranch(instructors, trial.branchId)
                       const selected = instructors.find((x) => x.id === instructorId)

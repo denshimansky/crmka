@@ -296,7 +296,7 @@ function NewSalaryPaymentForm() {
           date,
           periodYear,
           periodMonth,
-          // Отчёт «ЗП по педагогам» делит выплаты по половинам месяца:
+          // Отчёт «ЗП по инструкторам» делит выплаты по половинам месяца:
           // periodHalf=1 — первая половина (аванс), иначе — вторая.
           periodHalf: isPartialCutoff && Number(accrualUpTo.slice(8, 10)) <= 15 ? 1 : 2,
           comment: comment || undefined,

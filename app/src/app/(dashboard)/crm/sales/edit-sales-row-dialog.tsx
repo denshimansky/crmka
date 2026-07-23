@@ -111,7 +111,7 @@ export function EditSalesRowDialog({
   const [directionId, setDirectionId] = useState<string>("")
   const [groupId, setGroupId] = useState<string>("")
   const [scheduledDate, setScheduledDate] = useState<string>(isoToDate(row.scheduledDate))
-  // Поля индивидуального пробного (без группы): время/педагог/кабинет
+  // Поля индивидуального пробного (без группы): время/инструктор/кабинет
   // редактируются напрямую — раньше при пересоздании молча копировались старые.
   const [trialStartTime, setTrialStartTime] = useState<string>(row.startTime || "")
   const [trialInstructorId, setTrialInstructorId] = useState<string>(row.trialInstructorId || "")
@@ -229,7 +229,7 @@ export function EditSalesRowDialog({
     [employees],
   )
 
-  // Поля «Педагог/Кабинет/Время» показываем только для индивидуального пробного.
+  // Поля «Инструктор/Кабинет/Время» показываем только для индивидуального пробного.
   // До загрузки справочников ориентируемся на признак строки (instructorId есть
   // только у индивидуальных) — иначе у групповых поля мигают, пока groupId не
   // сопоставился по имени.
@@ -340,7 +340,7 @@ export function EditSalesRowDialog({
       }
     }
 
-    // 4. Пробное — если меняются «дата/время/педагог/кабинет/направление/группа»
+    // 4. Пробное — если меняются «дата/время/инструктор/кабинет/направление/группа»
     // (для группового — и филиал), пересоздаём запись. Для scheduled-пробного
     // отмена старого и создание нового идут ОДНОЙ транзакцией на сервере
     // (rescheduleOfTrialLessonId) — при любой ошибке старое остаётся на месте.
@@ -359,7 +359,7 @@ export function EditSalesRowDialog({
           : individualChanged)
       if (trialChanged) {
         // Без группы пересоздаём индивидуальное пробное со значениями из полей
-        // «Время/Педагог/Кабинет» (предзаполнены текущими).
+        // «Время/Инструктор/Кабинет» (предзаполнены текущими).
         const individualPayload = !groupId
           ? {
               directionId: directionId || row.trialDirectionId || undefined,
@@ -529,7 +529,7 @@ export function EditSalesRowDialog({
                   </SelectContent>
                 </Select>
               </div>
-              {/* Индивидуальное пробное (группа не выбрана): время/педагог/кабинет
+              {/* Индивидуальное пробное (группа не выбрана): время/инструктор/кабинет
                   редактируются напрямую. Для группового — время задаёт занятие группы. */}
               {showIndividualTrialFields && (
                 <>

@@ -75,9 +75,9 @@ test.describe("Закрытие пробелов", () => {
     await expect(page.locator("h1")).toContainText("Посещения")
   })
 
-  test("9. Сводный по педагогам загружается", async ({ page }) => {
+  test("9. Сводный по инструкторам загружается", async ({ page }) => {
     await page.goto("/reports/salary/by-instructor")
-    await expect(page.locator("h1")).toContainText("педагогам")
+    await expect(page.locator("h1")).toContainText("инструкторам")
   })
 
   // === КАТАЛОГ ОБНОВЛЁН ===

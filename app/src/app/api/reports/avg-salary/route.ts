@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, safeDivide } from "@/lib/report-helpers"
 
-/** 6.4. Средняя ЗП педагогов */
+/** 6.4. Средняя ЗП инструкторов */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
       substituteInstructor: { select: { firstName: true, lastName: true } },
       attendances: {
         // Факт посещения — по флагу типа (partOfFact), а не по коду "present":
-        // кастомные «присутственные» типы тоже дают педагогу час (иначе ЗП
+        // кастомные «присутственные» типы тоже дают инструктору час (иначе ЗП
         // начисляется, а часы — нет, и ставка завышается). Маркер «Отработка»
         // (makeup) — не сам факт, а ссылка на реальную отработку в другой группе.
         where: { attendanceType: { partOfFact: true, code: { not: "makeup" } } },

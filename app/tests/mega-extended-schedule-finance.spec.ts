@@ -57,7 +57,7 @@ test.describe.serial("Расширенный mega-тест: Расписание
   // ЧАСТЬ 10: РАСПИСАНИЕ
   // ============================================================
 
-  safeTest("10.1: Расписание — фильтры (кабинет, направление, педагог)", async (page) => {
+  safeTest("10.1: Расписание — фильтры (кабинет, направление, инструктор)", async (page) => {
     await login(page)
     await page.goto("/schedule")
     await page.waitForLoadState("domcontentloaded")
@@ -72,7 +72,7 @@ test.describe.serial("Расширенный mega-тест: Расписание
         // Возможно фильтры есть, но как placeholder-тексты
         const hasRoomFilter = await page.locator("text=Кабинет").first().isVisible({ timeout: 3000 }).catch(() => false)
         const hasDirFilter = await page.locator("text=Направление").first().isVisible({ timeout: 2000 }).catch(() => false)
-        const hasInstrFilter = await page.locator("text=Педагог").first().isVisible({ timeout: 2000 }).catch(() => false)
+        const hasInstrFilter = await page.locator("text=Инструктор").first().isVisible({ timeout: 2000 }).catch(() => false)
 
         if (hasRoomFilter || hasDirFilter || hasInstrFilter) {
           log("Расписание: фильтры найдены (по тексту)", "OK")

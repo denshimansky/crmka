@@ -8,7 +8,7 @@ import { generateTasksForTenant } from "@/lib/tasks/generate-tasks"
 // (/api/cron/generate-tasks).
 export async function POST() {
   // Управленческое действие: доступно тем, кто редактирует клиентов
-  // (владелец/управляющий/администратор). Педагог кнопки не видит и API не может.
+  // (владелец/управляющий/администратор). Инструктор кнопки не видит и API не может.
   const guard = await requirePermission("clients.edit")
   if (!guard.ok) return guard.response
   const session = guard.session! as { user: { tenantId: string } }

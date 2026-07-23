@@ -103,7 +103,7 @@ export default async function LessonCardPage({
   // Кандидаты на замену — только действующие преподаватели (role=instructor,
   // isActive) и только из филиала группы (либо без привязок = кросс-филиально).
   // Владельцы/управляющие/админы и уволенные сотрудники не предлагаются —
-  // список «педагогов» совпадает с выбором инструктора при создании группы.
+  // список «инструкторов» совпадает с выбором инструктора при создании группы.
   const lessonBranchId = lesson.group.branchId
   const instructorsRaw = await db.employee.findMany({
     where: {
@@ -662,7 +662,7 @@ export default async function LessonCardPage({
   const currentUserRole = currentRole
 
   // Может ли текущий пользователь открывать карточки клиентов/подопечных (/crm).
-  // Педагог по умолчанию не видит клиентскую базу — ссылки в ростере занятия
+  // Инструктор по умолчанию не видит клиентскую базу — ссылки в ростере занятия
   // ведут в закрытый раздел, поэтому имена показываем текстом.
   const orgForPerms = await db.organization.findUnique({
     where: { id: session.user.tenantId },

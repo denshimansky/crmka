@@ -17,7 +17,7 @@ export default function ProfitForecastReportPage() {
   const lines = data
     ? [
         { label: "Сумма абонементов (план выручки)", value: data.subscriptionAmount, sign: "+" as const },
-        { label: "Прогноз ЗП педагогов", value: data.salaryForecast, sign: "−" as const },
+        { label: "Прогноз ЗП инструкторов", value: data.salaryForecast, sign: "−" as const },
         { label: "Переменные расходы (среднее за 3 мес)", value: data.variableExpensesForecast, sign: "−" as const },
         { label: "Постоянные расходы", value: data.fixedExpensesForecast, sign: "−" as const },
       ]

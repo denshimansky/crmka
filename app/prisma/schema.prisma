@@ -80,11 +80,11 @@ model Organization {
   salaryDay1          Int?     @default(15) @map("salary_day_1")
   salaryDay2          Int?     @default(30) @map("salary_day_2")
   payForAbsence       Boolean  @default(false) @map("pay_for_absence")
-  /// Оплата пробных педагогу: none — не платить, paid_only — только платные
+  /// Оплата пробных инструктору: none — не платить, paid_only — только платные
   /// (у направления задана цена пробного), all — все пробные.
   trialPayMode        String   @default("none") @map("trial_pay_mode")
   attendanceDeadline  Int      @default(14) @map("attendance_deadline")
-  // Видят ли педагоги (instructor) телефоны клиентов. По умолчанию скрыты (маска);
+  // Видят ли инструкторы (instructor) телефоны клиентов. По умолчанию скрыты (маска);
   // владелец может открыть в «Настройки → Организация».
   instructorsSeePhones Boolean @default(false) @map("instructors_see_phones")
   debtLimit           Decimal? @map("debt_limit") @db.Decimal(12, 2)
@@ -539,7 +539,7 @@ model Lesson {
   // дате (effectiveRosterDate = rescheduledFromDate ?? date), чтобы перенос на
   // более поздний день не затягивал в занятие учеников, начавших позже исходной
   // даты. Ставится один раз при первом переносе и больше не меняется (хранит
-  // самую первую дату). ЗП считается по фактической дате `date` (педагог провёл
+  // самую первую дату). ЗП считается по фактической дате `date` (инструктор провёл
   // занятие в новый день) — её НЕ замораживаем.
   rescheduledFromDate    DateTime?    @map("rescheduled_from_date") @db.Date
   startTime              String       @map("start_time")
@@ -648,7 +648,7 @@ model SalaryRate {
   ratePerLesson     Decimal?     @map("rate_per_lesson") @db.Decimal(12, 2)
   fixedPerShift     Decimal?     @map("fixed_per_shift") @db.Decimal(12, 2)
   percentOfPayments Decimal?     @map("percent_of_payments") @db.Decimal(5, 2)
-  // Оплата педагогу за пробное занятие (перенесено из настройки организации):
+  // Оплата инструктору за пробное занятие (перенесено из настройки организации):
   // none — не платить, paid_only — только за платные пробные, all — за любые.
   trialPayMode      String       @default("none") @map("trial_pay_mode")
   createdAt         DateTime     @default(now()) @map("created_at")
@@ -663,7 +663,7 @@ model SalaryRate {
   @@map("salary_rates")
 }
 
-// Ставка для конкретной группы — перекрывает личные ставки всех педагогов
+// Ставка для конкретной группы — перекрывает личные ставки всех инструкторов
 // (включая замещающего) при расчёте ЗП за занятия этой группы. Используется,
 // когда в группе нестандартные условия (например, premium-цена за студента).
 model GroupSalaryRate {

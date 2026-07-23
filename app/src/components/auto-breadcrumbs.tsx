@@ -45,7 +45,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   // Отчёты
   reports: "Отчёты",
   funnel: "Воронка продаж",
-  "trial-conversion": "Конверсия пробных по педагогам",
+  "trial-conversion": "Конверсия пробных по инструкторам",
   "avg-check": "Средний чек/абонемент",
   "leads-by-channel": "Лиды по каналам",
   "marketing-bonuses": "Скидки",
@@ -59,7 +59,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   unmarked: "Неотмеченные дети",
   capacity: "Свободные места",
   salary: "Зарплата",
-  "by-instructor": "По педагогам",
+  "by-instructor": "По инструкторам",
   revenue: "Выручка",
   pnl: "P&L",
   "pnl-directions": "P&L по направлениям",

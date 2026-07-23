@@ -38,7 +38,7 @@ export default function TrialDetailsReportPage() {
   return (
     <ReportShell
       title="Детализация пробников"
-      subtitle="Все пробные занятия за месяц с педагогом, статусом и датой посещения"
+      subtitle="Все пробные занятия за месяц с инструктором, статусом и датой посещения"
       pageKey="reports/crm/trial-details"
     >
       <Card>

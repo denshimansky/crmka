@@ -9,7 +9,7 @@ import { computeSalaryForecastBreakdown } from "@/lib/salary/forecast-month"
  * Единая логика с дашбордом («Прогноз прибыли») — computeSalaryForecastBreakdown:
  * прогноз по РАСПИСАНИЮ месяца (scheduled/completed) и резолву ставки
  * (групповая → личная по направлению → личная дефолтная), все схемы, включая
- * плавающую (брекеты). Здесь оставляем только СДЕЛЬНЫХ педагогов (окладники —
+ * плавающую (брекеты). Здесь оставляем только СДЕЛЬНЫХ инструкторов (окладники —
  * не сдельная оплата, для них прогноз = фикс-оклад).
  */
 export async function GET(req: NextRequest) {
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   const { rows: allRows } = await computeSalaryForecastBreakdown(db, tenantId, year, month)
   const rows = allRows.filter((r) => !r.isOklad)
 
-  // Уже выплачено сдельным педагогам за период (документы выплат).
+  // Уже выплачено сдельным инструкторам за период (документы выплат).
   const payments = await db.salaryPayment.findMany({
     where: {
       tenantId,

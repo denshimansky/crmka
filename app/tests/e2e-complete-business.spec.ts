@@ -95,22 +95,22 @@ test.describe.serial("Полный бизнес-сценарий", () => {
     const dialog = page.locator("div[role='dialog']")
     await expect(dialog).toBeVisible()
 
-    await dialog.locator('input[id="lastName"]').fill("Педагогов")
+    await dialog.locator('input[id="lastName"]').fill("Инструкторов")
     await dialog.locator('input[id="firstName"]').fill("Пётр")
     await dialog.locator('input[id="login"]').fill(INSTRUCTOR_LOGIN)
     await dialog.locator('input[id="password"]').fill("test123456")
 
-    // Роль = инструктор (дефолтное отображаемое название — «Педагог»)
+    // Роль = инструктор (дефолтное отображаемое название — «Инструктор»)
     await dialog.locator("[data-slot='select-trigger']").first().click()
     await page.waitForTimeout(500)
-    await page.locator("[data-slot='select-item']:visible", { hasText: "Педагог" }).first().click()
+    await page.locator("[data-slot='select-item']:visible", { hasText: "Инструктор" }).first().click()
     await page.waitForTimeout(500)
 
     await dialog.locator("button:has-text('Создать')").click()
     await expect(dialog).not.toBeVisible({ timeout: 5000 })
 
     // Проверяем
-    await expect(page.locator("text=Педагогов").first()).toBeVisible({ timeout: 5000 })
+    await expect(page.locator("text=Инструкторов").first()).toBeVisible({ timeout: 5000 })
   })
 
   // === 4. ГРУППА ===
@@ -125,7 +125,7 @@ test.describe.serial("Полный бизнес-сценарий", () => {
     // Название
     await dialog.locator("input").first().fill(GROUP_NAME)
 
-    // Выбираем все 4 селекта (направление, филиал, кабинет, педагог)
+    // Выбираем все 4 селекта (направление, филиал, кабинет, инструктор)
     const selects = dialog.locator("[data-slot='select-trigger']")
     for (let i = 0; i < 4; i++) {
       await selects.nth(i).click()

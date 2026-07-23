@@ -16,7 +16,7 @@ async function main() {
     const piece = rows.filter((r) => !r.isOklad)
     const pieceTotal = piece.reduce((s, r) => s + r.forecast, 0)
     console.log(`\n=== ${org.name} ===`)
-    console.log(`total(с окладами)=${total.toFixed(0)} | сдельных педагогов=${piece.length} | сдельный прогноз=${pieceTotal.toFixed(0)}`)
+    console.log(`total(с окладами)=${total.toFixed(0)} | сдельных инструкторов=${piece.length} | сдельный прогноз=${pieceTotal.toFixed(0)}`)
     for (const r of piece.sort((a, b) => b.forecast - a.forecast).slice(0, 6)) {
       console.log(`  ${r.instructorName} | ${r.directionNames.join(", ")} | ${r.scheme} | зан ${r.lessonsCount} | уч ${r.studentsCount} | прогноз ${r.forecast.toFixed(0)}`)
     }

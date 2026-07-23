@@ -93,7 +93,7 @@ export function MoveLessonDialog({
         setError(null)
         return
       }
-      // 409 + conflicts → конфликт расписания (педагог/кабинет)
+      // 409 + conflicts → конфликт расписания (инструктор/кабинет)
       if (res.status === 409 && Array.isArray(data.conflicts)) {
         setConflicts(data.conflicts)
         setError(data.error || "Конфликт расписания")

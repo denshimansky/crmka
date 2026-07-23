@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     tenantId: user.tenantId,
     deletedAt: null,
     status: status as any,
-    // Педагог/«только чтение» — только свои задачи. См. lib/tasks/task-visibility.ts.
+    // Инструктор/«только чтение» — только свои задачи. См. lib/tasks/task-visibility.ts.
     ...taskVisibilityWhere(user.role, user.employeeId),
   }
 
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   // Создавать задачи вручную может только тот, кто редактирует клиентов
-  // (владелец/управляющий/администратор). Педагог/«только чтение» — нет.
+  // (владелец/управляющий/администратор). Инструктор/«только чтение» — нет.
   const guard = await requirePermission("clients.edit")
   if (!guard.ok) return guard.response
   const user = guard.session!.user as {

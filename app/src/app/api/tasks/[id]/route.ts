@@ -18,7 +18,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   })
   if (!existing) return NextResponse.json({ error: "Задача не найдена" }, { status: 404 })
 
-  // Педагог/«только чтение» могут работать только со СВОИМИ задачами (и только
+  // Инструктор/«только чтение» могут работать только со СВОИМИ задачами (и только
   // менять статус — см. ниже). Управленцы — с любыми.
   const canManageAll = seesAllTasks(session.user.role as Role)
   if (!canManageAll && existing.assignedTo !== session.user.employeeId) {
@@ -39,7 +39,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   // Редактирование содержания задачи (заголовок/срок/исполнитель) — только у
-  // управленцев; педагог меняет лишь статус своей задачи.
+  // управленцев; инструктор меняет лишь статус своей задачи.
   if (canManageAll) {
     if (body.title) updateData.title = body.title
     if (body.dueDate) updateData.dueDate = new Date(body.dueDate)

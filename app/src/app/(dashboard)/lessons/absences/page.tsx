@@ -138,7 +138,7 @@ export default async function LessonsAbsencesPage({
         tenantId,
         deletedAt: null,
         isActive: true,
-        // Фильтр «Педагог» — только инструкторы (роль instructor = «педагог»);
+        // Фильтр «Инструктор» — только инструкторы (роль instructor = «инструктор»);
         // админы/управляющие/владелец не ведут занятия и в фильтре не нужны (баг #7).
         role: "instructor",
         ...scopeEmployee(scope),
@@ -152,8 +152,8 @@ export default async function LessonsAbsencesPage({
   // (readonly) ничего не меняет. Список фильтруем как в карточке занятия:
   // — «Назначена отработка» / «Отработка» требуют выбора целевого занятия —
   //   их меняют только в карточке занятия, в реестре исключаем;
-  // — внутренние типы (недоступны и педагогу, и админу) ставятся программно;
-  // — педагог видит availableToInstructor, админ — availableToAdmin, владелец/
+  // — внутренние типы (недоступны и инструктору, и админу) ставятся программно;
+  // — инструктор видит availableToInstructor, админ — availableToAdmin, владелец/
   //   управляющий — всё.
   const role = session.user.role
   const canEdit = role !== "readonly"

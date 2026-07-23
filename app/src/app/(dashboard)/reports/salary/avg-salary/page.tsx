@@ -19,7 +19,7 @@ export default function AvgSalaryReportPage() {
 
   return (
     <ReportShell
-      title="Средняя ЗП педагогов"
+      title="Средняя ЗП инструкторов"
       subtitle="Средняя стоимость часа = начисленная ЗП / отработанные часы"
       pageKey="reports/salary/avg-salary"
     >

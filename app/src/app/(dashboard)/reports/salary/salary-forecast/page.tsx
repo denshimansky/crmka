@@ -33,7 +33,7 @@ export default function SalaryForecastReportPage() {
   return (
     <ReportShell
       title="Прогноз сдельной оплаты"
-      subtitle="Прогноз ЗП сдельных педагогов по ставкам и текущему расписанию"
+      subtitle="Прогноз ЗП сдельных инструкторов по ставкам и текущему расписанию"
       pageKey="reports/salary/salary-forecast"
     >
       <Card>

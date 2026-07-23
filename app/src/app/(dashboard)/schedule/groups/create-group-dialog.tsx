@@ -449,7 +449,7 @@ export function CreateGroupDialog({
               <div>
                 <div className="text-sm font-medium">Ставка группы</div>
                 <div className="text-xs text-muted-foreground">
-                  {rate ? SCHEME_LABELS[rate.scheme] : "Стандартная (по личным ставкам педагогов)"}
+                  {rate ? SCHEME_LABELS[rate.scheme] : "Стандартная (по личным ставкам инструкторов)"}
                 </div>
               </div>
             </div>
@@ -624,7 +624,7 @@ export function CreateGroupDialog({
           <DialogHeader>
             <DialogTitle>Ставка группы</DialogTitle>
             <DialogDescription>
-              Если задана, перекрывает личные ставки педагогов на занятиях этой группы.
+              Если задана, перекрывает личные ставки инструкторов на занятиях этой группы.
             </DialogDescription>
           </DialogHeader>
 

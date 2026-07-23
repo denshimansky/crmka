@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
 
   // Выбывшие в периоде — по дате последнего платного занятия
   // (Subscription.withdrawalDate), а не по Client.withdrawalDate (его кроны ставят
-  // датой запуска). Так согласуется со спекой и «Оттоком по педагогам».
+  // датой запуска). Так согласуется со спекой и «Оттоком по инструкторам».
   const year = dateFrom.getUTCFullYear()
   const month = dateFrom.getUTCMonth() + 1
 

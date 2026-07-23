@@ -72,19 +72,19 @@ test.describe("E2E: Полный цикл CRM", () => {
     const dialog = page.locator("div[role='dialog']")
     await expect(dialog).toBeVisible()
 
-    await dialog.locator('input[id="lastName"]').fill("E2E-Педагог")
+    await dialog.locator('input[id="lastName"]').fill("E2E-Инструктор")
     await dialog.locator('input[id="firstName"]').fill("Тест")
     await dialog.locator('input[id="login"]').fill("e2e_instructor_" + TS)
     await dialog.locator('input[id="password"]').fill("test123456")
 
-    // Выбираем роль инструктора (дефолтное отображаемое название — «Педагог»)
+    // Выбираем роль инструктора (дефолтное отображаемое название — «Инструктор»)
     await dialog.locator("[data-slot='select-trigger']").first().click()
-    await page.locator("[data-slot='select-item']", { hasText: "Педагог" }).click()
+    await page.locator("[data-slot='select-item']", { hasText: "Инструктор" }).click()
     await page.waitForTimeout(300)
 
     await dialog.locator("button:has-text('Создать')").click()
     await expect(dialog).not.toBeVisible({ timeout: 5000 })
-    await expect(page.locator("text=E2E-Педагог").first()).toBeVisible({ timeout: 5000 })
+    await expect(page.locator("text=E2E-Инструктор").first()).toBeVisible({ timeout: 5000 })
   })
 
   test("4. Создать группу с расписанием", async ({ page }) => {
@@ -111,7 +111,7 @@ test.describe("E2E: Полный цикл CRM", () => {
     await selectOption(0) // Направление
     await selectOption(1) // Филиал
     await selectOption(2) // Кабинет
-    await selectOption(3) // Педагог
+    await selectOption(3) // Инструктор
 
     // Добавить день расписания
     await dialog.locator("button:has-text('Добавить день')").click()

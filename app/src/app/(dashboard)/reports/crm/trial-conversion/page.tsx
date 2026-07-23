@@ -42,7 +42,7 @@ export default async function TrialConversionReportPage({
   const trialWhere: Prisma.TrialLessonWhereInput = {
     tenantId,
     scheduledDate: { gte: dateFrom, lte: dateTo },
-    groupId: { not: null }, // отчёт по педагогам — только групповые пробные
+    groupId: { not: null }, // отчёт по инструкторам — только групповые пробные
   }
   if (branchId) {
     trialWhere.group = { branchId }
@@ -99,7 +99,7 @@ export default async function TrialConversionReportPage({
     : []
   const purchasedSet = new Set(purchased.map((c) => c.id))
 
-  // Группировка по педагогам
+  // Группировка по инструкторам
   const byInstructor = new Map<
     string,
     { name: string; scheduled: number; attended: number; noShow: number; cancelled: number; sales: number }
@@ -169,11 +169,11 @@ export default async function TrialConversionReportPage({
         </Link>
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">Конверсия пробных по педагогам</h1>
+            <h1 className="text-2xl font-bold">Конверсия пробных по инструкторам</h1>
             <PageHelp pageKey="reports/crm/trial-conversion" />
           </div>
           <p className="text-sm text-muted-foreground">
-            Сколько пробных проведено и сколько превратилось в клиента — по педагогам
+            Сколько пробных проведено и сколько превратилось в клиента — по инструкторам
           </p>
         </div>
         <MonthPicker />
@@ -246,10 +246,10 @@ export default async function TrialConversionReportPage({
         </Card>
       </div>
 
-      {/* Таблица по педагогам */}
+      {/* Таблица по инструкторам */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">По педагогам</CardTitle>
+          <CardTitle className="text-base">По инструкторам</CardTitle>
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? (

@@ -107,7 +107,7 @@ export default async function SalaryByInstructorPage({ searchParams }: { searchP
         </Link>
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">Сводный по педагогам</h1>
+            <h1 className="text-2xl font-bold">Сводный по инструкторам</h1>
             <PageHelp pageKey="reports/salary/by-instructor" />
           </div>
           <p className="text-sm text-muted-foreground">Занятия, ученики и начисленная ЗП по инструкторам</p>

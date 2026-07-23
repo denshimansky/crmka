@@ -208,7 +208,7 @@ const modules: RoadmapModule[] = [
       { id: "ADM-09", text: "Справочник причин отчисления", status: "done" },
       { id: "ADM-09a", text: "Справочник причин пропусков", status: "done" },
       { id: "ADM-11", text: "Импорт клиентов + синхронизация остатков (XLSX)", status: "done" },
-      { id: "ADM-14", text: "Кастомные названия ролей (roleDisplayNames)", status: "done" },
+      { id: "ADM-14", text: "Названия ролей зафиксированы (редактирование убрано)", status: "done" },
       { id: "ADM-15", text: "Маскирование телефонов у инструктора (жёсткая политика, без настройки)", status: "done" },
     ],
   },
