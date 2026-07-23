@@ -18,10 +18,18 @@ export const PERMISSIONS = [
   { key: "clients.edit", label: "Создание и редактирование клиентов", group: "Клиенты" },
   { key: "clients.delete", label: "Удаление клиентов", group: "Клиенты" },
 
+  // Задачи — отдельное право, чтобы раздел «Задачи» не был жёстко привязан к
+  // просмотру клиентов (педагог видит свои задачи, но не всю клиентскую базу).
+  { key: "tasks.view", label: "Просмотр задач", group: "Задачи" },
+
   // Расписание
   { key: "schedule.view", label: "Просмотр расписания", group: "Расписание" },
   { key: "schedule.edit", label: "Управление группами и расписанием", group: "Расписание" },
   { key: "attendance.mark", label: "Отметка посещений", group: "Расписание" },
+
+  // Склад — отдельное право, чтобы скрыть склад у ролей, у которых есть
+  // расписание, но нет склада (педагог).
+  { key: "warehouse.view", label: "Просмотр склада", group: "Склад" },
 
   // Финансы
   { key: "finance.view", label: "Просмотр финансов (оплаты, расходы)", group: "Финансы" },
@@ -93,9 +101,11 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
     "clients.view": true,
     "clients.edit": true,
     "clients.delete": false,
+    "tasks.view": true,
     "schedule.view": true,
     "schedule.edit": false,
     "attendance.mark": true,
+    "warehouse.view": true,
     "finance.view": true,
     "finance.edit": true,
     "finance.result": false, // PRD §5.3: админ по умолчанию не видит финрез (ДДС/P&L)
@@ -112,16 +122,20 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
   },
   instructor: {
     ...ALL_FALSE,
-    "clients.view": true,
+    // Педагог НЕ видит клиентскую базу (Клиенты/Продажи/Дети/Абонементы/Обзвон)
+    // и склад — только своё расписание, свои занятия, свои задачи и свою ЗП.
+    "tasks.view": true, // видит раздел «Задачи», но только свои (see api/tasks)
     "schedule.view": true,
     "attendance.mark": true,
-    "subscriptions.view": true,
+    "subscriptions.view": true, // данные абонемента нужны в карточке занятия/отметке
     "salary.own": true, // PRD §5.4: инструктор видит свою ЗП
   },
   readonly: {
     ...ALL_FALSE,
     "clients.view": true,
+    "tasks.view": true,
     "schedule.view": true,
+    "warehouse.view": true,
     "finance.view": true,
     "finance.result": true,
     "subscriptions.view": true,
@@ -138,16 +152,23 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
 
 // ─── Хелпер проверки прав ───
 
-// Обратная совместимость (баг #77): раздельные права на блоки отчётов заменили
-// единый reports.view (а финансовые/зарплатные отчёты гейтились finance.result/
-// finance.salary). Пока владелец не пересохранил матрицу, новые ключи наследуют
-// значение старого — доступ сохраняется точь-в-точь, миграция БД не нужна.
-const LEGACY_REPORT_FALLBACK: Partial<Record<PermissionKey, string>> = {
+// Обратная совместимость: новые права наследуют значение старого, пока владелец
+// не пересохранил матрицу, — доступ сохраняется точь-в-точь, миграция БД не нужна.
+//   • Отчёты (баг #77): раздельные reports.* заменили единый reports.view (а
+//     финансовые/зарплатные отчёты гейтились finance.result/finance.salary).
+//   • tasks.view выделен из clients.view (раздел «Задачи» жил под просмотром клиентов).
+//   • warehouse.view выделен из schedule.view (склад жил под просмотром расписания).
+// ВАЖНО: fallback работает только для организаций с СОХРАНЁННОЙ кастомной матрицей.
+// Для организаций на дефолтах действуют DEFAULT_PERMISSIONS (там педагог уже без
+// clients.view/склада) — именно так изменение видимости педагога и вступает в силу.
+const LEGACY_PERMISSION_FALLBACK: Partial<Record<PermissionKey, string>> = {
   "reports.marketing": "reports.view",
   "reports.retention": "reports.view",
   "reports.schedule": "reports.view",
   "reports.finance": "finance.result",
   "reports.salary": "finance.salary",
+  "tasks.view": "clients.view",
+  "warehouse.view": "schedule.view",
 }
 
 /**
@@ -168,8 +189,8 @@ export function hasPermission(
   const custom = orgPermissions?.[role] as Record<string, boolean> | undefined
   if (custom) {
     if (typeof custom[permission] === "boolean") return custom[permission]
-    // Новый report-ключ ещё не сохранён — наследуем старый (см. выше).
-    const legacy = LEGACY_REPORT_FALLBACK[permission]
+    // Новый ключ ещё не сохранён в матрице — наследуем старый (см. выше).
+    const legacy = LEGACY_PERMISSION_FALLBACK[permission]
     if (legacy && typeof custom[legacy] === "boolean") return custom[legacy]
     return DEFAULT_PERMISSIONS[role]?.[permission] ?? false
   }

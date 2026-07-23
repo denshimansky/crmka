@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
-import { Prisma } from "@prisma/client"
+import { Prisma, type Role } from "@prisma/client"
+import { requirePermission } from "@/lib/api-permissions"
+import { taskVisibilityWhere } from "@/lib/tasks/task-visibility"
 
 const createSchema = z.object({
   title: z.string().min(1, "Введите заголовок"),
@@ -14,16 +14,21 @@ const createSchema = z.object({
 })
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const guard = await requirePermission("tasks.view")
+  if (!guard.ok) return guard.response
+  const user = guard.session!.user as {
+    role: Role; tenantId: string; employeeId: string | null
+  }
 
   const { searchParams } = new URL(req.url)
   const status = searchParams.get("status") || "pending"
 
   const where: Prisma.TaskWhereInput = {
-    tenantId: session.user.tenantId,
+    tenantId: user.tenantId,
     deletedAt: null,
     status: status as any,
+    // Педагог/«только чтение» — только свои задачи. См. lib/tasks/task-visibility.ts.
+    ...taskVisibilityWhere(user.role, user.employeeId),
   }
 
   const tasks = await db.task.findMany({
@@ -40,8 +45,13 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  // Создавать задачи вручную может только тот, кто редактирует клиентов
+  // (владелец/управляющий/администратор). Педагог/«только чтение» — нет.
+  const guard = await requirePermission("clients.edit")
+  if (!guard.ok) return guard.response
+  const user = guard.session!.user as {
+    role: string; tenantId: string; employeeId: string | null
+  }
 
   const body = await req.json()
   const parsed = createSchema.safeParse(body)
@@ -52,14 +62,14 @@ export async function POST(req: NextRequest) {
 
   const task = await db.task.create({
     data: {
-      tenantId: session.user.tenantId,
+      tenantId: user.tenantId,
       title: data.title,
       description: data.description,
       type: "manual",
       status: "pending",
       dueDate: new Date(data.dueDate),
       assignedTo: data.assignedTo,
-      assignedBy: session.user.employeeId,
+      assignedBy: user.employeeId,
       clientId: data.clientId,
     },
     include: {

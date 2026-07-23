@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { generateTasksForTenant } from "@/lib/tasks/generate-tasks"
 
 // POST /api/tasks/generate
@@ -8,8 +7,11 @@ import { generateTasksForTenant } from "@/lib/tasks/generate-tasks"
 // Та же логика крутится ежедневно по крону для всех тенантов
 // (/api/cron/generate-tasks).
 export async function POST() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  // Управленческое действие: доступно тем, кто редактирует клиентов
+  // (владелец/управляющий/администратор). Педагог кнопки не видит и API не может.
+  const guard = await requirePermission("clients.edit")
+  if (!guard.ok) return guard.response
+  const session = guard.session! as { user: { tenantId: string } }
 
   const created = await generateTasksForTenant(session.user.tenantId)
   return NextResponse.json({ created })

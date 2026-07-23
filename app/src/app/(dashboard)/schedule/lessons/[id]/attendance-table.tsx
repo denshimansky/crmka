@@ -260,6 +260,9 @@ interface AttendanceTableProps {
   substituteInstructorName?: string | null
   instructors?: InstructorOption[]
   currentUserRole?: string
+  /** Может ли пользователь открывать карточки клиентов/подопечных (/crm).
+   *  Педагог — нет: имена ростера показываем текстом, без ссылок в закрытый раздел. */
+  canViewClients?: boolean
   /** Скрытая разовая группа (Group.isOneTime=true) — для модалки «Добавить ученика». */
   groupIsOneTime?: boolean
 }
@@ -286,6 +289,7 @@ export function AttendanceTable({
   substituteInstructorName: initSubstituteName,
   instructors = [],
   currentUserRole,
+  canViewClients = true,
   groupIsOneTime = false,
 }: AttendanceTableProps) {
   const roleNames = useRoleNames()
@@ -752,20 +756,33 @@ export function AttendanceTable({
         <TableCell>
           <div>
             <div className="flex items-center gap-2">
-              <Link
-                href={`/crm/clients/${trial.clientId}`}
-                className="font-medium text-primary hover:underline"
-              >
-                {displayName}
-              </Link>
-              <Link href={`/crm/clients/${trial.clientId}`} title="Открыть карточку лида">
+              {canViewClients ? (
+                <Link
+                  href={`/crm/clients/${trial.clientId}`}
+                  className="font-medium text-primary hover:underline"
+                >
+                  {displayName}
+                </Link>
+              ) : (
+                <span className="font-medium">{displayName}</span>
+              )}
+              {canViewClients ? (
+                <Link href={`/crm/clients/${trial.clientId}`} title="Открыть карточку лида">
+                  <Badge
+                    variant="outline"
+                    className="text-xs text-blue-600 border-blue-300 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                  >
+                    пробное
+                  </Badge>
+                </Link>
+              ) : (
                 <Badge
                   variant="outline"
-                  className="text-xs text-blue-600 border-blue-300 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                  className="text-xs text-blue-600 border-blue-300"
                 >
                   пробное
                 </Badge>
-              </Link>
+              )}
             </div>
             {trial.wardName && (
               <div className="text-xs text-muted-foreground">
@@ -835,7 +852,7 @@ export function AttendanceTable({
         <TableCell>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              {student.wardId ? (
+              {student.wardId && canViewClients ? (
                 <Link
                   href={`/crm/wards/${student.wardId}`}
                   className="font-medium hover:underline"
@@ -1254,13 +1271,17 @@ export function AttendanceTable({
                       <span className="font-medium">Пробные:</span>
                       {trialStudents.map((t, i) => (
                         <span key={t.trialId} className="inline-flex items-center">
-                          <Link
-                            href={`/crm/clients/${t.clientId}`}
-                            className="hover:underline"
-                            title="Открыть карточку лида"
-                          >
-                            {t.wardName || t.clientName}
-                          </Link>
+                          {canViewClients ? (
+                            <Link
+                              href={`/crm/clients/${t.clientId}`}
+                              className="hover:underline"
+                              title="Открыть карточку лида"
+                            >
+                              {t.wardName || t.clientName}
+                            </Link>
+                          ) : (
+                            <span>{t.wardName || t.clientName}</span>
+                          )}
                           {i < trialStudents.length - 1 && (
                             <span className="ml-1 text-blue-600/70">,</span>
                           )}

@@ -10,6 +10,7 @@ import {
 } from "@/lib/subscriptions/roster-filter"
 import { notFound } from "next/navigation"
 import { isUnscoped } from "@/lib/branch-scope"
+import { hasPermission, type RolePermissions } from "@/lib/permissions"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -660,6 +661,19 @@ export default async function LessonCardPage({
 
   const currentUserRole = currentRole
 
+  // Может ли текущий пользователь открывать карточки клиентов/подопечных (/crm).
+  // Педагог по умолчанию не видит клиентскую базу — ссылки в ростере занятия
+  // ведут в закрытый раздел, поэтому имена показываем текстом.
+  const orgForPerms = await db.organization.findUnique({
+    where: { id: session.user.tenantId },
+    select: { rolePermissions: true },
+  })
+  const canViewClients = hasPermission(
+    currentRole,
+    "clients.view",
+    (orgForPerms?.rolePermissions as RolePermissions | null) ?? null,
+  )
+
   const salaryRateData = salaryRate
     ? {
         scheme: salaryRate.scheme,
@@ -803,6 +817,7 @@ export default async function LessonCardPage({
         substituteInstructorName={substituteInstructorName}
         instructors={instructorsData}
         currentUserRole={currentUserRole}
+        canViewClients={canViewClients}
         groupIsOneTime={lesson.group.isOneTime}
       />
     </div>

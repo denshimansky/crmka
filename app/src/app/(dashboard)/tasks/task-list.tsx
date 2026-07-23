@@ -53,7 +53,17 @@ const TRIGGER_LABELS: Record<string, string> = {
   missed_makeup: "Отработка",
 }
 
-export function TaskList({ tasks }: { tasks: TaskRow[] }) {
+export function TaskList({
+  tasks,
+  canDelete = true,
+  canViewClients = true,
+}: {
+  tasks: TaskRow[]
+  /** Удаление задач — только у управленческих ролей (педагог не удаляет). */
+  canDelete?: boolean
+  /** Ссылка на карточку клиента — только у тех, кто видит клиентов (не педагог). */
+  canViewClients?: boolean
+}) {
   const router = useRouter()
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [confirmTitle, setConfirmTitle] = useState<string>("")
@@ -127,23 +137,29 @@ export function TaskList({ tasks }: { tasks: TaskRow[] }) {
               </TableCell>
               <TableCell>
                 {t.clientId && t.clientName ? (
-                  <Link href={`/crm/clients/${t.clientId}`} className="text-primary hover:underline">
-                    {t.clientName}
-                  </Link>
+                  canViewClients ? (
+                    <Link href={`/crm/clients/${t.clientId}`} className="text-primary hover:underline">
+                      {t.clientName}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">{t.clientName}</span>
+                  )
                 ) : "—"}
               </TableCell>
               <TableCell className="text-muted-foreground">{t.assigneeName}</TableCell>
               <TableCell className="text-muted-foreground">{formatDate(t.dueDate)}</TableCell>
               <TableCell>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => askDelete(t)}
-                  title="Удалить задачу"
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="size-4" />
-                </Button>
+                {canDelete && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => askDelete(t)}
+                    title="Удалить задачу"
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                )}
               </TableCell>
             </TableRow>
           ))}

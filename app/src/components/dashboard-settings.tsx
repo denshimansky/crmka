@@ -38,9 +38,6 @@ export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: "plannedExpenses", label: "Плановые расходы", visible: true },
 ]
 
-// Лимит = число существующих виджетов: включить можно все, счётчик «N из N».
-const MAX_VISIBLE = DEFAULT_WIDGETS.length
-
 export function loadWidgetConfig(): WidgetConfig[] {
   if (typeof window === "undefined") return DEFAULT_WIDGETS
   try {
@@ -94,27 +91,51 @@ export function useDashboardWidgetConfig() {
   return { config, mounted, update }
 }
 
-export function DashboardSettingsButton() {
+export function DashboardSettingsButton({
+  allowedWidgetIds,
+}: {
+  // Виджеты, доступные роли (гейтинг по правам считается на сервере в page.tsx).
+  // Настройки показывают только их — чтобы нельзя было включить виджет, который
+  // всё равно не отрендерится. undefined — ограничения нет (показываем все).
+  allowedWidgetIds?: string[]
+}) {
   const { config, mounted, update } = useDashboardWidgetConfig()
   if (!mounted) return null
-  return <DashboardSettings config={config} onChange={update} />
+  return (
+    <DashboardSettings
+      config={config}
+      onChange={update}
+      allowedWidgetIds={allowedWidgetIds}
+    />
+  )
 }
 
 export function DashboardSettings({
   config,
   onChange,
+  allowedWidgetIds,
 }: {
   config: WidgetConfig[]
   onChange: (config: WidgetConfig[]) => void
+  allowedWidgetIds?: string[]
 }) {
   const [open, setOpen] = useState(false)
-  const [local, setLocal] = useState<WidgetConfig[]>(config)
+
+  // В диалоге показываем и настраиваем только доступные роли виджеты. Скрытые
+  // (недоступные) сохраняем в конфиге как есть, чтобы при смене прав их
+  // положение/видимость не потерялись.
+  const isAllowed = (id: string) =>
+    !allowedWidgetIds || allowedWidgetIds.includes(id)
+  const filterAllowed = (list: WidgetConfig[]) => list.filter((w) => isAllowed(w.id))
+
+  const [local, setLocal] = useState<WidgetConfig[]>(() => filterAllowed(config))
 
   function handleOpen(isOpen: boolean) {
-    if (isOpen) setLocal(config)
+    if (isOpen) setLocal(filterAllowed(config))
     setOpen(isOpen)
   }
 
+  const maxVisible = local.length
   const visibleCount = local.filter((w) => w.visible).length
 
   function toggle(id: string) {
@@ -122,7 +143,7 @@ export function DashboardSettings({
       const visible = prev.filter((w) => w.visible).length
       return prev.map((w) => {
         if (w.id !== id) return w
-        if (!w.visible && visible >= MAX_VISIBLE) return w
+        if (!w.visible && visible >= maxVisible) return w
         return { ...w, visible: !w.visible }
       })
     })
@@ -149,7 +170,10 @@ export function DashboardSettings({
   }
 
   function save() {
-    onChange(local)
+    // Дописываем обратно виджеты, которых нет в диалоге (недоступные роли), —
+    // сохраняем их прежнее состояние из config, чтобы не потерять при смене прав.
+    const hidden = config.filter((w) => !isAllowed(w.id))
+    onChange([...local, ...hidden])
     setOpen(false)
   }
 
@@ -173,7 +197,7 @@ export function DashboardSettings({
 
         <div className="space-y-1">
           {local.map((widget, index) => {
-            const atLimit = !widget.visible && visibleCount >= MAX_VISIBLE
+            const atLimit = !widget.visible && visibleCount >= maxVisible
             return (
               <div
                 key={widget.id}

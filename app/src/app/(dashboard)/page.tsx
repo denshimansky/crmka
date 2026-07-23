@@ -1,7 +1,12 @@
+import type { ReactNode } from "react"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
+import { hasPermission, type PermissionKey, type RolePermissions } from "@/lib/permissions"
+import { getOrgUiSettings } from "@/lib/role-names"
+import { DASHBOARD_WIDGET_PERMISSIONS, STAT_CARD_PERMISSIONS } from "@/lib/dashboard/widget-permissions"
+import { taskVisibilityWhere } from "@/lib/tasks/task-visibility"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -75,6 +80,18 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     )
   }
 
+  // Права роли — тем же способом, что и гард маршрутов в layout.tsx: каждый
+  // виджет ведёт на отчёт/раздел, и мы показываем его только если у роли есть
+  // доступ к этому разделу (то же право, что гейтит саму страницу). Иначе
+  // виджет (и отдельные карточки-метрики) не отображаем. getOrgUiSettings
+  // обёрнут в React cache — повторного запроса к БД после layout не будет.
+  let orgPerms: RolePermissions | null = null
+  if (session.user.role !== "owner") {
+    const org = await getOrgUiSettings(tenantId)
+    orgPerms = (org?.rolePermissions as RolePermissions | null) ?? null
+  }
+  const can = (perm: PermissionKey) => hasPermission(session.user.role, perm, orgPerms)
+
   const { year, month } = getMonthFromParams(await searchParams)
   const now = new Date()
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
@@ -117,36 +134,30 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   // Задачи на сегодня (и просроченные). Для админа/менеджера/владельца — все
   // задачи тенанта; для прочих ролей (инструктор, readonly) — только свои.
-  const role = session.user.role
-  const seesAllTasks =
-    role === "owner" || role === "manager" || role === "admin"
-  const employeeId = session.user.employeeId ?? null
-  const todayTasks =
-    !seesAllTasks && !employeeId
-      ? []
-      : await db.task.findMany({
-          where: {
-            tenantId,
-            deletedAt: null,
-            status: "pending",
-            dueDate: { lte: today },
-            ...(seesAllTasks ? {} : { assignedTo: employeeId! }),
-          },
-          select: {
-            id: true,
-            title: true,
-            dueDate: true,
-            createdAt: true,
-            clientId: true,
-            client: { select: { firstName: true, lastName: true } },
-          },
-          // Сортируем по дате создания (новые сверху), чтобы только что
-          // созданная ручная задача гарантированно попадала в выборку и не
-          // вытеснялась старыми просроченными при take. Порядок отображения
-          // (просроченные сверху) задаёт DashboardTasksTable.
-          orderBy: { createdAt: "desc" },
-          take: 15,
-        })
+  // Единое правило видимости — lib/tasks/task-visibility.ts.
+  const todayTasks = await db.task.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      status: "pending",
+      dueDate: { lte: today },
+      ...taskVisibilityWhere(session.user.role, session.user.employeeId ?? null),
+    },
+    select: {
+      id: true,
+      title: true,
+      dueDate: true,
+      createdAt: true,
+      clientId: true,
+      client: { select: { firstName: true, lastName: true } },
+    },
+    // Сортируем по дате создания (новые сверху), чтобы только что
+    // созданная ручная задача гарантированно попадала в выборку и не
+    // вытеснялась старыми просроченными при take. Порядок отображения
+    // (просроченные сверху) задаёт DashboardTasksTable.
+    orderBy: { createdAt: "desc" },
+    take: 15,
+  })
 
   // Дата события вытаскивается из заголовка задач, у которых она есть в
   // скобках (`(YYYY-MM-DD)` для trial_reminder, `(DD.MM.YYYY)` для
@@ -530,12 +541,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const dateStr = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", weekday: "long" })
 
+  // Карточки-метрики фильтруются поштучно по праву связанного раздела
+  // (STAT_CARD_PERMISSIONS = те же ключи, что гейтят страницу по ссылке):
+  // «Доходы» → /finance/dds (finance.result), у админа по умолчанию закрыт.
   const stats = [
-    { title: "Активные абонементы", value: String(activeSubscriptions), icon: Users, color: "text-green-600", bg: "bg-green-50", href: "/crm/contacts?tab=active" },
-    { title: "Доходы", value: formatMoney(monthIncome), icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50", href: "/finance/dds?kind=income" },
-    { title: "Расходы за месяц", value: formatMoney(monthExpenses), icon: TrendingDown, color: "text-red-600", bg: "bg-red-50", href: "/finance/expenses" },
-    { title: "Должники", value: `${debtorCount} / ${formatMoney(totalDebt)}`, icon: AlertTriangle, color: "text-orange-600", bg: "bg-orange-50", href: "/finance/debtors" },
-  ]
+    { title: "Активные абонементы", value: String(activeSubscriptions), icon: Users, color: "text-green-600", bg: "bg-green-50", href: "/crm/contacts?tab=active", perm: STAT_CARD_PERMISSIONS.activeSubscriptions },
+    { title: "Доходы", value: formatMoney(monthIncome), icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50", href: "/finance/dds?kind=income", perm: STAT_CARD_PERMISSIONS.income },
+    { title: "Расходы за месяц", value: formatMoney(monthExpenses), icon: TrendingDown, color: "text-red-600", bg: "bg-red-50", href: "/finance/expenses", perm: STAT_CARD_PERMISSIONS.expenses },
+    { title: "Должники", value: `${debtorCount} / ${formatMoney(totalDebt)}`, icon: AlertTriangle, color: "text-orange-600", bg: "bg-orange-50", href: "/finance/debtors", perm: STAT_CARD_PERMISSIONS.debtors },
+  ].filter((s) => can(s.perm))
 
   // === Виджеты как именованные блоки для DashboardGrid ===
 
@@ -1127,6 +1141,37 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     </Card>
   )
 
+  // Право доступа для каждого виджета: DASHBOARD_WIDGET_PERMISSIONS хранит тот
+  // же ключ, что гейтит связанную страницу (см. route-permissions.ts). Виджет
+  // без доступа к разделу не отдаём в грид вовсе — чтобы админ (по умолчанию без
+  // finance.result и reports.*) не видел закрытые для него отчёты/финрез на
+  // дашборде. `stats` там null — фильтруется поштучно по карточкам (см. выше).
+  const allWidgets: Record<string, ReactNode> = {
+    // Если у роли не осталось ни одной доступной карточки — виджет пуст.
+    stats: stats.length > 0 ? statsWidget : null,
+    tasks: tasksWidget,
+    expectedIncome: expectedIncomeWidget,
+    activeSubs: activeSubsWidget,
+    profitForecast: profitForecastWidget,
+    missedTrials: missedTrialsWidget,
+    unmarked: unmarkedWidget,
+    funnel: funnelWidget,
+    capacity: capacityWidget,
+    cashBalances: cashBalancesWidget,
+    birthdays: birthdaysWidget,
+    workedSubs: workedSubsWidget,
+    plannedExpenses: plannedExpensesWidget,
+  }
+
+  const widgets: Record<string, ReactNode> = {}
+  for (const [id, node] of Object.entries(allWidgets)) {
+    if (node == null) continue
+    const perm = DASHBOARD_WIDGET_PERMISSIONS[id]
+    if (perm && !can(perm)) continue
+    widgets[id] = node
+  }
+  const allowedWidgetIds = Object.keys(widgets)
+
   return (
     // Нижний отступ под плавающую кнопку AI-ассистента задаётся глобально в
     // layout.tsx (<main> pb-24) — здесь дублировать не нужно.
@@ -1139,27 +1184,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">{dateStr}</span>
-          <DashboardSettingsButton />
+          <DashboardSettingsButton allowedWidgetIds={allowedWidgetIds} />
         </div>
       </div>
 
-      <DashboardGrid
-        widgets={{
-          stats: statsWidget,
-          tasks: tasksWidget,
-          expectedIncome: expectedIncomeWidget,
-          activeSubs: activeSubsWidget,
-          profitForecast: profitForecastWidget,
-          missedTrials: missedTrialsWidget,
-          unmarked: unmarkedWidget,
-          funnel: funnelWidget,
-          capacity: capacityWidget,
-          cashBalances: cashBalancesWidget,
-          birthdays: birthdaysWidget,
-          workedSubs: workedSubsWidget,
-          plannedExpenses: plannedExpensesWidget,
-        }}
-      />
+      <DashboardGrid widgets={widgets} />
     </div>
   )
 }

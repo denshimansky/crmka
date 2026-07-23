@@ -16,8 +16,8 @@ const PATH_PERMISSIONS: Array<{ prefix: string; permission: PermissionKey }> = [
 
   // Расписание и связанные операционные разделы
   { prefix: "/schedule", permission: "schedule.view" },
-  { prefix: "/stock", permission: "schedule.view" },
-  { prefix: "/tasks", permission: "clients.view" },
+  { prefix: "/stock", permission: "warehouse.view" },
+  { prefix: "/tasks", permission: "tasks.view" },
 
   // Финансы
   { prefix: "/salary", permission: "finance.salary" },
