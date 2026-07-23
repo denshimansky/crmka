@@ -71,11 +71,24 @@ export function SalesFunnelReport({ data }: { data: SalesFunnelData }) {
               <TableHead className="text-right">Текущий месяц</TableHead>
               <TableHead className="text-right">Перетекающие</TableHead>
               <TableHead className="text-right">Всего</TableHead>
+              <TableHead
+                className="text-right"
+                title="Конверсия: «Всего» этапа ÷ «Всего» предыдущего этапа в этой карточке"
+              >
+                % к пред.
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {scheme.stages.map((stage) => {
+            {scheme.stages.map((stage, i) => {
               const total = stage.current + stage.carryover
+              // Конверсия каскадом: доля «Всего» этого этапа от «Всего»
+              // предыдущего этапа в рамках этой же карточки (схемы). У первого
+              // этапа предыдущего нет; при нулевом предыдущем деление не имеет
+              // смысла — «—».
+              const prev = i > 0 ? scheme.stages[i - 1] : null
+              const prevTotal = prev ? prev.current + prev.carryover : 0
+              const conv = prev && prevTotal > 0 ? Math.round((total / prevTotal) * 100) : null
               return (
                 <TableRow
                   key={stage.key}
@@ -95,6 +108,9 @@ export function SalesFunnelReport({ data }: { data: SalesFunnelData }) {
                     )}
                   </TableCell>
                   <TableCell className="text-right font-bold tabular-nums">{total}</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {conv === null ? "—" : `${conv}%`}
+                  </TableCell>
                 </TableRow>
               )
             })}
