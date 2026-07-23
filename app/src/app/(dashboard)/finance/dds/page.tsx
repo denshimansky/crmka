@@ -5,7 +5,7 @@ import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import {
   scopeFinancialAccount,
-  scopePayment,
+  scopePaymentByAccount,
   scopeExpense,
   scopeAccountOperation,
   scopeEmployee,
@@ -133,7 +133,11 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
         // проводка между клиентом и его подпиской, движения денег на счетах
         // компании нет. В ДДС не показываем (Баг #61).
         type: { not: "transfer_in" },
-        ...scopePayment(scope),
+        // ДДС — движение денег ПО СЧЕТАМ: скоупим оплаты по видимому счёту
+        // (а не по клиенту), чтобы у скоуп-админа не всплывали движения по
+        // общим счетам (23.07.2026). Имя счёта в строках берётся из accountById
+        // (тоже строгий scope) — рассинхрона «строка есть, имени нет» не будет.
+        ...scopePaymentByAccount(scope),
       },
       include: {
         client: { select: { id: true, firstName: true, lastName: true } },

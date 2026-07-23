@@ -6,7 +6,7 @@ import {
   expenseAmountInWindow,
   AMORTIZATION_LOOKBACK_MONTHS,
 } from "@/lib/expense-amortization"
-import { isUnscoped, scopeExpense, scopePayment } from "@/lib/branch-scope"
+import { isUnscoped, scopeExpense, scopePaymentByAccount } from "@/lib/branch-scope"
 
 /** 7.2. Финансовый результат (P&L) с учётом периода признания расхода. */
 export async function GET(req: NextRequest) {
@@ -73,7 +73,9 @@ export async function GET(req: NextRequest) {
   // Прочие доходы (вне абонементов): Payment без subscriptionId, с incomeCategoryId.
   // Учитываются по дате платежа (как в ДДС), refund исключаем. Разбивка по категориям
   // показывается отдельным блоком в P&L и входит в итоговый «Чистая прибыль».
-  const paymentScopeFilter = scopePayment(scope)
+  // Прочий доход привязки к клиенту не имеет — скоупим по ВИДИМОМУ счёту:
+  // движения по общим счетам скоуп-админу в P&L не показываем (23.07.2026).
+  const paymentScopeFilter = scopePaymentByAccount(scope)
   const otherIncomePaymentsBase: any = {
     tenantId,
     deletedAt: null,

@@ -32,7 +32,7 @@ import { computeActiveSubscriptionsByBranch } from "@/lib/dashboard/active-subsc
 import { computeUpcomingBirthdays } from "@/lib/dashboard/upcoming-birthdays"
 import { computePlannedExpensesWithFact } from "@/lib/finance/planned-expenses"
 import { computeSalesFunnel, summarizeSalesFunnel } from "@/lib/reports/sales-funnel"
-import { branchScopeFromSession } from "@/lib/branch-scope"
+import { branchScopeFromSession, scopeFinancialAccount } from "@/lib/branch-scope"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
@@ -434,8 +434,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   // === ОСТАТКИ ДЕНЕГ (по счетам/кассам) ===
   // Текущие остатки активных счетов — снимок «сейчас», не зависит от месяца.
+  // ADM-04 (23.07.2026): скоуп-админ видит только счета своих филиалов; общие
+  // счета (branchId=NULL) — общеорганизационная информация, на дашборде скрыты.
   const cashAccounts = await db.financialAccount.findMany({
-    where: { tenantId, isActive: true, deletedAt: null },
+    where: {
+      tenantId,
+      isActive: true,
+      deletedAt: null,
+      ...scopeFinancialAccount(branchScopeFromSession(session.user.allowedBranchIds)),
+    },
     select: { id: true, name: true, balance: true },
     orderBy: { name: "asc" },
   })

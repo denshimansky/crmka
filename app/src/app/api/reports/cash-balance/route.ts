@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext } from "@/lib/report-helpers"
+import { scopeFinancialAccount } from "@/lib/branch-scope"
 
 /** 5.6. Остаток денег — состояние всех счетов/касс */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
-  const { session, searchParams } = result.ctx
+  const { session, searchParams, scope } = result.ctx
   const { tenantId } = session
   const branchId = searchParams.get("branchId")
 
-  const where: any = { tenantId, deletedAt: null }
-  if (branchId) where.branchId = branchId
+  // ADM-04 (23.07.2026): скоуп-админ видит только счета своих филиалов; общие
+  // счета (branchId=NULL) — общеорганизационные, скрыты. scopeFinancialAccount
+  // уже строгий (branch-only). Явный branchId-параметр НЕ должен обходить scope,
+  // поэтому кладём его в AND поверх скоупа, а не перезаписываем branchId.
+  const where: any = { tenantId, deletedAt: null, ...scopeFinancialAccount(scope) }
+  if (branchId) where.AND = [...(where.AND ?? []), { branchId }]
 
   const accounts = await db.financialAccount.findMany({
     where,

@@ -2,7 +2,7 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
-import { scopePayment, scopeFinancialAccount } from "@/lib/branch-scope"
+import { scopePayment, scopeBookableAccount } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -38,8 +38,12 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
   const session = await getSession()
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
+  // Список оплат — по клиенту (scopePayment). Список счетов для форм создания/
+  // возврата/редактирования оплаты — «на что можно провести» (scopeBookableAccount):
+  // общий счёт остаётся выбираемым, чтобы админ мог записать безнал клиента,
+  // хотя его баланс/карточка на «Кассе» скрыты.
   const paymentScope = scopePayment(scope)
-  const accountScope = scopeFinancialAccount(scope)
+  const accountScope = scopeBookableAccount(scope)
   const clientScope = scopeClientByBranch(scope)
 
   // Начало и конец месяца (UTC для корректного сравнения с DATE)

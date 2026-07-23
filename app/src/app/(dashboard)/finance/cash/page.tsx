@@ -3,7 +3,8 @@ import { db } from "@/lib/db"
 import {
   scopeBranch,
   scopeFinancialAccount,
-  scopePayment,
+  scopeBookableAccount,
+  scopePaymentByAccount,
   scopeAccountOperation,
 } from "@/lib/branch-scope"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -48,9 +49,20 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
   const params = await searchParams
   const scope = await getBranchScope()
 
+  // Карточки/балансы — СТРОГО счета своих филиалов (общие счета скрыты, 23.07.2026).
   const accounts = await db.financialAccount.findMany({
     where: { tenantId, deletedAt: null, isActive: true, ...scopeFinancialAccount(scope) },
     include: { branch: { select: { id: true, name: true } } },
+    orderBy: { createdAt: "asc" },
+  })
+
+  // Селектор для «Операции» (инкассация/перевод) — «на что можно провести»:
+  // общий счёт остаётся доступным как получатель (например, инкассация налички
+  // на общий расчётный счёт), баланс при этом на карточках выше скрыт. Имя+тип
+  // без баланса — утечки остатка нет.
+  const bookableAccounts = await db.financialAccount.findMany({
+    where: { tenantId, deletedAt: null, isActive: true, ...scopeBookableAccount(scope) },
+    select: { id: true, name: true, type: true },
     orderBy: { createdAt: "asc" },
   })
 
@@ -68,7 +80,9 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
       tenantId,
       deletedAt: null,
       date: { gte: monthStart, lte: monthEnd },
-      ...scopePayment(scope),
+      // Итоги за месяц считаем по видимым счетам (движение денег по кассам),
+      // а не по клиенту: карточки показывают только счета своих филиалов.
+      ...scopePaymentByAccount(scope),
     },
     select: { accountId: true, type: true, amount: true },
   })
@@ -127,10 +141,8 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <MonthPicker />
-          {accounts.length >= 1 && (
-            <AddOperationDialog
-              accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
-            />
+          {bookableAccounts.length >= 1 && (
+            <AddOperationDialog accounts={bookableAccounts} />
           )}
           {canManageAccounts && <AddAccountDialog branches={branches} />}
         </div>

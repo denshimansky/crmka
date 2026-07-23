@@ -3,7 +3,7 @@ import { db } from "@/lib/db"
 import { oneOffDebtByClient } from "@/lib/one-off-debt"
 import { getRoleNames } from "@/lib/role-names"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
-import { scopeFinancialAccount, scopeSubscription } from "@/lib/branch-scope"
+import { scopeBookableAccount, scopeSubscription } from "@/lib/branch-scope"
 import { notFound } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -199,13 +199,15 @@ export async function ClientCardContent({
   }
   const renewSources = [...renewSourceByKey.values()]
 
-  // Счета компании для диалога «Оплата» (только активные, в scope филиалов).
+  // Счета компании для диалога «Оплата» — «на что можно провести оплату»:
+  // общий счёт остаётся выбираемым (админ может записать безнал клиента),
+  // хотя его баланс на «Кассе» скрыт (scopeBookableAccount, 23.07.2026).
   const accounts = await db.financialAccount.findMany({
     where: {
       tenantId,
       deletedAt: null,
       isActive: true,
-      ...scopeFinancialAccount(scope),
+      ...scopeBookableAccount(scope),
     },
     select: { id: true, name: true, type: true },
     orderBy: { createdAt: "asc" },

@@ -17,8 +17,10 @@ import {
   scopeSubscription,
   scopeApplication,
   scopePayment,
+  scopePaymentByAccount,
   scopeExpense,
   scopeFinancialAccount,
+  scopeBookableAccount,
   scopeAccountOperation,
   scopeRoom,
   scopeEmployee,
@@ -70,8 +72,10 @@ describe("scope-фрагменты для mode: all → no-op {}", () => {
     ["scopeSubscription", () => scopeSubscription(scope)],
     ["scopeApplication", () => scopeApplication(scope)],
     ["scopePayment", () => scopePayment(scope)],
+    ["scopePaymentByAccount", () => scopePaymentByAccount(scope)],
     ["scopeExpense", () => scopeExpense(scope)],
     ["scopeFinancialAccount", () => scopeFinancialAccount(scope)],
+    ["scopeBookableAccount", () => scopeBookableAccount(scope)],
     ["scopeAccountOperation", () => scopeAccountOperation(scope)],
     ["scopeRoom", () => scopeRoom(scope)],
     ["scopeEmployee", () => scopeEmployee(scope)],
@@ -138,16 +142,49 @@ describe("scope-фрагменты для mode: limited [A]", () => {
     assert.deepEqual(scopeApplication(scope), { branchId: { in: [BR_A] } })
   })
 
-  it("scopeFinancialAccount — branchId IN [A] OR IS NULL (общие счета)", () => {
-    const result = scopeFinancialAccount(scope)
-    assert.deepEqual(result, {
+  // ADM-04 (23.07.2026): общие счета (branchId=NULL) СТРОГО скрыты у скоуп-админа
+  // на отображении балансов — только счета своих филиалов.
+  it("scopeFinancialAccount — СТРОГО branchId IN [A] (без общих счетов)", () => {
+    assert.deepEqual(scopeFinancialAccount(scope), { branchId: { in: [BR_A] } })
+  })
+
+  // Селектор «на что можно провести оплату/расход»: общий счёт остаётся выбираемым.
+  it("scopeBookableAccount — branchId IN [A] OR IS NULL (общий счёт выбираем)", () => {
+    assert.deepEqual(scopeBookableAccount(scope), {
       OR: [{ branchId: { in: [BR_A] } }, { branchId: null }],
     })
   })
 
-  it("scopePayment — оплата через subscription/account или общая", () => {
-    const result = scopePayment(scope) as { OR: object[] }
-    assert.equal(result.OR.length, 3)
+  // Видимость оплат — по филиалу КЛИЕНТА (мультифилиальная логика), не по счёту.
+  it("scopePayment — по клиенту (scopeClientByBranch) ИЛИ по группе абонемента", () => {
+    const result = scopePayment(scope) as { OR: any[] }
+    assert.equal(result.OR.length, 2)
+    // 1-я ветка — { client: <scopeClientByBranch> } (сегментная видимость).
+    const clientBranch = result.OR.find((c) => c.client)
+    assert.ok(clientBranch)
+    assert.deepEqual(clientBranch.client, scopeClientByBranch(scope))
+    // 2-я ветка — страховка по группе абонемента.
+    const subBranch = result.OR.find((c) => c.subscription)
+    assert.deepEqual(subBranch.subscription, { group: { branchId: { in: [BR_A] } } })
+  })
+
+  // Денежно-потоковые представления (ДДС, итоги по кассам, прочий доход P&L):
+  // оплаты по ВИДИМОМУ счёту — движения по общим счетам скрыты.
+  it("scopePaymentByAccount — account.branchId IN [A]", () => {
+    assert.deepEqual(scopePaymentByAccount(scope), {
+      account: { branchId: { in: [BR_A] } },
+    })
+  })
+
+  // Операции между счетами: видны, только если хотя бы один счёт в scope —
+  // операции целиком по общим счетам (оба NULL) скрыты (нет ветки branchId:null).
+  it("scopeAccountOperation — только from/to в scope, без общих счетов", () => {
+    assert.deepEqual(scopeAccountOperation(scope), {
+      OR: [
+        { fromAccount: { branchId: { in: [BR_A] } } },
+        { toAccount: { branchId: { in: [BR_A] } } },
+      ],
+    })
   })
 
   it("scopeExpense — расход в scope или «общий» (без привязок)", () => {

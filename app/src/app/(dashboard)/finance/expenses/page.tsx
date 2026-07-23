@@ -2,7 +2,7 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
-import { scopeExpense, scopeBranch, scopeFinancialAccount } from "@/lib/branch-scope"
+import { scopeExpense, scopeBranch, scopeBookableAccount } from "@/lib/branch-scope"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { TrendingDown, Repeat, BarChart3 } from "lucide-react"
@@ -71,8 +71,10 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     orderBy: { sortOrder: "asc" },
   })
 
+  // Селектор счёта для формы расхода — «на что можно провести»: общий счёт
+  // остаётся выбираемым (баланс на «Кассе» при этом скрыт, см. scopeFinancialAccount).
   const accounts = await db.financialAccount.findMany({
-    where: { tenantId, deletedAt: null, ...scopeFinancialAccount(scope) },
+    where: { tenantId, deletedAt: null, ...scopeBookableAccount(scope) },
     select: { id: true, name: true },
     orderBy: { createdAt: "asc" },
   })

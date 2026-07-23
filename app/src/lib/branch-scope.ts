@@ -12,6 +12,12 @@
 //    обратно-совместимых случаев.
 
 import type { Prisma } from "@prisma/client"
+// Видимость оплат теперь идёт по филиалу КЛИЕНТА (scopeClientByBranch), а не по
+// филиалу счёта. Импорт функции (не только типа) создаёт циклическую зависимость
+// с client-segments (он тянет isUnscoped/BranchScope отсюда), но она безопасна:
+// обе стороны — чистые построители WHERE, вызываются только в рантайме запроса,
+// на верхнем уровне модулей друг друга не дёргают (function hoisting).
+import { scopeClientByBranch } from "@/lib/client-segments"
 
 export type BranchScope =
   | { mode: "all" }
@@ -104,8 +110,30 @@ export function scopeApplication(
 }
 
 // FinancialAccount — branchId опциональный. NULL означает «общий счёт
-// организации» (например, расчётный счёт). Такие счета видят все.
+// организации на все филиалы» (например, единый расчётный счёт под безнал).
+//
+// ВИДИМОСТЬ БАЛАНСОВ (решение владельца 23.07.2026): общие (branchId=NULL)
+// счета — общеорганизационная информация. Админ с привязкой к филиалу(-ам)
+// их балансы/карточки видеть НЕ должен — только счета/кассы своих филиалов.
+// Поэтому для ограниченного scope отдаём СТРОГО branchId IN [...], без NULL.
+// Это «scope на ОТОБРАЖЕНИЕ»: Касса, ДДС, отчёты (остатки касс/P&L), виджет
+// «Остатки денег», операции между счетами.
+//
+// Для СЕЛЕКТОРОВ, где нужно провести оплату/расход/возврат на общий счёт
+// (админ записывает безнал клиента), используйте scopeBookableAccount —
+// он оставляет общие счета выбираемыми, не показывая их балансы.
 export function scopeFinancialAccount(
+  scope: BranchScope,
+): Prisma.FinancialAccountWhereInput {
+  if (isUnscoped(scope)) return {}
+  return { branchId: { in: scope.branchIds } }
+}
+
+// «Счета, на которые роль может ПРОВЕСТИ операцию» (селекторы форм оплаты/
+// возврата/расхода). В отличие от scopeFinancialAccount, оставляет общий счёт
+// (branchId=NULL) выбираемым: админ филиала должен уметь записать безналичную/
+// онлайн-оплату клиента на общий счёт, даже если его баланс ему не виден.
+export function scopeBookableAccount(
   scope: BranchScope,
 ): Prisma.FinancialAccountWhereInput {
   if (isUnscoped(scope)) return {}
@@ -117,18 +145,40 @@ export function scopeFinancialAccount(
   }
 }
 
-// Payment — оплата абонемента (subscription.group.branchId) или прочее
-// поступление на счёт (account.branchId). Если оба пусты — видят все.
+// Payment — видимость по филиалу КЛИЕНТА оплаты (решение 23.07.2026), НЕ по
+// филиалу счёта. Админ филиала видит оплаты СВОИХ клиентов (мультифилиальная
+// логика scopeClientByBranch), даже если деньги ушли на общий счёт, который
+// сам по себе ему не виден. Оплата без клиента («прочий доход» — проценты
+// банка, продажа товаров) привязки к филиалу не имеет и скоуп-админу НЕ видна
+// (её видят только владелец/управляющий и роли с доступом ко всем филиалам).
+//
+// Для отчётов ПО СЧЕТАМ (ДДС, помесячные итоги по кассам) фильтруйте оплаты по
+// видимому счёту: `{ account: scopeFinancialAccount(scope) }` — там нужна
+// денежно-потоковая семантика (движения по видимым счетам), а не «мои клиенты».
 export function scopePayment(scope: BranchScope): Prisma.PaymentWhereInput {
   if (isUnscoped(scope)) return {}
   return {
     OR: [
+      // Клиент оплаты — в «моих» филиалах (сегментная видимость, баг #79).
+      { client: scopeClientByBranch(scope) },
+      // Страховка: оплата абонемента в группе scope-филиала. У оплаты обычно
+      // есть clientId (правило выше её и покроет), но привязка через абонемент
+      // надёжнее для исторических/пограничных записей.
       { subscription: { group: { branchId: { in: scope.branchIds } } } },
-      { account: { branchId: { in: scope.branchIds } } },
-      // Оплаты без подписки и с общим счётом (branch=null у счёта) — видят все.
-      { AND: [{ subscriptionId: null }, { account: { branchId: null } }] },
     ],
   }
+}
+
+// Оплаты по ВИДИМОМУ счёту — для денежно-потоковых представлений (ДДС,
+// помесячные итоги по кассам, «прочий доход» в P&L). В отличие от scopePayment
+// (по клиенту), здесь семантика движения денег: показываем только движения по
+// счетам, которые роль видит, и потому СКРЫВАЕМ движения по общим счетам у
+// скоуп-админа. accountId у Payment обязателен, поэтому связь всегда есть.
+export function scopePaymentByAccount(
+  scope: BranchScope,
+): Prisma.PaymentWhereInput {
+  if (isUnscoped(scope)) return {}
+  return { account: { branchId: { in: scope.branchIds } } }
 }
 
 // Expense — связь ExpenseBranch (M:N через join). У ExpenseBranch филиал
@@ -146,7 +196,9 @@ export function scopeExpense(scope: BranchScope): Prisma.ExpenseWhereInput {
 }
 
 // AccountOperation — выемки/инкассации/переводы. Привязан к счетам, у которых
-// может быть branchId. Видим, если хотя бы один из счетов в scope или общий.
+// может быть branchId. Видим, только если хотя бы ОДИН из счетов операции — в
+// «моих» филиалах. Операции целиком по общим счетам (оба счёта branchId=NULL)
+// скоуп-админу НЕ видны — согласовано с видимостью общих счетов (23.07.2026).
 export function scopeAccountOperation(
   scope: BranchScope,
 ): Prisma.AccountOperationWhereInput {
@@ -155,8 +207,6 @@ export function scopeAccountOperation(
     OR: [
       { fromAccount: { branchId: { in: scope.branchIds } } },
       { toAccount: { branchId: { in: scope.branchIds } } },
-      { fromAccount: { branchId: null } },
-      { toAccount: { branchId: null } },
     ],
   }
 }
