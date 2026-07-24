@@ -40,10 +40,20 @@ interface AttendanceType {
   partOfFact: boolean
   partOfForecast: boolean
   chargePercent: number
+  allowSubscriptionWithdrawal: boolean
   isSystem: boolean
   isFlagsLocked: boolean
   isActive: boolean
   sortOrder: number
+}
+
+// Короткие описания системных типов — что делает статус и как часто меняется.
+// Показываются подписью под названием в матрице.
+const SYSTEM_TYPE_DESCRIPTIONS: Record<string, string> = {
+  makeup:
+    "Проставляется автоматически, когда пропущенное занятие отработано (при «Был» на занятии-отработке). Вручную не ставится и не изменяется — системный тип.",
+  makeup_scheduled:
+    "Ставит админ/владелец на пропущенном занятии, выбирая дату отработки. Пока отработка не проведена — абонемент отчислить нельзя.",
 }
 
 type FlagKey =
@@ -93,6 +103,7 @@ export default function AttendanceMatrixPage() {
     partOfFact: false,
     partOfForecast: false,
     chargePercent: 100,
+    allowSubscriptionWithdrawal: true,
     isActive: true,
   })
   const [saving, setSaving] = useState(false)
@@ -104,13 +115,10 @@ export default function AttendanceMatrixPage() {
       const res = await fetch("/api/attendance-types")
       if (res.ok) {
         const all = (await res.json()) as AttendanceType[]
-        // Скрываем только внутренний тип «Отработка» (code=makeup) — он ставится
-        // программно, когда пропуск отработан, и не настраивается. Прежний критерий
-        // «оба availableTo*=false» был ловушкой: сняв у типа обе галочки доступности,
-        // владелец терял его из этого списка и не мог вернуть через интерфейс
-        // (так «Назначена отработка», «Уваж. пропуск» и «Перерасчёт» пропали из
-        // настроек и выпадашек — баг 02.07.2026).
-        setTypes(all.filter((t) => t.code !== "makeup"))
+        // Показываем все типы, включая «Отработано» (code=makeup): он ставится
+        // системой, но виден в матрице как отдельный статус — у него настраивается
+        // только «Разрешить отчисление» (остальное залочено).
+        setTypes(all)
       }
     } catch { /* ignore */ }
     finally { setLoading(false) }
@@ -166,6 +174,7 @@ export default function AttendanceMatrixPage() {
       partOfFact: false,
       partOfForecast: false,
       chargePercent: 100,
+      allowSubscriptionWithdrawal: true,
       isActive: true,
     })
     setError(null)
@@ -185,6 +194,7 @@ export default function AttendanceMatrixPage() {
       partOfFact: t.partOfFact,
       partOfForecast: t.partOfForecast,
       chargePercent: t.chargePercent,
+      allowSubscriptionWithdrawal: t.allowSubscriptionWithdrawal,
       isActive: t.isActive,
     })
     setError(null)
@@ -213,6 +223,7 @@ export default function AttendanceMatrixPage() {
             partOfFact: form.partOfFact,
             partOfForecast: form.partOfForecast,
             chargePercent: form.chargePercent,
+            allowSubscriptionWithdrawal: form.allowSubscriptionWithdrawal,
             isActive: form.isActive,
           }
         : {
@@ -305,6 +316,9 @@ export default function AttendanceMatrixPage() {
                   <TableHead className="text-center" title="Процент списания при «Списание оплаты=да». 100% = полное списание занятия">
                     %
                   </TableHead>
+                  <TableHead className="text-center" title="Разрешить отчислять абонемент, если у ученика на занятии стоит этот статус. Без галочки «Отчислить» блокируется с ошибкой">
+                    Разрешить отчисление
+                  </TableHead>
                   <TableHead>Тип</TableHead>
                   <TableHead className="w-[80px]" />
                 </TableRow>
@@ -312,9 +326,19 @@ export default function AttendanceMatrixPage() {
               <TableBody>
                 {types.map((t) => (
                   <TableRow key={t.id} className={!t.isActive ? "opacity-50" : ""}>
-                    <TableCell className="font-medium">{t.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {t.name}
+                      {SYSTEM_TYPE_DESCRIPTIONS[t.code] && (
+                        <div className="mt-0.5 max-w-[260px] text-xs font-normal text-muted-foreground">
+                          {SYSTEM_TYPE_DESCRIPTIONS[t.code]}
+                        </div>
+                      )}
+                    </TableCell>
                     {FLAG_COLUMNS.map((c) => {
-                      const locked = t.isFlagsLocked && !LOCKED_ALLOWED.has(c.key)
+                      // «Отработано» (makeup) ставится только системой — все флаги
+                      // залочены, настраивается лишь «Разрешить отчисление».
+                      const locked =
+                        (t.isFlagsLocked && !LOCKED_ALLOWED.has(c.key)) || t.code === "makeup"
                       const disabled = savingId === t.id || locked
                       const value = t[c.key]
                       return (
@@ -355,6 +379,41 @@ export default function AttendanceMatrixPage() {
                         />
                       ) : (
                         <span className="text-xs text-muted-foreground">--</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {t.code === "makeup_scheduled" ? (
+                        // «Назначена отработка» — отчисление запретить нельзя
+                        // (незакрытое обязательство). Галочку не поставить.
+                        <span
+                          className="inline-flex size-5 items-center justify-center rounded border border-muted-foreground/30 bg-transparent"
+                          title="Нельзя разрешить: назначенная отработка блокирует отчисление, пока её не проведут или не отменят"
+                        />
+                      ) : t.isFlagsLocked ? (
+                        // Системные типы — единые глобальные строки на все организации,
+                        // поэтому это поле у них зафиксировано (read-only): иначе один
+                        // центр менял бы правило отчисления во всех остальных.
+                        <span
+                          className={`inline-flex size-5 items-center justify-center rounded border ${
+                            t.allowSubscriptionWithdrawal
+                              ? "border-foreground/40 bg-foreground/10 text-foreground"
+                              : "border-muted-foreground/30 bg-transparent"
+                          }`}
+                          title="Системный тип — значение общее для всех организаций, менять нельзя. Настраивается только у своих типов."
+                        >
+                          {t.allowSubscriptionWithdrawal && <Check className="size-3.5" strokeWidth={3} />}
+                        </span>
+                      ) : (
+                        <input
+                          type="checkbox"
+                          checked={t.allowSubscriptionWithdrawal}
+                          disabled={savingId === t.id}
+                          onChange={() =>
+                            patchField(t, { allowSubscriptionWithdrawal: !t.allowSubscriptionWithdrawal })
+                          }
+                          className="size-4 rounded border cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-60"
+                          title="Разрешить отчислять абонемент с этим статусом на занятии"
+                        />
                       )}
                     </TableCell>
                     <TableCell>
@@ -439,6 +498,17 @@ export default function AttendanceMatrixPage() {
                   <span title={c.hint}>{c.label}</span>
                 </Label>
               ))}
+              <Label className="flex items-center gap-2 cursor-pointer text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.allowSubscriptionWithdrawal}
+                  onChange={(e) => setForm((f) => ({ ...f, allowSubscriptionWithdrawal: e.target.checked }))}
+                  className="size-4 rounded border"
+                />
+                <span title="Разрешить отчислять абонемент, если у ученика на занятии стоит этот статус">
+                  Разрешить отчисление
+                </span>
+              </Label>
             </div>
 
             {form.chargesSubscription && (

@@ -608,6 +608,10 @@ model AttendanceType {
   partOfFact            Boolean  @default(false) @map("part_of_fact")
   partOfForecast        Boolean  @default(false) @map("part_of_forecast")
   chargePercent         Int      @default(100) @map("charge_percent")
+  // Разрешает отчислять абонемент, у которого на занятии стоит этот статус.
+  // false → «Отчислить» блокируется с ошибкой (напр. «Назначена отработка»:
+  // нельзя закрыть абонемент, пока отработка не проведена или не отменена).
+  allowSubscriptionWithdrawal Boolean @default(true) @map("allow_subscription_withdrawal")
   isSystem              Boolean  @default(false) @map("is_system")
   isFlagsLocked         Boolean  @default(false) @map("is_flags_locked")
   isActive              Boolean  @default(true) @map("is_active")

@@ -182,12 +182,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       })
   if (
     existingForLockCheck &&
-    existingForLockCheck.attendanceType.code === "makeup_scheduled" &&
+    (existingForLockCheck.attendanceType.code === "makeup_scheduled" ||
+      existingForLockCheck.attendanceType.code === "makeup") &&
     existingForLockCheck.attendanceTypeId !== data.attendanceTypeId &&
     role !== "owner"
   ) {
+    // «Отработано» (makeup) на первоначальном занятии тоже защищаем: снять
+    // проведённую отработку следует на самом занятии-отработке («Не был»),
+    // а не переписывать статус исходного занятия (иначе двойное списание).
     return NextResponse.json(
-      { error: "Снять «Назначена отработка» может только владелец" },
+      { error: "Снять статус отработки может только владелец (отменить проведённую отработку — на занятии-отработке кнопкой «Не был»)" },
       { status: 403 }
     )
   }
@@ -219,7 +223,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       clientId: data.clientId,
       wardId: data.wardId,
       scheduledMakeupLessonId: lessonId,
-      attendanceType: { code: "makeup_scheduled" },
+      // makeup_scheduled — отработка ещё не проведена; makeup — уже проведена
+      // (первоначальное занятие переведено в «Отработано»), но связь через
+      // scheduledMakeupLessonId сохранена, чтобы «Не был» на L2 корректно
+      // откатывал обе стороны.
+      attendanceType: { code: { in: ["makeup_scheduled", "makeup"] } },
     },
     include: {
       lesson: {
@@ -230,6 +238,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         },
       },
       client: { select: { firstName: true, lastName: true } },
+      attendanceType: { select: { code: true } },
     },
   })
   // Ward не имеет relation в Attendance — подгружаем отдельно, если нужно.
@@ -810,6 +819,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             reason: "paid_lesson",
           })
         }
+      }
+    }
+
+    // Q1 (Авто «Отработано»): «Был» на занятии-отработке → первоначальное
+    // (пропущенное) занятие переводим из «Назначена отработка» в «Отработано».
+    // Деньги/факт не двигаем — фактическое списание/ЗП на ЭТОЙ реальной отработке
+    // (present + isMakeup). scheduledMakeupLessonId исходной строки сохраняем:
+    // по нему рисуется плашка-ссылка и корректно откатывается «Не был» на L2.
+    // Побочно снимает блокировку отчисления исходного абонемента (обязательство
+    // закрыто).
+    if (
+      isMakeupArrival &&
+      attendanceType.code === "present" &&
+      virtualMakeup &&
+      virtualMakeup.attendanceType.code === "makeup_scheduled"
+    ) {
+      const makeupMarker = await tx.attendanceType.findFirst({
+        where: { code: "makeup", OR: [{ tenantId: null }, { tenantId }], isActive: true },
+        select: { id: true },
+      })
+      if (makeupMarker) {
+        await tx.attendance.update({
+          where: { id: virtualMakeup.id },
+          data: { attendanceTypeId: makeupMarker.id },
+        })
       }
     }
 
@@ -1423,6 +1457,27 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     )
   }
 
+  // Симметрия «Не отмечен» на отработке (isMakeup) с веткой «Не был» (Ф8): отметка
+  // отработки на L2 связана с исходным занятием L1 (scheduledMakeupLessonId=L2).
+  // При «Был» L1 был переведён в «Отработано» (makeup) — при отмене возвращаем его
+  // в «Назначена отработка», чтобы отработка снова считалась назначенной (ребёнок
+  // вернётся виртуальной строкой на L2, блокировка отчисления восстановится), а не
+  // осталась осиротевшей «Отработано» без реальной отработки.
+  let flipBackSourceId: string | null = null
+  if (existing.isMakeup) {
+    const source = await db.attendance.findFirst({
+      where: {
+        tenantId,
+        scheduledMakeupLessonId: lessonId,
+        clientId: existing.clientId,
+        wardId: existing.wardId,
+        attendanceType: { code: "makeup" },
+      },
+      select: { id: true },
+    })
+    flipBackSourceId = source?.id ?? null
+  }
+
   // Если у ребёнка есть active enrollment в группе — DELETE удаляет attendance
   // (вернёт строку в «Не отмечен» через enrollment). Если enrollment нет —
   // это «разовый» ученик; без явного purge=true мы возвращаем attendance в
@@ -1440,7 +1495,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     select: { id: true },
   }))
 
-  const shouldDelete = data.purge === true || hasActiveEnrollment || existing.isPending
+  // Отработку (isMakeup) всегда удаляем полностью, а не превращаем в placeholder:
+  // ребёнок не член этой группы, его место в занятии — виртуальная строка, которая
+  // вернётся через восстановленную «Назначена отработка» на L1.
+  const shouldDelete =
+    data.purge === true || hasActiveEnrollment || existing.isPending || existing.isMakeup
   // existing.isPending — placeholder без enrollment: «сброс отметки» уже стоит
   // как «Не отмечен», смысла оставлять заглушку нет → удаляем по умолчанию.
 
@@ -1518,6 +1577,21 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
           markedAt: null,
         },
       })
+    }
+
+    // Возврат исходного занятия L1 в «Назначена отработка» (см. flipBackSourceId):
+    // отработка отменена, но назначение сохраняется — ребёнок снова ждёт отработки.
+    if (flipBackSourceId) {
+      const scheduledType = await tx.attendanceType.findFirst({
+        where: { code: "makeup_scheduled", OR: [{ tenantId: null }, { tenantId }], isActive: true },
+        select: { id: true },
+      })
+      if (scheduledType) {
+        await tx.attendance.update({
+          where: { id: flipBackSourceId },
+          data: { attendanceTypeId: scheduledType.id },
+        })
+      }
     }
 
     // Схемы per_lesson/floating: удалённая отметка могла нести ставку занятия —

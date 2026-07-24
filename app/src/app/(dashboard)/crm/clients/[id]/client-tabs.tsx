@@ -309,6 +309,9 @@ interface WithdrawPreview {
   usedAmount: number
   balanceDelta: number
   canClose: boolean
+  // Причина блокировки отчисления по статусу занятия (незакрытая отработка и
+  // т.п.). Не null → отчислять нельзя, кнопка заблокирована.
+  withdrawalBlockReason?: string | null
   // Дата последнего платного занятия (yyyy-MM-dd) — предлагается как дата
   // отчисления по умолчанию. null → платных посещений нет.
   lastPaidDate: string | null
@@ -518,6 +521,12 @@ function WithdrawSubscriptionDialog({
               )}
             </div>
 
+            {preview.withdrawalBlockReason && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
+                {preview.withdrawalBlockReason}
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label>Дата отчисления</Label>
               {preview.hasPaidAttendance && preview.lastPaidDate ? (
@@ -587,7 +596,7 @@ function WithdrawSubscriptionDialog({
               <Button
                 variant="destructive"
                 onClick={handleWithdraw}
-                disabled={loading || !reasonId}
+                disabled={loading || !reasonId || !!preview.withdrawalBlockReason}
               >
                 {loading
                   ? "Обработка…"

@@ -36,6 +36,7 @@ const createSchema = z.object({
   partOfFact: z.boolean().default(false),
   partOfForecast: z.boolean().default(false),
   chargePercent: z.number().int().min(0).max(100).default(100),
+  allowSubscriptionWithdrawal: z.boolean().default(true),
   isActive: z.boolean().default(true),
   sortOrder: z.number().int().default(100),
 })
@@ -111,6 +112,7 @@ export async function POST(request: NextRequest) {
       partOfFact: parsed.data.partOfFact,
       partOfForecast: parsed.data.partOfForecast,
       chargePercent: parsed.data.chargePercent,
+      allowSubscriptionWithdrawal: parsed.data.allowSubscriptionWithdrawal,
       isSystem: false,
       isActive: parsed.data.isActive,
       sortOrder: parsed.data.sortOrder,

@@ -10,6 +10,7 @@ import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
+import { getWithdrawalBlockReason } from "@/lib/subscriptions/withdrawal-block"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -78,6 +79,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!reason) {
     return NextResponse.json({ error: "Причина отчисления не найдена" }, { status: 400 })
+  }
+
+  // Блокировка отчисления по статусу занятия (напр. незакрытая «Назначена отработка»).
+  const blockReason = await getWithdrawalBlockReason(db, session.user.tenantId, id)
+  if (blockReason) {
+    return NextResponse.json({ error: blockReason }, { status: 409 })
   }
 
   const result = await db.$transaction(async (tx) => {
@@ -325,6 +332,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   // ручной даты).
   const lastPaidDate = await getLastPaidLessonDate(db, session.user.tenantId, id)
 
+  // Блокировка отчисления по статусу занятия (незакрытая отработка и т.п.) —
+  // чтобы диалог предупредил и заблокировал кнопку ДО попытки отчислить.
+  const withdrawalBlockReason = await getWithdrawalBlockReason(db, session.user.tenantId, id)
+
   return NextResponse.json({
     totalLessons: subscription.totalLessons,
     attendedLessons: attendedCount,
@@ -333,6 +344,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     paidToSubscription: paidToSub,
     usedAmount,
     balanceDelta,
+    withdrawalBlockReason,
     lastPaidDate: lastPaidDate ? lastPaidDate.toISOString().slice(0, 10) : null,
     hasPaidAttendance: lastPaidDate !== null,
     // Границы поля даты отчисления в диалоге: от начала абонемента до конца

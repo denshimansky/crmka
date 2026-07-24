@@ -19,6 +19,7 @@ import { resolveWithdrawalDate } from "@/lib/subscriptions/last-paid-lesson-date
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 import { closeSubscription } from "@/lib/subscriptions/close-subscription"
+import { getWithdrawalBlockReason } from "@/lib/subscriptions/withdrawal-block"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -183,6 +184,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     effectiveWithdrawalDate = (
       await resolveWithdrawalDate(db, session.user.tenantId, id, sub.createdAt)
     ).date
+
+    // Блокировка отчисления по статусу занятия (матрица «Виды посещений» →
+    // «Разрешить отчисление»): напр. незакрытая «Назначена отработка».
+    const blockReason = await getWithdrawalBlockReason(db, session.user.tenantId, id)
+    if (blockReason) {
+      return NextResponse.json({ error: blockReason }, { status: 409 })
+    }
   }
 
   // Штатное закрытие (closed): период истёк, занятия отработаны. Единый хелпер

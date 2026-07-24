@@ -8,6 +8,9 @@ const db = new PrismaClient()
 //   - «Доступно инструктору» (availableToInstructor)
 //   - «Доступно админу» (availableToAdmin)
 //   - «Активен» (isActive) — скрыть/показать в выпадашках
+//   - «Разрешить отчисление» (allowSubscriptionWithdrawal) — кроме «Назначена
+//     отработка», где он принудительно false (нельзя закрыть абонемент с
+//     незакрытой отработкой)
 //   - порядок (sortOrder)
 // Остальные поля (Расчёт, ЗП, %, План, Факт, Прогноз, название, код)
 // нельзя менять — они зашиты в бизнес-логику.
@@ -16,6 +19,7 @@ async function main() {
     {
       code: "present",
       name: "Был",
+      allowSubscriptionWithdrawal: true,
       chargesSubscription: true,
       paysInstructor: true,
       countsAsRevenue: true,
@@ -32,6 +36,7 @@ async function main() {
       // чтобы не гонять баланс туда-сюда.
       code: "no_show",
       name: "Не был",
+      allowSubscriptionWithdrawal: true,
       chargesSubscription: false,
       paysInstructor: false,
       countsAsRevenue: false,
@@ -57,11 +62,15 @@ async function main() {
       partOfPlan: true,
       partOfFact: false,
       partOfForecast: false,
+      // Нельзя отчислять абонемент, пока назначенная отработка не проведена/не
+      // отменена. Флаг залочен и в UI (галочку не поставить).
+      allowSubscriptionWithdrawal: false,
       sortOrder: 3,
     },
     {
       code: "excused",
       name: "Уваж. пропуск",
+      allowSubscriptionWithdrawal: true,
       chargesSubscription: false,
       paysInstructor: false,
       countsAsRevenue: false,
@@ -75,6 +84,7 @@ async function main() {
     {
       code: "absent",
       name: "Прогул",
+      allowSubscriptionWithdrawal: true,
       chargesSubscription: true,
       paysInstructor: true,
       countsAsRevenue: true,
@@ -88,6 +98,7 @@ async function main() {
     {
       code: "recalculation",
       name: "Перерасчёт",
+      allowSubscriptionWithdrawal: true,
       chargesSubscription: false,
       paysInstructor: false,
       countsAsRevenue: false,
@@ -99,12 +110,15 @@ async function main() {
       sortOrder: 6,
     },
     {
-      // «Отработка» — маркер для bulk-операции «уже отработано в другой группе»:
-      // НЕ списывает и НЕ платит, потому что фактические списание/ЗП происходят
-      // при создании реальной отработки (present + isMakeup=true). Никем не ставится
-      // вручную, поэтому для всех ролей закрыт.
+      // «Отработано» — статус первоначального (пропущенного) занятия, когда
+      // отработка проведена, и bulk-маркер «уже отработано в другой группе».
+      // НЕ списывает и НЕ платит: фактические списание/ЗП висят на реальной
+      // отработке (present + isMakeup=true). Ставится ТОЛЬКО системой (при «Был»
+      // на занятии-отработке и при «Отметить всех»), вручную не выбирается —
+      // поэтому для всех ролей закрыт и почти не изменяется.
       code: "makeup",
-      name: "Отработка",
+      name: "Отработано",
+      allowSubscriptionWithdrawal: true,
       chargesSubscription: false,
       paysInstructor: false,
       countsAsRevenue: false,
@@ -140,11 +154,15 @@ async function main() {
     if (existing) {
       // Системные строки приводим к каноническим значениям при каждом seed —
       // иначе изменения в этом файле не доезжают до уже развёрнутых баз.
-      // `availableToInstructor` и `isActive` НЕ переписываем: владелец мог
-      // подправить эти поля под себя в UI.
+      // `availableToInstructor`, `isActive` и `allowSubscriptionWithdrawal` НЕ
+      // переписываем: владелец мог подправить эти поля под себя в UI. Исключение —
+      // «Назначена отработка»: у него отчисление принудительно запрещено.
       await db.attendanceType.update({
         where: { id: existing.id },
-        data: canonical,
+        data: {
+          ...canonical,
+          ...(t.code === "makeup_scheduled" ? { allowSubscriptionWithdrawal: false } : {}),
+        },
       })
       console.log(`Updated: ${t.name} (${t.code})`)
     } else {
@@ -154,6 +172,7 @@ async function main() {
           code: t.code,
           ...canonical,
           availableToInstructor: t.availableToInstructor,
+          allowSubscriptionWithdrawal: t.allowSubscriptionWithdrawal ?? true,
           isActive: true,
         },
       })

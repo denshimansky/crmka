@@ -16,12 +16,18 @@ const updateSchema = z.object({
   partOfFact: z.boolean().optional(),
   partOfForecast: z.boolean().optional(),
   chargePercent: z.number().int().min(0).max(100).optional(),
+  allowSubscriptionWithdrawal: z.boolean().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 })
 
 // Поля, которые разрешено менять у залоченного (isFlagsLocked=true) системного типа.
 // Семантика поведения зафиксирована, доступ к ролям — настраивается каждым центром.
+// ВАЖНО: allowSubscriptionWithdrawal сюда НЕ входит. Системные типы — единые
+// глобальные строки (tenantId=null) на все организации SaaS, поэтому менять у них
+// это поле нельзя: иначе один центр заблокировал бы отчисление во всех остальных
+// (напр. сняв флаг у «Был»). Для системных значение фиксируется сидом
+// (makeup_scheduled=false, остальные=true), настраивается только у СВОИХ типов.
 const LOCKED_ALLOWED_FIELDS = new Set([
   "availableToInstructor",
   "availableToAdmin",
@@ -88,6 +94,7 @@ export async function PATCH(
   if (parsed.data.partOfFact !== undefined) data.partOfFact = parsed.data.partOfFact
   if (parsed.data.partOfForecast !== undefined) data.partOfForecast = parsed.data.partOfForecast
   if (parsed.data.chargePercent !== undefined) data.chargePercent = parsed.data.chargePercent
+  if (parsed.data.allowSubscriptionWithdrawal !== undefined) data.allowSubscriptionWithdrawal = parsed.data.allowSubscriptionWithdrawal
   if (parsed.data.isActive !== undefined) data.isActive = parsed.data.isActive
   if (parsed.data.sortOrder !== undefined) data.sortOrder = parsed.data.sortOrder
 
