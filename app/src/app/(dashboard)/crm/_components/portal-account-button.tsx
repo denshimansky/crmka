@@ -160,7 +160,7 @@ export function PortalAccountButton({ clientId }: { clientId: string }) {
       </Button>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Доступ в личный кабинет</DialogTitle>
           </DialogHeader>
@@ -171,9 +171,14 @@ export function PortalAccountButton({ clientId }: { clientId: string }) {
                 Передайте родителю логин и пароль. Вход — по ссылке кабинета вашего центра.
               </p>
               <div className="rounded-md border p-3 space-y-1 text-sm">
-                <div>
+                <div className="break-words">
                   Кабинет:{" "}
-                  <a href={result.portalUrl} target="_blank" rel="noreferrer" className="underline">
+                  <a
+                    href={result.portalUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline break-all"
+                  >
                     {result.portalUrl}
                   </a>
                 </div>
@@ -222,9 +227,14 @@ export function PortalAccountButton({ clientId }: { clientId: string }) {
                           : "ещё не входил"}
                       </div>
                       {portalUrl && (
-                        <div>
+                        <div className="break-words">
                           Кабинет:{" "}
-                          <a href={portalUrl} target="_blank" rel="noreferrer" className="underline">
+                          <a
+                            href={portalUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline break-all"
+                          >
                             {portalUrl}
                           </a>
                         </div>
@@ -259,7 +269,7 @@ export function PortalAccountButton({ clientId }: { clientId: string }) {
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="sm:flex-wrap">
             <Button variant="outline" onClick={() => setOpen(false)}>
               Закрыть
             </Button>
