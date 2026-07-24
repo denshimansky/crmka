@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { slugCode } from "@/lib/translit"
+import { getWithdrawalOverrideMap } from "@/lib/subscriptions/withdrawal-block"
 import { z } from "zod"
 
 // GET /api/attendance-types — системные (tenantId=null) + кастомные текущего тенанта
@@ -12,14 +13,25 @@ export async function GET() {
 
   const tenantId = (session.user as any).tenantId
 
-  const types = await db.attendanceType.findMany({
-    where: {
-      OR: [{ tenantId: null }, { tenantId }],
-    },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-  })
+  const [types, overrideMap] = await Promise.all([
+    db.attendanceType.findMany({
+      where: {
+        OR: [{ tenantId: null }, { tenantId }],
+      },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    }),
+    getWithdrawalOverrideMap(db, tenantId),
+  ])
 
-  return NextResponse.json(types)
+  // «Разрешить отчисление» у системных (глобальных) типов настраивается пер-организационно
+  // через оверрайд — отдаём эффективное значение центра, чтобы матрица показывала его настройку.
+  const withEffective = types.map((t) =>
+    overrideMap.has(t.id)
+      ? { ...t, allowSubscriptionWithdrawal: overrideMap.get(t.id)! }
+      : t,
+  )
+
+  return NextResponse.json(withEffective)
 }
 
 const createSchema = z.object({

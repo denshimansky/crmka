@@ -392,21 +392,10 @@ export default function AttendanceMatrixPage() {
                           className="inline-flex size-5 items-center justify-center rounded border border-muted-foreground/30 bg-transparent"
                           title="Нельзя разрешить: назначенная отработка блокирует отчисление, пока её не проведут или не отменят"
                         />
-                      ) : t.isFlagsLocked ? (
-                        // Системные типы — единые глобальные строки на все организации,
-                        // поэтому это поле у них зафиксировано (read-only): иначе один
-                        // центр менял бы правило отчисления во всех остальных.
-                        <span
-                          className={`inline-flex size-5 items-center justify-center rounded border ${
-                            t.allowSubscriptionWithdrawal
-                              ? "border-foreground/40 bg-foreground/10 text-foreground"
-                              : "border-muted-foreground/30 bg-transparent"
-                          }`}
-                          title="Системный тип — значение общее для всех организаций, менять нельзя. Настраивается только у своих типов."
-                        >
-                          {t.allowSubscriptionWithdrawal && <Check className="size-3.5" strokeWidth={3} />}
-                        </span>
                       ) : (
+                        // «Разрешить отчисление» настраивается каждой организацией отдельно —
+                        // в т.ч. у системных типов (значение хранится в пер-организационном
+                        // оверрайде, общую строку это не трогает).
                         <input
                           type="checkbox"
                           checked={t.allowSubscriptionWithdrawal}

@@ -427,7 +427,7 @@
 | part_of_fact | Boolean | да | **Ф1:** Засчитывается как фактическое посещение | — |
 | part_of_forecast | Boolean | да | **Ф1:** Входит в прогноз выручки/списаний | — |
 | charge_percent | Int | да | **Ф1:** Процент списания (0-100), применяется при `charges_subscription=true`. Дефолт 100. При <100 списывает полную цену с абонемента, разницу возвращает на `clientBalance` (`lesson_refund`) | — |
-| allow_subscription_withdrawal | Boolean | да | Разрешать отчислять абонемент, если у ученика на занятии стоит этот статус. Дефолт true; у `makeup_scheduled` = false и залочен (нельзя поставить). Проверка — `lib/subscriptions/withdrawal-block.ts` (уже проведённая отработка не блокирует). Owner-редактируемое даже у системных | — |
+| allow_subscription_withdrawal | Boolean | да | Разрешать отчислять абонемент, если у ученика на занятии стоит этот статус. У кастомных типов живёт в этой колонке. У системных (`tenant_id=NULL`) колонка — только ДЕФОЛТ (true; у `makeup_scheduled` = false и залочен), а персональная настройка организации хранится в `AttendanceTypeWithdrawalOverride` (см. ниже). Проверка — `lib/subscriptions/withdrawal-block.ts` → `getDisallowedWithdrawalTypeIds` (эффективное значение = оверрайд ∨ дефолт; уже проведённая отработка не блокирует) | — |
 | *(производный признак)* | — | — | **Consumed (07.07.2026):** отметка «расходует занятие» календарного абонемента, если `charges_subscription=true` ИЛИ `code NOT IN ('no_show','makeup_scheduled','makeup')`. Кастомные несписывающие типы расходуют занятие (как Уваж. пропуск). Для пакетных — только списывающие. Хелпер `lib/subscriptions/consumed-lessons.ts` | — |
 | is_system | Boolean | да | Системный — нельзя удалить | — |
 | is_flags_locked | Boolean | да | **Ф1:** Бизнес-флаги (`charges_subscription` и т.п.) нельзя менять через UI. Изменяемы только: `available_to_*`, `is_active`, `sort_order` | — |
@@ -435,7 +435,24 @@
 | sort_order | Int | да | Порядок сортировки (дефолт 0) | — |
 | created_at | DateTime | да | Дата создания | — |
 
-**«Отработано» (`makeup`):** ставится только системой (при «Был» на занятии-отработке первоначальное занятие переводится `makeup_scheduled → makeup`; и как bulk safety-net «уже отработано в другой группе»). В выпадашке отметки скрыт (`code === "makeup"` не выбирается вручную), но с 24.07.2026 **виден в матрице настроек** как отдельный статус — все флаги залочены, настраивается только `allow_subscription_withdrawal`. `available_to_*` у него оба false.
+**«Отработано» (`makeup`):** ставится только системой (при «Был» на занятии-отработке первоначальное занятие переводится `makeup_scheduled → makeup`; и как bulk safety-net «уже отработано в другой группе»). В выпадашке отметки скрыт (`code === "makeup"` не выбирается вручную), но с 24.07.2026 **виден в матрице настроек** как отдельный статус — все флаги залочены, настраивается только `allow_subscription_withdrawal` (через оверрайд). `available_to_*` у него оба false.
+
+---
+
+## AttendanceTypeWithdrawalOverride
+
+Пер-организационный оверрайд флага «Разрешить отчисление» для СИСТЕМНЫХ (глобальных, `tenant_id=NULL`) видов посещений (добавлено 24.07.2026). Общая строка `AttendanceType` одна на весь SaaS, поэтому персональное значение центра хранится здесь. Строка есть только у явно изменённых типов; отсутствие = наследуется `AttendanceType.allow_subscription_withdrawal`. Кастомные типы организации оверрайдом не пользуются (флаг живёт в их колонке). `makeup_scheduled` переопределить нельзя (API возвращает 403).
+
+| Поле | Тип | Обязательное | Описание | Связь |
+|---|---|---|---|---|
+| id | UUID | да | PK | — |
+| tenant_id | UUID | да | Организация | Изоляция на app-layer (`where:{tenantId}`) |
+| attendance_type_id | UUID | да | FK → AttendanceType (системный тип) | ON DELETE CASCADE |
+| allow_subscription_withdrawal | Boolean | да | Значение флага для этой организации | — |
+| created_at | DateTime | да | Дата создания | — |
+| updated_at | DateTime | да | Дата изменения | — |
+
+Уникальность: `(tenant_id, attendance_type_id)`. Читается/пишется через `lib/subscriptions/withdrawal-block.ts` (`getWithdrawalOverrideMap`, `getDisallowedWithdrawalTypeIds`) и `PATCH /api/attendance-types/[id]`.
 
 ---
 

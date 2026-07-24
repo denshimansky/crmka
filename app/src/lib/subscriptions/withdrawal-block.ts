@@ -3,8 +3,52 @@ import { type Prisma, type PrismaClient } from "@prisma/client"
 type DB = PrismaClient | Prisma.TransactionClient
 
 /**
+ * Оверрайды флага «Разрешить отчисление» текущей организации для СИСТЕМНЫХ
+ * (глобальных) видов посещений: Map<attendanceTypeId, allowSubscriptionWithdrawal>.
+ * Общая строка одна на весь SaaS, поэтому персональное значение центра хранится в
+ * attendance_type_withdrawal_overrides. Отсутствие ключа = наследуется дефолт с
+ * AttendanceType.allowSubscriptionWithdrawal. Используется и в enforcement, и при
+ * отдаче матрицы в UI (GET /api/attendance-types), чтобы логика не разъехалась.
+ */
+export async function getWithdrawalOverrideMap(
+  db: DB,
+  tenantId: string,
+): Promise<Map<string, boolean>> {
+  const overrides = await db.attendanceTypeWithdrawalOverride.findMany({
+    where: { tenantId },
+    select: { attendanceTypeId: true, allowSubscriptionWithdrawal: true },
+  })
+  return new Map(overrides.map((o) => [o.attendanceTypeId, o.allowSubscriptionWithdrawal]))
+}
+
+/**
+ * Множество id видов посещений, у которых с учётом пер-организационного оверрайда
+ * отчисление ЗАПРЕЩЕНО (эффективный allowSubscriptionWithdrawal = false).
+ * Эффективное значение = оверрайд организации, если он есть, иначе дефолт типа.
+ */
+export async function getDisallowedWithdrawalTypeIds(
+  db: DB,
+  tenantId: string,
+): Promise<Set<string>> {
+  const [types, overrideMap] = await Promise.all([
+    db.attendanceType.findMany({
+      where: { OR: [{ tenantId: null }, { tenantId }] },
+      select: { id: true, allowSubscriptionWithdrawal: true },
+    }),
+    getWithdrawalOverrideMap(db, tenantId),
+  ])
+  const disallowed = new Set<string>()
+  for (const t of types) {
+    const effective = overrideMap.has(t.id) ? overrideMap.get(t.id)! : t.allowSubscriptionWithdrawal
+    if (!effective) disallowed.add(t.id)
+  }
+  return disallowed
+}
+
+/**
  * Блокировка отчисления абонемента по статусу занятия (матрица «Виды посещений»
- * → колонка «Разрешить отчисление», поле AttendanceType.allowSubscriptionWithdrawal).
+ * → колонка «Разрешить отчисление», поле AttendanceType.allowSubscriptionWithdrawal
+ * с учётом пер-организационного оверрайда, см. getDisallowedWithdrawalTypeIds).
  *
  * Если у абонемента есть отметка с типом, где флаг снят (напр. «Назначена
  * отработка»), отчислять нельзя, пока обязательство не закрыто. Возвращает текст
@@ -25,11 +69,14 @@ export async function getWithdrawalBlockReason(
   tenantId: string,
   subscriptionId: string,
 ): Promise<string | null> {
+  const disallowedTypeIds = await getDisallowedWithdrawalTypeIds(db, tenantId)
+  if (disallowedTypeIds.size === 0) return null
+
   const blockers = await db.attendance.findMany({
     where: {
       tenantId,
       subscriptionId,
-      attendanceType: { allowSubscriptionWithdrawal: false },
+      attendanceTypeId: { in: [...disallowedTypeIds] },
     },
     select: {
       lessonId: true,

@@ -618,10 +618,32 @@ model AttendanceType {
   sortOrder             Int      @default(0) @map("sort_order")
   createdAt             DateTime @default(now()) @map("created_at")
 
-  attendances Attendance[]
+  attendances       Attendance[]
+  withdrawalOverrides AttendanceTypeWithdrawalOverride[]
 
   @@index([tenantId])
   @@map("attendance_types")
+}
+
+// Пер-организационный оверрайд флага «Разрешить отчисление» для СИСТЕМНЫХ
+// (глобальных, tenantId=null) видов посещений. Общая строка одна на весь SaaS,
+// поэтому менять её напрямую нельзя — каждая организация хранит своё значение
+// здесь. Строка есть только у явно изменённых типов; отсутствие = наследуется
+// дефолт с AttendanceType.allowSubscriptionWithdrawal. Кастомные типы своей
+// организации оверрайдом не пользуются — у них флаг живёт прямо в колонке.
+model AttendanceTypeWithdrawalOverride {
+  id                          String   @id @default(uuid()) @db.Uuid
+  tenantId                    String   @map("tenant_id") @db.Uuid
+  attendanceTypeId            String   @map("attendance_type_id") @db.Uuid
+  allowSubscriptionWithdrawal Boolean  @map("allow_subscription_withdrawal")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  attendanceType AttendanceType @relation(fields: [attendanceTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, attendanceTypeId], map: "attendance_type_withdrawal_overrides_tenant_type_key")
+  @@index([tenantId], map: "attendance_type_withdrawal_overrides_tenant_id_idx")
+  @@map("attendance_type_withdrawal_overrides")
 }
 
 // === ПРИВЯЗКА СОТРУДНИКА К ФИЛИАЛАМ ===

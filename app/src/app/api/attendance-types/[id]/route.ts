@@ -21,13 +21,13 @@ const updateSchema = z.object({
   sortOrder: z.number().int().optional(),
 })
 
-// Поля, которые разрешено менять у залоченного (isFlagsLocked=true) системного типа.
-// Семантика поведения зафиксирована, доступ к ролям — настраивается каждым центром.
-// ВАЖНО: allowSubscriptionWithdrawal сюда НЕ входит. Системные типы — единые
-// глобальные строки (tenantId=null) на все организации SaaS, поэтому менять у них
-// это поле нельзя: иначе один центр заблокировал бы отчисление во всех остальных
-// (напр. сняв флаг у «Был»). Для системных значение фиксируется сидом
-// (makeup_scheduled=false, остальные=true), настраивается только у СВОИХ типов.
+// Поля, которые разрешено менять у залоченного (isFlagsLocked=true) системного типа
+// ПРЯМО В ОБЩЕЙ СТРОКЕ. Семантика поведения зафиксирована, доступ к ролям — настраивается
+// каждым центром. «Разрешить отчисление» (allowSubscriptionWithdrawal) сюда НЕ входит и
+// не пишется в общую строку: у системных типов оно настраивается пер-организационно через
+// оверрайд (attendance_type_withdrawal_overrides), перехватывается ВЫШЕ в PATCH до этого
+// guard'а. Иначе один центр заблокировал бы отчисление во всех остальных (напр. сняв
+// флаг у «Был»). Дефолт для системных задаёт сид (makeup_scheduled=false, остальные=true).
 const LOCKED_ALLOWED_FIELDS = new Set([
   "availableToInstructor",
   "availableToAdmin",
@@ -70,6 +70,36 @@ export async function PATCH(
     )
   }
 
+  // «Разрешить отчисление» у СИСТЕМНОГО (глобального, tenantId=null) типа пишем НЕ в
+  // общую строку, а в пер-организационный оверрайд — иначе один центр менял бы правило
+  // отчисления у всех. У кастомных типов поле по-прежнему живёт в самой колонке.
+  const isGlobal = existing.tenantId === null
+  let withdrawalChange: { old: boolean; new: boolean } | null = null
+  if (isGlobal && parsed.data.allowSubscriptionWithdrawal !== undefined) {
+    if (existing.code === "makeup_scheduled") {
+      return NextResponse.json(
+        { error: "«Назначена отработка» всегда блокирует отчисление — этот статус изменить нельзя." },
+        { status: 403 }
+      )
+    }
+    const val = parsed.data.allowSubscriptionWithdrawal
+    const prev = await db.attendanceTypeWithdrawalOverride.findUnique({
+      where: { tenantId_attendanceTypeId: { tenantId, attendanceTypeId: id } },
+      select: { allowSubscriptionWithdrawal: true },
+    })
+    const oldEffective = prev ? prev.allowSubscriptionWithdrawal : existing.allowSubscriptionWithdrawal
+    if (oldEffective !== val) {
+      await db.attendanceTypeWithdrawalOverride.upsert({
+        where: { tenantId_attendanceTypeId: { tenantId, attendanceTypeId: id } },
+        create: { tenantId, attendanceTypeId: id, allowSubscriptionWithdrawal: val },
+        update: { allowSubscriptionWithdrawal: val },
+      })
+      withdrawalChange = { old: oldEffective, new: val }
+    }
+    // Дальше по общей строке это поле не трогаем (и не даём guard'у его завернуть).
+    parsed.data.allowSubscriptionWithdrawal = undefined
+  }
+
   // Для залоченных типов разрешаем только настройки доступа к ролям/видимости.
   if (existing.isFlagsLocked) {
     const offendingField = Object.keys(parsed.data).find(
@@ -94,11 +124,27 @@ export async function PATCH(
   if (parsed.data.partOfFact !== undefined) data.partOfFact = parsed.data.partOfFact
   if (parsed.data.partOfForecast !== undefined) data.partOfForecast = parsed.data.partOfForecast
   if (parsed.data.chargePercent !== undefined) data.chargePercent = parsed.data.chargePercent
+  // allowSubscriptionWithdrawal у кастомных типов пишем прямо в колонку (у системных
+  // оно уже перехвачено в оверрайд выше и здесь undefined).
   if (parsed.data.allowSubscriptionWithdrawal !== undefined) data.allowSubscriptionWithdrawal = parsed.data.allowSubscriptionWithdrawal
   if (parsed.data.isActive !== undefined) data.isActive = parsed.data.isActive
   if (parsed.data.sortOrder !== undefined) data.sortOrder = parsed.data.sortOrder
 
-  const updated = await db.attendanceType.update({ where: { id }, data })
+  const updated = Object.keys(data).length > 0
+    ? await db.attendanceType.update({ where: { id }, data })
+    : existing
+
+  // Ответ отдаём с ЭФФЕКТИВНЫМ «Разрешить отчисление» центра: для системного типа это
+  // его оверрайд, а не глобальный дефолт — иначе оптимистичный setState в UI (patchField)
+  // показал бы чужое значение (в т.ч. при правке другого поля системного типа).
+  let response: Record<string, unknown> = updated
+  if (isGlobal) {
+    const ov = await db.attendanceTypeWithdrawalOverride.findUnique({
+      where: { tenantId_attendanceTypeId: { tenantId, attendanceTypeId: id } },
+      select: { allowSubscriptionWithdrawal: true },
+    })
+    if (ov) response = { ...updated, allowSubscriptionWithdrawal: ov.allowSubscriptionWithdrawal }
+  }
 
   // Аудит: справочник влияет на видимость типов во всех выпадашках отметки —
   // без записи невозможно восстановить, кто и когда снял/вернул флаг (баг
@@ -111,17 +157,22 @@ export async function PATCH(
       new: data[key],
     }
   }
-  logAudit({
-    tenantId,
-    employeeId: (session.user as any).employeeId,
-    action: "update",
-    entityType: "AttendanceType",
-    entityId: id,
-    changes,
-    req: request,
-  })
+  if (withdrawalChange) {
+    changes.allowSubscriptionWithdrawal = { old: withdrawalChange.old, new: withdrawalChange.new }
+  }
+  if (Object.keys(changes).length > 0) {
+    logAudit({
+      tenantId,
+      employeeId: (session.user as any).employeeId,
+      action: "update",
+      entityType: "AttendanceType",
+      entityId: id,
+      changes,
+      req: request,
+    })
+  }
 
-  return NextResponse.json(updated)
+  return NextResponse.json(response)
 }
 
 // DELETE /api/attendance-types/[id] — удалить кастомный тип
