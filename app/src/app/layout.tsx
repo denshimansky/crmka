@@ -11,6 +11,11 @@ export const metadata: Metadata = {
   title: "Умная CRM",
   description: "CRM-система для детских центров и сферы услуг",
   manifest: "/manifest.json",
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    shortcut: "/favicon.svg",
+    apple: "/icons/icon-192x192.svg",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

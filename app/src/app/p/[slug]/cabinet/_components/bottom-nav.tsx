@@ -1,12 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Home, ClipboardCheck, History, CreditCard } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { usePortalNav } from "./use-portal-nav"
 
-// Нижняя навигация кабинета. Разделы «Главная/Посещения/История» живут в
-// разрезе подопечного — текущий wardId берём из pathname, иначе дефолтный.
+// Нижняя навигация кабинета — только мобилка (на ПК её заменяет верхняя панель).
 
 interface Props {
   slug: string
@@ -14,41 +12,10 @@ interface Props {
 }
 
 export function BottomNav({ slug, defaultWardKey }: Props) {
-  const pathname = usePathname()
-  const base = `/p/${slug}/cabinet`
-
-  const wardMatch = pathname.match(/\/cabinet\/w\/([^/]+)/)
-  const wardKey = wardMatch?.[1] || defaultWardKey
-
-  const items = [
-    {
-      href: wardKey ? `${base}/w/${wardKey}` : base,
-      label: "Главная",
-      icon: Home,
-      active: /\/cabinet\/w\/[^/]+$/.test(pathname) || pathname === base,
-    },
-    {
-      href: wardKey ? `${base}/w/${wardKey}/visits` : base,
-      label: "Посещения",
-      icon: ClipboardCheck,
-      active: pathname.endsWith("/visits"),
-    },
-    {
-      href: wardKey ? `${base}/w/${wardKey}/history` : base,
-      label: "История",
-      icon: History,
-      active: pathname.endsWith("/history"),
-    },
-    {
-      href: `${base}/payments`,
-      label: "Оплаты",
-      icon: CreditCard,
-      active: pathname.endsWith("/payments"),
-    },
-  ]
+  const items = usePortalNav(slug, defaultWardKey)
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+    <nav className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
       <div className="mx-auto flex max-w-md">
         {items.map((item) => (
           <Link

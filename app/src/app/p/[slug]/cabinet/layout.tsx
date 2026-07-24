@@ -46,10 +46,17 @@ export default async function CabinetLayout({
   const defaultWardKey = wards[0]?.id ?? (hasSelfProfile ? SELF_WARD_KEY : null)
 
   return (
-    <div className="mx-auto max-w-md px-4 pb-24">
-      <PortalHeader slug={slug} orgName={org.name} clientName={session.clientName} />
-      {children}
+    <>
+      <PortalHeader
+        slug={slug}
+        orgName={org.name}
+        clientName={session.clientName}
+        defaultWardKey={defaultWardKey}
+      />
+      <main className="mx-auto max-w-md px-4 pb-24 pt-4 md:max-w-4xl md:pb-12 md:pt-6">
+        {children}
+      </main>
       <BottomNav slug={slug} defaultWardKey={defaultWardKey} />
-    </div>
+    </>
   )
 }
