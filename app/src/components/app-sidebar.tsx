@@ -35,8 +35,11 @@ const navItems: NavItem[] = [
   { title: "Дашборд", href: "/", icon: LayoutDashboard },
 ]
 
-// Пункты, которые инструктору не показываем никогда (независимо от прав/матрицы).
-const INSTRUCTOR_HIDDEN_HREFS = new Set(["/", "/stock", "/crm/calls"])
+// Инструктору показываем ТОЛЬКО эти разделы — «Расписание» и «Занятия».
+// Весь остальной сайдбар (дашборд, CRM, финансы, задачи, зарплата, склад,
+// отчёты, настройки, справка, база знаний) скрыт независимо от прав/матрицы
+// (решение владельца продукта: педагогу остальное не нужно).
+const INSTRUCTOR_ALLOWED_HREFS = new Set(["/schedule", "/lessons"])
 
 const crmItems: NavItem[] = [
   { title: "Клиенты", href: "/crm/contacts", icon: Users, permission: "clients.view" },
@@ -117,21 +120,19 @@ export function AppSidebar({
       return perms.some((p) => permissions[p])
     })
 
-  // Инструктору ряд пунктов не показываем ВНЕ зависимости от прав:
-  //  • «Дашборд» (/) — у него главная без виджетов;
-  //  • «Склад» (/stock) и «Обзвон» (/crm/calls) — не нужны в его работе.
-  // Прячем жёстко по роли, чтобы не зависеть от legacy-fallback прав
-  // (warehouse.view наследует schedule.view) и кастомных матриц, где инструктору
-  // мог быть включён clients.view.
-  const hideForInstructor = (items: NavItem[]) =>
+  // Инструктору оставляем ТОЛЬКО «Расписание» и «Занятия» (белый список выше) —
+  // всё остальное скрыто по роли, независимо от прав/матрицы. Пересечение с
+  // filterByPerm сохраняется: если у инструктора нет schedule.view, эти пункты
+  // тоже не покажутся.
+  const applyInstructorWhitelist = (items: NavItem[]) =>
     user?.role === "instructor"
-      ? items.filter((i) => !INSTRUCTOR_HIDDEN_HREFS.has(i.href))
+      ? items.filter((i) => INSTRUCTOR_ALLOWED_HREFS.has(i.href))
       : items
 
-  const visibleNavItems = hideForInstructor(filterByPerm(navItems))
-  const visibleCrmItems = hideForInstructor(filterByPerm(crmItems))
-  const visibleFinanceItems = filterByPerm(financeItems)
-  const visibleOtherItems = hideForInstructor(filterByPerm(otherItems))
+  const visibleNavItems = applyInstructorWhitelist(filterByPerm(navItems))
+  const visibleCrmItems = applyInstructorWhitelist(filterByPerm(crmItems))
+  const visibleFinanceItems = applyInstructorWhitelist(filterByPerm(financeItems))
+  const visibleOtherItems = applyInstructorWhitelist(filterByPerm(otherItems))
 
   const renderItems = (items: NavItem[]) =>
     items.map((item) => (
@@ -164,9 +165,11 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent className="overflow-x-hidden overscroll-contain touch-pan-y">
-        <SidebarGroup>
-          <SidebarMenu>{renderItems(visibleNavItems)}</SidebarMenu>
-        </SidebarGroup>
+        {visibleNavItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarMenu>{renderItems(visibleNavItems)}</SidebarMenu>
+          </SidebarGroup>
+        )}
 
         {visibleCrmItems.length > 0 && (
           <SidebarGroup>
@@ -186,7 +189,9 @@ export function AppSidebar({
           </SidebarGroup>
         )}
 
-        <SidebarSeparator />
+        {(visibleNavItems.length > 0 ||
+          visibleCrmItems.length > 0 ||
+          visibleFinanceItems.length > 0) && <SidebarSeparator />}
 
         <SidebarGroup>
           <SidebarGroupContent>
