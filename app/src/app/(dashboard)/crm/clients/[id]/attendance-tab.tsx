@@ -162,11 +162,6 @@ export function AttendanceTab({
     [wards]
   )
 
-  // Разделяем пробные и обычные посещения — пробные показываем
-  // отдельным выделенным блоком (бизнес-требование).
-  const trialItems = useMemo(() => items.filter((a) => a.isTrial), [items])
-  const regularItems = useMemo(() => items.filter((a) => !a.isTrial), [items])
-
   // Итоги
   const stats = useMemo(() => {
     let total = items.length
@@ -321,32 +316,12 @@ export function AttendanceTab({
               : "У клиента пока нет отмеченных посещений"}
           </p>
         ) : (
-          <>
-            {/* Пробные занятия — отдельным выделенным блоком */}
-            {trialItems.length > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20">
-                <div className="flex items-center gap-2 border-b border-amber-200 px-3 py-2 text-sm font-medium dark:border-amber-900/50">
-                  <Sparkles className="size-4 text-amber-600 dark:text-amber-400" />
-                  <span>Пробные занятия</span>
-                  <Badge variant="secondary" className="ml-1 font-normal">
-                    {trialItems.length}
-                  </Badge>
-                </div>
-                <AttendanceItemsTable
-                  items={trialItems}
-                  showWardColumn={wardOptions.length > 1}
-                />
-              </div>
-            )}
-
-            {/* Обычные посещения */}
-            {regularItems.length > 0 && (
-              <AttendanceItemsTable
-                items={regularItems}
-                showWardColumn={wardOptions.length > 1}
-              />
-            )}
-          </>
+          /* Единый список посещений, отсортированный по дате; пробные помечены
+             бейджем «Пробное» прямо в строке (без отдельного блока). */
+          <AttendanceItemsTable
+            items={items}
+            showWardColumn={wardOptions.length > 1}
+          />
         )}
       </CardContent>
     </Card>
@@ -380,7 +355,12 @@ function AttendanceItemsTable({
       </TableHeader>
       <TableBody>
         {items.map((a) => (
-          <TableRow key={a.id}>
+          <TableRow
+            key={a.id}
+            className={
+              a.isTrial ? "bg-amber-50/40 dark:bg-amber-950/20" : undefined
+            }
+          >
             <TableCell className="whitespace-nowrap">
               {formatDate(a.date)}
             </TableCell>
@@ -393,6 +373,15 @@ function AttendanceItemsTable({
             <TableCell>
               <div className="flex items-center gap-1">
                 <span>{a.group.name}</span>
+                {a.isTrial && (
+                  <Badge
+                    variant="outline"
+                    className="gap-1 border-amber-300 bg-amber-50 px-1.5 py-0 text-[10px] text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"
+                  >
+                    <Sparkles className="size-2.5" />
+                    Пробное
+                  </Badge>
+                )}
                 {a.isMakeup && (
                   <Badge
                     variant="secondary"
