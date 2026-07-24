@@ -329,7 +329,10 @@ export default function AttendanceMatrixPage() {
                     <TableCell className="font-medium">
                       {t.name}
                       {SYSTEM_TYPE_DESCRIPTIONS[t.code] && (
-                        <div className="mt-0.5 max-w-[260px] text-xs font-normal text-muted-foreground">
+                        // whitespace-normal — перебиваем whitespace-nowrap ячейки
+                        // (ui/table.tsx), иначе описание не переносится и вылезает
+                        // за колонку «Название». Узкая фикс-ширина → несколько строк.
+                        <div className="mt-0.5 w-[200px] whitespace-normal break-words text-xs font-normal leading-snug text-muted-foreground">
                           {SYSTEM_TYPE_DESCRIPTIONS[t.code]}
                         </div>
                       )}
