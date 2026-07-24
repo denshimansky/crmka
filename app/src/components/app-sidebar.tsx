@@ -35,6 +35,9 @@ const navItems: NavItem[] = [
   { title: "Дашборд", href: "/", icon: LayoutDashboard },
 ]
 
+// Пункты, которые инструктору не показываем никогда (независимо от прав/матрицы).
+const INSTRUCTOR_HIDDEN_HREFS = new Set(["/", "/stock", "/crm/calls"])
+
 const crmItems: NavItem[] = [
   { title: "Клиенты", href: "/crm/contacts", icon: Users, permission: "clients.view" },
   { title: "Продажи", href: "/crm/sales", icon: Filter, permission: "clients.view" },
@@ -114,13 +117,21 @@ export function AppSidebar({
       return perms.some((p) => permissions[p])
     })
 
-  // Инструктору «Дашборд» не показываем — у него главная без виджетов.
-  const visibleNavItems = filterByPerm(navItems).filter(
-    (i) => !(user?.role === "instructor" && i.href === "/"),
-  )
-  const visibleCrmItems = filterByPerm(crmItems)
+  // Инструктору ряд пунктов не показываем ВНЕ зависимости от прав:
+  //  • «Дашборд» (/) — у него главная без виджетов;
+  //  • «Склад» (/stock) и «Обзвон» (/crm/calls) — не нужны в его работе.
+  // Прячем жёстко по роли, чтобы не зависеть от legacy-fallback прав
+  // (warehouse.view наследует schedule.view) и кастомных матриц, где инструктору
+  // мог быть включён clients.view.
+  const hideForInstructor = (items: NavItem[]) =>
+    user?.role === "instructor"
+      ? items.filter((i) => !INSTRUCTOR_HIDDEN_HREFS.has(i.href))
+      : items
+
+  const visibleNavItems = hideForInstructor(filterByPerm(navItems))
+  const visibleCrmItems = hideForInstructor(filterByPerm(crmItems))
   const visibleFinanceItems = filterByPerm(financeItems)
-  const visibleOtherItems = filterByPerm(otherItems)
+  const visibleOtherItems = hideForInstructor(filterByPerm(otherItems))
 
   const renderItems = (items: NavItem[]) =>
     items.map((item) => (
