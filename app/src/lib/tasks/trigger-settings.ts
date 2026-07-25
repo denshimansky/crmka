@@ -38,6 +38,27 @@ export const TRIGGER_LABEL: Record<TaskAutoTrigger, string> = {
   missed_makeup: "Отработка не состоялась (переназначить)",
 }
 
+/** Краткое описание условия, при котором создаётся автозадача. */
+export const TRIGGER_DESCRIPTION: Record<TaskAutoTrigger, string> = {
+  contact_date:
+    "В карточке клиента наступила указанная дата следующего контакта",
+  promised_payment:
+    "Сегодня — обещанная клиентом дата оплаты, а у него есть долг",
+  first_paid_reminder:
+    "Завтра первое платное занятие, но абонемент ещё не оплачен",
+  birthday: "Сегодня день рождения у подопечного клиента",
+  unmarked_lesson:
+    "Вчерашнее занятие осталось без отметок посещаемости",
+  payment_due:
+    "Подопечный дольше 3 дней в статусе «Ожидаем оплату»",
+  no_show_review:
+    "Отметка «Не был» старше 3 дней не уточнена (прогул / уваж. пропуск / отработка)",
+  trial_reminder: "Приближается запланированное пробное занятие",
+  absence: "Подопечный пропустил занятие",
+  missed_makeup:
+    "Назначенная отработка не состоялась — нужно переназначить",
+}
+
 export function parseTriggerSettings(raw: unknown): TriggerSetting[] {
   if (!Array.isArray(raw)) return []
   const out: TriggerSetting[] = []

@@ -7,7 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Loader2, Sparkles } from "lucide-react"
-import { TRIGGER_LABEL, type TriggerSetting } from "@/lib/tasks/trigger-settings"
+import {
+  TRIGGER_LABEL,
+  TRIGGER_DESCRIPTION,
+  type TriggerSetting,
+} from "@/lib/tasks/trigger-settings"
 
 interface Props {
   initial: TriggerSetting[]
@@ -70,7 +74,9 @@ export function TaskTriggersForm({ initial }: Props) {
               />
               <div className="flex-1">
                 <div className="text-sm font-medium">{TRIGGER_LABEL[it.trigger]}</div>
-                <div className="text-xs text-muted-foreground">{it.trigger}</div>
+                <div className="text-xs text-muted-foreground">
+                  {TRIGGER_DESCRIPTION[it.trigger]}
+                </div>
               </div>
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-muted-foreground">с</span>
