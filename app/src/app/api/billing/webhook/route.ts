@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import {
   applyInvoicePaymentById,
-  removeInvoiceNotifications,
+  cancelInvoiceById,
 } from "@/lib/billing/apply-invoice-payment"
 
 /**
@@ -113,11 +113,8 @@ export async function POST(req: NextRequest) {
     })
     console.log(`[webhook] Invoice ${invoice.id} marked as OVERDUE`)
   } else if (upperStatus === "CANCELLED") {
-    await db.billingInvoice.update({
-      where: { id: invoice.id },
-      data: { status: "cancelled" },
-    })
-    await removeInvoiceNotifications(invoice.id, invoice.organizationId)
+    // Отмена: статус + возврат учтённого кредита + скрытие уведомлений (хелпер)
+    await cancelInvoiceById(invoice.id)
     console.log(`[webhook] Invoice ${invoice.id} marked as CANCELLED`)
   } else {
     console.log(`[webhook] Unhandled status "${status}" for invoice ${invoice.id}`)

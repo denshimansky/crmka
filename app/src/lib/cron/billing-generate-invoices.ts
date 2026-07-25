@@ -18,6 +18,7 @@ import { monthlyPriceFor } from "@/lib/billing-price"
 import { nextInvoiceNumber } from "@/lib/billing/invoice-number"
 import { ensureOrgLegalName } from "@/lib/billing/checko"
 import { planInvoice } from "@/lib/billing/billing-schedule"
+import { applyInvoicePayment } from "@/lib/billing/apply-invoice-payment"
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -108,7 +109,13 @@ export async function generateBillingInvoices(
       continue
     }
 
-    const amount = round2(monthlyPriceFor(sub.plan, branchCount) * periodMonths)
+    // Кредит организации (перерасчёт при снижении числа филиалов внутри
+    // оплаченного периода) гасит счёт: сначала база по сетке × месяцы, затем
+    // вычитаем доступный кредит (не ниже нуля), остаток кредита переносится.
+    const base = round2(monthlyPriceFor(sub.plan, branchCount) * periodMonths)
+    const creditAvailable = Number(sub.creditBalance || 0)
+    const creditApplied = round2(Math.min(creditAvailable, base))
+    const amount = round2(base - creditApplied)
 
     const recipients = await db.employee.findMany({
       where: {
@@ -134,22 +141,52 @@ export async function generateBillingInvoices(
               amount,
               periodMonths,
               branchCount,
+              creditApplied,
               status: "pending",
               periodStart,
               periodEnd,
               dueDate,
-              comment: `SaaS «Умная CRM», ${branchCount} фил. × ${periodMonths} мес.`,
+              comment:
+                `SaaS «Умная CRM», ${branchCount} фил. × ${periodMonths} мес.` +
+                (creditApplied > 0 ? ` (учтён кредит ${creditApplied.toLocaleString("ru-RU")} ₽)` : ""),
             },
           })
 
-          if (recipients.length > 0) {
+          // Списываем использованный кредит с подписки (остаток переносится)
+          if (creditApplied > 0) {
+            await tx.billingSubscription.update({
+              where: { id: sub.id },
+              data: { creditBalance: { decrement: creditApplied } },
+            })
+            // Кредит израсходован полностью — убираем информационное уведомление
+            // «Кредит … зачтётся в следующий счёт» из колокольчика.
+            if (round2(creditAvailable - creditApplied) <= 0) {
+              await tx.notification.deleteMany({
+                where: { tenantId: org.id, type: "billing_credit" },
+              })
+            }
+          }
+
+          if (amount <= 0) {
+            // Кредит полностью погасил счёт: помечаем оплаченным (продление
+            // подписки, никакой блокировки за нулевой счёт) — без уведомления.
+            await applyInvoicePayment(tx, {
+              invoiceId: invoice.id,
+              paidVia: "manual",
+              paidAmount: 0,
+              comment: "Полностью погашено кредитом за перерасчёт филиалов",
+            })
+          } else if (recipients.length > 0) {
             await tx.notification.createMany({
               data: recipients.map((r) => ({
                 tenantId: org.id,
                 employeeId: r.id,
                 type: "billing_invoice" as const,
                 title: `Оплатите счёт №${number} на ${amount.toLocaleString("ru-RU")} ₽`,
-                message: `Период ${fmtDate(periodStart)}–${fmtDate(periodEnd)}, оплатить до ${fmtDate(dueDate)}. Нажмите, чтобы открыть счёт (PDF).`,
+                message:
+                  `Период ${fmtDate(periodStart)}–${fmtDate(periodEnd)}, оплатить до ${fmtDate(dueDate)}.` +
+                  (creditApplied > 0 ? ` Учтён кредит ${creditApplied.toLocaleString("ru-RU")} ₽.` : "") +
+                  ` Нажмите, чтобы открыть счёт (PDF).`,
                 entityType: "BillingInvoice",
                 entityId: invoice.id,
               })),

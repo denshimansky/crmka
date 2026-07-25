@@ -3,7 +3,7 @@ import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
 import {
   applyInvoicePaymentById,
-  removeInvoiceNotifications,
+  cancelInvoiceById,
 } from "@/lib/billing/apply-invoice-payment"
 import { z } from "zod"
 
@@ -48,11 +48,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       paidVia: "manual",
       paidAmount: parsed.data.paidAmount,
     })
+  } else if (parsed.data.status === "cancelled") {
+    // Отмена: статус + возврат учтённого кредита + скрытие уведомлений (хелпер)
+    await cancelInvoiceById(id)
   } else if (parsed.data.status) {
     data.status = parsed.data.status
-    if (parsed.data.status === "cancelled") {
-      await removeInvoiceNotifications(id, existing.organizationId)
-    }
   }
 
   const updated = Object.keys(data).length

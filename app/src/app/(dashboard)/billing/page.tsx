@@ -27,6 +27,7 @@ interface Subscription {
   status: string
   branchCount: number
   monthlyAmount: string
+  creditBalance: string
   billingPeriodMonths: number
   nextPaymentDate: string
   periodEndDate: string | null
@@ -191,6 +192,17 @@ export default function BillingPage() {
           </span>
           , иначе доступ к CRM будет ограничен. После оплаты подписка станет активной,
           дальнейшие счета — к {subscription.billingAnchorDay ?? new Date(subscription.trialEndsAt).getUTCDate()}-му числу каждого месяца.
+        </div>
+      )}
+
+      {/* Кредит за перерасчёт филиалов внутри оплаченного периода */}
+      {subscription && Number(subscription.creditBalance) > 0 && (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-700/60 dark:bg-emerald-950/40 dark:text-emerald-200">
+          <span className="font-semibold">
+            Кредит к зачёту: {Number(subscription.creditBalance).toLocaleString("ru")} ₽.
+          </span>{" "}
+          Образовался при уменьшении числа филиалов внутри оплаченного периода и
+          автоматически уменьшит следующий счёт.
         </div>
       )}
 
@@ -377,6 +389,14 @@ export default function BillingPage() {
                   <span className="text-muted-foreground">Сумма за период:</span>
                   <span>{(monthlyPrice * subscription.billingPeriodMonths).toLocaleString("ru")} ₽</span>
                 </div>
+                {Number(subscription.creditBalance) > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Кредит к зачёту:</span>
+                    <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                      −{Number(subscription.creditBalance).toLocaleString("ru")} ₽
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Филиалов:</span>
                   <span>{subscription.branchCount}</span>
