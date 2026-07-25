@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     parsed.data,
   )
 
-  // 500 — потолок, как и при создании кампании.
+  // Потолка на размер кампании больше нет (баг #82) — показываем полную выборку.
   const total = await db.client.count({ where })
-  return NextResponse.json({ count: Math.min(total, 500), exceeded: total > 500 })
+  return NextResponse.json({ count: total })
 }

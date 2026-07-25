@@ -27,7 +27,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       },
     },
     orderBy: { status: "asc" },
-    take: 500,
   })
 
   return NextResponse.json(items)
@@ -38,6 +37,9 @@ const updateSchema = z.object({
   status: z.enum(["called", "no_answer", "callback", "completed"]),
   result: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  // Дата следующей связи для исхода «Перезвонить» (баг #82): падает в
+  // Client.nextContactDate, откуда её подхватывают автотриггеры задач.
+  callbackDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
 })
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -51,6 +53,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка" }, { status: 400 })
   }
   const data = parsed.data
+
+  // «Перезвонить» + дата: валидируем дату следующей связи (YYYY-MM-DD).
+  let callbackDate: Date | null = null
+  if (data.status === "callback" && data.callbackDate) {
+    const d = new Date(data.callbackDate)
+    if (!isNaN(d.getTime())) callbackDate = d
+  }
+  // Человекочитаемая метка даты для истории («до DD.MM.YYYY») — из самой строки,
+  // без пересчёта в локальную TZ.
+  const callbackDateLabel =
+    callbackDate && data.callbackDate
+      ? data.callbackDate.split("-").reverse().join(".")
+      : null
 
   try {
     await db.$transaction(async (tx) => {
@@ -69,6 +84,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           calledAt: new Date(),
         },
       })
+
+      // Дата следующей связи → Client.nextContactDate. Отсюда её берут автотриггеры
+      // задач (contact_date task, см. lib/tasks/contact-date-task.ts). updateMany —
+      // чтобы можно было ограничить апдейт по tenantId (защита от чужого клиента).
+      if (callbackDate && prev.clientId) {
+        await tx.client.updateMany({
+          where: { id: prev.clientId, tenantId: session.user.tenantId },
+          data: { nextContactDate: callbackDate },
+        })
+      }
 
       // Обновляем счётчик кампании
       if ((prev.status as string) === "pending" && (data.status as string) !== "pending") {
@@ -91,6 +116,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           callback: "Перезвонить",
           completed: "Завершён",
         }
+        // Для «Перезвонить» добавляем в текст дату следующей связи.
+        const statusText =
+          data.status === "callback" && callbackDateLabel
+            ? `Перезвонить до ${callbackDateLabel}`
+            : statusLabels[data.status] || data.status
         // Коды результата → человекочитаемые метки для истории коммуникаций.
         const resultLabels: Record<string, string> = {
           application: "Создана заявка",
@@ -108,12 +138,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             type: "call_campaign_result",
             channel: "phone",
             direction: "outgoing",
-            content: [statusLabels[data.status] || data.status, resultText, data.comment].filter(Boolean).join(" — "),
+            content: [statusText, resultText, data.comment].filter(Boolean).join(" — "),
             metadata: {
               campaignId: id,
               campaignName: campaign?.name,
               status: data.status,
               result: data.result,
+              ...(callbackDateLabel ? { callbackDate: data.callbackDate } : {}),
             },
             employeeId: session.user.employeeId || undefined,
           },

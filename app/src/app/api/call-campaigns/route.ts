@@ -46,10 +46,11 @@ export async function POST(req: NextRequest) {
     data.filterCriteria,
   )
 
+  // Лимит на размер кампании снят (баг #82): в обзвон попадают все клиенты,
+  // подходящие под критерии, без потолка.
   const clients = await db.client.findMany({
     where,
     select: { id: true },
-    take: 500,
   })
 
   const campaign = await db.$transaction(async (tx) => {

@@ -103,15 +103,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
 
+  // Пер-организационный оверрайд системного типа (баг #82): отключение + доступ роли.
+  const typeOverride = await db.attendanceTypeWithdrawalOverride.findUnique({
+    where: { tenantId_attendanceTypeId: { tenantId, attendanceTypeId: attendanceType.id } },
+    select: { isDisabled: true, availableToInstructor: true, availableToAdmin: true },
+  })
+  if (typeOverride?.isDisabled) {
+    return NextResponse.json(
+      { error: `Тип «${attendanceType.name}» отключён в настройках организации.` },
+      { status: 400 },
+    )
+  }
+
   // Доступ роли к типу: инструктор → availableToInstructor, админ → availableToAdmin.
+  // Значение — эффективное для центра (оверрайд имеет приоритет над общей строкой).
   // Управляющий и владелец видят/ставят всё.
-  if (role === "instructor" && !attendanceType.availableToInstructor) {
+  const effAvailableToInstructor = typeOverride?.availableToInstructor ?? attendanceType.availableToInstructor
+  const effAvailableToAdmin = typeOverride?.availableToAdmin ?? attendanceType.availableToAdmin
+  if (role === "instructor" && !effAvailableToInstructor) {
     return NextResponse.json(
       { error: `Тип «${attendanceType.name}» не доступен инструктору. Обратитесь к администратору.` },
       { status: 403 }
     )
   }
-  if (role === "admin" && !attendanceType.availableToAdmin) {
+  if (role === "admin" && !effAvailableToAdmin) {
     return NextResponse.json(
       { error: `Тип «${attendanceType.name}» не доступен администратору в этом центре.` },
       { status: 403 }
@@ -951,15 +966,30 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   })
   if (!attendanceType) return NextResponse.json({ error: "Тип посещения не найден" }, { status: 404 })
 
+  // Пер-организационный оверрайд системного типа (баг #82): отключение + доступ роли.
+  const typeOverride = await db.attendanceTypeWithdrawalOverride.findUnique({
+    where: { tenantId_attendanceTypeId: { tenantId, attendanceTypeId: attendanceType.id } },
+    select: { isDisabled: true, availableToInstructor: true, availableToAdmin: true },
+  })
+  if (typeOverride?.isDisabled) {
+    return NextResponse.json(
+      { error: `Тип «${attendanceType.name}» отключён в настройках организации.` },
+      { status: 400 },
+    )
+  }
+
   // Доступ роли к типу: инструктор → availableToInstructor, админ → availableToAdmin.
+  // Значение — эффективное для центра (оверрайд имеет приоритет над общей строкой).
   // Управляющий и владелец видят/ставят всё.
-  if (role === "instructor" && !attendanceType.availableToInstructor) {
+  const effAvailableToInstructor = typeOverride?.availableToInstructor ?? attendanceType.availableToInstructor
+  const effAvailableToAdmin = typeOverride?.availableToAdmin ?? attendanceType.availableToAdmin
+  if (role === "instructor" && !effAvailableToInstructor) {
     return NextResponse.json(
       { error: `Тип «${attendanceType.name}» не доступен инструктору. Обратитесь к администратору.` },
       { status: 403 }
     )
   }
-  if (role === "admin" && !attendanceType.availableToAdmin) {
+  if (role === "admin" && !effAvailableToAdmin) {
     return NextResponse.json(
       { error: `Тип «${attendanceType.name}» не доступен администратору в этом центре.` },
       { status: 403 }

@@ -8,6 +8,7 @@ import {
   coverageKeysOnDate,
   coverageKey,
 } from "@/lib/subscriptions/roster-filter"
+import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { notFound } from "next/navigation"
 import { isUnscoped } from "@/lib/branch-scope"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
@@ -189,15 +190,19 @@ export default async function LessonCardPage({
     coveredKeys.has(coverageKey(e.clientId, e.wardId)),
   )
 
-  // Get attendance types
-  const attendanceTypes = await db.attendanceType.findMany({
+  // Get attendance types. Применяем пер-орг оверрайд (баг #82): убираем отключённые
+  // организацией системные типы и берём её эффективный доступ роли к каждому типу.
+  const typeOverrideMap = await getAttendanceTypeOverrideMap(db, tenantId)
+  const attendanceTypes = (await db.attendanceType.findMany({
     where: {
       OR: [{ tenantId: null }, { tenantId }],
       isActive: true,
     },
     // name — tie-break: кастомные типы создаются с одинаковым sortOrder=100
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-  })
+  }))
+    .map((t) => applyAttendanceOverride(t, typeOverrideMap.get(t.id)))
+    .filter((t) => !t.isDisabledForTenant)
 
   // Get absence reasons
   const absenceReasons = await db.absenceReason.findMany({

@@ -24,7 +24,28 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Plus, Pencil, Trash2, ListChecks, Check } from "lucide-react"
+import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
+
+// Системные типы, которые организация вправе отключить у себя (баг #82).
+// Остальные системные — структурные, отключать нельзя.
+const DISABLEABLE_SYSTEM_CODES = new Set(["excused", "absent"])
+
+// YYYY-MM-DD → DD.MM.YYYY (для списка занятий в диалоге блокировки).
+function formatRuDate(iso: string): string {
+  const [y, m, d] = iso.split("-")
+  return `${d}.${m}.${y}`
+}
+
+// Занятие с отметками отключаемого типа — для диалога «нельзя отключить».
+interface BlockingLesson {
+  lessonId: string
+  date: string
+  startTime: string
+  groupName: string
+  directionName: string
+  count: number
+}
 
 interface AttendanceType {
   id: string
@@ -108,6 +129,13 @@ export default function AttendanceMatrixPage() {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Диалог «нельзя отключить»: тип, по которому уже есть отметки (баг #82).
+  const [blockInfo, setBlockInfo] = useState<{
+    typeName: string
+    lessons: BlockingLesson[]
+    totalLessons: number
+    totalMarks: number
+  } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -153,6 +181,43 @@ export default function AttendanceMatrixPage() {
 
   function toggleFlag(t: AttendanceType, key: FlagKey) {
     patchField(t, { [key]: !t[key] } as Partial<AttendanceType>)
+  }
+
+  // Включить/отключить вид посещения (баг #82). При попытке отключить тип, по
+  // которому уже есть отметки, сервер отвечает 409 со списком занятий — показываем
+  // его в диалоге, а не глушим alert'ом.
+  async function toggleActive(t: AttendanceType) {
+    const next = !t.isActive
+    setSavingId(t.id)
+    try {
+      const res = await fetch(`/api/attendance-types/${t.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: next }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        setTypes((prev) => prev.map((x) => (x.id === t.id ? updated : x)))
+        router.refresh()
+      } else if (res.status === 409) {
+        const data = await res.json().catch(() => ({}))
+        setBlockInfo({
+          typeName: t.name,
+          lessons: (data.lessons ?? []) as BlockingLesson[],
+          totalLessons: data.totalLessons ?? 0,
+          totalMarks: data.totalMarks ?? 0,
+        })
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || "Ошибка сохранения")
+        load()
+      }
+    } catch {
+      alert("Ошибка сети")
+      load()
+    } finally {
+      setSavingId(null)
+    }
   }
 
   function commitPercent(t: AttendanceType, value: string) {
@@ -319,6 +384,9 @@ export default function AttendanceMatrixPage() {
                   <TableHead className="text-center" title="Разрешить отчислять абонемент, если у ученика на занятии стоит этот статус. Без галочки «Отчислить» блокируется с ошибкой">
                     Разрешить отчисление
                   </TableHead>
+                  <TableHead className="text-center" title="Показывать вид посещения в вариантах отметки. Снятая галочка скрывает тип. «Уваж. пропуск» и «Прогул» можно отключить, если по ним ещё нет отметок">
+                    Активен
+                  </TableHead>
                   <TableHead>Тип</TableHead>
                   <TableHead className="w-[80px]" />
                 </TableRow>
@@ -406,6 +474,32 @@ export default function AttendanceMatrixPage() {
                           className="size-4 rounded border cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-60"
                           title="Разрешить отчислять абонемент с этим статусом на занятии"
                         />
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {DISABLEABLE_SYSTEM_CODES.has(t.code) || !t.isSystem ? (
+                        // «Уваж. пропуск»/«Прогул» (пер-орг оверрайд) и свои типы —
+                        // можно скрыть из вариантов отметки.
+                        <input
+                          type="checkbox"
+                          checked={t.isActive}
+                          disabled={savingId === t.id}
+                          onChange={() => toggleActive(t)}
+                          className="size-4 rounded border cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-60"
+                          title="Показывать этот вид посещения в вариантах отметки"
+                        />
+                      ) : (
+                        // Структурные системные типы отключать нельзя — только индикатор.
+                        <span
+                          className={`inline-flex size-5 items-center justify-center rounded border ${
+                            t.isActive
+                              ? "border-foreground/40 bg-foreground/10 text-foreground"
+                              : "border-muted-foreground/30 bg-transparent"
+                          }`}
+                          title="Этот системный тип нельзя отключить"
+                        >
+                          {t.isActive && <Check className="size-3.5" strokeWidth={3} />}
+                        </span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -532,6 +626,65 @@ export default function AttendanceMatrixPage() {
             <Button onClick={handleSave} disabled={saving}>
               {saving ? "Сохранение..." : editType ? "Сохранить" : "Создать"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог «нельзя отключить»: список занятий с отметками этого типа (баг #82). */}
+      <Dialog open={!!blockInfo} onOpenChange={(o) => { if (!o) setBlockInfo(null) }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Нельзя отключить «{blockInfo?.typeName}»</DialogTitle>
+            <DialogDescription>
+              По этому виду посещения уже есть отметки ({blockInfo?.totalMarks}) на{" "}
+              {blockInfo?.totalLessons}{" "}
+              {blockInfo?.totalLessons === 1 ? "занятии" : "занятиях"}. Сначала переставьте
+              их на других статусах, затем отключите тип.
+            </DialogDescription>
+          </DialogHeader>
+
+          {blockInfo && blockInfo.lessons.length > 0 && (
+            <div className="max-h-[50vh] overflow-y-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Дата</TableHead>
+                    <TableHead>Группа</TableHead>
+                    <TableHead className="text-center">Отметок</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {blockInfo.lessons.map((l) => (
+                    <TableRow key={l.lessonId}>
+                      <TableCell className="whitespace-nowrap">
+                        <Link
+                          href={`/schedule/lessons/${l.lessonId}`}
+                          target="_blank"
+                          className="text-primary hover:underline"
+                        >
+                          {formatRuDate(l.date)} {l.startTime}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {l.groupName}
+                        <span className="text-muted-foreground"> · {l.directionName}</span>
+                      </TableCell>
+                      <TableCell className="text-center">{l.count}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {blockInfo && blockInfo.totalLessons > blockInfo.lessons.length && (
+            <p className="text-xs text-muted-foreground">
+              Показаны первые {blockInfo.lessons.length} из {blockInfo.totalLessons} занятий.
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBlockInfo(null)}>Закрыть</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

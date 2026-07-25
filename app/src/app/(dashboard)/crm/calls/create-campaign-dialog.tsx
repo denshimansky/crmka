@@ -47,7 +47,7 @@ interface BranchOption {
   name: string
 }
 
-type PreviewState = { count: number; exceeded: boolean } | "error" | null
+type PreviewState = { count: number } | "error" | null
 
 // Live-предпросмотр размера выборки (debounce). Считается, пока открыт диалог.
 // ready=false — критерии ещё не готовы (например, не выбраны типы задач).
@@ -67,7 +67,7 @@ function useCampaignPreview(
         body: JSON.stringify({ filterCriteria: fc }),
       })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error("preview failed"))))
-        .then((d) => { if (!cancelled) setPreview({ count: d.count, exceeded: !!d.exceeded }) })
+        .then((d) => { if (!cancelled) setPreview({ count: d.count }) })
         .catch(() => { if (!cancelled) setPreview("error") })
     }, 400)
     return () => { cancelled = true; clearTimeout(handle) }
@@ -77,7 +77,7 @@ function useCampaignPreview(
 
 function previewLabel(preview: PreviewState): string {
   if (preview === "error") return "Не удалось оценить выборку"
-  if (preview) return `Найдено: ${preview.count}${preview.exceeded ? "+ (макс. 500)" : ""} клиентов`
+  if (preview) return `Найдено: ${preview.count} клиентов`
   return "Подбор выборки…"
 }
 

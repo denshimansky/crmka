@@ -73,19 +73,31 @@ export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: 
   const [loading, setLoading] = useState(false)
   const [comment, setComment] = useState(item.comment || "")
   const [result, setResult] = useState("")
+  // «Перезвонить» → выбор даты следующей связи (баг #82).
+  const [callbackOpen, setCallbackOpen] = useState(false)
+  const [callbackDate, setCallbackDate] = useState("")
 
-  async function saveResult(status: string) {
+  async function saveResult(status: string, extra?: Record<string, unknown>) {
     setLoading(true)
     try {
       await fetch(`/api/call-campaigns/${campaignId}/items`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId: item.id, status, comment, result }),
+        body: JSON.stringify({ itemId: item.id, status, comment, result, ...extra }),
       })
       setShowForm(false)
+      setCallbackOpen(false)
       router.refresh()
     } catch { /* ignore */ }
     finally { setLoading(false) }
+  }
+
+  // По умолчанию предлагаем завтрашнюю дату для повторного звонка.
+  function openCallback() {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    setCallbackDate(d.toISOString().slice(0, 10))
+    setCallbackOpen(true)
   }
 
   // Заявка создана прямо из обзвона: помечаем контакт обработанным и ставим
@@ -152,7 +164,7 @@ export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: 
               />
               <Button size="sm" onClick={() => saveResult("called")} disabled={loading}>Обзвонен</Button>
               <Button size="sm" variant="outline" onClick={() => saveResult("no_answer")} disabled={loading}>Не ответил</Button>
-              <Button size="sm" variant="outline" onClick={() => saveResult("callback")} disabled={loading}>Перезвонить</Button>
+              <Button size="sm" variant={callbackOpen ? "secondary" : "outline"} onClick={openCallback} disabled={loading}>Перезвонить</Button>
               <Button size="sm" variant="secondary" onClick={() => saveResult("completed")} disabled={loading}>Завершён</Button>
               <span className="mx-1 h-5 w-px bg-border" aria-hidden />
               <CreateApplicationDialog
@@ -164,6 +176,27 @@ export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: 
                 triggerLabel="Создать заявку"
                 onCreated={markApplicationCreated}
               />
+              {callbackOpen && (
+                <div className="flex w-full flex-wrap items-center gap-2 border-t pt-2">
+                  <span className="text-xs text-muted-foreground">Дата следующей связи:</span>
+                  <Input
+                    type="date"
+                    value={callbackDate}
+                    onChange={e => setCallbackDate(e.target.value)}
+                    className="max-w-[170px]"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => saveResult("callback", { callbackDate })}
+                    disabled={loading || !callbackDate}
+                  >
+                    Сохранить
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setCallbackOpen(false)} disabled={loading}>
+                    Отмена
+                  </Button>
+                </div>
+              )}
             </div>
           </TableCell>
         </TableRow>

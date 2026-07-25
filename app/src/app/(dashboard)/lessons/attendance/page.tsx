@@ -5,6 +5,7 @@ import { getSession } from "@/lib/session"
 import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
 import { rosterWhereOnDate, isEnrolledOnLesson } from "@/lib/subscriptions/roster-filter"
+import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import type { Prisma } from "@prisma/client"
@@ -211,6 +212,8 @@ export default async function LessonsAttendancePage({
   // — инструктор видит availableToInstructor, админ — availableToAdmin, владелец/
   //   управляющий — всё, «только чтение» не отмечает.
   const role = session.user.role
+  // Пер-орг оверрайд системных типов (баг #82): отключённые исключаем, доступ роли — эффективный.
+  const typeOverrideMap = role !== "readonly" ? await getAttendanceTypeOverrideMap(db, tenantId) : new Map()
   const attendanceTypes = role !== "readonly"
     ? await db.attendanceType.findMany({
         where: {
@@ -228,7 +231,9 @@ export default async function LessonsAttendancePage({
       })
     : []
   const typeOptions: AttendanceTypeOption[] = attendanceTypes
+    .map((t) => applyAttendanceOverride(t, typeOverrideMap.get(t.id)))
     .filter((t) => {
+      if (t.isDisabledForTenant) return false
       if (t.code === "makeup_scheduled" || t.code === "makeup") return false
       if (role === "instructor") return t.availableToInstructor
       if (role === "admin") return t.availableToAdmin

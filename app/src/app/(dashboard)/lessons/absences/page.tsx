@@ -3,6 +3,7 @@ import { getSession } from "@/lib/session"
 import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
 import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
+import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeft, AlertTriangle } from "lucide-react"
 import Link from "next/link"
@@ -157,6 +158,8 @@ export default async function LessonsAbsencesPage({
   //   управляющий — всё.
   const role = session.user.role
   const canEdit = role !== "readonly"
+  // Пер-орг оверрайд системных типов (баг #82): отключённые исключаем, доступ роли — эффективный.
+  const typeOverrideMap = canEdit ? await getAttendanceTypeOverrideMap(db, tenantId) : new Map()
   const attendanceTypesRaw = canEdit
     ? await db.attendanceType.findMany({
         where: { OR: [{ tenantId: null }, { tenantId }], isActive: true },
@@ -172,7 +175,9 @@ export default async function LessonsAbsencesPage({
       })
     : []
   const editableTypes: EditableAttendanceType[] = attendanceTypesRaw
+    .map((t) => applyAttendanceOverride(t, typeOverrideMap.get(t.id)))
     .filter((t) => {
+      if (t.isDisabledForTenant) return false
       if (t.code === "makeup_scheduled" || t.code === "makeup") return false
       // Владелец/управляющий видят все типы (критерий «оба availableTo*=false»
       // прятал типы со снятыми галочками доступности и от них — баг 02.07.2026).

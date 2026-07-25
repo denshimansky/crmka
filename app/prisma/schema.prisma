@@ -625,17 +625,27 @@ model AttendanceType {
   @@map("attendance_types")
 }
 
-// Пер-организационный оверрайд флага «Разрешить отчисление» для СИСТЕМНЫХ
-// (глобальных, tenantId=null) видов посещений. Общая строка одна на весь SaaS,
-// поэтому менять её напрямую нельзя — каждая организация хранит своё значение
-// здесь. Строка есть только у явно изменённых типов; отсутствие = наследуется
-// дефолт с AttendanceType.allowSubscriptionWithdrawal. Кастомные типы своей
-// организации оверрайдом не пользуются — у них флаг живёт прямо в колонке.
+// Пер-организационные оверрайды СИСТЕМНЫХ (глобальных, tenantId=null) видов
+// посещений. Общая строка одна на весь SaaS, поэтому менять её напрямую нельзя —
+// каждая организация хранит свои значения здесь (одна строка на пару
+// tenant+type). Строка есть только у явно изменённых типов; её отсутствие =
+// наследуются дефолты с AttendanceType. Кастомные типы своей организации
+// оверрайдом не пользуются — у них флаги живут прямо в колонках.
+//   - allowSubscriptionWithdrawal — «Разрешить отчисление» (дефолт с типа).
+//   - isDisabled — тип отключён в этой организации (баг #82: владелец может
+//     скрыть «Уваж. пропуск»/«Прогул»); эффективный isActive = НЕ isDisabled.
+//   - availableToInstructor / availableToAdmin — доступ роли к типу; NULL =
+//     наследуется дефолт строки. Настройка доступа у системного типа тоже своя
+//     у каждой организации (иначе один центр менял бы доступ во всех остальных).
+// (Историческое имя таблицы — *_withdrawal_overrides — сохранено ради миграции.)
 model AttendanceTypeWithdrawalOverride {
   id                          String   @id @default(uuid()) @db.Uuid
   tenantId                    String   @map("tenant_id") @db.Uuid
   attendanceTypeId            String   @map("attendance_type_id") @db.Uuid
   allowSubscriptionWithdrawal Boolean  @map("allow_subscription_withdrawal")
+  isDisabled                  Boolean  @default(false) @map("is_disabled")
+  availableToInstructor       Boolean? @map("available_to_instructor")
+  availableToAdmin            Boolean? @map("available_to_admin")
   createdAt                   DateTime @default(now()) @map("created_at")
   updatedAt                   DateTime @updatedAt @map("updated_at")
 

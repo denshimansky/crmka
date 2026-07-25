@@ -9,6 +9,7 @@ import {
   coverageKeysOnDate,
   coverageKey,
 } from "@/lib/subscriptions/roster-filter"
+import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { z } from "zod"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
@@ -189,8 +190,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     coveredKeys.has(coverageKey(e.clientId, e.wardId)),
   )
 
-  // Get available attendance types (system + tenant-specific)
-  const attendanceTypes = await db.attendanceType.findMany({
+  // Get available attendance types (system + tenant-specific). Пер-орг оверрайд
+  // (баг #82): убираем отключённые типы и берём эффективный доступ роли центра.
+  const typeOverrideMap = await getAttendanceTypeOverrideMap(db, tenantId)
+  const attendanceTypes = (await db.attendanceType.findMany({
     where: {
       OR: [
         { tenantId: null },
@@ -199,7 +202,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       isActive: true,
     },
     orderBy: { sortOrder: "asc" },
-  })
+  }))
+    .map((t) => applyAttendanceOverride(t, typeOverrideMap.get(t.id)))
+    .filter((t) => !t.isDisabledForTenant)
 
   // Get salary rate — if substitute, use their rate
   const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId

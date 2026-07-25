@@ -22,6 +22,65 @@ export async function getWithdrawalOverrideMap(
 }
 
 /**
+ * Пер-организационные оверрайды СИСТЕМНЫХ (глобальных) видов посещений этой
+ * организации: Map<attendanceTypeId, значения>. Общая строка одна на весь SaaS,
+ * поэтому персональные значения центра (доступ роли, отключение, отчисление)
+ * живут здесь. Отсутствие ключа = все дефолты наследуются со строки типа.
+ */
+export interface AttendanceTypeOverride {
+  allowSubscriptionWithdrawal: boolean
+  isDisabled: boolean
+  availableToInstructor: boolean | null
+  availableToAdmin: boolean | null
+}
+
+export async function getAttendanceTypeOverrideMap(
+  db: DB,
+  tenantId: string,
+): Promise<Map<string, AttendanceTypeOverride>> {
+  const rows = await db.attendanceTypeWithdrawalOverride.findMany({
+    where: { tenantId },
+    select: {
+      attendanceTypeId: true,
+      allowSubscriptionWithdrawal: true,
+      isDisabled: true,
+      availableToInstructor: true,
+      availableToAdmin: true,
+    },
+  })
+  return new Map(
+    rows.map((r) => [
+      r.attendanceTypeId,
+      {
+        allowSubscriptionWithdrawal: r.allowSubscriptionWithdrawal,
+        isDisabled: r.isDisabled,
+        availableToInstructor: r.availableToInstructor,
+        availableToAdmin: r.availableToAdmin,
+      },
+    ]),
+  )
+}
+
+/**
+ * Накладывает пер-организационный оверрайд на системный тип: возвращает
+ * ЭФФЕКТИВНЫЕ availableToInstructor/availableToAdmin центра и признак
+ * isDisabledForTenant (скрыт ли тип у этой организации). Для кастомных типов
+ * (оверрайда нет) — значения строки как есть. Используется во всех выпадашках
+ * отметки, чтобы настройка одного центра не влияла на других (баг #82).
+ */
+export function applyAttendanceOverride<
+  T extends { availableToInstructor: boolean; availableToAdmin: boolean },
+>(t: T, ov: AttendanceTypeOverride | undefined): T & { isDisabledForTenant: boolean } {
+  if (!ov) return { ...t, isDisabledForTenant: false }
+  return {
+    ...t,
+    availableToInstructor: ov.availableToInstructor ?? t.availableToInstructor,
+    availableToAdmin: ov.availableToAdmin ?? t.availableToAdmin,
+    isDisabledForTenant: ov.isDisabled,
+  }
+}
+
+/**
  * Множество id видов посещений, у которых с учётом пер-организационного оверрайда
  * отчисление ЗАПРЕЩЕНО (эффективный allowSubscriptionWithdrawal = false).
  * Эффективное значение = оверрайд организации, если он есть, иначе дефолт типа.
