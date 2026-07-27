@@ -40,6 +40,11 @@ COPY --from=deps /prod_modules ./node_modules
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/public ./public
 
+# Каталог тома kb-uploads (фото базы знаний) должен принадлежать nextjs. Пустой
+# named volume при первом монтировании наследует владельца этого пути из образа;
+# без chown он остаётся root:root, и запись фото падает с EACCES (uid 1001 ≠ root).
+RUN mkdir -p /app/uploads && chown 1001:65533 /app/uploads
+
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
