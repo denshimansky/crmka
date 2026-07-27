@@ -170,7 +170,14 @@ export function TrialLessonForm({
         const dates = lessons.map((l) => l.date.slice(0, 10))
         setGroupLessonDates(dates)
         if (dates.length > 0 && !dates.includes(scheduledDate)) {
-          setScheduledDate(dates[0])
+          // dates отсортированы по возрастанию. Дефолт — ближайшее предстоящее
+          // занятие (в т.ч. сегодня); если все занятия в прошлом — ближайшее
+          // прошедшее (последнее в списке). Раньше брали dates[0] — самое раннее
+          // из последних 90 дней (includePast), из-за чего календарь открывался
+          // на устаревшем месяце вместо текущего.
+          const todayIso = new Date().toISOString().slice(0, 10)
+          const upcoming = dates.find((d) => d >= todayIso)
+          setScheduledDate(upcoming ?? dates[dates.length - 1])
         }
       } catch {
         setGroupLessonDates([])

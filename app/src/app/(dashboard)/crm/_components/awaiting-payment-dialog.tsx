@@ -183,8 +183,13 @@ export function AwaitingPaymentDialog({
         const dates = lessons.map((l) => l.date.slice(0, 10))
         setGroupLessonDates(dates)
         // Если уже выбранная дата вне списка — сдвигаем на ближайшее занятие.
+        // dates по возрастанию: берём ближайшее предстоящее (в т.ч. сегодня),
+        // а если все в прошлом — последнее (самое свежее), а не dates[0]
+        // (самое раннее из 90 дней includePast).
         if (dates.length > 0 && firstPaidDate && !dates.includes(firstPaidDate)) {
-          setFirstPaidDate(dates[0])
+          const todayIso = new Date().toISOString().slice(0, 10)
+          const upcoming = dates.find((d) => d >= todayIso)
+          setFirstPaidDate(upcoming ?? dates[dates.length - 1])
         }
       } catch {
         if (!cancelled) setGroupLessonDates([])
