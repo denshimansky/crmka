@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Phone, Users } from "lucide-react"
+import { Archive, ArrowLeft, Phone, Users } from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { CampaignItemsTable } from "./campaign-items-table"
@@ -57,6 +57,10 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       },
     },
   })
+
+  // Архивная кампания доступна только для просмотра: кнопка «Результат» у
+  // контактов становится неактивной (фиксировать результаты звонков нельзя).
+  const readOnly = campaign.status === "archived"
 
   const now = new Date()
   const pending = items.filter(i => i.status === "pending").length
@@ -120,9 +124,16 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </p>
         </div>
         <Badge variant={campaign.status === "active" ? "default" : "secondary"} className="ml-auto">
-          {campaign.status === "active" ? "Активная" : campaign.status === "closed" ? "Закрыта" : "Архив"}
+          {campaign.status === "active" ? "Активная" : campaign.status === "closed" ? "Закрыта" : "Архивный"}
         </Badge>
       </div>
+
+      {readOnly && (
+        <div className="flex items-center gap-2 rounded-md border border-muted-foreground/20 bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          <Archive className="size-4 shrink-0" />
+          <span>Кампания в архиве — доступна только для просмотра. Кнопка «Результат» неактивна, зафиксировать звонок нельзя.</span>
+        </div>
+      )}
 
       {/* Прогресс */}
       <div className="grid gap-4 sm:grid-cols-3">
@@ -180,7 +191,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </CardContent>
         </Card>
       ) : (
-        <CampaignItemsTable rows={rows} campaignId={id} />
+        <CampaignItemsTable rows={rows} campaignId={id} readOnly={readOnly} />
       )}
     </div>
   )

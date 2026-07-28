@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { z } from "zod"
+
+const patchSchema = z.object({
+  status: z.enum(["active", "closed", "archived"]),
+})
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
@@ -23,6 +28,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { id } = await params
   const body = await req.json()
+  const parsed = patchSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
+  }
 
   const existing = await db.callCampaign.findFirst({
     where: { id, tenantId: session.user.tenantId, deletedAt: null },
@@ -31,7 +40,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const campaign = await db.callCampaign.update({
     where: { id },
-    data: { status: body.status },
+    data: { status: parsed.data.status },
   })
 
   return NextResponse.json(campaign)

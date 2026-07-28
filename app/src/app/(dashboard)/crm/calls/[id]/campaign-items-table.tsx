@@ -31,7 +31,15 @@ function sortValue(item: CallItem, key: SortKey): string | number | null {
   }
 }
 
-export function CampaignItemsTable({ rows, campaignId }: { rows: CallItem[]; campaignId: string }) {
+export function CampaignItemsTable({
+  rows,
+  campaignId,
+  readOnly = false,
+}: {
+  rows: CallItem[]
+  campaignId: string
+  readOnly?: boolean
+}) {
   // По умолчанию — А-Я по клиенту.
   const [sortKey, setSortKey] = useState<SortKey>("clientName")
   const [sortDir, setSortDir] = useState<SortDir>("asc")
@@ -93,7 +101,7 @@ export function CampaignItemsTable({ rows, campaignId }: { rows: CallItem[]; cam
         </TableHeader>
         <TableBody>
           {sorted.map((item) => (
-            <CallItemRow key={item.id} item={item} campaignId={campaignId} />
+            <CallItemRow key={item.id} item={item} campaignId={campaignId} readOnly={readOnly} />
           ))}
         </TableBody>
       </Table>

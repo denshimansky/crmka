@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Phone, Users } from "lucide-react"
 import Link from "next/link"
 import { CreateCampaignDialog, CreateTaskCampaignDialog } from "./create-campaign-dialog"
+import { CampaignActionsCell } from "./campaign-actions"
 import { PageHelp } from "@/components/page-help"
 
 function formatDate(date: Date): string {
@@ -16,7 +17,7 @@ function formatDate(date: Date): string {
 const STATUS_LABELS: Record<string, string> = {
   active: "Активный",
   closed: "Закрыт",
-  archived: "Архив",
+  archived: "Архивный",
 }
 
 const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline"> = {
@@ -46,6 +47,13 @@ export default async function CallsPage() {
   const activeCampaigns = campaigns.filter(c => c.status === "active").length
   const totalContacts = campaigns.reduce((s, c) => s + c.totalItems, 0)
   const totalCompleted = campaigns.reduce((s, c) => s + c.completedItems, 0)
+
+  // Архивные кампании — в конец списка (внутри групп сохраняется порядок запроса,
+  // createdAt desc).
+  const orderedCampaigns = [
+    ...campaigns.filter(c => c.status !== "archived"),
+    ...campaigns.filter(c => c.status === "archived"),
+  ]
 
   return (
     <div className="space-y-6">
@@ -113,11 +121,12 @@ export default async function CallsPage() {
                 <TableHead className="text-center">Обзвонено</TableHead>
                 <TableHead className="text-center">Осталось</TableHead>
                 <TableHead>Статус</TableHead>
+                <TableHead className="text-right">Действия</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {campaigns.map((c) => (
-                <TableRow key={c.id}>
+              {orderedCampaigns.map((c) => (
+                <TableRow key={c.id} className={c.status === "archived" ? "opacity-60" : ""}>
                   <TableCell>
                     <Link href={`/crm/calls/${c.id}`} className="font-medium text-primary hover:underline">
                       {c.name}
@@ -131,6 +140,9 @@ export default async function CallsPage() {
                     <Badge variant={STATUS_VARIANTS[c.status] || "outline"}>
                       {STATUS_LABELS[c.status] || c.status}
                     </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <CampaignActionsCell campaignId={c.id} status={c.status} campaignName={c.name} />
                   </TableCell>
                 </TableRow>
               ))}

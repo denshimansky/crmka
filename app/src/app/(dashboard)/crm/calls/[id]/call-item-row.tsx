@@ -67,7 +67,15 @@ const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline" | "des
   completed: "default",
 }
 
-export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: string }) {
+export function CallItemRow({
+  item,
+  campaignId,
+  readOnly = false,
+}: {
+  item: CallItem
+  campaignId: string
+  readOnly?: boolean
+}) {
   const router = useRouter()
   const [showForm, setShowForm] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -143,7 +151,13 @@ export function CallItemRow({ item, campaignId }: { item: CallItem; campaignId: 
         <TableCell className="max-w-[200px] truncate text-muted-foreground">{commentText(item)}</TableCell>
         <TableCell>
           {item.status === "pending" ? (
-            <Button size="sm" variant="outline" onClick={() => setShowForm(!showForm)}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={readOnly}
+              title={readOnly ? "Кампания в архиве — только просмотр" : undefined}
+              onClick={() => setShowForm(!showForm)}
+            >
               <Phone className="mr-1 size-3" />
               Результат
             </Button>
