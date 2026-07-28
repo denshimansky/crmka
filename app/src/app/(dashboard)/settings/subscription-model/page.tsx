@@ -2,7 +2,7 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHelp } from "@/components/page-help"
-import { ArrowLeft, Lock, Tag } from "lucide-react"
+import { ArrowLeft, Lock, Tag, BookOpen, FileText, BarChart3, ExternalLink } from "lucide-react"
 import Link from "next/link"
 import { UnpaidAutoCloseForm } from "../unpaid-auto-close-form"
 import { PackageTemplatesContent } from "../package-templates-content"
@@ -109,12 +109,55 @@ export default async function SubscriptionModelPage() {
           </Card>
 
           {org.subscriptionType === "package" && (
-            <div className="md:col-span-2">
-              <PackageTemplatesContent
-                initialDefaultValidDays={org.packageDefaultValidDays}
-                initialNotifyDaysBefore={org.packageExpiryNotifyDaysBefore}
-              />
-            </div>
+            <>
+              <div className="md:col-span-2">
+                <PackageTemplatesContent
+                  initialDefaultValidDays={org.packageDefaultValidDays}
+                  initialNotifyDaysBefore={org.packageExpiryNotifyDaysBefore}
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <Card>
+                  <CardContent className="space-y-3 p-6">
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="size-5 text-primary" />
+                      <h2 className="text-lg font-semibold">Справочные материалы</h2>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <a
+                        href="/help/package-subscriptions"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between rounded-md border p-3 text-sm hover:bg-muted/50"
+                      >
+                        <span className="flex items-center gap-2">
+                          <FileText className="size-4 text-muted-foreground" />
+                          Инструкция по пакетным абонементам
+                        </span>
+                        <ExternalLink className="size-4 shrink-0 text-muted-foreground" />
+                      </a>
+                      <a
+                        href="/internal-docs/package-reports"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between rounded-md border p-3 text-sm hover:bg-muted/50"
+                      >
+                        <span className="flex items-center gap-2">
+                          <BarChart3 className="size-4 text-muted-foreground" />
+                          Методика отчётов при пакетном типе
+                        </span>
+                        <ExternalLink className="size-4 shrink-0 text-muted-foreground" />
+                      </a>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      «Инструкция» открыта по прямой ссылке — её можно отправить сотрудникам без
+                      входа в CRM. «Методика отчётов» — внутренняя, открывается только после входа.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            </>
           )}
         </div>
       )}
