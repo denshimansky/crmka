@@ -1,16 +1,7 @@
-import { db } from "@/lib/db"
-import { getNonWorkingDateSet } from "@/lib/production-calendar"
+import { db as defaultDb } from "@/lib/db"
+import type { Prisma, PrismaClient } from "@prisma/client"
 
-function ymd(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
-}
-
-function jsDayToTemplateDay(jsDay: number): number {
-  return jsDay === 0 ? 6 : jsDay - 1
-}
+type Db = Prisma.TransactionClient | PrismaClient
 
 export interface CountLessonsInput {
   tenantId: string
@@ -22,66 +13,65 @@ export interface CountLessonsInput {
 export interface CountLessonsResult {
   count: number
   hasSchedule: boolean
-  skippedNonWorking: number
 }
 
 /**
- * Чистый подсчёт занятий группы за период по её GroupScheduleTemplate
- * с учётом нерабочих дней производственного календаря. Ничего не пишет
- * в БД — используется для preview массовой выписки.
+ * Количество занятий группы за период — по ФАКТИЧЕСКИМ занятиям (Lesson),
+ * не по проекции шаблона. Используется массовой выпиской абонементов на месяц
+ * (bulk-renew) для числа занятий и суммы.
  *
- * Логика дат идентична generateGroupLessons (см. generate-group-lessons.ts).
- * Шаблоны фильтруются по effectiveFrom/effectiveTo, чтобы не считать слоты,
- * которые в указанном диапазоне ещё/уже не действовали.
+ * Реальные Lesson-строки — единственный источник правды: они уже учитывают
+ * производственный календарь (нерабочие дни пропускаются при генерации и
+ * удаляются реконсиляцией дня), границы жизни группы (start/end_date) и любые
+ * ручные правки расписания. Ручная форма создания абонемента и реконсиляция
+ * дня давно считают именно по Lesson — здесь приводим массовую выписку к тому
+ * же источнику.
+ *
+ * Раньше здесь была проекция GroupScheduleTemplate на диапазон (итерация по
+ * дням + вычет нерабочих). Она расходилась с фактом и завышала выписку —
+ * первопричина бага календаря 29.07.2026:
+ *   - «9 вместо 8»: проекция Пн+Ср считала понедельник 31.08, которого в
+ *     расписании нет (последнее занятие 26.08). Выходные 28–31.08 внесли в
+ *     календарь ПОСЛЕ выписки, а реконсиляция задним числом ничего не сняла —
+ *     Lesson-строки на 31.08 не существовало.
+ *   - «21 вместо 0»: «Летний клуб» закончился 31.07 (end_date), но шаблон
+ *     Пн–Пт (effectiveTo=null) проецировался на весь август → 21 фантомное
+ *     занятие в группе, которой в августе нет.
+ *
+ * hasSchedule = у группы есть активный шаблон расписания в диапазоне. Отделяет
+ * «расписания нет вовсе» от «расписание есть, но занятий в периоде нет» (группа
+ * завершилась / всё нерабочее): обе дают count 0, но bulk-renew показывает для
+ * второй причину «нет занятий», а не «нет расписания».
  */
 export async function countLessonsForGroup(
   opts: CountLessonsInput,
+  client: Db = defaultDb,
 ): Promise<CountLessonsResult> {
   const { tenantId, groupId, rangeStart, rangeEnd } = opts
 
-  const templates = await db.groupScheduleTemplate.findMany({
-    where: {
-      tenantId,
-      groupId,
-      effectiveFrom: { lte: rangeEnd },
-      OR: [{ effectiveTo: null }, { effectiveTo: { gte: rangeStart } }],
-    },
-    select: {
-      dayOfWeek: true,
-      startTime: true,
-      effectiveFrom: true,
-      effectiveTo: true,
-    },
-  })
+  const from = new Date(rangeStart)
+  from.setHours(0, 0, 0, 0)
+  const to = new Date(rangeEnd)
+  to.setHours(23, 59, 59, 999)
 
-  if (templates.length === 0) {
-    return { count: 0, hasSchedule: false, skippedNonWorking: 0 }
-  }
+  const [templateCount, count] = await Promise.all([
+    client.groupScheduleTemplate.count({
+      where: {
+        tenantId,
+        groupId,
+        effectiveFrom: { lte: to },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: from } }],
+      },
+    }),
+    client.lesson.count({
+      where: {
+        tenantId,
+        groupId,
+        status: { not: "cancelled" },
+        date: { gte: from, lte: to },
+      },
+    }),
+  ])
 
-  const nonWorking = await getNonWorkingDateSet(tenantId, rangeStart, rangeEnd)
-  const skipped = new Set<string>()
-
-  const cursor = new Date(rangeStart)
-  cursor.setHours(0, 0, 0, 0)
-  const end = new Date(rangeEnd)
-  end.setHours(0, 0, 0, 0)
-
-  let count = 0
-  while (cursor <= end) {
-    const tDay = jsDayToTemplateDay(cursor.getDay())
-    const dateStr = ymd(cursor)
-    for (const t of templates) {
-      if (t.dayOfWeek !== tDay) continue
-      if (t.effectiveFrom > cursor) continue
-      if (t.effectiveTo && t.effectiveTo < cursor) continue
-      if (nonWorking.has(dateStr)) {
-        skipped.add(dateStr)
-        continue
-      }
-      count++
-    }
-    cursor.setDate(cursor.getDate() + 1)
-  }
-
-  return { count, hasSchedule: true, skippedNonWorking: skipped.size }
+  return { count, hasSchedule: templateCount > 0 }
 }
