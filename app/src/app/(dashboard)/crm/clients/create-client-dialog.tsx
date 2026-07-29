@@ -154,6 +154,12 @@ export function CreateClientDialog({
       return
     }
 
+    // Канал обязателен (баг #84), кроме случая пустого справочника каналов.
+    if (channels.length > 0 && !channelId) {
+      setError("Выберите канал привлечения")
+      return
+    }
+
     for (const w of wards) {
       if (!w.firstName.trim()) {
         setError("Укажите имя каждого подопечного")
@@ -341,23 +347,29 @@ export function CreateClientDialog({
 
             {/* Канал привлечения и желаемый филиал */}
             <div className="grid grid-cols-2 gap-2">
-              {channels.length > 0 && (
-                <div>
-                  <Label>Канал привлечения</Label>
-                  <Select value={channelId} onValueChange={(v) => { if (v) setChannelId(v) }}>
-                    <SelectTrigger className="w-full">
-                      {channelId ? channels.find(c => c.id === channelId)?.name : <span className="text-muted-foreground">Откуда узнал</span>}
-                    </SelectTrigger>
-                    <SelectContent>
-                      {channels.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              {/* Канал обязателен (баг #84) — для маркетинговой атрибуции лида.
+                  Всегда виден; при пустом справочнике не блокируем создание. */}
+              <div>
+                <Label>Канал привлечения *</Label>
+                <Select value={channelId} onValueChange={(v) => { if (v) setChannelId(v) }}>
+                  <SelectTrigger className="w-full">
+                    {channelId ? channels.find(c => c.id === channelId)?.name : <span className="text-muted-foreground">Откуда узнал</span>}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {channels.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {channels.length === 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Нет каналов — добавьте их в{" "}
+                    <a href="/settings" className="underline hover:no-underline">настройках</a>.
+                  </p>
+                )}
+              </div>
               {branches.length > 0 && (
                 <div>
                   <Label>Филиал (желаемый)</Label>

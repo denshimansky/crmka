@@ -23,6 +23,7 @@ import { formatWardName } from "@/lib/format-name"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { useRoleNames } from "@/components/role-names-provider"
 import { truncateGroupName } from "@/lib/format-group"
+import { clientStateLabel } from "@/lib/clients/state-label"
 import {
   EditableDateCell,
   EditableSelectCell,
@@ -137,13 +138,8 @@ function fmtDate(iso: string | null): string {
 }
 
 function stateLabel(r: ContactRow): string {
-  if (r.funnelStatus === "archived") return "Архив"
-  if (r.funnelStatus === "blacklisted") return "Чёрный список"
-  if (r.clientStatus === "active") return "Активный"
-  if (r.clientStatus === "churned") return "Выбывший"
-  if (r.funnelStatus === "non_target") return "Нецелевой"
-  if (r.funnelStatus === "potential") return "Потенциал"
-  return "Лид"
+  // Единый источник правды со статусом в обзвоне и др. (баг #84).
+  return clientStateLabel(r.funnelStatus, r.clientStatus)
 }
 
 // Идентификаторы контентных столбцов — общие для сортировки и ресайза.

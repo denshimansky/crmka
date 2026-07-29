@@ -10,6 +10,7 @@ import { ArrowLeft, Users } from "lucide-react"
 import { GroupTabs } from "./group-tabs"
 import { GroupSalaryRateButton } from "./group-salary-rate-button"
 import { PageHelp } from "@/components/page-help"
+import { getMonthFromParams } from "@/lib/month-params"
 
 const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -44,10 +45,15 @@ function formatDateShort(date: Date): string {
 
 export default async function GroupCardPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const { id } = await params
+  // Месяц из URL (?year&month, 1-based) — переключатель MonthPicker в шапке
+  // табов (баг #84). По умолчанию — текущий месяц.
+  const { year, month } = getMonthFromParams(await searchParams)
   const session = await getSession()
   const tenantId = session.user.tenantId
 
@@ -84,12 +90,10 @@ export default async function GroupCardPage({
     if (!scope.branchIds.includes(group.branchId)) notFound()
   }
 
-  // Занятия за текущий месяц (UTC для корректного сравнения с DATE)
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  const monthStart = new Date(Date.UTC(year, month, 1))
-  const monthEnd = new Date(Date.UTC(year, month + 1, 0))
+  // Занятия за выбранный месяц (UTC для корректного сравнения с DATE).
+  // month из getMonthFromParams — 1-based.
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
+  const monthEnd = new Date(Date.UTC(year, month, 0))
 
   const lessons = await db.lesson.findMany({
     where: {
@@ -103,9 +107,12 @@ export default async function GroupCardPage({
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
   })
 
-  // Зачисления
+  // Зачисления, актуальные на выбранный месяц: зачисленные не позже конца
+  // месяца (enrolledAt <= monthEnd) — при просмотре прошлого месяца более
+  // поздние ученики не показываются; для текущего/будущего — весь состав.
+  // Статус оплаты и active/выбыл берутся по текущему состоянию зачисления.
   const enrollments = await db.groupEnrollment.findMany({
-    where: { groupId: id, tenantId, deletedAt: null },
+    where: { groupId: id, tenantId, deletedAt: null, enrolledAt: { lte: monthEnd } },
     include: {
       client: { select: { id: true, firstName: true, lastName: true, phone: true } },
       ward: { select: { id: true, firstName: true, lastName: true, birthDate: true } },
@@ -169,6 +176,7 @@ export default async function GroupCardPage({
   const enrollmentsData = enrollments.map((e) => ({
     id: e.id,
     clientId: e.client.id,
+    wardId: e.ward?.id ?? null,
     clientName: [e.client.lastName, e.client.firstName].filter(Boolean).join(" ") || "—",
     clientPhone: e.client.phone || "—",
     wardName: e.ward
@@ -190,9 +198,10 @@ export default async function GroupCardPage({
     durationMinutes: t.durationMinutes,
   }))
 
-  const currentMonth = now.getMonth() + 1
-  const currentYear = now.getFullYear()
-  const monthLabel = now.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  const currentMonth = month
+  const currentYear = year
+  const monthLabel = new Date(Date.UTC(year, month - 1, 1))
+    .toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
   return (
     <div className="space-y-6">

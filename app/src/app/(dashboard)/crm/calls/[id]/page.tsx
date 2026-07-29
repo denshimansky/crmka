@@ -10,12 +10,7 @@ import { notFound } from "next/navigation"
 import { CampaignItemsTable } from "./campaign-items-table"
 import type { CallItem } from "./call-item-row"
 import { PageHelp } from "@/components/page-help"
-
-const CLIENT_STATUS_LABELS: Record<string, string> = {
-  active: "Активный",
-  churned: "Выбывший",
-  archived: "Архив",
-}
+import { clientStateLabel } from "@/lib/clients/state-label"
 
 /** Полных лет на дату `now` по дате рождения. */
 function ageYears(birth: Date, now: Date): number {
@@ -45,7 +40,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     include: {
       client: {
         select: {
-          id: true, firstName: true, lastName: true, phone: true, clientStatus: true,
+          id: true, firstName: true, lastName: true, phone: true,
+          funnelStatus: true, clientStatus: true,
           // Все подопечные (детерминированно по дате рождения) — ниже выбираем того,
           // кто попадает в возрастной фильтр кампании, чтобы возраст в таблице
           // соответствовал критерию отбора.
@@ -98,9 +94,10 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       phone: maskPhone(i.client.phone, session.user.role, session.user.instructorsSeePhones) || "",
       wardName,
       age,
-      clientStatusLabel: i.client.clientStatus
-        ? CLIENT_STATUS_LABELS[i.client.clientStatus] || i.client.clientStatus
-        : "",
+      // «Статус клиента» — композитная метка (funnelStatus + clientStatus), как
+      // в разделе «Клиенты». Раньше читался только clientStatus, который NULL у
+      // потенциала/лидов/архива/ЧС/нецелевых → колонка была пустой (баг #84).
+      clientStatusLabel: clientStateLabel(i.client.funnelStatus, i.client.clientStatus),
       status: i.status,
       comment: i.comment,
       result: i.result,

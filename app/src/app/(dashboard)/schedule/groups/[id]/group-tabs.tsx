@@ -36,6 +36,7 @@ import { Archive, ArchiveRestore, ArrowRightLeft, CalendarDays, ExternalLink, Us
 import Link from "next/link"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 import { useRoleNames } from "@/components/role-names-provider"
+import { MonthPicker } from "@/components/month-picker"
 
 interface LessonData {
   id: string
@@ -51,6 +52,7 @@ interface LessonData {
 interface EnrollmentData {
   id: string
   clientId: string
+  wardId: string | null
   clientName: string
   clientPhone: string
   wardName: string | null
@@ -234,10 +236,11 @@ function ScheduleTab({
 
   return (
     <div className="space-y-4 mt-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-base font-medium">
           Занятия за {monthLabel}
         </h3>
+        <MonthPicker />
       </div>
 
       {lessons.length === 0 ? (
@@ -350,10 +353,11 @@ function StudentsTab({
 
   return (
     <div className="space-y-4 mt-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-base font-medium">
           Ученики ({activeEnrollments.length})
         </h3>
+        <MonthPicker />
       </div>
 
       {activeEnrollments.length === 0 ? (
@@ -377,14 +381,24 @@ function StudentsTab({
             {activeEnrollments.map((e) => (
               <TableRow key={e.id}>
                 <TableCell className="font-medium">
-                  {e.wardName || "—"}
+                  {e.wardId && e.wardName ? (
+                    <Link href={`/crm/wards/${e.wardId}`} className="text-primary hover:underline">
+                      {e.wardName}
+                    </Link>
+                  ) : (
+                    e.wardName || "—"
+                  )}
                   {e.wardBirthDate && (
                     <span className="text-xs text-muted-foreground ml-1">
                       ({e.wardBirthDate})
                     </span>
                   )}
                 </TableCell>
-                <TableCell>{e.clientName}</TableCell>
+                <TableCell>
+                  <Link href={`/crm/clients/${e.clientId}`} className="text-primary hover:underline">
+                    {e.clientName}
+                  </Link>
+                </TableCell>
                 <TableCell>{e.clientPhone}</TableCell>
                 <TableCell>{e.enrolledAt}</TableCell>
                 <TableCell>
@@ -418,8 +432,20 @@ function StudentsTab({
             <TableBody>
               {inactiveEnrollments.map((e) => (
                 <TableRow key={e.id} className="opacity-60">
-                  <TableCell>{e.wardName || "—"}</TableCell>
-                  <TableCell>{e.clientName}</TableCell>
+                  <TableCell>
+                    {e.wardId && e.wardName ? (
+                      <Link href={`/crm/wards/${e.wardId}`} className="text-primary hover:underline">
+                        {e.wardName}
+                      </Link>
+                    ) : (
+                      e.wardName || "—"
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/crm/clients/${e.clientId}`} className="text-primary hover:underline">
+                      {e.clientName}
+                    </Link>
+                  </TableCell>
                   <TableCell>{e.clientPhone}</TableCell>
                   <TableCell>{e.enrolledAt}</TableCell>
                   <TableCell>
