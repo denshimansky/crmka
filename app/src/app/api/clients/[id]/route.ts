@@ -22,8 +22,11 @@ const nullableString = z.any().transform(v =>
 )
 
 const updateSchema = z.object({
-  firstName: z.string().min(1).optional(),
-  lastName: z.string().min(1).optional(),
+  // Баг #85: имя/фамилия принимают null и пустую строку (форма шлёт null для
+  // незаполненного поля). Инвариант «хотя бы одно из них» проверяется в handler
+  // против итогового значения (существующее + патч), т.к. PATCH частичный.
+  firstName: nullableString,
+  lastName: nullableString,
   patronymic: nullableString,
   phone: nullableString,
   phone2: nullableString,
@@ -87,6 +90,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     where: { id, tenantId: session.user.tenantId },
   })
   if (!existing) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
+
+  // Баг #85: клиент должен остаться хотя бы с фамилией ИЛИ именем. Проверяем
+  // итог (патч, если поле пришло, иначе текущее значение) — чтобы правка, не
+  // трогающая имена, не падала, а очистка обоих — блокировалась.
+  const hasName = (v: string | null | undefined) => !!(v && v.trim())
+  const resultFirstName = data.firstName !== undefined ? data.firstName : existing.firstName
+  const resultLastName = data.lastName !== undefined ? data.lastName : existing.lastName
+  if (!hasName(resultFirstName) && !hasName(resultLastName)) {
+    return NextResponse.json({ error: "Укажите фамилию или имя" }, { status: 400 })
+  }
 
   // Нельзя вернуть клиента в лида
   if (existing.clientStatus === "active" && data.funnelStatus && data.funnelStatus !== "active_client") {

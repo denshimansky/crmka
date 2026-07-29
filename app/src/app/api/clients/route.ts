@@ -12,8 +12,10 @@ import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
 import { logClientNote } from "@/lib/communications/log-note"
 
 const createSchema = z.object({
-  firstName: z.string().min(1, "Имя обязательно").optional(),
-  lastName: z.string().min(1, "Фамилия обязательна").optional(),
+  // Баг #85: достаточно фамилии ИЛИ имени (пустое поле — undefined, не ошибка).
+  // Требование «хотя бы одно» — в .refine ниже, единое правило с редактированием.
+  firstName: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  lastName: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   patronymic: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   phone: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   phone2: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
@@ -33,6 +35,9 @@ const createSchema = z.object({
     birthDate: z.string().optional(),
     notes: z.string().optional(),
   })).optional(),
+}).refine((d) => !!d.firstName || !!d.lastName, {
+  message: "Укажите фамилию или имя",
+  path: ["lastName"],
 })
 
 export async function GET(req: NextRequest) {
