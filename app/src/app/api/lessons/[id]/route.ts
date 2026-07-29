@@ -9,6 +9,7 @@ import {
   coverageKeysOnDate,
   coverageKey,
 } from "@/lib/subscriptions/roster-filter"
+import { consumedPackageLessonsMap, pickChargeableSubscription } from "@/lib/subscriptions/package-remaining"
 import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { z } from "zod"
 import { isPeriodLocked } from "@/lib/period-check"
@@ -169,6 +170,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       discountPerLesson: true,
       balance: true,
       chargedAmount: true,
+      totalLessons: true,
       startDate: true,
       type: true,
       status: true,
@@ -181,11 +183,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const subscriptions = subscriptionsAll.filter(
     (s) => s.groupId === lesson.groupId && (s.status === "active" || s.status === "pending"),
   )
+  // Пакет к списанию — FIFO по остатку занятий (полностью оплаченный тоже).
+  const routeConsumedById = await consumedPackageLessonsMap(
+    db,
+    tenantId,
+    subscriptions.filter((s) => s.type === "package").map((s) => s.id),
+    lesson.id,
+  )
 
   // Зачисление даёт место в составе, только если есть покрывающий абонемент на
   // дату состава (правило — см. roster-filter.ts). enrolledAt не участвует:
   // границу начала задаёт startDate абонемента.
-  const coveredKeys = coverageKeysOnDate(subscriptionsAll, rosterDate)
+  const coveredKeys = await coverageKeysOnDate(db, tenantId, subscriptionsAll, rosterDate, lesson.id)
   const enrollments = enrollmentsRaw.filter((e) =>
     coveredKeys.has(coverageKey(e.clientId, e.wardId)),
   )
@@ -225,10 +234,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       )
     )
 
-    const subscription = subscriptions.find(
-      (s) => s.clientId === enrollment.clientId && (
-        enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
-      )
+    const subscription = pickChargeableSubscription(
+      subscriptions.filter(
+        (s) => s.clientId === enrollment.clientId && (
+          enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
+        )
+      ),
+      routeConsumedById,
     )
 
     return {

@@ -1,4 +1,7 @@
-import type { Prisma } from "@prisma/client"
+import type { Prisma, PrismaClient } from "@prisma/client"
+import { consumedPackageLessonsMap, packageLessonsRemaining } from "./package-remaining"
+
+type DB = PrismaClient | Prisma.TransactionClient
 
 // Единая логика «состав группы на дату» (граница по withdrawnAt). Используется во
 // ВСЕХ дата-зависимых выборках состава занятия/сетки/отчётов, чтобы они не
@@ -90,8 +93,11 @@ export function isEnrolledOnLesson(
 //   pending («выписан, ждём оплату» — состав наполняется сразу после массовой
 //   выписки) и closed (историю прошлых месяцев кроном переводит в closed —
 //   без него ретро-составы опустели бы). withdrawn НЕ покрывает.
-// - пакетный: startDate <= дата, не истёк (expiresAt), balance > 0 — как в
-//   резолвере списания. Статусы: active, pending.
+// - пакетный: startDate <= дата, не истёк (expiresAt), ЕСТЬ несгоревшие занятия
+//   (totalLessons − израсходовано > 0) — как в резолвере списания. Полностью
+//   оплаченный пакет (balance=0) с остатком занятий покрывает состав; критерий
+//   не по balance (остаток к оплате), а по остатку ЗАНЯТИЙ. Статусы: active,
+//   pending.
 //
 // Матч по НАПРАВЛЕНИЮ (directionId), а не по группе занятия: перевод между
 // группами не переносит groupId абонемента (признанный пробел — bulk-renew
@@ -100,6 +106,7 @@ export function isEnrolledOnLesson(
 
 /** Поля абонемента, достаточные для предиката покрытия. */
 export type CoverageSubscription = {
+  id: string
   clientId: string
   wardId: string | null
   type: string
@@ -108,11 +115,14 @@ export type CoverageSubscription = {
   periodMonth: number | null
   startDate: Date
   expiresAt: Date | null
-  balance: { toString(): string } | number
+  // Пакет покрывает по остатку ЗАНЯТИЙ (totalLessons − израсходовано), а не по
+  // balance. Число израсходованных подгружается батчем в coverageKeysOnDate.
+  totalLessons: number
 }
 
 /** select-фрагмент Prisma под CoverageSubscription. */
 export const coverageSubscriptionSelect = {
+  id: true,
   clientId: true,
   wardId: true,
   type: true,
@@ -121,7 +131,7 @@ export const coverageSubscriptionSelect = {
   periodMonth: true,
   startDate: true,
   expiresAt: true,
-  balance: true,
+  totalLessons: true,
 } as const
 
 /** Единый ключ «ребёнок» для матчинга зачисление ↔ абонемент ↔ отметка. */
@@ -167,24 +177,34 @@ export function coverageSubscriptionsWhere(args: {
         OR: periods,
       },
       {
+        // Остаток занятий (totalLessons − израсходовано) в SQL не выразить —
+        // берём надмножество активных/pending пакетов в сроке, точный остаток
+        // проверяет coverageKeysOnDate по батч-подсчёту. Фильтр balance>0 УБРАН:
+        // полностью оплаченный пакет с занятиями обязан покрывать состав.
         type: "package",
         status: { in: ["active", "pending"] },
         startDate: { lte: to },
-        balance: { gt: 0 },
         OR: [{ expiresAt: null }, { expiresAt: { gte: from } }],
       },
     ],
   }
 }
 
-/** Покрывает ли абонемент дату состава занятия. */
-export function subscriptionCoversDate(s: CoverageSubscription, rosterDate: Date): boolean {
+/**
+ * Покрывает ли абонемент дату состава занятия. Для пакета `consumed` — число
+ * израсходованных занятий (из батч-подсчёта); покрытие есть, пока остаток > 0.
+ */
+export function subscriptionCoversDate(
+  s: CoverageSubscription,
+  rosterDate: Date,
+  consumed = 0,
+): boolean {
   if (s.type === "package") {
     return (
       (s.status === "active" || s.status === "pending") &&
       s.startDate <= rosterDate &&
       (!s.expiresAt || s.expiresAt >= rosterDate) &&
-      Number(s.balance) > 0
+      packageLessonsRemaining(s.totalLessons, consumed) > 0
     )
   }
   if (s.status !== "active" && s.status !== "pending" && s.status !== "closed") return false
@@ -195,14 +215,30 @@ export function subscriptionCoversDate(s: CoverageSubscription, rosterDate: Date
   )
 }
 
-/** Ключи детей, покрытых абонементом на дату состава. */
-export function coverageKeysOnDate(
+/**
+ * Ключи детей, покрытых абонементом на дату состава. Для пакетов остаток занятий
+ * считается батчем (одним groupBy), поэтому функция асинхронная. excludeLessonId —
+ * исключить отметки этого занятия из счёта израсходованного (см.
+ * consumedPackageLessonsMap): роль гейта — ученики без отметки на этом занятии,
+ * им исключение безвредно, а для повторной отметки оно не даёт «занять» самим
+ * этим уроком остаток пакета.
+ */
+export async function coverageKeysOnDate(
+  db: DB,
+  tenantId: string,
   subs: CoverageSubscription[],
   rosterDate: Date,
-): Set<string> {
+  excludeLessonId?: string,
+): Promise<Set<string>> {
+  const packageIds = subs.filter((s) => s.type === "package").map((s) => s.id)
+  const consumedById = await consumedPackageLessonsMap(db, tenantId, packageIds, excludeLessonId)
+
   const keys = new Set<string>()
   for (const s of subs) {
-    if (subscriptionCoversDate(s, rosterDate)) keys.add(coverageKey(s.clientId, s.wardId))
+    const consumed = s.type === "package" ? consumedById.get(s.id) ?? 0 : 0
+    if (subscriptionCoversDate(s, rosterDate, consumed)) {
+      keys.add(coverageKey(s.clientId, s.wardId))
+    }
   }
   return keys
 }

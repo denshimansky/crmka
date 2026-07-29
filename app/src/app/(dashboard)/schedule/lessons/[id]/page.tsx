@@ -8,6 +8,7 @@ import {
   coverageKeysOnDate,
   coverageKey,
 } from "@/lib/subscriptions/roster-filter"
+import { consumedPackageLessonsMap, pickChargeableSubscription } from "@/lib/subscriptions/package-remaining"
 import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { notFound } from "next/navigation"
 import { isUnscoped } from "@/lib/branch-scope"
@@ -151,6 +152,7 @@ export default async function LessonCardPage({
       lessonPrice: true,
       discountPerLesson: true,
       balance: true,
+      totalLessons: true,
       startDate: true,
       type: true,
       status: true,
@@ -185,7 +187,7 @@ export default async function LessonCardPage({
   // границу начала задаёт startDate абонемента (переоформление задним числом).
   // Дети без покрытия, но с отметкой на занятии остаются видимыми ниже —
   // через oneTimeAttendances (их списание и есть разовое).
-  const coveredKeys = coverageKeysOnDate(subscriptionsAll, rosterDate)
+  const coveredKeys = await coverageKeysOnDate(db, tenantId, subscriptionsAll, rosterDate, lesson.id)
   const enrollments = enrollmentsRaw.filter((e) =>
     coveredKeys.has(coverageKey(e.clientId, e.wardId)),
   )
@@ -530,12 +532,24 @@ export default async function LessonCardPage({
       })
     : []
 
+  // Пакет к списанию — FIFO по ОСТАТКУ ЗАНЯТИЙ (как в резолвере отметки): иначе
+  // явный subscriptionId строки мог указать на исчерпанный/чужой пакет.
+  const pageConsumedById = await consumedPackageLessonsMap(
+    db,
+    tenantId,
+    subscriptions.filter((s) => s.type === "package").map((s) => s.id),
+    lesson.id,
+  )
+
   // Build serialized data for client component
   const students = enrollments.map((enrollment) => {
-    const subscription = subscriptions.find(
-      (s) => s.clientId === enrollment.clientId && (
-        enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
-      )
+    const subscription = pickChargeableSubscription(
+      subscriptions.filter(
+        (s) => s.clientId === enrollment.clientId && (
+          enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
+        )
+      ),
+      pageConsumedById,
     )
 
     // На одного ребёнка на занятии может быть несколько строк Attendance

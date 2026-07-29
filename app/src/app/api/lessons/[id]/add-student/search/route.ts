@@ -127,7 +127,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       select: coverageSubscriptionSelect,
     }),
   ])
-  const coveredKeys = coverageKeysOnDate(coverageSubs, rosterDate)
+  const coveredKeys = await coverageKeysOnDate(db, tenantId, coverageSubs, rosterDate, lesson.id)
   // Состав занятия = зачислён на дату И покрыт абонементом на дату (как в page.tsx).
   const rosterKeys = enrollmentsOnDate
     .map((e) => coverageKey(e.clientId, e.wardId))

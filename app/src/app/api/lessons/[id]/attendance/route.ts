@@ -19,7 +19,8 @@ import { reallocateLessonPay, lessonPaySnapshot } from "@/lib/salary/reallocate-
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { effectiveLessonPrice, oneOffPriceWithDiscount } from "@/lib/discounts/effective-price"
 import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
-import { isConsumingAttendanceType } from "@/lib/subscriptions/consumed-lessons"
+import { isConsumingAttendanceType, consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
+import { consumedPackageLessonsMap, pickChargeableSubscription } from "@/lib/subscriptions/package-remaining"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
@@ -445,29 +446,43 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const lessonDate = new Date(effectiveRosterDate(lesson))
       let subscription
       if (org?.subscriptionType === "package") {
-        // Пакетный: FIFO — берём самый старый активный пакет, у которого:
-        //  - startDate <= дата занятия
-        //  - expiresAt не указан ИЛИ >= дата занятия
-        //  - есть остаток (balance > 0)
-        // Только для СПИСЫВАЮЩИХ отметок: пропуск занятие пакета не сжигает,
-        // привязка несписывающей отметки к пакету не нужна.
-        subscription = attendanceType.chargesSubscription
-          ? await tx.subscription.findFirst({
+        // Пакетный: FIFO — самый старый активный пакет с ОСТАТКОМ ЗАНЯТИЙ > 0
+        // (totalLessons − израсходовано, исключая этот урок). Критерий — остаток
+        // ЗАНЯТИЙ, а НЕ balance: полностью оплаченный пакет (balance=0) с
+        // невыгоревшими занятиями обязан находиться, иначе визит уходил в разовое
+        // с баланса родителя. Исключаем этот урок из счёта, чтобы перезапись уже
+        // проведённой отметки не обнуляла остаток самим этим уроком. Только для
+        // СПИСЫВАЮЩИХ отметок: пропуск занятие пакета не сжигает.
+        if (attendanceType.chargesSubscription) {
+          const candidates = await tx.subscription.findMany({
+            where: {
+              tenantId,
+              clientId: data.clientId,
+              groupId: lesson.groupId,
+              type: "package",
+              deletedAt: null,
+              status: { in: ["active", "pending"] },
+              startDate: { lte: lessonDate },
+              OR: [{ expiresAt: null }, { expiresAt: { gte: lessonDate } }],
+              ...(data.wardId ? { wardId: data.wardId } : {}),
+            },
+            orderBy: { startDate: "asc" },
+          })
+          for (const cand of candidates) {
+            const consumed = await tx.attendance.count({
               where: {
                 tenantId,
-                clientId: data.clientId,
-                groupId: lesson.groupId,
-                type: "package",
-                deletedAt: null,
-                status: { in: ["active", "pending"] },
-                startDate: { lte: lessonDate },
-                OR: [{ expiresAt: null }, { expiresAt: { gte: lessonDate } }],
-                balance: { gt: 0 },
-                ...(data.wardId ? { wardId: data.wardId } : {}),
+                subscriptionId: cand.id,
+                lessonId: { not: lessonId },
+                attendanceType: consumedTypeWhereFor("package"),
               },
-              orderBy: { startDate: "asc" },
             })
-          : null
+            if (cand.totalLessons - consumed > 0) {
+              subscription = cand
+              break
+            }
+          }
+        }
       } else {
         // Календарный: поиск по месяцу занятия.
         subscription = await tx.subscription.findFirst({
@@ -1027,13 +1042,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       from: rosterDate,
     }),
   })
-  const coveredKeys = coverageKeysOnDate(subscriptionsAll, rosterDate)
+  const coveredKeys = await coverageKeysOnDate(db, tenantId, subscriptionsAll, rosterDate, lessonId)
   const enrollments = enrollmentsRaw.filter((e) =>
     coveredKeys.has(coverageKey(e.clientId, e.wardId)),
   )
   // Для списания/привязки — как раньше: живые абонементы ЭТОЙ группы.
   const subscriptions = subscriptionsAll.filter(
     (s) => s.groupId === lesson.groupId && (s.status === "active" || s.status === "pending"),
+  )
+  // Остаток занятий по пакетам группы (исключая этот урок) — для выбора пакета к
+  // списанию по FIFO/остатку (полностью оплаченный пакет тоже списывается).
+  const bulkConsumedById = await consumedPackageLessonsMap(
+    db,
+    tenantId,
+    subscriptions.filter((s) => s.type === "package").map((s) => s.id),
+    lessonId,
   )
 
   // Резолв ставки ЗП через единую утилиту: приоритет — GroupSalaryRate
@@ -1090,11 +1113,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const atts = []
 
     for (const enrollment of enrollments) {
-      const subscription = subscriptions.find(
+      // Пакет — по FIFO/остатку занятий (полностью оплаченный тоже списывается);
+      // календарный — первый на месяц (как раньше). Исчерпанный пакет → null →
+      // разовое (ветка ниже).
+      const mySubs = subscriptions.filter(
         (s) => s.clientId === enrollment.clientId && (
           enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
         )
       )
+      const subscription = pickChargeableSubscription(mySubs, bulkConsumedById)
 
       // Если у ученика уже стоит «Назначена отработка» — bulk не перетирает,
       // чтобы случайно не отменить назначение и не списать дважды (списание
