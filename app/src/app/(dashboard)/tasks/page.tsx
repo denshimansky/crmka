@@ -8,6 +8,7 @@ import { TaskList } from "./task-list"
 import { PageHelp } from "@/components/page-help"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
 import { taskVisibilityWhere } from "@/lib/tasks/task-visibility"
+import { branchScopeFromSession } from "@/lib/branch-scope"
 
 export default async function TasksPage() {
   const session = await getSession()
@@ -43,11 +44,14 @@ export default async function TasksPage() {
 
   // Инструктор/«только чтение» видят только свои задачи (assignedTo = я);
   // управленцы — все задачи организации. См. lib/tasks/task-visibility.ts.
+  // ADM-04: админ с привязкой к филиалу видит только задачи своих филиалов
+  // (тот же scope, что на дашборде) — согласовано с task-visibility.
+  const scope = branchScopeFromSession(session.user.allowedBranchIds)
   const tasks = await db.task.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      ...taskVisibilityWhere(role, employeeId),
+      ...taskVisibilityWhere(role, employeeId, scope),
     },
     include: {
       assignee: { select: { id: true, firstName: true, lastName: true } },

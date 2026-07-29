@@ -267,3 +267,31 @@ export function scopeTrialLesson(
     ],
   }
 }
+
+// Task — скоуп-админ филиала видит задачу, если:
+//   • она назначена лично ему (Task.assignedTo) — видна всегда, вне филиала;
+//   • она о клиенте его филиала (Task.client → сегментная видимость
+//     scopeClientByBranch, мультифилиальная логика бага #79); клиентские
+//     авто-задачи (контакт/оплата/ДР/«не был»/напоминания/переназначить
+//     отработку) идут этим правилом;
+//   • у неё явно проставлен филиал (Task.branchId) в scope — так привязана
+//     единственная авто-задача без клиента, «Отметить занятие»: branchId =
+//     филиалу группы на момент создания (см. generate-tasks.ts). Исполнителя
+//     (инструктора) как прокси НЕ используем: инструкторы часто без привязок
+//     EmployeeBranch, и scopeEmployee тогда матчит их всем филиалам → протечка.
+// Задача без клиента и без branchId (напр. ручная «прочее», не назначенная мне)
+// скоуп-админу не видна — режем в пользу изоляции филиалов.
+export function scopeTaskByBranch(
+  scope: BranchScope,
+  employeeId: string | null | undefined,
+): Prisma.TaskWhereInput {
+  if (isUnscoped(scope)) return {}
+  const meId = employeeId ?? "00000000-0000-0000-0000-000000000000"
+  return {
+    OR: [
+      { assignedTo: meId },
+      { client: scopeClientByBranch(scope) },
+      { branchId: { in: scope.branchIds } },
+    ],
+  }
+}

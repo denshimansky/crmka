@@ -215,6 +215,7 @@ model Branch {
   adminBonusSettings AdminBonusSettings[]
   stockBalances      StockBalance[]
   applications       Application[]
+  tasks              Task[]
 
   @@index([tenantId])
   @@map("branches")
@@ -1052,6 +1053,10 @@ model Task {
   assignedTo  String           @map("assigned_to") @db.Uuid
   assignedBy  String?          @map("assigned_by") @db.Uuid
   clientId    String?          @map("client_id") @db.Uuid
+  // Денормализованный филиал задачи (ADM-04). Для задач без клиента (авто-задача
+  // «Отметить занятие») это единственная привязка к филиалу — проставляется из
+  // group.branchId при создании. NULL = общая/без филиала (видна всем).
+  branchId    String?          @map("branch_id") @db.Uuid
   completedAt DateTime?        @map("completed_at")
   completedBy String?          @map("completed_by") @db.Uuid
   createdAt   DateTime         @default(now()) @map("created_at")
@@ -1060,9 +1065,11 @@ model Task {
 
   assignee Employee @relation("TaskAssignee", fields: [assignedTo], references: [id])
   client   Client?  @relation(fields: [clientId], references: [id])
+  branch   Branch?  @relation(fields: [branchId], references: [id])
 
   @@index([tenantId, status, dueDate])
   @@index([tenantId, assignedTo])
+  @@index([tenantId, branchId])
   @@map("tasks")
 }
 

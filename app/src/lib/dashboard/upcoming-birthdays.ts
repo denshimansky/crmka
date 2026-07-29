@@ -1,4 +1,5 @@
 import { type Prisma, type PrismaClient } from "@prisma/client"
+import { isUnscoped, scopeEmployee, type BranchScope } from "@/lib/branch-scope"
 
 type DB = PrismaClient | Prisma.TransactionClient
 
@@ -68,7 +69,15 @@ export async function computeUpcomingBirthdays(
   db: DB,
   tenantId: string,
   today: Date,
+  scope: BranchScope = { mode: "all" },
 ): Promise<BirthdaysData> {
+  // ADM-04: скоуп-админ видит ДР детей, у кого активный абонемент в ЕГО филиале,
+  // и ДР сотрудников его филиала. Для scope="all" фрагменты пустые.
+  const branchIn = isUnscoped(scope) ? null : { in: scope.branchIds }
+  const activeSubScope = branchIn
+    ? { deletedAt: null, status: "active" as const, group: { branchId: branchIn } }
+    : { deletedAt: null, status: "active" as const }
+
   // Ward не имеет soft-delete → отсекаем детей удалённых клиентов через client.
   // Показываем только детей с хотя бы одним активным абонементом.
   const [wards, employees] = await Promise.all([
@@ -77,7 +86,7 @@ export async function computeUpcomingBirthdays(
         tenantId,
         birthDate: { not: null },
         client: { deletedAt: null },
-        subscriptions: { some: { deletedAt: null, status: "active" } },
+        subscriptions: { some: activeSubScope },
       },
       select: { id: true, firstName: true, lastName: true, birthDate: true },
     }),
@@ -88,6 +97,7 @@ export async function computeUpcomingBirthdays(
         isActive: true,
         type: "ACTIVE",
         birthDate: { not: null },
+        ...scopeEmployee(scope),
       },
       select: { id: true, firstName: true, lastName: true, middleName: true, birthDate: true },
     }),

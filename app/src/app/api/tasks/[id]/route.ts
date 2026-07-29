@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { requirePermission } from "@/lib/api-permissions"
 import { seesAllTasks } from "@/lib/tasks/task-visibility"
+import { branchScopeFromSession, scopeTaskByBranch } from "@/lib/branch-scope"
 import type { Role } from "@prisma/client"
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -13,8 +14,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params
   const body = await req.json()
 
+  // ADM-04: скоуп-админ может работать только с задачами своих филиалов — задача
+  // чужого филиала для него «не найдена» (как и в скоуп-списках). Для владельца/
+  // управляющего scope="all" → фрагмент пустой, поведение прежнее.
+  const scope = branchScopeFromSession(session.user.allowedBranchIds)
   const existing = await db.task.findFirst({
-    where: { id, tenantId: session.user.tenantId, deletedAt: null },
+    where: {
+      id,
+      tenantId: session.user.tenantId,
+      deletedAt: null,
+      ...scopeTaskByBranch(scope, session.user.employeeId ?? null),
+    },
   })
   if (!existing) return NextResponse.json({ error: "Задача не найдена" }, { status: 404 })
 
@@ -62,12 +72,21 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   // Удаление задач — управленческое действие (владелец/управляющий/администратор).
   const guard = await requirePermission("clients.edit")
   if (!guard.ok) return guard.response
-  const session = guard.session! as { user: { tenantId: string } }
+  const user = guard.session!.user as {
+    role: string; tenantId: string; employeeId: string | null; allowedBranchIds: string[] | null
+  }
 
   const { id } = await params
 
+  // ADM-04: удалить чужой филиал нельзя — задача вне scope «не найдена».
+  const scope = branchScopeFromSession(user.allowedBranchIds)
   const existing = await db.task.findFirst({
-    where: { id, tenantId: session.user.tenantId, deletedAt: null },
+    where: {
+      id,
+      tenantId: user.tenantId,
+      deletedAt: null,
+      ...scopeTaskByBranch(scope, user.employeeId ?? null),
+    },
   })
   if (!existing) return NextResponse.json({ error: "Задача не найдена" }, { status: 404 })
 

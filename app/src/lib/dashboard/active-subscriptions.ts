@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
+import { isUnscoped, type BranchScope } from "@/lib/branch-scope"
 
 type DB = PrismaClient | Prisma.TransactionClient
 
@@ -43,6 +44,7 @@ export async function computeActiveSubscriptionsByBranch(
   tenantId: string,
   year: number,
   month: number,
+  scope: BranchScope = { mode: "all" },
 ): Promise<ActiveSubsData> {
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
@@ -50,6 +52,16 @@ export async function computeActiveSubscriptionsByBranch(
   const prevEnd = new Date(Date.UTC(year, month - 1, 0, 23, 59, 59, 999))
 
   const factType = { attendanceType: { partOfFact: true } }
+
+  // ADM-04: филиальный scope. Абонемент/занятие/оплата привязаны к филиалу через
+  // group.branchId. Для scope="all" (владелец/управляющий) все фрагменты пустые.
+  const branchIn = isUnscoped(scope) ? null : { in: scope.branchIds }
+  // «Занятие в видимом филиале» — вкладывается в lesson: { date, ...lessonGroupScope }.
+  const lessonGroupScope = branchIn ? { group: { branchId: branchIn } } : {}
+  // «Оплата абонемента видимого филиала» — Payment → subscription → group.
+  const paySubScope = branchIn ? { subscription: { group: { branchId: branchIn } } } : {}
+  // «Абонемент видимого филиала» — Subscription → group (для activeNow).
+  const subGroupScope = branchIn ? { group: { branchId: branchIn } } : {}
 
   const [attCur, payCur, attPrev, payPrev, activeNow] = await Promise.all([
     // Текущий месяц: занятия со списанием → активированные абонементы.
@@ -61,7 +73,7 @@ export async function computeActiveSubscriptionsByBranch(
         subscriptionId: { not: null },
         isPending: false,
         ...factType,
-        lesson: { date: { gte: monthStart, lte: monthEnd } },
+        lesson: { date: { gte: monthStart, lte: monthEnd }, ...lessonGroupScope },
       },
       select: { subscriptionId: true },
     }),
@@ -79,6 +91,7 @@ export async function computeActiveSubscriptionsByBranch(
         amount: { gt: 0 },
         subscriptionId: { not: null },
         date: { gte: monthStart, lte: monthEnd },
+        ...paySubScope,
       },
       select: { subscriptionId: true },
     }),
@@ -90,7 +103,7 @@ export async function computeActiveSubscriptionsByBranch(
         isPending: false,
         wardId: { not: null },
         ...factType,
-        lesson: { date: { gte: prevStart, lte: prevEnd } },
+        lesson: { date: { gte: prevStart, lte: prevEnd }, ...lessonGroupScope },
       },
       select: { wardId: true, lesson: { select: { groupId: true } } },
     }),
@@ -103,12 +116,13 @@ export async function computeActiveSubscriptionsByBranch(
         amount: { gt: 0 },
         subscriptionId: { not: null },
         date: { gte: prevStart, lte: prevEnd },
+        ...paySubScope,
       },
       select: { subscription: { select: { wardId: true, groupId: true } } },
     }),
     // Активные на текущий момент.
     db.subscription.findMany({
-      where: { tenantId, deletedAt: null, status: "active" },
+      where: { tenantId, deletedAt: null, status: "active", ...subGroupScope },
       select: {
         group: { select: { branchId: true, branch: { select: { name: true } } } },
       },

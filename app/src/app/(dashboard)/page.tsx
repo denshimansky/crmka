@@ -34,7 +34,16 @@ import { computeActiveSubscriptionsByBranch } from "@/lib/dashboard/active-subsc
 import { computeUpcomingBirthdays } from "@/lib/dashboard/upcoming-birthdays"
 import { computePlannedExpensesWithFact } from "@/lib/finance/planned-expenses"
 import { computeSalesFunnel, summarizeSalesFunnel } from "@/lib/reports/sales-funnel"
-import { branchScopeFromSession, scopeFinancialAccount } from "@/lib/branch-scope"
+import {
+  branchScopeFromSession,
+  scopeFinancialAccount,
+  scopeLesson,
+  scopeTrialLesson,
+  scopeGroup,
+  scopeSubscription,
+  scopeExpense,
+  scopePaymentByAccount,
+} from "@/lib/branch-scope"
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
@@ -90,6 +99,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   }
   const can = (perm: PermissionKey) => hasPermission(session.user.role, perm, orgPerms)
 
+  // ADM-04: филиальный scope сессии. Для владельца/управляющего и админа без
+  // привязок — mode "all" (все хелперы scope* становятся no-op). Для админа с
+  // привязкой к филиалу(-ам) — ограничение по его филиалам. Применяется КО ВСЕМ
+  // виджетам ниже, чтобы скоуп-админ не видел задачи/занятия/пробники/абонементы
+  // чужих филиалов.
+  const scope = branchScopeFromSession(session.user.allowedBranchIds)
+
   // Валюта расчёта организации (отображение символа/формата). Локальный
   // formatMoney теперь форматирует в валюте организации.
   const currency = orgUi?.currency ?? "RUB"
@@ -119,27 +135,31 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   // Активные ученики (уникальные клиенты с активными абонементами)
   const activeSubscriptions = await db.subscription.count({
-    where: { tenantId, deletedAt: null, status: "active" },
+    where: { tenantId, deletedAt: null, status: "active", ...scopeSubscription(scope) },
   })
 
   // Доходы за месяц — приходы из ДДС (фактически полученные деньги).
   // Не путаем с выручкой ОПИУ (отработанные занятия). На дашборде показываем
   // именно деньги в кассу/на счёт. refund и transfer_in не считаем — это не
   // «новые деньги», а возврат/внутреннее перемещение.
+  // ADM-04: доход по видимым счетам (scopePaymentByAccount) — скоуп-админ не
+  // считает движения по счетам чужих/общих филиалов. Карточка «Доходы» и так
+  // скрыта у админа (finance.result), scope здесь — защита на случай выдачи прав.
   const monthIncomeData = await db.payment.aggregate({
     where: {
       tenantId,
       deletedAt: null,
       date: { gte: monthStart, lte: monthEnd },
       type: "incoming",
+      ...scopePaymentByAccount(scope),
     },
     _sum: { amount: true },
   })
   const monthIncome = Number(monthIncomeData._sum.amount || 0)
 
-  // Расходы за месяц
+  // Расходы за месяц (ADM-04: только расходы видимых филиалов)
   const monthExpensesData = await db.expense.aggregate({
-    where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd } },
+    where: { tenantId, deletedAt: null, date: { gte: monthStart, lte: monthEnd }, ...scopeExpense(scope) },
     _sum: { amount: true },
   })
   const monthExpenses = Number(monthExpensesData._sum.amount || 0)
@@ -149,16 +169,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // (expectedSubs) — чтобы карточка «Должники» на дашборде совпадала с ним по
   // сумме. См. блок «Ожидаемые поступления средств».
 
-  // Задачи на сегодня (и просроченные). Для админа/менеджера/владельца — все
-  // задачи тенанта; для прочих ролей (инструктор, readonly) — только свои.
-  // Единое правило видимости — lib/tasks/task-visibility.ts.
+  // Задачи на сегодня (и просроченные). Для менеджера/владельца — все задачи
+  // тенанта; админ с привязкой к филиалу — только задачи своих филиалов (по
+  // клиенту/исполнителю/назначенные лично, ADM-04); инструктор/readonly — только
+  // свои. Единое правило видимости — lib/tasks/task-visibility.ts.
   const todayTasks = await db.task.findMany({
     where: {
       tenantId,
       deletedAt: null,
       status: "pending",
       dueDate: { lte: today },
-      ...taskVisibilityWhere(session.user.role, session.user.employeeId ?? null),
+      ...taskVisibilityWhere(session.user.role, session.user.employeeId ?? null, scope),
     },
     select: {
       id: true,
@@ -220,6 +241,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       status: "scheduled",
       // isPending-плейсхолдер разового ученика — не отметка
       attendances: { none: { isPending: false } },
+      // ADM-04: только занятия групп видимых филиалов.
+      ...scopeLesson(scope),
     },
     include: {
       group: { select: { name: true } },
@@ -246,7 +269,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const funnelMonth = summarizeSalesFunnel(
     await computeSalesFunnel(tenantId, year, month, {
       withRows: false,
-      scope: branchScopeFromSession(session.user.allowedBranchIds),
+      scope,
     })
   )
   const funnelStageColors: Record<string, string> = {
@@ -267,7 +290,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // самые пустые сверху. Это «требуют внимания», полный отчёт — по ссылке.
   // Одноразовые технические группы не показываем.
   const groups = await db.group.findMany({
-    where: { tenantId, deletedAt: null, isActive: true, isOneTime: false },
+    where: { tenantId, deletedAt: null, isActive: true, isOneTime: false, ...scopeGroup(scope) },
     select: {
       id: true,
       name: true,
@@ -315,6 +338,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       deletedAt: null,
       status: { in: ["active", "pending"] },
       client: { clientStatus: "active" },
+      // ADM-04: абонементы групп видимых филиалов (виджет и карточка «Должники»
+      // скрыты у админа без reports.finance/finance.view, scope — защита прав).
+      ...scopeSubscription(scope),
       ...(isPackageOrg
         ? {
             type: "package",
@@ -406,6 +432,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // «заполняется вручную раз в месяц».
   const profitSubAmount = incomeTotals.subAmount
 
+  // ADM-04: profitSubAmount уже заскоуплен (через expectedSubs), но прогноз ЗП и
+  // плановые расходы ниже остаются общеорганизационными. Виджеты «Прогноз
+  // прибыли»/«Плановые расходы» скрыты у скоуп-админа (reports.finance/
+  // finance.result), поэтому протечки нет. Если такие права выдадут админу —
+  // отдельно заскоупить salary/planned по филиалам (семантика «общих» статей
+  // без филиала требует продуктового решения).
   const [salaryForecast, plannedFixed, plannedVariable] = await Promise.all([
     computeMonthlySalaryForecast(db, tenantId, year, month),
     db.plannedExpense.findMany({
@@ -446,7 +478,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     String(year).slice(2)
 
   // === АКТИВНЫЕ АБОНЕМЕНТЫ (по филиалам, за месяц) ===
-  const activeSubsData = await computeActiveSubscriptionsByBranch(db, tenantId, year, month)
+  const activeSubsData = await computeActiveSubscriptionsByBranch(db, tenantId, year, month, scope)
   const fmtCount = (n: number) => (n > 0 ? String(n) : "—")
 
   // === ОСТАТКИ ДЕНЕГ (по счетам/кассам) ===
@@ -458,7 +490,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       tenantId,
       isActive: true,
       deletedAt: null,
-      ...scopeFinancialAccount(branchScopeFromSession(session.user.allowedBranchIds)),
+      ...scopeFinancialAccount(scope),
     },
     select: { id: true, name: true, balance: true },
     orderBy: { name: "asc" },
@@ -475,6 +507,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       scheduledDate: { gte: monthStart, lte: monthEnd },
       status: "no_show",
       client: { deletedAt: null },
+      // ADM-04: пробные видимых филиалов (по группе/кабинету пробного).
+      ...scopeTrialLesson(scope),
     },
     select: {
       id: true,
@@ -516,14 +550,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // === ДНИ РОЖДЕНИЯ (дети с активным абонементом + сотрудники, окно 30 дней) ===
   // Отсчёт от реального «сегодня», не зависит от выбранного месяца.
   const realToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  const birthdaysData = await computeUpcomingBirthdays(db, tenantId, realToday)
+  const birthdaysData = await computeUpcomingBirthdays(db, tenantId, realToday, scope)
   const birthdaysCount = birthdaysData.children.length + birthdaysData.staff.length
 
   // === ОТРАБОТАННЫЕ АБОНЕМЕНТЫ (по филиалам, за месяц) — reports-logic §5.10 ===
   // Сумма абонементов = SUM(finalAmount) всех выписанных за период; Отработано
   // = SUM(chargedAmount) — накопленные списания с абонемента (доход в финрезе).
   const workedSubsRaw = await db.subscription.findMany({
-    where: { tenantId, deletedAt: null, periodYear: year, periodMonth: month },
+    where: { tenantId, deletedAt: null, periodYear: year, periodMonth: month, ...scopeSubscription(scope) },
     select: {
       finalAmount: true,
       chargedAmount: true,

@@ -117,7 +117,7 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
     // только неотмеченные разовые, тоже считается неотмеченным.
     const unmarkedLessons = await db.lesson.findMany({
       where: { tenantId, date: yesterday, status: "scheduled", attendances: { none: { isPending: false } } },
-      select: { id: true, group: { select: { name: true, instructorId: true } } },
+      select: { id: true, group: { select: { name: true, instructorId: true, branchId: true } } },
     })
     for (const l of unmarkedLessons) {
       const exists = await db.task.findFirst({
@@ -128,7 +128,9 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
           data: {
             tenantId, title: `Отметить занятие: ${l.group.name}`,
             type: "auto", autoTrigger: "unmarked_lesson", status: "pending",
-            dueDate: today, assignedTo: l.group.instructorId,
+            // branchId — филиал группы: скоуп-админ видит задачу только своего
+            // филиала (у задачи «Отметить занятие» нет клиента, привязка — здесь).
+            dueDate: today, assignedTo: l.group.instructorId, branchId: l.group.branchId,
           },
         })
         created++
