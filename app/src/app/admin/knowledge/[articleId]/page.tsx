@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
-import { ArrowLeft, Pencil, ExternalLink, Heading, Type, ImageIcon, Video } from "lucide-react"
+import { ArrowLeft, Pencil, ExternalLink, Heading, Type, ImageIcon, ClipboardPaste, Video } from "lucide-react"
 import { KbBlockEditor, type EditableBlock } from "@/components/kb/kb-block-editor"
 
 interface ArticleData {
@@ -80,19 +80,67 @@ export default function AdminArticleEditorPage() {
   const addHeading = () => run(() => req("POST", "/api/admin/kb/blocks", { articleId, type: "heading", text: "Новый заголовок", level: 2 }))
   const addText = () => run(() => req("POST", "/api/admin/kb/blocks", { articleId, type: "text", text: "Новый текстовый блок." }))
 
+  // Загрузка одной картинки новым блоком — общий путь для файла и буфера обмена.
+  const uploadImage = async (file: File) => {
+    const fd = new FormData()
+    fd.append("file", file)
+    const r = await fetch("/api/admin/kb/upload", { method: "POST", body: fd })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(d.error || "Ошибка загрузки")
+    await req("POST", "/api/admin/kb/blocks", { articleId, type: "image", mediaUrl: d.url })
+  }
+
   const onImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
-    await run(async () => {
-      const fd = new FormData()
-      fd.append("file", f)
-      const r = await fetch("/api/admin/kb/upload", { method: "POST", body: fd })
-      const d = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(d.error || "Ошибка загрузки")
-      await req("POST", "/api/admin/kb/blocks", { articleId, type: "image", mediaUrl: d.url })
-    })
+    await run(() => uploadImage(f))
     if (fileRef.current) fileRef.current.value = ""
   }
+
+  // Кнопка «Из буфера»: клик — это жест пользователя, поэтому Clipboard API
+  // обычно отдаёт содержимое без запроса разрешения. Если API недоступен или
+  // картинки в буфере нет — подсказываем про Ctrl+V (его ловит эффект ниже).
+  const pasteImageFromClipboard = async () => {
+    setError("")
+    try {
+      const items = navigator.clipboard?.read ? await navigator.clipboard.read() : []
+      for (const item of items) {
+        const type = item.types.find((t) => t.startsWith("image/"))
+        if (type) {
+          const blob = await item.getType(type)
+          await run(() => uploadImage(new File([blob], "clipboard", { type })))
+          return
+        }
+      }
+      setError("В буфере нет картинки. Скопируйте изображение и нажмите Ctrl+V прямо на странице.")
+    } catch {
+      setError("Браузер не дал прочитать буфер. Нажмите Ctrl+V прямо на странице, чтобы вставить картинку.")
+    }
+  }
+
+  // Ctrl+V в любом месте редактора: если в буфере картинка — грузим её блоком.
+  // Обычную вставку текста (в поля/блоки) не трогаем — реагируем только на файл-картинку.
+  useEffect(() => {
+    if (!canEdit || renameOpen || videoOpen) return
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i]
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const file = it.getAsFile()
+          if (file) {
+            e.preventDefault()
+            void run(() => uploadImage(file))
+            return
+          }
+        }
+      }
+    }
+    document.addEventListener("paste", onPaste)
+    return () => document.removeEventListener("paste", onPaste)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, articleId, renameOpen, videoOpen])
 
   const submitVideo = async () => {
     setSaving(true)
@@ -203,13 +251,17 @@ export default function AdminArticleEditorPage() {
       </div>
 
       {canEdit && (
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={addHeading}><Heading className="mr-1.5 size-4" />Заголовок</Button>
-          <Button variant="outline" size="sm" onClick={addText}><Type className="mr-1.5 size-4" />Текст</Button>
-          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><ImageIcon className="mr-1.5 size-4" />Фото</Button>
-          <Button variant="outline" size="sm" onClick={() => { setVideoUrl(""); setVideoOpen(true) }}><Video className="mr-1.5 size-4" />Видео</Button>
-          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={onImageFile} />
-        </div>
+        <>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={addHeading}><Heading className="mr-1.5 size-4" />Заголовок</Button>
+            <Button variant="outline" size="sm" onClick={addText}><Type className="mr-1.5 size-4" />Текст</Button>
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><ImageIcon className="mr-1.5 size-4" />Фото</Button>
+            <Button variant="outline" size="sm" onClick={pasteImageFromClipboard}><ClipboardPaste className="mr-1.5 size-4" />Из буфера</Button>
+            <Button variant="outline" size="sm" onClick={() => { setVideoUrl(""); setVideoOpen(true) }}><Video className="mr-1.5 size-4" />Видео</Button>
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={onImageFile} />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">Картинку можно вставить из буфера: кнопка «Из буфера» или Ctrl+V прямо на странице.</p>
+        </>
       )}
 
       {/* Диалог переименования */}
