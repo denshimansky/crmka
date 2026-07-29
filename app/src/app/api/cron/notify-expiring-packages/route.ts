@@ -6,8 +6,8 @@ export const maxDuration = 120
 
 // POST /api/cron/notify-expiring-packages
 //
-// Раз в сутки создаёт in-app уведомления о скорых истечениях пакетов.
-// Авторизация: header Authorization: Bearer ${CRON_SECRET}.
+// Раз в сутки: уведомления в колокольчик + задачи админам о скорых истечениях
+// пакетов (с несгоревшими занятиями). Авторизация: header Authorization: Bearer ${CRON_SECRET}.
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET
   if (!secret) {

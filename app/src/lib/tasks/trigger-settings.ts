@@ -36,6 +36,7 @@ export const TRIGGER_LABEL: Record<TaskAutoTrigger, string> = {
   trial_reminder: "Напоминание о пробном",
   absence: "Пропуск занятия",
   missed_makeup: "Отработка не состоялась (переназначить)",
+  package_expiring: "Пакет скоро истекает (несгоревшие занятия)",
 }
 
 /** Краткое описание условия, при котором создаётся автозадача. */
@@ -57,6 +58,8 @@ export const TRIGGER_DESCRIPTION: Record<TaskAutoTrigger, string> = {
   absence: "Подопечный пропустил занятие",
   missed_makeup:
     "Назначенная отработка не состоялась — нужно переназначить",
+  package_expiring:
+    "Срок пакета истекает в ближайшие дни, а занятия ещё не сгорели",
 }
 
 export function parseTriggerSettings(raw: unknown): TriggerSetting[] {

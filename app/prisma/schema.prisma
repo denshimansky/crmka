@@ -1687,6 +1687,7 @@ enum TaskAutoTrigger {
   missed_makeup
   no_show_review
   first_paid_reminder
+  package_expiring
 }
 
 enum TaskStatus {
