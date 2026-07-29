@@ -140,7 +140,10 @@ export default function AdminArticleEditorPage() {
   if (loading) return <div className="p-6 text-muted-foreground">Загрузка...</div>
   if (!article) return <div className="p-6 text-muted-foreground">Статья не найдена. <Link href="/admin/knowledge" className="text-primary hover:underline">Назад</Link></div>
 
-  const previewHref = `/knowledge/${article.section.slug}/${article.slug}`
+  // Предпросмотр — в бэк-офисе (admin-API отдаёт и черновики). Читалка
+  // /knowledge/… показывает только опубликованное и требует сессию арендатора,
+  // поэтому черновик там 404 (баг «предпросмотр кидает на 404»).
+  const previewHref = `/admin/knowledge/${articleId}/preview`
 
   return (
     <div className="p-6">
