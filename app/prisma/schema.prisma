@@ -468,9 +468,37 @@ model Direction {
   clientBalanceTransactions ClientBalanceTransaction[]
   defaultForEmployees       Employee[]                 @relation("EmployeeDefaultDirection")
   salaryPaymentItems        SalaryPaymentItem[]
+  priceVersions             DirectionPrice[]
 
   @@index([tenantId])
   @@map("directions")
+}
+
+// Запланированные будущие изменения цены направления (баг #88). Каждая строка —
+// полный снимок прайс-блока, вступающий в силу с даты effectiveFrom (по
+// Subscription.startDate). Базовые поля Direction остаются «живой» ценой;
+// ежедневный крон-промоутер (lib/cron/promote-direction-prices.ts) переносит
+// наступившую версию в Direction и ставит appliedAt. Резолвер по дате —
+// lib/subscriptions/direction-price.ts (точки создания абонемента).
+model DirectionPrice {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  directionId      String    @map("direction_id") @db.Uuid
+  effectiveFrom    DateTime  @map("effective_from") @db.Date
+  lessonPrice      Decimal   @map("lesson_price") @db.Decimal(12, 2)
+  trialPrice       Decimal?  @map("trial_price") @db.Decimal(12, 2)
+  trialFree        Boolean   @default(false) @map("trial_free")
+  singleVisitPrice Decimal?  @map("single_visit_price") @db.Decimal(12, 2)
+  packagePrices    Json?     @map("package_prices")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  createdBy        String?   @map("created_by") @db.Uuid
+  appliedAt        DateTime? @map("applied_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  direction Direction @relation(fields: [directionId], references: [id])
+
+  @@index([tenantId, directionId, effectiveFrom])
+  @@map("direction_prices")
 }
 
 // === ГРУППЫ И РАСПИСАНИЕ ===
