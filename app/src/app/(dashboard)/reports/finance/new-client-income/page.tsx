@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { ReportShell, ReportStatus, useReportObject, fmtMoney } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportObject, useFmtMoney } from "@/components/report-scaffold"
 
 interface Data {
   newClients: { count: number; income: number }
@@ -10,6 +10,7 @@ interface Data {
 
 export default function NewClientIncomeReportPage() {
   const { loading, error, data } = useReportObject<Data>("/api/reports/new-client-income")
+  const fmtMoney = useFmtMoney()
 
   return (
     <ReportShell

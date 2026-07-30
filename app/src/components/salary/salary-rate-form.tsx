@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Plus, Trash2 } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 export type SchemeKey =
   | "per_student"
@@ -78,6 +79,7 @@ function parseNum(s: string): number | null {
 }
 
 export function SalaryRateForm({ value, onChange, hideTrialPay }: SalaryRateFormProps) {
+  const sym = useCurrencySymbol()
   const patch = (p: Partial<RateFormValue>) => onChange({ ...value, ...p })
 
   function addBracket() {
@@ -114,7 +116,7 @@ export function SalaryRateForm({ value, onChange, hideTrialPay }: SalaryRateForm
 
       {(value.scheme === "per_student" || value.scheme === "fixed_plus_per_student") && (
         <div className="space-y-1.5">
-          <Label>Ставка за ученика, ₽</Label>
+          <Label>Ставка за ученика, {sym}</Label>
           <Input
             type="number"
             step="0.01"
@@ -127,7 +129,7 @@ export function SalaryRateForm({ value, onChange, hideTrialPay }: SalaryRateForm
 
       {value.scheme === "per_lesson" && (
         <div className="space-y-1.5">
-          <Label>Ставка за занятие, ₽</Label>
+          <Label>Ставка за занятие, {sym}</Label>
           <Input
             type="number"
             step="0.01"
@@ -140,7 +142,7 @@ export function SalaryRateForm({ value, onChange, hideTrialPay }: SalaryRateForm
 
       {value.scheme === "fixed_plus_per_student" && (
         <div className="space-y-1.5">
-          <Label>Фикс за выход, ₽</Label>
+          <Label>Фикс за выход, {sym}</Label>
           <Input
             type="number"
             step="0.01"
@@ -211,7 +213,7 @@ export function SalaryRateForm({ value, onChange, hideTrialPay }: SalaryRateForm
                     }
                     className="h-8 w-24"
                   />
-                  <span className="text-xs text-muted-foreground">₽</span>
+                  <span className="text-xs text-muted-foreground">{sym}</span>
                   <Button
                     type="button"
                     size="icon"

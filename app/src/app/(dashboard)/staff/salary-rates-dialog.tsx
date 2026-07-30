@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Pencil, Plus, Trash2, Wallet } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 import {
   SalaryRateForm,
   SCHEME_LABELS,
@@ -58,11 +59,11 @@ function rowToForm(r: RateRow): RateFormValue {
   }
 }
 
-function shortSummary(r: RateRow): string {
+function shortSummary(r: RateRow, sym: string): string {
   const parts: string[] = [SCHEME_LABELS[r.scheme]]
-  if (r.ratePerStudent) parts.push(`${Number(r.ratePerStudent)}₽/уч.`)
-  if (r.ratePerLesson) parts.push(`${Number(r.ratePerLesson)}₽/зан.`)
-  if (r.fixedPerShift) parts.push(`+${Number(r.fixedPerShift)}₽ фикс`)
+  if (r.ratePerStudent) parts.push(`${Number(r.ratePerStudent)}${sym}/уч.`)
+  if (r.ratePerLesson) parts.push(`${Number(r.ratePerLesson)}${sym}/зан.`)
+  if (r.fixedPerShift) parts.push(`+${Number(r.fixedPerShift)}${sym} фикс`)
   if (r.percentOfPayments) parts.push(`${Number(r.percentOfPayments)}%`)
   if (r.brackets.length) parts.push(`${r.brackets.length} строк`)
   if (r.trialPayMode && r.trialPayMode !== "none") {
@@ -303,13 +304,14 @@ function RateBlock({
   onEdit: (r: RateRow) => void
   onDelete: (r: RateRow) => void
 }) {
+  const sym = useCurrencySymbol()
   return (
     <div className="rounded-md border p-3">
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="text-sm font-medium">{title}</div>
           {rate ? (
-            <div className="mt-0.5 text-xs text-muted-foreground">{shortSummary(rate)}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">{shortSummary(rate, sym)}</div>
           ) : (
             <div className="mt-0.5 text-xs text-muted-foreground">Не задана</div>
           )}

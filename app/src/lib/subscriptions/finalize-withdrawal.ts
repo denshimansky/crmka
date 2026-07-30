@@ -9,6 +9,7 @@ import {
 } from "@/lib/subscriptions/deactivate-enrollment"
 import { nextDayUtc } from "@/lib/subscriptions/last-paid-lesson-date"
 import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
+import { currencySymbol } from "@/lib/currency"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -48,6 +49,11 @@ export async function applyWithdrawalSettlement(
 ): Promise<{ balanceDelta: number }> {
   const { tenantId, subscription, withdrawalDate, withdrawalReasonId, createdBy } = params
 
+  const currency =
+    (await tx.organization.findUnique({ where: { id: tenantId }, select: { currency: true } }))
+      ?.currency ?? "RUB"
+  const sym = currencySymbol(currency)
+
   // Состояние ДО перевода в withdrawn — нужно резолверу зависшей заявки
   // «Ожидаем оплату» (баг #62): резолвится только pending, никогда не
   // активированный абонемент.
@@ -78,8 +84,8 @@ export async function applyWithdrawalSettlement(
       type: "subscription_closed_refund",
       refs: { subscriptionId: subscription.id, directionId: subscription.directionId },
       comment: delta.isPositive()
-        ? `Отчисление по графику: возврат на баланс ${delta.toFixed(2)} ₽`
-        : `Отчисление по графику: долг ${delta.abs().toFixed(2)} ₽`,
+        ? `Отчисление по графику: возврат на баланс ${delta.toFixed(2)} ${sym}`
+        : `Отчисление по графику: долг ${delta.abs().toFixed(2)} ${sym}`,
       createdBy,
     })
   }

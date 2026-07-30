@@ -16,6 +16,7 @@ import { MoveStockDialog, type MoveSource, type MoveBranch } from "@/components/
 import {
   WriteOffStockDialog, type WriteOffSource, type WriteOffCategory, type WriteOffDirection,
 } from "@/components/write-off-stock-dialog"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 interface RoomBalance {
   id: string
@@ -25,11 +26,8 @@ interface RoomBalance {
   room: { id: string; name: string; branch: { id: string; name: string } }
 }
 
-function formatMoney(v: number) {
-  return new Intl.NumberFormat("ru-RU").format(v) + " ₽"
-}
-
 export default function RoomBalancesPage() {
+  const formatMoney = useMoneyFormat()
   const [balances, setBalances] = useState<RoomBalance[]>([])
   const [branches, setBranches] = useState<MoveBranch[]>([])
   const [categories, setCategories] = useState<WriteOffCategory[]>([])

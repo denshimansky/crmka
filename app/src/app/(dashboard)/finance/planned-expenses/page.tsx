@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table"
 import { Plus, Pencil, Trash2, Copy, TrendingDown, Target, BarChart3, ChevronLeft, ChevronRight } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 const MONTH_NAMES = [
   "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -62,11 +63,8 @@ interface Branch {
 
 const ALL_BRANCHES = "__all__"
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
-
 export default function PlannedExpensesPage() {
+  const formatMoney = useMoneyFormat()
   const router = useRouter()
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())

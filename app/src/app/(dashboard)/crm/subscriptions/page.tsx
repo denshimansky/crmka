@@ -1,6 +1,8 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
+import { currencySymbol } from "@/lib/currency"
+import { getOrgUiSettings } from "@/lib/role-names"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { PageHelp } from "@/components/page-help"
 import { SubscriptionsTable, type SubscriptionRow, type SubsTabKey } from "./subscriptions-table"
@@ -84,6 +86,7 @@ export default async function SubscriptionsPage({
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
   const scope = await getBranchScope()
   const sp = await searchParams
   const tab: SubsTabKey = (TAB_ORDER as string[]).includes(sp.tab ?? "")
@@ -175,10 +178,10 @@ export default async function SubscriptionsPage({
       const valueStr =
         d.valueType === "percent"
           ? `${Number(d.value)}%`
-          : `${Number(d.value).toLocaleString("ru-RU")} ₽`
+          : `${Number(d.value).toLocaleString("ru-RU")} ${currencySymbol(currency)}`
       discountLabel = `${typeLabel(d.type)} (${valueStr})`
     } else if (discountAmountNum > 0) {
-      discountLabel = `−${discountAmountNum.toLocaleString("ru-RU")} ₽`
+      discountLabel = `−${discountAmountNum.toLocaleString("ru-RU")} ${currencySymbol(currency)}`
     }
 
     return {

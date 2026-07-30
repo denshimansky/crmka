@@ -9,6 +9,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Wallet, AlertCircle } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface NeedsReview {
   rowIdx: number
@@ -50,6 +51,7 @@ interface SyncReport {
 
 export function SyncBalanceButton() {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [open, setOpen] = useState(false)
   const [leadsFile, setLeadsFile] = useState<File | null>(null)
   const [moneyFile, setMoneyFile] = useState<File | null>(null)
@@ -236,7 +238,7 @@ export function SyncBalanceButton() {
                   подопечных: {report.wardsCreated}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Суммарный баланс: {report.totalBalance.toLocaleString("ru-RU")} ₽ · без баланса:{" "}
+                  Суммарный баланс: {report.totalBalance.toLocaleString("ru-RU")} {sym} · без баланса:{" "}
                   {report.balanceMissing}
                 </div>
                 <div className="text-xs text-muted-foreground">

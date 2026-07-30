@@ -21,6 +21,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { Plus } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface CategoryOption {
   id: string
@@ -94,6 +95,7 @@ export function AddExpenseDialog({
   leadChannels: LeadChannelOption[]
 }) {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -475,7 +477,7 @@ export function AddExpenseDialog({
                     </div>
                     {amortPerMonth > 0 && (
                       <p className="col-span-2 text-xs text-muted-foreground">
-                        {formatMonth(amortStartMonth)} — {formatMonth(amortEndMonth)} (по {formatMoney(amortPerMonth)} ₽/мес)
+                        {formatMonth(amortStartMonth)} — {formatMonth(amortEndMonth)} (по {formatMoney(amortPerMonth)} {sym}/мес)
                       </p>
                     )}
                   </div>

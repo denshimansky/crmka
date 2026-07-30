@@ -10,14 +10,14 @@ import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { DrilldownAmount } from "@/components/drilldown-amount"
 import { ReportExport } from "@/components/report-export"
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
-}
+import { formatMoney as fmtCurrency } from "@/lib/currency"
+import { getOrgUiSettings } from "@/lib/role-names"
 
 export default async function RevenueReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  const formatMoney = (amount: number): string => fmtCurrency(amount, currency)
 
   const { year, month } = getMonthFromParams(await searchParams)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))

@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportData, useFmtMoney } from "@/components/report-scaffold"
 
 interface Row {
   clientId: string
@@ -20,6 +20,7 @@ interface Row {
 
 export default function RemainingLessonsReportPage() {
   const { loading, error, data } = useReportData<Row>("/api/reports/remaining-lessons")
+  const fmtMoney = useFmtMoney()
 
   return (
     <ReportShell

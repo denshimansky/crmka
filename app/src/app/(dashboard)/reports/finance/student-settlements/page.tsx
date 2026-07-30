@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportData, useFmtMoney } from "@/components/report-scaffold"
 
 interface Row {
   clientId: string
@@ -16,12 +16,13 @@ interface Row {
   endBalance: number
 }
 
-function balanceCell(v: number) {
+function balanceCell(v: number, fmtMoney: (amount: number) => string) {
   const cls = v < 0 ? "text-red-600" : v > 0 ? "text-green-600" : "text-muted-foreground"
   return <span className={cls}>{fmtMoney(v)}</span>
 }
 
 export default function StudentSettlementsReportPage() {
+  const fmtMoney = useFmtMoney()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/student-settlements")
   const num = (k: string) => Number((metadata as Record<string, unknown> | null)?.[k] ?? 0)
 
@@ -56,11 +57,11 @@ export default function StudentSettlementsReportPage() {
                       </Link>
                     </TableCell>
                     <TableCell className="text-sm">{r.direction}</TableCell>
-                    <TableCell className="text-right">{balanceCell(r.beginBalance)}</TableCell>
+                    <TableCell className="text-right">{balanceCell(r.beginBalance, fmtMoney)}</TableCell>
                     <TableCell className="text-right">{fmtMoney(r.planCharge)}</TableCell>
                     <TableCell className="text-right">{fmtMoney(r.factCharge)}</TableCell>
                     <TableCell className="text-right">{fmtMoney(r.paidInPeriod)}</TableCell>
-                    <TableCell className="text-right">{balanceCell(r.endBalance)}</TableCell>
+                    <TableCell className="text-right">{balanceCell(r.endBalance, fmtMoney)}</TableCell>
                   </TableRow>
                 ))}
                 <TableRow className="border-t-2 font-bold">

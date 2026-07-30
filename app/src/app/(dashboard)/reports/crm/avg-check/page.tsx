@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportData, useFmtMoney } from "@/components/report-scaffold"
 
 const METHOD_LABELS: Record<string, string> = {
   cash: "Наличные",
@@ -30,6 +30,7 @@ interface DirectionRow {
 
 /** Вкладка «Средний чек»: средняя сумма оплаты по способам. */
 function AvgCheckTab() {
+  const fmtMoney = useFmtMoney()
   const { loading, error, data, metadata } = useReportData<MethodRow>("/api/reports/avg-check")
   const avgCheck = Number(metadata?.avgCheck ?? 0)
   const totalCount = Number(metadata?.totalCount ?? 0)
@@ -98,6 +99,7 @@ function AvgCheckTab() {
 
 /** Вкладка «Средний абонемент»: сумма отработанных / число активных абонементов. */
 function AvgSubscriptionTab() {
+  const fmtMoney = useFmtMoney()
   const { loading, error, data, metadata } = useReportData<DirectionRow>("/api/reports/avg-subscription-cost")
   const activeSubs = Number(metadata?.activeSubscriptions ?? 0)
   const totalCharged = Number(metadata?.totalCharged ?? 0)

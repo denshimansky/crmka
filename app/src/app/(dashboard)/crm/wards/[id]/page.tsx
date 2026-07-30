@@ -2,7 +2,8 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
-import { getRoleNames } from "@/lib/role-names"
+import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
+import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -15,10 +16,6 @@ import { ClientHistory } from "../../clients/[id]/client-history"
 import { TrialLessonDialog } from "../../_components/trial-lesson-dialog"
 import { WardSalesStageActions } from "../../_components/ward-sales-stage-actions"
 import { formatWardName } from "@/lib/format-name"
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
 
 function formatDate(date: Date | null | undefined): string {
   if (!date) return "—"
@@ -45,6 +42,8 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
   const tenantId = session.user.tenantId
   const { id } = await params
   const roleNames = await getRoleNames(tenantId)
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  const formatMoney = (amount: number) => fmtCurrency(amount, currency)
 
   const ward = await db.ward.findFirst({
     where: { id, tenantId },

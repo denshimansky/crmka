@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table"
 import { Plus, Pencil, Trash2, Tag } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface DiscountTemplate {
   id: string
@@ -54,13 +55,14 @@ const KIND_LABELS: Record<DiscountTemplate["kind"], string> = {
   linked_second_direction: "За 2-е направление (устар.)",
 }
 
-function formatValue(valueType: string, value: number): string {
+function formatValue(valueType: string, value: number, sym: string): string {
   if (valueType === "percent") return `${value}%`
-  return "−" + new Intl.NumberFormat("ru-RU").format(value) + " ₽/занятие"
+  return "−" + new Intl.NumberFormat("ru-RU").format(value) + ` ${sym}/занятие`
 }
 
 export default function DiscountTemplatesPage() {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [templates, setTemplates] = useState<DiscountTemplate[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -273,7 +275,7 @@ export default function DiscountTemplatesPage() {
                   <Badge variant="outline">{TYPE_LABELS[t.valueType] || t.valueType}</Badge>
                 </TableCell>
                 <TableCell className="font-medium">
-                  {formatValue(t.valueType, t.value)}
+                  {formatValue(t.valueType, t.value, sym)}
                 </TableCell>
                 <TableCell>
                   {t.isActive ? (

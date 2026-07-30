@@ -121,10 +121,24 @@ export async function closeFinishedCalendarSubscriptions(now: Date = new Date())
   // фильтруем: у календарного они заполнены (см. toClose).
   let closedCount = 0
   let enrollmentsDeactivated = 0
+  // Валюта организации для символа в комментариях проводок — по тенанту, с кэшем
+  // (крон обходит абонементы разных организаций).
+  const currencyByTenant = new Map<string, string>()
   for (const sub of toClose) {
     if (sub.periodYear == null || sub.periodMonth == null) continue
+    let currency = currencyByTenant.get(sub.tenantId)
+    if (currency === undefined) {
+      currency =
+        (
+          await db.organization.findUnique({
+            where: { id: sub.tenantId },
+            select: { currency: true },
+          })
+        )?.currency ?? "RUB"
+      currencyByTenant.set(sub.tenantId, currency)
+    }
     const res = await db.$transaction((tx) =>
-      closeSubscription(tx, { tenantId: sub.tenantId, subscriptionId: sub.id }),
+      closeSubscription(tx, { tenantId: sub.tenantId, subscriptionId: sub.id, currency }),
     )
     if (!res.closed) continue
     closedCount++

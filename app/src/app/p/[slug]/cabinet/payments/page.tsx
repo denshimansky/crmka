@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Wallet } from "lucide-react"
 import { getCabinetSession, getPortalClient } from "@/lib/portal-data"
+import { formatMoney } from "@/lib/currency"
 import { PaymentsList } from "./payments-list"
 
 // Оплаты — клиентский уровень (деньги на родителе, у оплат нет подопечного).
@@ -31,7 +32,7 @@ export default async function CabinetPaymentsPage({
           </div>
           <div className="text-right">
             <div className={`text-2xl font-bold ${balance < 0 ? "text-destructive" : ""}`}>
-              {balance.toLocaleString("ru")} ₽
+              {formatMoney(balance, cabinet.org.currency)}
             </div>
             {balance < 0 && <div className="text-xs text-destructive">Есть задолженность</div>}
           </div>

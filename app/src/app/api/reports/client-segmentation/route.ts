@@ -10,6 +10,7 @@ import {
   segmentRangeLabel,
   type ClientSegmentKey,
 } from "@/lib/segmentation"
+import { currencySymbol } from "@/lib/currency"
 
 /**
  * 1.5. Сегментация клиентов (баг #26).
@@ -28,9 +29,10 @@ export async function GET(req: NextRequest) {
 
   const org = await db.organization.findUnique({
     where: { id: tenantId },
-    select: { segmentationConfig: true },
+    select: { segmentationConfig: true, currency: true },
   })
   const config = parseSegmentationConfig(org?.segmentationConfig)
+  const currencySym = currencySymbol(org?.currency)
 
   const where: { tenantId: string; deletedAt: null; clientStatus: "active"; branchId?: string } = {
     tenantId,
@@ -98,7 +100,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     data: SEGMENT_ORDER.map((key) => ({
       segment: key,
-      label: segmentRangeLabel(key, config),
+      label: segmentRangeLabel(key, config, currencySym),
       count: buckets[key].count,
       clients: buckets[key].clients,
     })),

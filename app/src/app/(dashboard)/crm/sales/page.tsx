@@ -11,6 +11,8 @@ import { ContactTable, type ContactRow } from "./contact-table"
 import { ContactBranchFilter } from "./contact-filter"
 import { scopeBranch, scopeApplication, type BranchScope, isUnscoped } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
+import { formatMoney as fmtCurrency } from "@/lib/currency"
+import { getOrgUiSettings } from "@/lib/role-names"
 
 // Раздел «Продажи» = 4 этапа воронки заявок + вкладка «Связь» (клиенты с
 // назначенной датой связи). «Связь» ведётся по клиенту, а не по заявке.
@@ -84,10 +86,6 @@ const CLIENT_SELECT = {
   _count: { select: { payments: true } },
 } as const
 
-function fmtMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
-
 export default async function SalesPage({
   searchParams,
 }: {
@@ -97,6 +95,8 @@ export default async function SalesPage({
   const tenantId = session.user.tenantId
   const role = session.user.role
   const scope = await getBranchScope()
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  const fmtMoney = (amount: number): string => fmtCurrency(amount, currency)
   const { tab: rawTab, branchId: rawBranchId, directionId: rawDirectionId } =
     await searchParams
   const tab: PageTabKey = TAB_ORDER.includes(rawTab as PageTabKey)

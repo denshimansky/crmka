@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { logClientNote } from "@/lib/communications/log-note"
+import { currencySymbol } from "@/lib/currency"
 import { z } from "zod"
 
 const refundSchema = z.object({
@@ -58,10 +59,16 @@ export async function POST(req: NextRequest) {
   })
   if (!account) return NextResponse.json({ error: "Счёт не найден" }, { status: 404 })
 
+  const currency = (await db.organization.findUnique({
+    where: { id: session.user.tenantId },
+    select: { currency: true },
+  }))?.currency ?? "RUB"
+  const sym = currencySymbol(currency)
+
   // Проверяем достаточность средств на счёте
   if (Number(account.balance) < data.amount) {
     return NextResponse.json({
-      error: `Недостаточно средств на счёте «${account.name}». Баланс: ${Number(account.balance).toFixed(2)} ₽, возврат: ${data.amount.toFixed(2)} ₽`,
+      error: `Недостаточно средств на счёте «${account.name}». Баланс: ${Number(account.balance).toFixed(2)} ${sym}, возврат: ${data.amount.toFixed(2)} ${sym}`,
     }, { status: 400 })
   }
 
@@ -141,7 +148,7 @@ export async function POST(req: NextRequest) {
       await logClientNote(db, {
         tenantId: session.user.tenantId,
         clientId: data.clientId,
-        content: `Возврат ${data.amount} ₽ — ${data.comment}`,
+        content: `Возврат ${data.amount} ${sym} — ${data.comment}`,
         employeeId: session.user.employeeId,
       })
     } catch { /* заметка не критична */ }

@@ -6,6 +6,7 @@ import Link from "next/link"
 import { ArrowLeft, Loader2 } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 /**
  * Общий каркас для отчётов-страниц, которые берут данные из готовых
@@ -162,8 +163,9 @@ export function ReportStatus({
   return null
 }
 
-export function fmtMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
+/** Хук форматирования сумм в валюте организации: (amount, opts?) → «1 234 ₽/₸/…». */
+export function useFmtMoney() {
+  return useMoneyFormat()
 }
 
 export function fmtDay(iso: string): string {

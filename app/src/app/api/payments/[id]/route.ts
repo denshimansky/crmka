@@ -8,6 +8,7 @@ import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { requirePermission } from "@/lib/api-permissions"
 import { branchScopeFromSession, scopePayment } from "@/lib/branch-scope"
+import { currencySymbol } from "@/lib/currency"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -18,8 +19,8 @@ class InsufficientBalanceError extends Error {
   }
 }
 
-function fmtMoney(n: number): string {
-  return new Intl.NumberFormat("ru-RU").format(n) + " ₽"
+function fmtMoney(n: number, currency: string): string {
+  return new Intl.NumberFormat("ru-RU").format(n) + " " + currencySymbol(currency)
 }
 
 // Редактирование «обычной» оплаты на случай ошибки админа.
@@ -87,6 +88,14 @@ export async function PATCH(
   if (!existing) {
     return NextResponse.json({ error: "Оплата не найдена" }, { status: 404 })
   }
+
+  const currency =
+    (
+      await db.organization.findUnique({
+        where: { id: session.user.tenantId },
+        select: { currency: true },
+      })
+    )?.currency ?? "RUB"
 
   // Редактирование разрешено только для обычных «входящих» оплат.
   // Возвраты делаются через отдельный диалог; внутренние movements (переводы,
@@ -196,7 +205,7 @@ export async function PATCH(
       return NextResponse.json(
         {
           error:
-            `Нельзя уменьшить сумму: на балансе клиента ${fmtMoney(e.balance)}, а уменьшение — на ${fmtMoney(e.amount)}. ` +
+            `Нельзя уменьшить сумму: на балансе клиента ${fmtMoney(e.balance, currency)}, а уменьшение — на ${fmtMoney(e.amount, currency)}. ` +
             `Деньги уже потрачены — например, списаны в счёт абонемента. ` +
             `Отчислите абонемент с возвратом денег на баланс или откройте карточку клиента → вкладка «История» и проверьте, куда ушли средства.`,
         },
@@ -282,6 +291,14 @@ export async function DELETE(
     )
   }
 
+  const currency =
+    (
+      await db.organization.findUnique({
+        where: { id: tenantId },
+        select: { currency: true },
+      })
+    )?.currency ?? "RUB"
+
   // Онлайн-оплата привязана к реальному платежу в эквайринге: удаление в CRM
   // денег плательщику не вернёт, а повторное уведомление ЮKassa воссоздало бы
   // запись. Правильный путь — возврат.
@@ -366,7 +383,7 @@ export async function DELETE(
       return NextResponse.json(
         {
           error:
-            `Нельзя удалить оплату: на балансе клиента ${fmtMoney(e.balance)}, а оплата — на ${fmtMoney(e.amount)}. ` +
+            `Нельзя удалить оплату: на балансе клиента ${fmtMoney(e.balance, currency)}, а оплата — на ${fmtMoney(e.amount, currency)}. ` +
             `Деньги уже потрачены — например, списаны в счёт абонемента. ` +
             `Отчислите абонемент с возвратом денег на баланс или откройте карточку клиента → вкладка «История» и проверьте, куда ушли средства.`,
         },

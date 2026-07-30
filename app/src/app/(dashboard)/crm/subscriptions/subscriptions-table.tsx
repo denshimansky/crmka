@@ -19,6 +19,7 @@ import { Search, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { cn } from "@/lib/utils"
 import { truncateGroupName } from "@/lib/format-group"
+import { useMoneyFormat } from "@/components/currency-provider"
 import { RenewButton } from "./renew-button"
 
 export type SubsTabKey = "active" | "pending" | "finished"
@@ -63,10 +64,6 @@ const DEFAULT_WIDTHS: Record<string, number> = {
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })
-}
-
-function fmtMoney(n: number): string {
-  return `${n.toLocaleString("ru-RU")} ₽`
 }
 
 function periodLabel(row: SubscriptionRow): string {
@@ -159,6 +156,7 @@ export function SubscriptionsTable({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const fmtMoney = useMoneyFormat()
 
   const [query, setQuery] = useState(initialQuery)
   // Клиентская сортировка по любому столбцу. По умолчанию активен «Срок» в том

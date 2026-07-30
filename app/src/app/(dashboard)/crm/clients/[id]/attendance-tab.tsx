@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select"
 import { ClipboardCheck, ExternalLink, X, Sparkles } from "lucide-react"
 import { useRoleNames } from "@/components/role-names-provider"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 const MONTH_SHORT = [
   "",
@@ -78,10 +79,6 @@ interface Ward {
   lastName: string | null
 }
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
-
 function formatDate(iso: string): string {
   const d = new Date(iso)
   const dd = String(d.getUTCDate()).padStart(2, "0")
@@ -113,6 +110,7 @@ export function AttendanceTab({
   clientId: string
   wards: Ward[]
 }) {
+  const formatMoney = useMoneyFormat()
   const [items, setItems] = useState<AttendanceItem[]>([])
   const [loading, setLoading] = useState(true)
   const [from, setFrom] = useState("")
@@ -337,6 +335,7 @@ function AttendanceItemsTable({
   showWardColumn: boolean
 }) {
   const roleNames = useRoleNames()
+  const formatMoney = useMoneyFormat()
   return (
     <Table>
       <TableHeader>

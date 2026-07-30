@@ -19,6 +19,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface CategoryOption {
   id: string
@@ -112,6 +113,7 @@ export function EditExpenseDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -487,7 +489,7 @@ export function EditExpenseDialog({
                     </div>
                     {amortPerMonth > 0 && (
                       <p className="col-span-2 text-xs text-muted-foreground">
-                        {formatMonth(amortStartMonth)} — {formatMonth(amortEndMonth)} (по {formatMoney(amortPerMonth)} ₽/мес)
+                        {formatMonth(amortStartMonth)} — {formatMonth(amortEndMonth)} (по {formatMoney(amortPerMonth)} {sym}/мес)
                       </p>
                     )}
                   </div>

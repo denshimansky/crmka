@@ -54,6 +54,7 @@ export type PortalOrg = {
   name: string
   inn: string | null
   portalSlug: string | null
+  currency: string
 } & PortalDocsOrg
 
 export type PortalContext =
@@ -73,7 +74,7 @@ export async function getPortalContext(): Promise<PortalContext> {
 
   const org = await db.organization.findUnique({
     where: { id: session.tenantId },
-    select: { id: true, name: true, inn: true, portalSlug: true, ...PORTAL_ORG_DOCS_SELECT },
+    select: { id: true, name: true, inn: true, portalSlug: true, currency: true, ...PORTAL_ORG_DOCS_SELECT },
   })
   if (!org) return { ok: false, status: 401 }
 
@@ -130,7 +131,7 @@ function wardFilter(wardKey: string): { wardId: string | null } {
 export function getPortalOrgBySlug(slug: string) {
   return db.organization.findUnique({
     where: { portalSlug: slug },
-    select: { id: true, name: true, inn: true, portalSlug: true, ...PORTAL_ORG_DOCS_SELECT },
+    select: { id: true, name: true, inn: true, portalSlug: true, currency: true, ...PORTAL_ORG_DOCS_SELECT },
   })
 }
 

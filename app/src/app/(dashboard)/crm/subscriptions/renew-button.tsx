@@ -9,6 +9,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
+import { useCurrencySymbol } from "@/components/currency-provider"
 import { CalendarPlus, AlertCircle } from "lucide-react"
 
 interface Candidate {
@@ -76,6 +77,7 @@ export function RenewButton({
   directionId: string | null
 }) {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const def = useMemo(defaultRange, [])
   const [open, setOpen] = useState(false)
   const [rangeStart, setRangeStart] = useState(def.start)
@@ -229,7 +231,7 @@ export function RenewButton({
                 <div className="text-muted-foreground text-xs">
                   Итого к оплате:{" "}
                   <b>
-                    {fmt(preview.toCreate.reduce((s, c) => s + c.finalAmount, 0))} ₽
+                    {fmt(preview.toCreate.reduce((s, c) => s + c.finalAmount, 0))} {sym}
                   </b>
                 </div>
               </div>
@@ -244,7 +246,7 @@ export function RenewButton({
                       <li key={c.sourceSubscriptionId}>
                         {c.wardName ?? c.clientName} · {c.directionName} ·{" "}
                         {c.groupName} ({c.branchName}) — {c.totalLessons} зан. ×{" "}
-                        {fmt(c.lessonPrice)} ₽ = <b>{fmt(c.finalAmount)} ₽</b>
+                        {fmt(c.lessonPrice)} {sym} = <b>{fmt(c.finalAmount)} {sym}</b>
                       </li>
                     ))}
                     {preview.toCreate.length > 200 && (
@@ -308,7 +310,7 @@ export function RenewButton({
                   <b>{commit.skipped}</b>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Итого к оплате: <b>{fmt(commit.totalIssuedAmount)} ₽</b>
+                  Итого к оплате: <b>{fmt(commit.totalIssuedAmount)} {sym}</b>
                 </div>
               </div>
               <DialogFooter>

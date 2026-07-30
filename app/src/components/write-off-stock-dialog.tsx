@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import type { Loc } from "@/components/move-stock-dialog"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 export interface WriteOffSource {
   stockItemId: string
@@ -42,10 +43,6 @@ function shiftMonth(yyyymm: string, delta: number): string {
   const k = y * 12 + (m - 1) + delta
   return `${Math.floor(k / 12)}-${String((k % 12) + 1).padStart(2, "0")}`
 }
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(amount) + " ₽"
-}
-
 // «Списание товара» — форма как «Новый расход», но без счёта (расход идёт только в
 // ОПИУ, не в ДДС) и без режима «Не учитывать в финрезе». Сумма = кол-во × себестоимость.
 export function WriteOffStockDialog({
@@ -61,6 +58,10 @@ export function WriteOffStockDialog({
   onClose: () => void
   onDone: () => void
 }) {
+  const sym = useCurrencySymbol()
+  const formatMoney = (amount: number) =>
+    new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(amount) + " " + sym
+
   const todayIso = new Date().toISOString().slice(0, 10)
   const todayMonth = todayIso.slice(0, 7)
 

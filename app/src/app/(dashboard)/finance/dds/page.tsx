@@ -17,11 +17,8 @@ import { ArrowDownCircle, ArrowUpCircle, Wallet, ArrowRightLeft } from "lucide-r
 import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
-
-function formatMoney(amount: number): string {
-  const sign = amount < 0 ? "−" : amount > 0 ? "+" : ""
-  return sign + new Intl.NumberFormat("ru-RU").format(Math.abs(Math.round(amount * 100) / 100)) + " ₽"
-}
+import { currencySymbol } from "@/lib/currency"
+import { getOrgUiSettings } from "@/lib/role-names"
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -93,6 +90,13 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
   const session = await getSession()
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
+
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  const sym = currencySymbol(currency)
+  function formatMoney(amount: number): string {
+    const sign = amount < 0 ? "−" : amount > 0 ? "+" : ""
+    return sign + new Intl.NumberFormat("ru-RU").format(Math.abs(Math.round(amount * 100) / 100)) + " " + sym
+  }
 
   const params = await searchParams
   const { year, month } = getMonthFromParams(params)
@@ -423,7 +427,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Остаток на счетах</p>
-              <p className="text-lg font-bold">{new Intl.NumberFormat("ru-RU").format(Math.round(totalBalance))} ₽</p>
+              <p className="text-lg font-bold">{new Intl.NumberFormat("ru-RU").format(Math.round(totalBalance))} {sym}</p>
             </div>
           </CardContent>
         </Card>
@@ -446,7 +450,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
                     </div>
                     <p className="truncate text-sm font-medium">{a.name}</p>
                     <p className="text-lg font-bold">
-                      {new Intl.NumberFormat("ru-RU").format(Math.round(Number(a.balance)))} ₽
+                      {new Intl.NumberFormat("ru-RU").format(Math.round(Number(a.balance)))} {sym}
                     </p>
                     <div className="flex items-center gap-2 text-xs">
                       <span className="text-green-600">
@@ -527,7 +531,7 @@ export default async function DdsJournalPage({ searchParams }: { searchParams: P
                     // Перемещение — движение между своими счетами: показываем без ± знака.
                     const amountText =
                       t === "transfer"
-                        ? new Intl.NumberFormat("ru-RU").format(Math.abs(Math.round(r.amount * 100) / 100)) + " ₽"
+                        ? new Intl.NumberFormat("ru-RU").format(Math.abs(Math.round(r.amount * 100) / 100)) + " " + sym
                         : formatMoney(r.amount)
                     return (
                       <TableRow key={r.id}>

@@ -12,10 +12,8 @@ import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { EditableDateCell, EditableTextCell } from "../../crm/_components/editable-cell"
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
+import { formatMoney as fmtCurrency } from "@/lib/currency"
+import { getOrgUiSettings } from "@/lib/role-names"
 
 function formatDate(date: Date | null): string {
   if (!date) return "—"
@@ -31,6 +29,8 @@ export default async function DebtorsPage({
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  const formatMoney = (amount: number): string => fmtCurrency(amount, currency)
   const scope = await getBranchScope()
   const clientScope = scopeClientByBranch(scope)
   // Редактировать обещанную дату/комментарий может любая роль, кроме «только чтение».

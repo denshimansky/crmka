@@ -6,6 +6,7 @@ import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deact
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
+import { currencySymbol } from "@/lib/currency"
 
 /**
  * Авто-закрытие неоплаченных абонементов.
@@ -208,13 +209,20 @@ async function refundNetPaid(
   })
   const refundable = paid.minus(new Prisma.Decimal(priorAgg._sum.amount ?? 0))
   if (refundable.greaterThan(0)) {
+    const currency =
+      (
+        await tx.organization.findUnique({
+          where: { id: s.tenantId },
+          select: { currency: true },
+        })
+      )?.currency ?? "RUB"
     await applyBalanceDelta(tx, {
       tenantId: s.tenantId,
       clientId: s.clientId,
       delta: refundable,
       type: "subscription_closed_refund",
       refs: { subscriptionId: s.id, directionId: s.directionId },
-      comment: `${commentPrefix}: возврат на баланс ${refundable.toFixed(2)} ₽`,
+      comment: `${commentPrefix}: возврат на баланс ${refundable.toFixed(2)} ${currencySymbol(currency)}`,
       createdBy: null,
     })
   }

@@ -10,14 +10,15 @@ import {
   getWardBranchContacts,
   isValidWardKey,
 } from "@/lib/portal-data"
+import { formatMoney } from "@/lib/currency"
 import { BranchContactsCard } from "../../_components/branch-contacts"
 
 // Обзор подопечного: баланс клиента, абонементы, ближайшие занятия, контакты.
 
 const WEEKDAYS = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"]
 
-function money(value: number) {
-  return `${value.toLocaleString("ru")} ₽`
+function money(value: number, currency: string) {
+  return formatMoney(value, currency)
 }
 
 function periodLabel(sub: {
@@ -60,6 +61,7 @@ export default async function WardOverviewPage({
   ])
   if (!client) redirect(`/p/${slug}`)
 
+  const currency = cabinet.org.currency
   const balance = Number(client.clientBalance)
 
   return (
@@ -73,7 +75,7 @@ export default async function WardOverviewPage({
           </div>
           <div className="text-right">
             <div className={`text-2xl font-bold ${balance < 0 ? "text-destructive" : ""}`}>
-              {money(balance)}
+              {money(balance, currency)}
             </div>
             {balance < 0 && <div className="text-xs text-destructive">Есть задолженность</div>}
           </div>
@@ -130,10 +132,10 @@ export default async function WardOverviewPage({
                   </span>
                 </div>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  Стоимость {money(Number(sub.finalAmount))} ·{" "}
+                  Стоимость {money(Number(sub.finalAmount), currency)} ·{" "}
                   {balanceDue > 0 ? (
                     <span className="font-medium text-destructive">
-                      К оплате {money(balanceDue)}
+                      К оплате {money(balanceDue, currency)}
                     </span>
                   ) : (
                     <span className="text-green-600">Оплачен</span>

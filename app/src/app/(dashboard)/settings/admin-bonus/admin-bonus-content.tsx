@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Save, Plus, Trash2, Building2, Users } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface BranchOverride {
   id: string
@@ -52,6 +53,7 @@ interface Employee {
 
 export function AdminBonusContent() {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -234,7 +236,7 @@ export function AdminBonusContent() {
                   onChange={(e) => setTrialBonus(e.target.value)}
                   placeholder="0"
                 />
-                <span className="text-sm text-muted-foreground shrink-0">₽</span>
+                <span className="text-sm text-muted-foreground shrink-0">{sym}</span>
               </div>
             </div>
 
@@ -249,7 +251,7 @@ export function AdminBonusContent() {
                   onChange={(e) => setSaleBonus(e.target.value)}
                   placeholder="0"
                 />
-                <span className="text-sm text-muted-foreground shrink-0">₽</span>
+                <span className="text-sm text-muted-foreground shrink-0">{sym}</span>
               </div>
             </div>
 
@@ -264,7 +266,7 @@ export function AdminBonusContent() {
                   onChange={(e) => setUpsaleBonus(e.target.value)}
                   placeholder="0"
                 />
-                <span className="text-sm text-muted-foreground shrink-0">₽</span>
+                <span className="text-sm text-muted-foreground shrink-0">{sym}</span>
               </div>
             </div>
           </div>

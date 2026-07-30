@@ -12,6 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Trash2 } from "lucide-react"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 interface PaymentInfo {
   id: string
@@ -21,16 +22,13 @@ interface PaymentInfo {
   accountName: string
 }
 
-function formatMoney(n: number): string {
-  return new Intl.NumberFormat("ru-RU").format(n) + " ₽"
-}
-
 // Удаление оплаты: подтверждение + откат пополнения (счёт и баланс родителя).
 // Кнопка видна только при праве payments.delete (владелец; управляющий — если
 // владелец включил в матрице прав). Ошибку «на балансе не хватает» показываем
 // текстом из API — там объяснение, что делать.
 export function DeletePaymentDialog({ payment }: { payment: PaymentInfo }) {
   const router = useRouter()
+  const formatMoney = useMoneyFormat()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

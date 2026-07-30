@@ -11,6 +11,7 @@ import { requirePermission } from "@/lib/api-permissions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { branchScopeFromSession, scopePayment } from "@/lib/branch-scope"
+import { currencySymbol } from "@/lib/currency"
 
 // Поступление денег от клиента всегда падает только на баланс родителя.
 // Списание в счёт конкретного абонемента — отдельная операция через кнопку
@@ -251,10 +252,14 @@ export async function POST(req: NextRequest) {
   // клиента ленты не имеет.
   if (data.clientId && data.comment) {
     try {
+      const currency = (await db.organization.findUnique({
+        where: { id: session.user.tenantId },
+        select: { currency: true },
+      }))?.currency ?? "RUB"
       await logClientNote(db, {
         tenantId: session.user.tenantId,
         clientId: data.clientId,
-        content: `Оплата ${data.amount} ₽ — ${data.comment}`,
+        content: `Оплата ${data.amount} ${currencySymbol(currency)} — ${data.comment}`,
         employeeId: session.user.employeeId,
       })
     } catch { /* заметка не критична */ }

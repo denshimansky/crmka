@@ -33,6 +33,7 @@ import { CommunicationFeed } from "@/components/communication-feed"
 import { ClientHistory } from "./client-history"
 import { formatWardName } from "@/lib/format-name"
 import { useRoleNames } from "@/components/role-names-provider"
+import { useMoneyFormat, useCurrencySymbol } from "@/components/currency-provider"
 import type { DiscountPreview } from "@/lib/discounts/preview-discount"
 
 interface Ward {
@@ -87,10 +88,6 @@ interface Payment {
     direction: { name: string }
   } | null
   account: { id: string; name: string }
-}
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
 }
 
 function calculateAge(birthDate: string): string {
@@ -171,6 +168,7 @@ function EditSubscriptionDialog({
   subscription: Subscription
   onSuccess: () => void
 }) {
+  const formatMoney = useMoneyFormat()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -338,6 +336,8 @@ function WithdrawSubscriptionDialog({
   subscription: Subscription
   onSuccess: () => void
 }) {
+  const formatMoney = useMoneyFormat()
+  const sym = useCurrencySymbol()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingPreview, setLoadingPreview] = useState(false)
@@ -493,7 +493,7 @@ function WithdrawSubscriptionDialog({
                     ? `+${formatMoney(preview.balanceDelta)}`
                     : preview.balanceDelta < 0
                       ? `−${formatMoney(Math.abs(preview.balanceDelta))}`
-                      : "0 ₽"}
+                      : `0 ${sym}`}
                 </span>
               </div>
             </div>
@@ -781,6 +781,7 @@ function ExtendPackageDialog({
 // ===== Subscriptions Tab =====
 
 function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[] }) {
+  const formatMoney = useMoneyFormat()
   const router = useRouter()
   const [subs, setSubs] = useState<Subscription[]>([])
   const [loadingSubs, setLoadingSubs] = useState(true)
@@ -952,6 +953,7 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
 // ===== Payments Tab =====
 
 function PaymentsTab({ clientId }: { clientId: string }) {
+  const formatMoney = useMoneyFormat()
   const router = useRouter()
   const [payments, setPayments] = useState<Payment[]>([])
   const [loadingPayments, setLoadingPayments] = useState(true)
@@ -1307,6 +1309,7 @@ function AddSubscriptionDialog({
   subscriptions: Subscription[]
   onSuccess: () => void
 }) {
+  const formatMoney = useMoneyFormat()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

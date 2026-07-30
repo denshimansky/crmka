@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportData, useFmtMoney } from "@/components/report-scaffold"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 interface Row {
@@ -38,6 +38,7 @@ const romiClass = (v: number | null) =>
       : "text-red-600 dark:text-red-400"
 
 export default function RomiReportPage() {
+  const fmtMoney = useFmtMoney()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/romi")
   const avgCheck = Number(metadata?.avgCheck ?? 0)
   const totals = (metadata?.totals as Totals | undefined) ?? null

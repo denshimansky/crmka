@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportData, useFmtMoney } from "@/components/report-scaffold"
 
 // ── Разовые скидки (бонусы на баланс за месяц) ──
 interface BonusRow {
@@ -45,6 +45,7 @@ function fmtDate(iso: string): string {
 
 /** Вкладка «Разовые скидки» — начисленные бонусы на баланс клиентов за месяц. */
 function OneTimeTab() {
+  const fmtMoney = useFmtMoney()
   const { loading, error, data, metadata } = useReportData<BonusRow>("/api/reports/marketing-bonuses")
   const total = Number(metadata?.total ?? 0)
   const count = Number(metadata?.count ?? 0)
@@ -140,6 +141,7 @@ function OneTimeTab() {
 
 /** Вкладка «Постоянные скидки» — абонементы с действующей скидкой (снимок на сегодня). */
 function RecurringTab() {
+  const fmtMoney = useFmtMoney()
   const { loading, error, data, metadata } = useReportData<DiscountRow>("/api/reports/linked-discounts")
   const totalAmount = Number(metadata?.totalAmount ?? 0)
   const total = Number(metadata?.totalDiscountedSubscriptions ?? data.length)

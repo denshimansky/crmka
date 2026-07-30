@@ -13,10 +13,11 @@ import {
 } from "@/components/ui/select"
 import { Save, Trash2 } from "lucide-react"
 import {
-  MODE_LABELS,
+  modeLabel,
   type SegmentationConfig,
   type SegmentationMode,
 } from "@/lib/segmentation"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 type Result = { type: "success" | "error"; message: string } | null
 
@@ -37,8 +38,9 @@ export function SegmentationForm({
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState<Result>(null)
 
-  // Юнит метрики в подсказке: «₽» для суммы, «мес.» для времени.
-  const unit = mode === "amount" ? "₽" : "мес."
+  const currencySym = useCurrencySymbol()
+  // Юнит метрики в подсказке: символ валюты организации для суммы, «мес.» для времени.
+  const unit = mode === "amount" ? currencySym : "мес."
 
   async function handleSave() {
     const s = Number(standard)
@@ -113,11 +115,11 @@ export function SegmentationForm({
         <Label>Сегментировать по</Label>
         <Select value={mode} onValueChange={(v) => v && setMode(v as SegmentationMode)}>
           <SelectTrigger className="w-full sm:max-w-md">
-            {MODE_LABELS[mode]}
+            {modeLabel(mode, currencySym)}
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="amount">{MODE_LABELS.amount}</SelectItem>
-            <SelectItem value="months">{MODE_LABELS.months}</SelectItem>
+            <SelectItem value="amount">{modeLabel("amount", currencySym)}</SelectItem>
+            <SelectItem value="months">{modeLabel("months", currencySym)}</SelectItem>
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">
@@ -143,6 +145,7 @@ export function SegmentationForm({
               value={standard}
               onChange={setStandard}
               unit={unit}
+              isAmount={mode === "amount"}
               placeholder={mode === "amount" ? "напр. 50000" : "напр. 1"}
             />
           }
@@ -156,6 +159,7 @@ export function SegmentationForm({
               value={regular}
               onChange={setRegular}
               unit={unit}
+              isAmount={mode === "amount"}
               placeholder={mode === "amount" ? "напр. 200000" : "напр. 6"}
             />
           }
@@ -169,6 +173,7 @@ export function SegmentationForm({
               value={vip}
               onChange={setVip}
               unit={unit}
+              isAmount={mode === "amount"}
               placeholder={mode === "amount" ? "напр. 500000" : "напр. 12"}
             />
           }
@@ -228,11 +233,13 @@ function ThresholdInput({
   value,
   onChange,
   unit,
+  isAmount,
   placeholder,
 }: {
   value: string
   onChange: (v: string) => void
   unit: string
+  isAmount: boolean
   placeholder?: string
 }) {
   return (
@@ -240,7 +247,7 @@ function ThresholdInput({
       <Input
         type="number"
         min="0"
-        step={unit === "₽" ? "1" : "0.5"}
+        step={isAmount ? "1" : "0.5"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

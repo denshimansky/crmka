@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { PageHelp } from "@/components/page-help"
+import { useCurrencySymbol } from "@/components/currency-provider"
 import { Users, Merge, Loader2, CheckCircle2, Phone, Mail, MessageSquare } from "lucide-react"
 import { formatWardName } from "@/lib/format-name"
 
@@ -55,6 +56,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function DuplicatesPage() {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [groups, setGroups] = useState<DuplicateGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [merging, setMerging] = useState(false)
@@ -268,7 +270,7 @@ export default function DuplicatesPage() {
                   <span>Абонементов: {client._count.subscriptions}</span>
                   <span>Оплат: {client._count.payments}</span>
                   <span>Посещений: {client._count.attendances}</span>
-                  <span>Баланс: {client.clientBalance} ₽</span>
+                  <span>Баланс: {client.clientBalance} {sym}</span>
                 </div>
                 {targetId === client.id && selectedGroup && (
                   <div className="mt-2 text-xs text-muted-foreground">

@@ -3,6 +3,7 @@
 
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
+import { currencySymbol } from "@/lib/currency"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
 import { recordClientStatusChange } from "@/lib/clients/status-history"
@@ -273,6 +274,15 @@ export async function syncLeads(
   // Филиалы тенанта: сопоставляем код филиала из файла с branchId по
   // нормализованному названию. Владелец заранее создаёт филиалы с такими же
   // названиями, как в 1С (см. справку «Импорт базы»).
+  const currency =
+    (
+      await db.organization.findUnique({
+        where: { id: opts.tenantId },
+        select: { currency: true },
+      })
+    )?.currency ?? "RUB"
+  const sym = currencySymbol(currency)
+
   const branches = await db.branch.findMany({
     where: { tenantId: opts.tenantId, deletedAt: null },
     select: { id: true, name: true },
@@ -320,7 +330,7 @@ export async function syncLeads(
   if (moneyParsed.duplicates.length > 0) {
     const sample = moneyParsed.duplicates
       .slice(0, 10)
-      .map((d) => `«${d.display}» (${d.count} строк, сумма ${d.total.toFixed(2)} ₽)`)
+      .map((d) => `«${d.display}» (${d.count} строк, сумма ${d.total.toFixed(2)} ${sym})`)
       .join("; ")
     collectedWarnings.push(
       `В «деньги.xlsx» строки с одинаковым ФИО — балансы просуммированы: ${sample}` +
@@ -340,7 +350,7 @@ export async function syncLeads(
           .filter((x) => normName(x.child) === key)
           .map((x) => `${x.parent || "(без имени)"} — ${x.phone || "без тел."}`)
         collectedWarnings.push(
-          `Баланс ${fromMoney.toFixed(2)} ₽ для «${r.child}» НЕ зачислен: имя встречается ` +
+          `Баланс ${fromMoney.toFixed(2)} ${sym} для «${r.child}» НЕ зачислен: имя встречается ` +
             `у ${occurrences} разных родителей (${parents.join("; ")}). ` +
             `Уточните вручную через «Синхронизировать остатки» с телефоном в файле.`,
         )
@@ -516,19 +526,19 @@ export async function syncLeads(
               clientId: existing.id,
               delta,
               type: "correction",
-              comment: `Импорт лидов: баланс приведён к ${target.toFixed(2)} ₽`,
+              comment: `Импорт лидов: баланс приведён к ${target.toFixed(2)} ${sym}`,
               createdBy: opts.createdBy,
             })
           }
           warnings.push(
             `Объединён существующий клиент: ${parentName} (${group.phone}). ` +
-              `Баланс приведён к ${groupBalance.toFixed(2)} ₽, статус → ${merged}.`,
+              `Баланс приведён к ${groupBalance.toFixed(2)} ${sym}, статус → ${merged}.`,
           )
         } else {
           const existingFmt = new Prisma.Decimal(existing.clientBalance).toFixed(2)
           warnings.push(
             `Объединён существующий клиент: ${parentName} (${group.phone}). ` +
-              `Баланс не менялся (${existingFmt} ₽) — в файле нет авторитетных данных по балансу. ` +
+              `Баланс не менялся (${existingFmt} ${sym}) — в файле нет авторитетных данных по балансу. ` +
               `Статус → ${merged}.`,
           )
         }
@@ -574,7 +584,7 @@ export async function syncLeads(
             clientId: created.id,
             delta: new Prisma.Decimal(groupBalance),
             type: "correction",
-            comment: `Импорт лидов: начальный баланс ${groupBalance.toFixed(2)} ₽`,
+            comment: `Импорт лидов: начальный баланс ${groupBalance.toFixed(2)} ${sym}`,
             createdBy: opts.createdBy,
           })
         }

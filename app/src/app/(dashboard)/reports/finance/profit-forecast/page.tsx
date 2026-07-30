@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { ReportShell, ReportStatus, useReportObject, fmtMoney } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportObject, useFmtMoney } from "@/components/report-scaffold"
 
 interface Forecast {
   subscriptionAmount: number
@@ -13,6 +13,7 @@ interface Forecast {
 
 export default function ProfitForecastReportPage() {
   const { loading, error, data } = useReportObject<Forecast>("/api/reports/profit-forecast")
+  const fmtMoney = useFmtMoney()
 
   const lines = data
     ? [

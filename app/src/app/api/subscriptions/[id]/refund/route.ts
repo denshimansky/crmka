@@ -11,6 +11,7 @@ import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
 import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
 import { getWithdrawalBlockReason } from "@/lib/subscriptions/withdrawal-block"
+import { currencySymbol } from "@/lib/currency"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -86,6 +87,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (blockReason) {
     return NextResponse.json({ error: blockReason }, { status: 409 })
   }
+
+  const currency =
+    (
+      await db.organization.findUnique({
+        where: { id: session.user.tenantId },
+        select: { currency: true },
+      })
+    )?.currency ?? "RUB"
 
   const result = await db.$transaction(async (tx) => {
     const subscription = await tx.subscription.findFirst({
@@ -170,7 +179,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           comment ||
           (delta.isPositive()
             ? `Закрытие: возврат за ${remainingLessons} занятий — ${subscription.direction.name} (${subscription.group.name})`
-            : `Закрытие: долг ${delta.abs().toFixed(2)} ₽ — ${subscription.direction.name} (${subscription.group.name})`),
+            : `Закрытие: долг ${delta.abs().toFixed(2)} ${currencySymbol(currency)} — ${subscription.direction.name} (${subscription.group.name})`),
         createdBy: session.user.employeeId,
       })
     }

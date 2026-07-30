@@ -16,6 +16,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { FileText } from "lucide-react"
 import { formatWardName } from "@/lib/format-name"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 interface ActiveSubscriptionOption {
   id: string
@@ -46,10 +47,6 @@ const MONTH_LABELS = [
   "декабрь",
 ]
 
-function fmtMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
-
 function nextPeriodLabel(s: ActiveSubscriptionOption): string {
   const y = s.periodYear ?? new Date().getFullYear()
   const m = s.periodMonth ?? new Date().getMonth() + 1
@@ -65,6 +62,7 @@ export function QuickRenewSubscriptionDialog({
   subscriptions: ActiveSubscriptionOption[]
 }) {
   const router = useRouter()
+  const fmtMoney = useMoneyFormat()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

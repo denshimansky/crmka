@@ -20,6 +20,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { Banknote } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface EmployeeOption {
   id: string
@@ -44,6 +45,7 @@ export function PaySalaryDialog({
   periodMonth: number
 }) {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -138,7 +140,7 @@ export function PaySalaryDialog({
               <SelectContent>
                 {employees.map(e => (
                   <SelectItem key={e.id} value={e.id}>
-                    {e.name} {e.remaining > 0 ? `(${new Intl.NumberFormat("ru-RU").format(e.remaining)} ₽)` : ""}
+                    {e.name} {e.remaining > 0 ? `(${new Intl.NumberFormat("ru-RU").format(e.remaining)} ${sym})` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>

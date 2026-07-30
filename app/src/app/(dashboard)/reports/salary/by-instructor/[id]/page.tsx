@@ -2,6 +2,8 @@ import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
+import { getOrgUiSettings } from "@/lib/role-names"
+import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -9,10 +11,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
-}
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -52,6 +50,8 @@ export default async function SalaryByInstructorDetailPage({
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  const formatMoney = (amount: number) => fmtCurrency(amount, currency)
   const { id: instructorId } = await params
 
   const { year, month } = getMonthFromParams(await searchParams)

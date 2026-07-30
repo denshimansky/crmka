@@ -4,6 +4,7 @@ import { PORTAL_CONSENTS, effectiveRequiredTypes } from "@/lib/portal-consents"
 import { ConsentGate, type GateItem } from "./_components/consent-gate"
 import { PortalHeader } from "./_components/portal-header"
 import { BottomNav } from "./_components/bottom-nav"
+import { CurrencyProvider } from "@/components/currency-provider"
 
 // Кабинет родителя: RSC-guard (сессия + учётка + слаг↔тенант), гейт согласий
 // вместо содержимого, пока обязательные согласия не даны.
@@ -46,7 +47,7 @@ export default async function CabinetLayout({
   const defaultWardKey = wards[0]?.id ?? (hasSelfProfile ? SELF_WARD_KEY : null)
 
   return (
-    <>
+    <CurrencyProvider value={org.currency}>
       <PortalHeader
         slug={slug}
         orgName={org.name}
@@ -57,6 +58,6 @@ export default async function CabinetLayout({
         {children}
       </main>
       <BottomNav slug={slug} defaultWardKey={defaultWardKey} />
-    </>
+    </CurrencyProvider>
   )
 }

@@ -19,6 +19,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { Plus } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface BranchOption {
   id: string
@@ -58,6 +59,7 @@ export function AddAccountDialog({
   refreshOnSuccess = true,
 }: Props) {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [openInternal, setOpenInternal] = useState(false)
   const isControlled = openProp !== undefined
   const open = isControlled ? openProp! : openInternal
@@ -191,7 +193,7 @@ export function AddAccountDialog({
           )}
 
           <div className="space-y-1.5">
-            <Label>Начальный остаток, ₽</Label>
+            <Label>Начальный остаток, {sym}</Label>
             <Input
               inputMode="decimal"
               value={balance}

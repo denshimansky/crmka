@@ -9,6 +9,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { AlertCircle } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface SubscriptionLite {
   id: string
@@ -32,6 +33,7 @@ export function PayFromBalanceDialog({
   onSuccess: () => void
 }) {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const subBalance = Number(subscription.balance)
   const [open, setOpen] = useState(false)
   const [clientBalance, setClientBalance] = useState<number | null>(null)
@@ -74,11 +76,11 @@ export function PayFromBalanceDialog({
       return
     }
     if (num > subBalance + 1e-6) {
-      setError(`Больше долга по абонементу (${fmt(subBalance)} ₽)`)
+      setError(`Больше долга по абонементу (${fmt(subBalance)} ${sym})`)
       return
     }
     if (clientBalance !== null && num > clientBalance + 1e-6) {
-      setError(`Больше баланса родителя (${fmt(clientBalance)} ₽)`)
+      setError(`Больше баланса родителя (${fmt(clientBalance)} ${sym})`)
       return
     }
     setLoading(true)
@@ -135,12 +137,12 @@ export function PayFromBalanceDialog({
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-md border p-2.5">
               <div className="text-xs text-muted-foreground">Долг по абонементу</div>
-              <div className="font-medium">{fmt(subBalance)} ₽</div>
+              <div className="font-medium">{fmt(subBalance)} {sym}</div>
             </div>
             <div className="rounded-md border p-2.5">
               <div className="text-xs text-muted-foreground">Баланс родителя</div>
               <div className={`font-medium ${insufficient ? "text-destructive" : ""}`}>
-                {loadingClient ? "…" : clientBalance !== null ? `${fmt(clientBalance)} ₽` : "—"}
+                {loadingClient ? "…" : clientBalance !== null ? `${fmt(clientBalance)} ${sym}` : "—"}
               </div>
             </div>
           </div>

@@ -16,10 +16,7 @@ import { DeletePaymentDialog } from "./delete-payment-dialog"
 import { PageHelp } from "@/components/page-help"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
+import { formatMoney as fmtCurrency } from "@/lib/currency"
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -136,8 +133,10 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
   // в матрице прав (Настройки → Права ролей).
   const org = await db.organization.findUnique({
     where: { id: tenantId },
-    select: { rolePermissions: true },
+    select: { rolePermissions: true, currency: true },
   })
+  const currency = org?.currency ?? "RUB"
+  const formatMoney = (amount: number): string => fmtCurrency(amount, currency)
   const canDelete = hasPermission(
     session.user.role,
     "payments.delete",

@@ -9,6 +9,7 @@ import {
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 interface Movement {
   id: string
@@ -42,10 +43,6 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
-function formatMoney(v: number) {
-  return new Intl.NumberFormat("ru-RU").format(v) + " ₽"
-}
-
 // Колонка «Откуда → Куда» в журнале.
 function routeLabel(m: Movement): string {
   if (m.type === "purchase") return m.toLabel ? `→ ${m.toLabel}` : (m.fromLabel ? `→ ${m.fromLabel}` : "—")
@@ -60,6 +57,7 @@ function routeLabel(m: Movement): string {
 export default function MovementsPage() {
   const [movements, setMovements] = useState<Movement[]>([])
   const [loading, setLoading] = useState(true)
+  const formatMoney = useMoneyFormat()
 
   const load = useCallback(async () => {
     const res = await fetch("/api/stock-movements")

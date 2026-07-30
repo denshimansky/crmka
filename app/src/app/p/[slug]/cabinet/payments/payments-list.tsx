@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { CreditCard } from "lucide-react"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 // История оплат клиента карточками, «Показать ещё».
 
@@ -28,6 +29,7 @@ const PAYMENT_METHOD: Record<string, string> = {
 }
 
 export function PaymentsList() {
+  const formatMoney = useMoneyFormat()
   const [data, setData] = useState<Data | null>(null)
   const [items, setItems] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
@@ -84,7 +86,7 @@ export function PaymentsList() {
                 </div>
                 <div className={`shrink-0 font-semibold ${isRefund ? "text-destructive" : ""}`}>
                   {isRefund ? "−" : "+"}
-                  {p.amount.toLocaleString("ru")} ₽
+                  {formatMoney(p.amount)}
                 </div>
               </div>
             )

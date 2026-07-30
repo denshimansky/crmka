@@ -23,6 +23,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { exportToExcel } from "@/lib/export-excel"
+import { useMoneyFormat, useCurrencySymbol } from "@/components/currency-provider"
 import { MoveStockDialog, type MoveSource, type MoveBranch } from "@/components/move-stock-dialog"
 import {
   WriteOffStockDialog, type WriteOffSource, type WriteOffCategory, type WriteOffDirection,
@@ -73,12 +74,10 @@ interface LocationRow {
   branchName: string
 }
 
-function formatMoney(v: number) {
-  return new Intl.NumberFormat("ru-RU").format(v) + " ₽"
-}
-
 export default function StockPage() {
   const { data: session } = useSession()
+  const formatMoney = useMoneyFormat()
+  const sym = useCurrencySymbol()
   const isOwner = (session?.user as { role?: string } | undefined)?.role === "owner"
   const [importOpen, setImportOpen] = useState(false)
   const [warehouse, setWarehouse] = useState<WarehouseBalance[]>([])
@@ -216,7 +215,7 @@ export default function StockPage() {
     { header: "Наименование", key: "name", width: 28 },
     { header: "Ед.", key: "unit", width: 8 },
     { header: "Кол-во", key: "quantity", width: 10 },
-    { header: "Сумма, ₽", key: "amount", width: 14 },
+    { header: `Сумма, ${sym}`, key: "amount", width: 14 },
   ]
   const warehouseExportRows = (): Record<string, string | number>[] =>
     warehouseRows.map((b) => ({

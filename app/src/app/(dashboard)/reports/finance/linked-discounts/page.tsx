@@ -4,7 +4,7 @@ import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportData, useFmtMoney } from "@/components/report-scaffold"
 
 interface Row {
   subscriptionId: string
@@ -24,6 +24,7 @@ interface Row {
 
 export default function LinkedDiscountsReportPage() {
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/linked-discounts")
+  const fmtMoney = useFmtMoney()
   const totalAmount = Number(metadata?.totalAmount ?? 0)
   const total = Number(metadata?.totalDiscountedSubscriptions ?? data.length)
 

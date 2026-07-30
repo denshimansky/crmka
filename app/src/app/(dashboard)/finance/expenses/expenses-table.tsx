@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
+import { useMoneyFormat } from "@/components/currency-provider"
 import { EditExpenseDialog } from "./edit-expense-dialog"
 
 type RecognitionMode = "by_payment_date" | "single_period" | "amortized" | "not_in_pnl"
@@ -57,10 +58,6 @@ interface LeadChannelOption {
   name: string
 }
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
-
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -82,6 +79,7 @@ export function ExpensesTable({
   leadChannels: LeadChannelOption[]
 }) {
   const [editingExpense, setEditingExpense] = useState<ExpenseRow | null>(null)
+  const formatMoney = useMoneyFormat()
 
   return (
     <>

@@ -22,7 +22,7 @@ import {
 import {
   ReportShell,
   ReportStatus,
-  fmtMoney,
+  useFmtMoney,
   useReportData,
 } from "@/components/report-scaffold"
 
@@ -52,12 +52,13 @@ function modeSubtitle(mode: string | null, configured: boolean): string {
   return "Активные клиенты по сегментам — по времени с первой оплаты (снимок на сегодня)"
 }
 
-function fmtMetric(value: number, mode: string | null): string {
+function fmtMetric(value: number, mode: string | null, fmtMoney: (amount: number) => string): string {
   if (mode === "months") return `${value} мес.`
   return fmtMoney(value)
 }
 
 export default function SegmentationReportPage() {
+  const fmtMoney = useFmtMoney()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/client-segmentation")
   const [selected, setSelected] = useState<Row | null>(null)
 
@@ -168,7 +169,7 @@ export default function SegmentationReportPage() {
                               )}
                             </TableCell>
                             <TableCell className="text-right tabular-nums whitespace-nowrap">
-                              {configured ? fmtMetric(c.metric, mode) : "—"}
+                              {configured ? fmtMetric(c.metric, mode, fmtMoney) : "—"}
                             </TableCell>
                             <TableCell>{c.branchName ?? "—"}</TableCell>
                           </TableRow>

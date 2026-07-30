@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { formatWardName } from "@/lib/format-name"
+import { currencySymbol } from "@/lib/currency"
 import {
   CLIENT_STATUS_CHANGE_REASON_LABELS,
   type ClientStatusChangeReason,
@@ -111,6 +112,16 @@ export async function GET(
 
   const { id: clientId } = await params
   const tenantId = (session.user as any).tenantId
+
+  // Валюта организации — для символа в строках таймлайна (формат числа не меняем).
+  const currency =
+    (
+      await db.organization.findUnique({
+        where: { id: tenantId },
+        select: { currency: true },
+      })
+    )?.currency ?? "RUB"
+  const sym = currencySymbol(currency)
 
   // wardId — опциональный фильтр: ограничивает ленту событиями только этого
   // ребёнка (используется на карточке /crm/wards/[id]). Коммуникации, оплаты
@@ -388,7 +399,7 @@ export async function GET(
       wardName ? `подопечный: ${wardName}` : null,
       s.group ? `группа: ${s.group.name}` : null,
       period ? `период: ${period}` : null,
-      `сумма: ${amount.toLocaleString("ru-RU")} ₽`,
+      `сумма: ${amount.toLocaleString("ru-RU")} ${sym}`,
     ].filter(Boolean)
 
     events.push({
@@ -545,10 +556,10 @@ export async function GET(
         ? "subscription_paid_from_balance"
         : "payment_in"
     const title = isRefund
-      ? `Возврат ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+      ? `Возврат ${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
       : isTransferIn
-        ? `Списание с баланса в счёт абонемента ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
-        : `Оплата ${amount.toLocaleString("ru-RU")} ₽ — пополнение баланса`
+        ? `Списание с баланса в счёт абонемента ${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
+        : `Оплата ${amount.toLocaleString("ru-RU")} ${sym} — пополнение баланса`
     // Payment.date — @db.Date (без времени) → 03:00 МСК. Для таймлайна берём
     // createdAt (момент создания записи в системе) — там полное время.
     events.push({
@@ -599,19 +610,19 @@ export async function GET(
     const title =
       t.type === "subscription_closed_refund"
         ? amount >= 0
-          ? `Закрытие абонемента: +${amount.toLocaleString("ru-RU")} ₽ на баланс`
-          : `Закрытие абонемента: долг ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+          ? `Закрытие абонемента: +${amount.toLocaleString("ru-RU")} ${sym} на баланс`
+          : `Закрытие абонемента: долг ${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
         : t.type === "correction"
-          ? `Корректировка баланса ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+          ? `Корректировка баланса ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
           : t.type === "personal_lesson_charge"
-            ? `Разовое посещение: ${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+            ? `Разовое посещение: ${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
             : t.type === "lesson_refund"
-              ? `Возврат за занятие: +${amount.toLocaleString("ru-RU")} ₽`
+              ? `Возврат за занятие: +${amount.toLocaleString("ru-RU")} ${sym}`
               : t.type === "discount_refund"
-                ? `Возврат по скидке: +${amount.toLocaleString("ru-RU")} ₽`
+                ? `Возврат по скидке: +${amount.toLocaleString("ru-RU")} ${sym}`
                 : t.type === "attendance_revert"
-                  ? `Отмена посещения: +${amount.toLocaleString("ru-RU")} ₽`
-                  : `Операция (${t.type}) ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ₽`
+                  ? `Отмена посещения: +${amount.toLocaleString("ru-RU")} ${sym}`
+                  : `Операция (${t.type}) ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
     events.push({
       id: `ledger-${t.id}`,
       kind,
@@ -693,7 +704,7 @@ export async function GET(
         title: `Скидка «${tplName}» снята автоматически`,
         description:
           `${who}${directionName}. Условие шаблона больше не выполняется ` +
-          `(было −${prev.toLocaleString("ru-RU")} ₽).`,
+          `(было −${prev.toLocaleString("ru-RU")} ${sym}).`,
         meta: { subscriptionId: subId, templateName: tplName, previousAmount: prev },
       })
       continue

@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client"
+import { currencySymbol } from "@/lib/currency"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
@@ -16,6 +17,12 @@ export interface CloseSubscriptionInput {
    * или сегодня (пакет без периода). Крон и PATCH считают его одинаково.
    */
   endDate?: Date
+  /**
+   * ISO-код валюты организации для символа в комментариях проводок (баланс/долг).
+   * Прокидывает вызывающий (у него есть organization.currency). По умолчанию RUB
+   * — сверка идёт внутри переданной транзакции, лишний запрос сюда не тянем.
+   */
+  currency?: string
 }
 
 export interface CloseSubscriptionResult {
@@ -67,6 +74,8 @@ export async function closeSubscription(
     return { closed: false, balanceDelta: 0, enrollmentsDeactivated: 0 }
   }
 
+  const sym = currencySymbol(input.currency ?? "RUB")
+
   // endDate = последний день периода (для абонемента без периода — сегодня).
   const endDate =
     input.endDate ??
@@ -101,8 +110,8 @@ export async function closeSubscription(
       type: "subscription_closed_refund",
       refs: { subscriptionId: existing.id, directionId: existing.directionId },
       comment: delta.isPositive()
-        ? `Закрытие: возврат на баланс ${delta.toFixed(2)} ₽`
-        : `Закрытие: долг ${delta.abs().toFixed(2)} ₽`,
+        ? `Закрытие: возврат на баланс ${delta.toFixed(2)} ${sym}`
+        : `Закрытие: долг ${delta.abs().toFixed(2)} ${sym}`,
       createdBy: input.employeeId ?? null,
     })
   }
@@ -136,8 +145,8 @@ export async function closeSubscription(
   const moneyNote = delta.isZero()
     ? "Баланс без изменений."
     : delta.isPositive()
-      ? `Возврат на баланс родителя: ${delta.toFixed(2)} ₽.`
-      : `Образовался долг: ${delta.abs().toFixed(2)} ₽.`
+      ? `Возврат на баланс родителя: ${delta.toFixed(2)} ${sym}.`
+      : `Образовался долг: ${delta.abs().toFixed(2)} ${sym}.`
   await tx.communication.create({
     data: {
       tenantId: input.tenantId,

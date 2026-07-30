@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { currencySymbol } from "@/lib/currency"
 import { z } from "zod"
 
 const transferSchema = z.object({
@@ -39,6 +40,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (sourceId === targetSubscriptionId) {
     return NextResponse.json({ error: "Нельзя переносить баланс на тот же абонемент" }, { status: 400 })
   }
+
+  const currency =
+    (
+      await db.organization.findUnique({
+        where: { id: session.user.tenantId },
+        select: { currency: true },
+      })
+    )?.currency ?? "RUB"
 
   const result = await db.$transaction(async (tx) => {
     // 1. Находим оба абонемента
@@ -99,7 +108,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (amount > sourceAvailable) {
       return {
-        error: `Максимальная сумма для переноса: ${sourceAvailable.toFixed(2)} ₽`,
+        error: `Максимальная сумма для переноса: ${sourceAvailable.toFixed(2)} ${currencySymbol(currency)}`,
         status: 400,
       }
     }

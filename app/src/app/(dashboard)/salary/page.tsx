@@ -14,17 +14,16 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
-import { getRoleNames } from "@/lib/role-names"
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
+import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
+import { formatMoney as fmtCurrency } from "@/lib/currency"
 
 export default async function SalaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
   const roleNames = await getRoleNames(tenantId)
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  const formatMoney = (amount: number) => fmtCurrency(amount, currency)
 
   const { year, month } = getMonthFromParams(await searchParams)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))

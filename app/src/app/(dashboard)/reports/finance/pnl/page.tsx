@@ -16,14 +16,14 @@ import {
   AMORTIZATION_LOOKBACK_MONTHS,
 } from "@/lib/expense-amortization"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
-}
+import { formatMoney as fmtCurrency } from "@/lib/currency"
+import { getOrgUiSettings } from "@/lib/role-names"
 
 export default async function PnlReportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  const formatMoney = (amount: number): string => fmtCurrency(Math.round(amount), currency)
 
   const params = await searchParams
   // Период отчёта — произвольный диапазон месяцев from/to (YYYY-MM). Обратная

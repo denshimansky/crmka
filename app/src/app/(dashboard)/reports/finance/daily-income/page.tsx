@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportData, useFmtMoney } from "@/components/report-scaffold"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 interface Row {
@@ -24,6 +24,7 @@ function fmtCell(v: number): string {
 }
 
 export default function DailyIncomeReportPage() {
+  const fmtMoney = useFmtMoney()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/daily-income")
   const totalAmount = Number(metadata?.totalAmount ?? 0)
   const totals = data.reduce(

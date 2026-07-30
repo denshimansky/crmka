@@ -20,6 +20,7 @@ import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdr
 import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 import { closeSubscription } from "@/lib/subscriptions/close-subscription"
 import { getWithdrawalBlockReason } from "@/lib/subscriptions/withdrawal-block"
+import { currencySymbol } from "@/lib/currency"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -74,6 +75,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
   const data = parsed.data
+
+  const currency =
+    (
+      await db.organization.findUnique({
+        where: { id: session.user.tenantId },
+        select: { currency: true },
+      })
+    )?.currency ?? "RUB"
+  const sym = currencySymbol(currency)
 
   // Отмена отложенного отчисления (Подход A): снять scheduledWithdrawal*, вернуть
   // ребёнка в состав группы. Отдельный ранний путь — не трогает основную логику.
@@ -213,6 +223,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const closeRes = await closeSubscription(tx, {
         tenantId: session.user.tenantId,
         subscriptionId: id,
+        currency,
         employeeId: session.user.employeeId ?? null,
       })
       // Абонемент выпал из активных — состав месяца изменился, пересчёт скидок.
@@ -248,13 +259,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         message:
           `Автоскидка снята с ${removed.length} абонемент(ов): состав абонементов месяца изменился.` +
           (refundedTotal > 0
-            ? ` Возвращено на баланс родителя: ${refundedTotal.toLocaleString("ru-RU")} ₽.`
+            ? ` Возвращено на баланс родителя: ${refundedTotal.toLocaleString("ru-RU")} ${sym}.`
             : ""),
         affected: removed,
       }
     } else if (refundedTotal > 0) {
       response._templateDiscountWarning = {
-        message: `Пересчёт скидок: возвращено на баланс родителя ${refundedTotal.toLocaleString("ru-RU")} ₽.`,
+        message: `Пересчёт скидок: возвращено на баланс родителя ${refundedTotal.toLocaleString("ru-RU")} ${sym}.`,
         affected: result.discountRecalc.changes,
       }
     }
@@ -338,8 +349,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           type: "subscription_closed_refund",
           refs: { subscriptionId: id, directionId: existing.directionId },
           comment: delta.isPositive()
-            ? `Отчисление: возврат на баланс ${delta.toFixed(2)} ₽`
-            : `Отчисление: долг ${delta.abs().toFixed(2)} ₽`,
+            ? `Отчисление: возврат на баланс ${delta.toFixed(2)} ${sym}`
+            : `Отчисление: долг ${delta.abs().toFixed(2)} ${sym}`,
           createdBy: session.user.employeeId,
         })
       }
@@ -540,13 +551,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       message:
         `Автоскидка снята с ${removed.length} абонемент(ов): состав абонементов месяца изменился.` +
         (refundedTotal > 0
-          ? ` Возвращено на баланс родителя: ${refundedTotal.toLocaleString("ru-RU")} ₽.`
+          ? ` Возвращено на баланс родителя: ${refundedTotal.toLocaleString("ru-RU")} ${sym}.`
           : ""),
       affected: removed,
     }
   } else if (refundedTotal > 0) {
     response._templateDiscountWarning = {
-      message: `Пересчёт скидок: возвращено на баланс родителя ${refundedTotal.toLocaleString("ru-RU")} ₽.`,
+      message: `Пересчёт скидок: возвращено на баланс родителя ${refundedTotal.toLocaleString("ru-RU")} ${sym}.`,
       affected: result.discountRecalc.changes,
     }
   }

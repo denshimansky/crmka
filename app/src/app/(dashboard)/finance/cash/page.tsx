@@ -16,10 +16,8 @@ import { AddOperationDialog } from "./add-operation-dialog"
 import { EditAccountDialog } from "./edit-account-dialog"
 import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
+import { formatMoney as fmtCurrency } from "@/lib/currency"
+import { getOrgUiSettings } from "@/lib/role-names"
 
 const TYPE_LABELS: Record<string, string> = {
   cash: "Касса",
@@ -48,6 +46,8 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
   const canManageAccounts = userRole === "owner" || userRole === "manager"
   const params = await searchParams
   const scope = await getBranchScope()
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  const formatMoney = (amount: number) => fmtCurrency(amount, currency)
 
   // Карточки/балансы — СТРОГО счета своих филиалов (общие счета скрыты, 23.07.2026).
   const accounts = await db.financialAccount.findMany({
@@ -164,6 +164,7 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
               monthTotals={monthTotals}
               branches={branches}
               userRole={userRole}
+              currency={currency}
             />
             <AccountColumn
               title="Безнал"
@@ -171,6 +172,7 @@ export default async function CashPage({ searchParams }: { searchParams: Promise
               monthTotals={monthTotals}
               branches={branches}
               userRole={userRole}
+              currency={currency}
             />
           </div>
 
@@ -239,9 +241,11 @@ interface AccountColumnProps {
   monthTotals: Record<string, { incoming: number; outgoing: number }>
   branches: { id: string; name: string }[]
   userRole: string
+  currency: string
 }
 
-function AccountColumn({ title, accounts, monthTotals, branches, userRole }: AccountColumnProps) {
+function AccountColumn({ title, accounts, monthTotals, branches, userRole, currency }: AccountColumnProps) {
+  const formatMoney = (amount: number) => fmtCurrency(amount, currency)
   return (
     <div className="space-y-2">
       <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>

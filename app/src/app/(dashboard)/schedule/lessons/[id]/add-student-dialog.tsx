@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { UserPlus, Loader2, AlertCircle, Wallet, BookOpen } from "lucide-react"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 type StudentResult = {
   clientId: string
@@ -33,12 +34,9 @@ interface AddStudentDialogProps {
   groupIsOneTime?: boolean
 }
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
-
 export function AddStudentDialog({ lessonId, groupIsOneTime = false }: AddStudentDialogProps) {
   const router = useRouter()
+  const formatMoney = useMoneyFormat()
   const [open, setOpen] = useState(false)
 
   const [search, setSearch] = useState("")

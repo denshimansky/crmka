@@ -20,6 +20,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { Archive, Pencil } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface BranchOption {
   id: string
@@ -51,6 +52,7 @@ export function EditAccountDialog({
   userRole: string
 }) {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [archiving, setArchiving] = useState(false)
@@ -244,7 +246,7 @@ export function EditAccountDialog({
           )}
 
           <div className="space-y-1.5">
-            <Label>Остаток, ₽</Label>
+            <Label>Остаток, {sym}</Label>
             <Input
               inputMode="decimal"
               value={balance}

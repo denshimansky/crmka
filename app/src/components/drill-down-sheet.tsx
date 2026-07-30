@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 interface DrillDownData {
   columns: string[]
@@ -30,13 +31,6 @@ interface DrillDownSheetProps {
   isLoading: boolean
 }
 
-function formatValue(val: string | number): string {
-  if (typeof val === "number") {
-    return new Intl.NumberFormat("ru-RU").format(Math.round(val)) + " ₽"
-  }
-  return String(val)
-}
-
 export function DrillDownSheet({
   title,
   description,
@@ -45,6 +39,7 @@ export function DrillDownSheet({
   data,
   isLoading,
 }: DrillDownSheetProps) {
+  const formatMoney = useMoneyFormat()
   return (
     <Sheet open={isOpen} onOpenChange={(v) => { if (!v) onClose() }}>
       <SheetContent
@@ -89,7 +84,7 @@ export function DrillDownSheet({
                           className={j === row.length - 1 ? "text-right font-medium whitespace-nowrap" : ""}
                         >
                           {j === row.length - 1 && typeof cell === "number"
-                            ? formatValue(cell)
+                            ? formatMoney(cell)
                             : String(cell)}
                         </TableCell>
                       ))}

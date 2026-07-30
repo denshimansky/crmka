@@ -25,6 +25,7 @@ import {
 import { Plus, Trash2, ArrowLeft, Sparkles } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface AccountOption {
   id: string
@@ -78,10 +79,6 @@ interface ItemRow {
 const MONTH_NAMES = ["январь", "февраль", "март", "апрель", "май", "июнь",
   "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"]
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(amount) + " ₽"
-}
-
 function uid(): string {
   return Math.random().toString(36).slice(2, 10)
 }
@@ -111,6 +108,10 @@ function monthLastDayIso(year: number, month: number): string {
 function NewSalaryPaymentForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const currencySym = useCurrencySymbol()
+  // Символ валюты организации; числовой формат (копейки, ru-RU) не меняем.
+  const formatMoney = (amount: number): string =>
+    new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(amount) + " " + currencySym
   const now = new Date()
   // Локальная дата (не UTC): ночью по МСК toISOString() отдаёт вчерашний день,
   // а от этой даты считается граница начислений.

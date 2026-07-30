@@ -9,6 +9,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Coins, AlertCircle } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface MissingClient {
   phone: string
@@ -45,6 +46,7 @@ function fmt(n: number): string {
 
 export function SyncBalancesButton() {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [open, setOpen] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
@@ -155,8 +157,8 @@ export function SyncBalancesButton() {
                   <div>Не найдено: <b>{report.missingInDb.length}</b></div>
                   <div>Обновлено балансов: <b>{report.updated}</b></div>
                   <div>Без изменений: <b>{report.unchanged}</b></div>
-                  <div>Σ ожидаемых остатков: <b>{fmt(report.totalTargetSum)} ₽</b></div>
-                  <div>Σ применённой Δ: <b>{fmt(report.totalDeltaApplied)} ₽</b></div>
+                  <div>Σ ожидаемых остатков: <b>{fmt(report.totalTargetSum)} {sym}</b></div>
+                  <div>Σ применённой Δ: <b>{fmt(report.totalDeltaApplied)} {sym}</b></div>
                 </div>
                 {(report.rowsSkippedNoPhone > 0 || report.rowsSkippedNoBalance > 0) && (
                   <div className="text-xs text-muted-foreground">
@@ -172,7 +174,7 @@ export function SyncBalancesButton() {
                     <ul className="mt-1 list-disc pl-4 space-y-0.5 max-h-48 overflow-y-auto">
                       {report.missingInDb.slice(0, 200).map((m, i) => (
                         <li key={i}>
-                          {m.phone} · {m.contractor || "(без имени)"} · ожидаемый {fmt(m.target)} ₽
+                          {m.phone} · {m.contractor || "(без имени)"} · ожидаемый {fmt(m.target)} {sym}
                         </li>
                       ))}
                       {report.missingInDb.length > 200 && (
@@ -189,7 +191,7 @@ export function SyncBalancesButton() {
                     <ul className="mt-1 list-disc pl-4 space-y-0.5 max-h-48 overflow-y-auto">
                       {report.updatedClients.slice(0, 200).map((u, i) => (
                         <li key={i}>
-                          {u.fullName || u.phone}: {fmt(u.oldBalance)} → {fmt(u.newBalance)} ₽
+                          {u.fullName || u.phone}: {fmt(u.oldBalance)} → {fmt(u.newBalance)} {sym}
                           {" "}(Δ {u.delta >= 0 ? "+" : ""}{fmt(u.delta)})
                         </li>
                       ))}

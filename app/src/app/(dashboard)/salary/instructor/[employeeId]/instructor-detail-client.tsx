@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PayByDirectionDialog } from "./pay-by-direction-dialog"
 import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface DirectionDetail {
   directionId: string | null
@@ -42,9 +43,9 @@ export interface InstructorDetailData {
   totals: { accrued: number; accruedFirstHalf: number; bonuses: number; penalties: number; paid: number; remaining: number }
 }
 
-const fmt = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n * 100) / 100) + " ₽"
-
 export function InstructorDetailClient({ employeeId, year, month }: { employeeId: string; year: number; month: number }) {
+  const sym = useCurrencySymbol()
+  const fmt = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n * 100) / 100) + " " + sym
   const [data, setData] = useState<InstructorDetailData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -133,7 +134,7 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
                 { header: "Группа", key: "group", width: 26 },
                 { header: "Тип", key: "type", width: 14 },
                 { header: "Учеников", key: "students", width: 10 },
-                { header: "Начислено, ₽", key: "amount", width: 14 },
+                { header: `Начислено, ${sym}`, key: "amount", width: 14 },
               ]}
               rows={exportRows}
             />

@@ -14,6 +14,7 @@ import { Prisma, type PrismaClient } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { recordClientStatusChange } from "@/lib/clients/status-history"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
+import { currencySymbol } from "@/lib/currency"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -83,12 +84,21 @@ export async function payFromBalance(
       )
     }
 
+    const currency =
+      (
+        await t.organization.findUnique({
+          where: { id: input.tenantId },
+          select: { currency: true },
+        })
+      )?.currency ?? "RUB"
+    const sym = currencySymbol(currency)
+
     const amt = new Prisma.Decimal(input.amount)
     const subBalance = new Prisma.Decimal(sub.balance)
     if (amt.greaterThan(subBalance)) {
       throw new PayFromBalanceError(
         400,
-        `Сумма больше долга по абонементу (${subBalance.toFixed(2)} ₽)`,
+        `Сумма больше долга по абонементу (${subBalance.toFixed(2)} ${sym})`,
       )
     }
 
@@ -101,7 +111,7 @@ export async function payFromBalance(
     if (amt.greaterThan(clientBal)) {
       throw new PayFromBalanceError(
         400,
-        `Недостаточно средств на балансе родителя (${clientBal.toFixed(2)} ₽)`,
+        `Недостаточно средств на балансе родителя (${clientBal.toFixed(2)} ${sym})`,
       )
     }
 

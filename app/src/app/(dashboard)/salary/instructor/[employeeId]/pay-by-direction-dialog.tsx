@@ -9,9 +9,9 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { Banknote } from "lucide-react"
+import { useCurrencySymbol } from "@/components/currency-provider"
 import type { InstructorDetailData } from "./instructor-detail-client"
 
-const fmt = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n * 100) / 100) + " ₽"
 const NO_DIR = "__no_direction__"
 
 interface Row {
@@ -31,6 +31,8 @@ export function PayByDirectionDialog({
   data: InstructorDetailData
   onPaid: () => void
 }) {
+  const sym = useCurrencySymbol()
+  const fmt = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n * 100) / 100) + " " + sym
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

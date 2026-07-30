@@ -1,7 +1,8 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { oneOffDebtByClient } from "@/lib/one-off-debt"
-import { getRoleNames } from "@/lib/role-names"
+import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
+import { currencySymbol } from "@/lib/currency"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { scopeBookableAccount, scopeSubscription } from "@/lib/branch-scope"
 import { notFound } from "next/navigation"
@@ -56,10 +57,6 @@ const FUNNEL_PRESALE_COLORS: Record<string, string> = {
   non_target: "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300",
 }
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
-
 function formatDate(date: Date | null | undefined): string {
   if (!date) return "—"
   return date.toLocaleDateString("ru-RU", {
@@ -80,6 +77,11 @@ export async function ClientCardContent({
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
   const roleNames = await getRoleNames(tenantId)
+  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  // Формат числа сохраняем прежним (ru-RU, без округления/копеек, как было);
+  // меняется только символ валюты организации.
+  const formatMoney = (amount: number) =>
+    new Intl.NumberFormat("ru-RU").format(amount) + " " + currencySymbol(currency)
 
   const client = await db.client.findFirst({
     where: { id, tenantId, deletedAt: null },
@@ -404,7 +406,7 @@ export async function ClientCardContent({
                 hasType1Discount: activeSubscriptions.some(
                   (s) => s.discountSource === "type1",
                 ),
-              })}
+              }, currencySymbol(currency))}
             </span>
           </div>
         </div>
@@ -417,7 +419,7 @@ export async function ClientCardContent({
               subscriptionDebt > 0 ? "text-red-600" : "text-muted-foreground"
             }`}
           >
-            {subscriptionDebt > 0 ? formatMoney(subscriptionDebt) : "0 ₽"}
+            {subscriptionDebt > 0 ? formatMoney(subscriptionDebt) : `0 ${currencySymbol(currency)}`}
           </div>
           {balanceDebt > 0 && (
             <div className="text-xs text-red-600">
@@ -449,7 +451,7 @@ export async function ClientCardContent({
                   : "text-muted-foreground"
             }`}
           >
-            {balance === 0 ? "0 ₽" : formatMoney(balance)}
+            {balance === 0 ? `0 ${currencySymbol(currency)}` : formatMoney(balance)}
           </div>
         </div>
       </div>

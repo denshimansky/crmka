@@ -5,6 +5,8 @@
 // таблица контактов). Поле Client.segment в БД оставлено для совместимости
 // со старыми отчётами, но больше не используется для UI.
 
+import { currencySymbol } from "@/lib/currency"
+
 export type SegmentationMode = "amount" | "months"
 
 export type ClientSegmentKey =
@@ -62,10 +64,11 @@ export function effectiveSegment(
 export function segmentRangeLabel(
   key: ClientSegmentKey,
   config: SegmentationConfig | null,
+  currencySym = currencySymbol("RUB"),
 ): string {
   const name = SEGMENT_LABELS[key]
   if (!config) return name
-  const unit = config.mode === "amount" ? "₽" : "мес."
+  const unit = config.mode === "amount" ? currencySym : "мес."
   const fmt = (n: number) =>
     config.mode === "amount" ? new Intl.NumberFormat("ru-RU").format(n) : String(n)
   const t = config.thresholds
@@ -81,10 +84,24 @@ export function segmentRangeLabel(
   }
 }
 
-/** Подпись режима в UI. */
+/**
+ * Подпись режима с символом валюты организации: для «amount» подставляет символ
+ * валюты вместо ₽; для «months» — статичный текст. По умолчанию — символ рубля,
+ * поэтому вызов без символа даёт прежний текст (обратная совместимость).
+ */
+export function modeLabel(
+  mode: SegmentationMode,
+  currencySym = currencySymbol("RUB"),
+): string {
+  return mode === "amount"
+    ? `По сумме (${currencySym} отработанной выручки клиента)`
+    : "По времени (месяцев с первой оплаты)"
+}
+
+/** Подписи режимов в валюте по умолчанию (рубль). Для валюты организации — modeLabel(mode, sym). */
 export const MODE_LABELS: Record<SegmentationMode, string> = {
-  amount: "По сумме (₽ отработанной выручки клиента)",
-  months: "По времени (месяцев с первой оплаты)",
+  amount: modeLabel("amount"),
+  months: modeLabel("months"),
 }
 
 /** Безопасный парсинг JSON-конфига из Organization.segmentationConfig. */

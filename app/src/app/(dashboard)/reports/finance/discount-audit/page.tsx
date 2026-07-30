@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ReportShell, ReportStatus, useReportData, fmtMoney, fmtDay } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportData, useFmtMoney, fmtDay } from "@/components/report-scaffold"
 
 interface Row {
   discountId: string
@@ -31,6 +31,7 @@ const DISCOUNT_TYPE_LABELS: Record<string, string> = {
 }
 
 export default function DiscountAuditReportPage() {
+  const fmtMoney = useFmtMoney()
   const { loading, error, data, metadata } = useReportData<Row>("/api/reports/discount-audit")
   const total = Number(metadata?.totalDiscounts ?? data.length)
   const totalAmount = Number(metadata?.totalAmount ?? 0)

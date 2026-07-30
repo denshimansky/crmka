@@ -18,6 +18,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { AlertTriangle } from "lucide-react"
+import { useMoneyFormat } from "@/components/currency-provider"
 
 interface Correction {
   periodYear: number
@@ -35,15 +36,6 @@ interface CorrectionsResponse {
   totals: { totalDifference: number }
 }
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " ₽"
-}
-
-function formatDifference(amount: number): string {
-  const prefix = amount > 0 ? "+" : ""
-  return prefix + formatMoney(amount)
-}
-
 function getMonthName(year: number, month: number): string {
   return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("ru-RU", {
     month: "long",
@@ -54,6 +46,11 @@ function getMonthName(year: number, month: number): string {
 export function SalaryCorrections({ year, month }: { year: number; month: number }) {
   const [data, setData] = useState<CorrectionsResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const formatMoney = useMoneyFormat()
+  const formatDifference = (amount: number): string => {
+    const prefix = amount > 0 ? "+" : ""
+    return prefix + formatMoney(amount)
+  }
 
   useEffect(() => {
     setLoading(true)

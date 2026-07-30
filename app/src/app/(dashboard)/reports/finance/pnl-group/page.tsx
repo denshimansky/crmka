@@ -2,7 +2,7 @@
 
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ReportShell, ReportStatus, useReportData, fmtMoney } from "@/components/report-scaffold"
+import { ReportShell, ReportStatus, useReportData, useFmtMoney } from "@/components/report-scaffold"
 import { useRoleNames } from "@/components/role-names-provider"
 
 interface Row {
@@ -22,6 +22,7 @@ interface Row {
 export default function PnlGroupReportPage() {
   const roleNames = useRoleNames()
   const { loading, error, data } = useReportData<Row>("/api/reports/pnl-group")
+  const fmtMoney = useFmtMoney()
 
   return (
     <ReportShell

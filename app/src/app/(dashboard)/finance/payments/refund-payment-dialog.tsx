@@ -20,6 +20,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { ClientCombobox } from "@/components/client-combobox"
+import { useMoneyFormat } from "@/components/currency-provider"
 import { Undo2 } from "lucide-react"
 
 interface ClientOption {
@@ -49,10 +50,6 @@ function accountsForMethod(method: string, accounts: AccountOption[]): AccountOp
   return accounts
 }
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU").format(amount) + " ₽"
-}
-
 export function RefundPaymentDialog({
   clients,
   accounts,
@@ -61,6 +58,7 @@ export function RefundPaymentDialog({
   accounts: AccountOption[]
 }) {
   const router = useRouter()
+  const formatMoney = useMoneyFormat()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

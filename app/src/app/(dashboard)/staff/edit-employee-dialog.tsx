@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select"
 import { Pencil, Archive, ArchiveRestore } from "lucide-react"
 import { useRoleNames } from "@/components/role-names-provider"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 const ASSIGNABLE_ROLES = ["manager", "admin", "instructor", "readonly"] as const
 
@@ -64,6 +65,7 @@ export function EditEmployeeDialog({
   const [error, setError] = useState<string | null>(null)
 
   const roleNames = useRoleNames()
+  const sym = useCurrencySymbol()
   const roleOptions = ASSIGNABLE_ROLES.map((value) => ({ value, label: roleNames[value] }))
 
   const [lastName, setLastName] = useState(employee.lastName)
@@ -268,7 +270,7 @@ export function EditEmployeeDialog({
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label>Месячный оклад, ₽</Label>
+                  <Label>Месячный оклад, {sym}</Label>
                   <Input
                     type="number"
                     step="0.01"
