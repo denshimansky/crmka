@@ -422,17 +422,41 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   // === ПРОГНОЗ ПРИБЫЛИ (reports-logic §7.1, упрощённый под дашборд) ===
   // Прибыль = Сумма абонементов − Прогноз ЗП инструкторов − Переменные расходы
-  // − Прогноз постоянных платежей. «Сумма абонементов» — тот же subAmount,
-  // что в виджете «Ожидаемые поступления». ЗП — оклад или ставка×занятия
+  // − Прогноз постоянных платежей. «Сумма абонементов» здесь считается ШИРЕ, чем
+  // в виджете «Ожидаемые поступления»: прогноз учитывает ВСЕ выписанные (pending/
+  // active) абонементы месяца, включая лидов и выбывших из воронки «Продажи», а
+  // не только активную базу (иначе прогноз занижался и показывал прочерк, пока
+  // выписанные лидам абонементы не оплачены — совпадает с отчётом 7.1). ЗП — оклад
+  // или ставка×занятия
   // (см. helper). Переменные расходы — плановые расходы переменных категорий
   // БЕЗ ЗП-категорий (PlannedExpense, isVariable=true, isSalary=false): ЗП
   // инструкторов уже учтена отдельным столбцом (считается из расписания), поэтому
   // категории ЗП исключаем, чтобы не задвоить. Постоянные платежи — плановые
   // расходы постоянных категорий (PlannedExpense, isVariable=false),
   // «заполняется вручную раз в месяц».
-  const profitSubAmount = incomeTotals.subAmount
+  // Отдельный запрос от «Ожидаемых поступлений»: тот же период/пакетный сплит и
+  // scope, но БЕЗ фильтра client.clientStatus='active' — прогноз включает пайплайн
+  // продаж (лиды/выбывшие с выписанными абонементами). incomeTotals.subAmount не
+  // трогаем: его показывает виджет «Ожидаемые поступления» (только активная база).
+  const forecastSubAgg = await db.subscription.aggregate({
+    where: {
+      tenantId,
+      deletedAt: null,
+      status: { in: ["active", "pending"] },
+      ...scopeSubscription(scope),
+      ...(isPackageOrg
+        ? {
+            type: "package",
+            startDate: { lte: monthEndDt },
+            OR: [{ expiresAt: null }, { expiresAt: { gte: monthStart } }],
+          }
+        : { periodYear: year, periodMonth: month }),
+    },
+    _sum: { finalAmount: true },
+  })
+  const profitSubAmount = Number(forecastSubAgg._sum.finalAmount ?? 0)
 
-  // ADM-04: profitSubAmount уже заскоуплен (через expectedSubs), но прогноз ЗП и
+  // ADM-04: profitSubAmount уже заскоуплен (через forecastSubAgg), но прогноз ЗП и
   // плановые расходы ниже остаются общеорганизационными. Виджеты «Прогноз
   // прибыли»/«Плановые расходы» скрыты у скоуп-админа (reports.finance/
   // finance.result), поэтому протечки нет. Если такие права выдадут админу —
