@@ -33,6 +33,15 @@ export async function GET() {
   const directions = await db.direction.findMany({
     where: { tenantId: session.user.tenantId, deletedAt: null },
     orderBy: { sortOrder: "asc" },
+    // Будущие (непромоутнутые) версии цены — форма выписки подставляет цену,
+    // действующую на дату старта абонемента (баг #88).
+    include: {
+      priceVersions: {
+        where: { deletedAt: null, appliedAt: null },
+        orderBy: { effectiveFrom: "asc" },
+        select: { effectiveFrom: true, lessonPrice: true, packagePrices: true },
+      },
+    },
   })
 
   return NextResponse.json(directions)

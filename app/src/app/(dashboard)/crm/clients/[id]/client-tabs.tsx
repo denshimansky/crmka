@@ -36,6 +36,7 @@ import { useRoleNames } from "@/components/role-names-provider"
 import { useMoneyFormat, useCurrencySymbol } from "@/components/currency-provider"
 import type { DiscountPreview } from "@/lib/discounts/preview-discount"
 import { packageLessonPrice } from "@/lib/subscriptions/package-price"
+import { directionPriceAt, type DirectionPriceVersionInput } from "@/lib/subscriptions/direction-price"
 
 interface Ward {
   id: string
@@ -1281,6 +1282,8 @@ interface DirectionOption {
   name: string
   lessonPrice: string
   packagePrices?: Record<string, number> | null
+  // Будущие версии цены (баг #88) — прайс подставляется по дате старта абонемента.
+  priceVersions?: DirectionPriceVersionInput[] | null
 }
 
 interface GroupOption {
@@ -1387,12 +1390,11 @@ function AddSubscriptionDialog({
     setGroupId("")
   }
 
-  // При выборе направления — установить цену
+  // При выборе направления — сбрасываем группу. Цену подставляет эффект ниже
+  // (по дате старта — с учётом будущих версий цены направления, баг #88).
   function handleDirectionChange(id: string) {
     setDirectionId(id)
     setGroupId("")
-    const dir = directions.find(d => d.id === id)
-    if (dir) setLessonPrice(String(Number(dir.lessonPrice)))
   }
 
   // Дата первого занятия по умолчанию — 1-е число выбранного месяца. При смене
@@ -1402,6 +1404,19 @@ function AddSubscriptionDialog({
     if (!periodYear || !periodMonth) return
     setFirstLessonDate(`${periodYear}-${String(Number(periodMonth)).padStart(2, "0")}-01`)
   }, [subscriptionType, periodYear, periodMonth])
+
+  // Календарь: цена занятия = версия цены направления, действующая на дату старта
+  // (firstLessonDate). Будущее подорожание с датой подхватывается уже при создании,
+  // а уже созданные абонементы не пересчитываются (баг #88). Поле остаётся
+  // редактируемым — оператор может задать свою цену.
+  useEffect(() => {
+    if (subscriptionType !== "calendar") return
+    if (!directionId) return
+    const dir = directions.find((d) => d.id === directionId)
+    if (!dir) return
+    const at = new Date(`${firstLessonDate}T00:00:00.000Z`)
+    setLessonPrice(String(directionPriceAt(dir, dir.priceVersions, at).lessonPrice))
+  }, [subscriptionType, directionId, firstLessonDate, directions])
 
   // Авто-подсчёт количества занятий: только для calendar.
   // Считаем по реальным Lesson-записям группы (status != cancelled) с даты
@@ -1447,13 +1462,15 @@ function AddSubscriptionDialog({
       setValidDays(tpl.validDays ? String(tpl.validDays) : "")
       const dir = directions.find((d) => d.id === directionId)
       if (dir) {
+        // Цена занятия версии направления на дату старта, затем пер-пакетный оверрайд (#88+#89).
+        const at = new Date(`${startDate}T00:00:00.000Z`)
         setLessonPrice(String(packageLessonPrice(
-          { lessonPrice: Number(dir.lessonPrice), packagePrices: dir.packagePrices ?? null },
+          directionPriceAt(dir, dir.priceVersions, at),
           tpl.id,
         )))
       }
     }
-  }, [subscriptionType, packageTemplateId, packageTemplates, directionId, directions])
+  }, [subscriptionType, packageTemplateId, packageTemplates, directionId, directions, startDate])
 
   // Предпросчёт скидки: дёргаем сервер при изменении цены/кол-ва/периода.
   useEffect(() => {

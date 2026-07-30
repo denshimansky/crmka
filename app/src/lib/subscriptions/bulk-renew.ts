@@ -26,6 +26,7 @@ import { countLessonsForGroup } from "@/lib/schedule/count-lessons"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
+import { directionPriceAt, toUtcDay } from "@/lib/subscriptions/direction-price"
 
 export interface BulkRenewInput {
   tenantId: string
@@ -257,6 +258,30 @@ async function loadCollisions(
 
 export async function previewBulkRenew(opts: BulkRenewInput): Promise<BulkRenewPreview> {
   const sources = await loadSources(opts)
+
+  // Будущие (непромоутнутые) версии цены направлений, участвующих в выписке (баг #88).
+  // Цена нового абонемента = версия направления, действующая на дату старта периода
+  // (rangeStart): август выписывает на сентябрь по сентябрьской ставке, если она задана.
+  const directionIds = [...new Set(sources.map((s) => s.directionId))]
+  const priceVersions = directionIds.length
+    ? await db.directionPrice.findMany({
+        where: {
+          tenantId: opts.tenantId,
+          directionId: { in: directionIds },
+          deletedAt: null,
+          appliedAt: null,
+        },
+        select: { directionId: true, effectiveFrom: true, lessonPrice: true, appliedAt: true, deletedAt: true },
+      })
+    : []
+  const versionsByDir = new Map<string, typeof priceVersions>()
+  for (const v of priceVersions) {
+    const arr = versionsByDir.get(v.directionId) ?? []
+    arr.push(v)
+    versionsByDir.set(v.directionId, arr)
+  }
+  const startUtcDay = toUtcDay(opts.rangeStart)
+
   const collisionSet = await loadCollisions(
     db,
     opts.tenantId,
@@ -315,12 +340,15 @@ export async function previewBulkRenew(opts: BulkRenewInput): Promise<BulkRenewP
       })
       continue
     }
-    // Цена выписки = актуальный прайс НАПРАВЛЕНИЯ, а не цена исходного
+    // Цена выписки = прайс НАПРАВЛЕНИЯ, действующий на дату старта периода (баг #88:
+    // подорожание с датой подхватывается уже при выписке вперёд), а не цена исходного
     // абонемента. Скидки клиента наложит recalcClientDiscounts после создания.
     // Копирование цены исходника дублировало скидку, «зашитую» оператором прямо
     // в цену (исходник 400 при прайсе 450 → новый 400 − 50 шаблона = 350,
     // двойная скидка), и навсегда замораживало старый прайс при подорожании.
-    const price = new Prisma.Decimal(s.direction.lessonPrice)
+    const price = new Prisma.Decimal(
+      directionPriceAt(s.direction, versionsByDir.get(s.directionId), startUtcDay).lessonPrice,
+    )
     const finalAmount = price.mul(g.count)
     toCreate.push({
       sourceSubscriptionId: s.id,

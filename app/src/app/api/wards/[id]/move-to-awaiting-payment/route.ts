@@ -9,6 +9,7 @@ import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { packageLessonPrice } from "@/lib/subscriptions/package-price"
+import { directionPriceAt, toUtcDay } from "@/lib/subscriptions/direction-price"
 
 const moveSchema = z.object({
   applicationId: z.string().uuid().optional(),
@@ -144,6 +145,19 @@ export async function POST(
     return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
   }
 
+  // Будущие (непромоутнутые) версии цены направления (баг #88): цена абонемента
+  // берётся по дате старта (firstPaid) — датированное подорожание подхватывается.
+  const priceVersions = await db.directionPrice.findMany({
+    where: { directionId: direction.id, tenantId, deletedAt: null, appliedAt: null },
+    select: {
+      effectiveFrom: true,
+      lessonPrice: true,
+      packagePrices: true,
+      appliedAt: true,
+      deletedAt: true,
+    },
+  })
+
   const group = await db.group.findFirst({
     where: { id: data.groupId, tenantId, deletedAt: null },
     select: { id: true, branchId: true, directionId: true },
@@ -203,14 +217,9 @@ export async function POST(
     }
     // totalLessons пакета фиксирован шаблоном (НЕ помесячный подсчёт группы).
     totalLessons = tpl.lessonsCount
+    // Цена занятия версии направления на дату старта, затем пер-пакетный оверрайд (#88+#89).
     lessonPrice = new Prisma.Decimal(
-      packageLessonPrice(
-        {
-          lessonPrice: Number(direction.lessonPrice),
-          packagePrices: direction.packagePrices ?? null,
-        },
-        tpl.id,
-      ),
+      packageLessonPrice(directionPriceAt(direction, priceVersions, toUtcDay(firstPaid)), tpl.id),
     )
     const validDays = data.validDays ?? tpl.validDays ?? org!.packageDefaultValidDays
     expiresAt = addDaysUtc(firstPaid, validDays)
@@ -266,7 +275,10 @@ export async function POST(
       )
     }
 
-    lessonPrice = new Prisma.Decimal(direction.lessonPrice)
+    // Цена занятия версии направления, действующей на дату старта (баг #88).
+    lessonPrice = new Prisma.Decimal(
+      directionPriceAt(direction, priceVersions, toUtcDay(firstPaid)).lessonPrice,
+    )
   }
 
   const totalAmount = lessonPrice.mul(totalLessons)
