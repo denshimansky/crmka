@@ -448,6 +448,9 @@ model Direction {
   trialPrice       Decimal?  @map("trial_price") @db.Decimal(12, 2)
   trialFree        Boolean   @default(false) @map("trial_free")
   singleVisitPrice Decimal?  @map("single_visit_price") @db.Decimal(12, 2)
+  // Переопределения цены занятия по пакетам (тип "package"): { packageTemplateId: ценаЗанятия }.
+  // Отсутствие ключа → базовая lessonPrice (см. lib/subscriptions/package-price.ts).
+  packagePrices    Json?     @map("package_prices")
   color            String?
   icon             String?
   sortOrder        Int       @default(0) @map("sort_order")
@@ -830,6 +833,7 @@ model PackageTemplate {
 
   organization  Organization   @relation(fields: [tenantId], references: [id])
   subscriptions Subscription[]
+  applications  Application[]
 
   @@index([tenantId, isActive])
   @@map("package_templates")
@@ -2083,6 +2087,9 @@ model Application {
   branchId            String              @map("branch_id") @db.Uuid
   directionId         String              @map("direction_id") @db.Uuid
   status              ApplicationStatus   @default(active)
+  // Выбранный в заявке пакет (только для орг с subscriptionType=package). Долетает
+  // до абонемента при конвертации «Ожидаем оплату». SetNull — удаление шаблона не рушит заявку.
+  packageTemplateId   String?             @map("package_template_id") @db.Uuid
   // Этап воронки продаж самой заявки (Заявка/Пробное/Прошёл пробное/Ожидаем оплату).
   // Воронка ведётся по заявке: у одного ребёнка может быть несколько заявок на разных
   // этапах. Ward.salesStage — денормализованное зеркало (макс. этап активных заявок).
@@ -2107,6 +2114,7 @@ model Application {
   ward         Ward          @relation(fields: [wardId], references: [id])
   branch       Branch        @relation(fields: [branchId], references: [id])
   direction    Direction     @relation(fields: [directionId], references: [id])
+  packageTemplate PackageTemplate? @relation(fields: [packageTemplateId], references: [id], onDelete: SetNull)
   processor    Employee?     @relation("ApplicationProcessor", fields: [processedBy], references: [id])
   trialLessons TrialLesson[]
 
