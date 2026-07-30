@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,6 +25,23 @@ interface DirectionData {
   singleVisitPrice: string | null
   color: string | null
   icon: string | null
+  packagePrices?: Record<string, number> | null
+}
+
+interface PackageTemplateOption {
+  id: string
+  lessonsCount: number
+  validDays: number | null
+}
+
+function pricesToStrings(map: Record<string, number> | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (map && typeof map === "object") {
+    for (const [id, v] of Object.entries(map)) {
+      if (v != null && Number.isFinite(Number(v))) out[id] = String(v)
+    }
+  }
+  return out
 }
 
 export function EditDirectionDialog({ direction }: { direction: DirectionData }) {
@@ -43,6 +60,34 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
   const [color, setColor] = useState(direction.color ?? "#3b82f6")
   const [icon, setIcon] = useState(direction.icon ?? DEFAULT_DIRECTION_ICON)
 
+  const [isPackageOrg, setIsPackageOrg] = useState(false)
+  const [templates, setTemplates] = useState<PackageTemplateOption[]>([])
+  const [packagePrices, setPackagePrices] = useState<Record<string, string>>(() => pricesToStrings(direction.packagePrices))
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [orgRes, tplRes] = await Promise.all([
+          fetch("/api/organization"),
+          fetch("/api/package-templates"),
+        ])
+        if (orgRes.ok) {
+          const org = await orgRes.json()
+          if (!cancelled) setIsPackageOrg(org?.subscriptionType === "package")
+        }
+        if (tplRes.ok) {
+          const tpls = (await tplRes.json()) as PackageTemplateOption[]
+          if (!cancelled) setTemplates(Array.isArray(tpls) ? tpls : [])
+        }
+      } catch {
+        /* игнорируем — секция пакетов просто не покажется */
+      }
+    })()
+    return () => { cancelled = true }
+  }, [open])
+
   function resetForm() {
     setName(direction.name)
     setLessonPrice(direction.lessonPrice)
@@ -52,7 +97,18 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
     setSingleVisitPrice(direction.singleVisitPrice ?? "")
     setColor(direction.color ?? "#3b82f6")
     setIcon(direction.icon ?? DEFAULT_DIRECTION_ICON)
+    setPackagePrices(pricesToStrings(direction.packagePrices))
     setError(null)
+  }
+
+  function buildPackagePrices(): Record<string, number> | null {
+    const out: Record<string, number> = {}
+    for (const [id, v] of Object.entries(packagePrices)) {
+      if (v == null || v.trim() === "") continue
+      const n = Number(v)
+      if (Number.isFinite(n) && n >= 0) out[id] = n
+    }
+    return Object.keys(out).length ? out : null
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -76,6 +132,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
           singleVisitPrice: singleVisitPrice ? Number(singleVisitPrice) : null,
           color,
           icon,
+          packagePrices: buildPackagePrices(),
         }),
       })
 
@@ -127,6 +184,29 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
                 <Input type="number" min="15" max="480" value={lessonDuration} onChange={(e) => setLessonDuration(e.target.value)} />
               </div>
             </div>
+
+            {isPackageOrg && templates.length > 0 && (
+              <div className="space-y-2">
+                <Label>Цены по пакетам</Label>
+                <div className="space-y-2">
+                  {templates.map((t) => (
+                    <div key={t.id} className="flex items-center gap-2">
+                      <span className="w-28 shrink-0 text-sm text-muted-foreground">{t.lessonsCount} занятий</span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={packagePrices[t.id] ?? ""}
+                        onChange={(e) => setPackagePrices((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                        placeholder={lessonPrice || "базовая"}
+                      />
+                      <span className="shrink-0 text-sm text-muted-foreground">{sym}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">Пусто — берётся базовая цена занятия.</p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm">

@@ -8,6 +8,7 @@ import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
+import { packageLessonPrice } from "@/lib/subscriptions/package-price"
 
 const moveSchema = z.object({
   applicationId: z.string().uuid().optional(),
@@ -17,7 +18,16 @@ const moveSchema = z.object({
   firstPaidLessonDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Дата формата YYYY-MM-DD"),
+  // Поля только для пакетного типа
+  packageTemplateId: z.string().uuid().nullable().optional(),
+  validDays: z.number().int().min(1).max(3650).optional(),
 })
+
+function addDaysUtc(d: Date, days: number): Date {
+  const r = new Date(d.getTime())
+  r.setUTCDate(r.getUTCDate() + days)
+  return r
+}
 
 /**
  * Переход подопечного в стадию «Ожидаем оплату».
@@ -33,10 +43,15 @@ const moveSchema = z.object({
  * оплата абонемента всегда ручная, через кнопку «Оплатить с баланса» в
  * карточке абонемента (POST /api/subscriptions/[id]/pay-from-balance).
  *
- * totalLessons рассчитывается как количество не отменённых занятий группы
- * с firstPaidLessonDate до конца месяца (включительно). Если занятия ещё не
- * сгенерированы — totalLessons=0; в этом случае админ должен сначала
- * сгенерировать расписание.
+ * Для календарного типа totalLessons рассчитывается как количество не
+ * отменённых занятий группы с firstPaidLessonDate до конца месяца
+ * (включительно). Если занятия ещё не сгенерированы — totalLessons=0; в этом
+ * случае админ должен сначала сгенерировать расписание.
+ *
+ * Для пакетного типа (org.subscriptionType === "package") абонемент выписывается
+ * по выбранному пакету: totalLessons = PackageTemplate.lessonsCount, цена занятия
+ * — пер-пакетное переопределение направления (packageLessonPrice), период не
+ * задаётся, срок годности (expiresAt) = startDate + validDays.
  */
 export async function POST(
   req: NextRequest,
@@ -84,7 +99,7 @@ export async function POST(
             deletedAt: null,
             stage: { in: [...eligibleStages] },
           },
-          select: { id: true, stage: true },
+          select: { id: true, stage: true, packageTemplateId: true },
         })
       : null) ??
     (await db.application.findFirst({
@@ -97,7 +112,7 @@ export async function POST(
         stage: { in: [...eligibleStages] },
       },
       orderBy: { createdAt: "desc" },
-      select: { id: true, stage: true },
+      select: { id: true, stage: true, packageTemplateId: true },
     })) ??
     (await db.application.findFirst({
       where: {
@@ -108,7 +123,7 @@ export async function POST(
         stage: { in: [...eligibleStages] },
       },
       orderBy: { createdAt: "desc" },
-      select: { id: true, stage: true },
+      select: { id: true, stage: true, packageTemplateId: true },
     }))
 
   if (!targetApp) {
@@ -123,7 +138,7 @@ export async function POST(
 
   const direction = await db.direction.findFirst({
     where: { id: data.directionId, tenantId, deletedAt: null },
-    select: { id: true, lessonPrice: true },
+    select: { id: true, lessonPrice: true, packagePrices: true },
   })
   if (!direction) {
     return NextResponse.json({ error: "Направление не найдено" }, { status: 404 })
@@ -149,59 +164,113 @@ export async function POST(
     )
   }
 
+  // Развилка по типу абонемента организации. Пакетные UI-поля приходят только
+  // при org.subscriptionType === "package".
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionType: true, packageDefaultValidDays: true },
+  })
+  const orgType = org?.subscriptionType ?? "calendar"
+
   const firstPaid = new Date(data.firstPaidLessonDate)
-  const periodYear = firstPaid.getFullYear()
-  const periodMonth = firstPaid.getMonth() + 1
-  const monthStart = new Date(periodYear, periodMonth - 1, 1)
-  const nextMonthStart = new Date(periodYear, periodMonth, 1)
+  const now = new Date()
 
-  // Считаем занятия группы с firstPaidLessonDate до конца месяца —
-  // именно за них клиент платит этим абонементом.
-  const totalLessons = await db.lesson.count({
-    where: {
-      tenantId,
-      groupId: data.groupId,
-      date: { gte: firstPaid, lt: nextMonthStart },
-      status: { in: ["scheduled", "completed"] },
-    },
-  })
+  // Итоговые поля абонемента — заполняются по-разному для календарного и
+  // пакетного типа. Календарная ветка сохраняет прежнее поведение.
+  let subType: "calendar" | "package"
+  let subPeriodYear: number | null
+  let subPeriodMonth: number | null
+  let totalLessons: number
+  let lessonPrice: Prisma.Decimal
+  let expiresAt: Date | null
+  let subPackageTemplateId: string | null
 
-  if (totalLessons === 0) {
-    return NextResponse.json(
-      {
-        error:
-          "В выбранном месяце у группы нет занятий. Сгенерируйте расписание группы.",
+  if (orgType === "package") {
+    subType = "package"
+    subPeriodYear = null
+    subPeriodMonth = null
+    // Пакет берём из тела запроса, иначе — с заявки (её мог задать конвертор).
+    subPackageTemplateId = data.packageTemplateId ?? targetApp.packageTemplateId
+    if (!subPackageTemplateId) {
+      return NextResponse.json({ error: "Выберите пакет" }, { status: 400 })
+    }
+    const tpl = await db.packageTemplate.findFirst({
+      where: { id: subPackageTemplateId, tenantId, deletedAt: null },
+      select: { id: true, lessonsCount: true, validDays: true },
+    })
+    if (!tpl) {
+      return NextResponse.json({ error: "Шаблон пакета не найден" }, { status: 400 })
+    }
+    // totalLessons пакета фиксирован шаблоном (НЕ помесячный подсчёт группы).
+    totalLessons = tpl.lessonsCount
+    lessonPrice = new Prisma.Decimal(
+      packageLessonPrice(
+        {
+          lessonPrice: Number(direction.lessonPrice),
+          packagePrices: direction.packagePrices ?? null,
+        },
+        tpl.id,
+      ),
+    )
+    const validDays = data.validDays ?? tpl.validDays ?? org!.packageDefaultValidDays
+    expiresAt = addDaysUtc(firstPaid, validDays)
+  } else {
+    subType = "calendar"
+    subPackageTemplateId = null
+    expiresAt = null
+    const periodYear = firstPaid.getFullYear()
+    const periodMonth = firstPaid.getMonth() + 1
+    const nextMonthStart = new Date(periodYear, periodMonth, 1)
+    subPeriodYear = periodYear
+    subPeriodMonth = periodMonth
+
+    // Считаем занятия группы с firstPaidLessonDate до конца месяца —
+    // именно за них клиент платит этим абонементом.
+    totalLessons = await db.lesson.count({
+      where: {
+        tenantId,
+        groupId: data.groupId,
+        date: { gte: firstPaid, lt: nextMonthStart },
+        status: { in: ["scheduled", "completed"] },
       },
-      { status: 400 },
-    )
+    })
+
+    if (totalLessons === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "В выбранном месяце у группы нет занятий. Сгенерируйте расписание группы.",
+        },
+        { status: 400 },
+      )
+    }
+
+    // Запрет дублей абонементов (баг #52): подопечный не может получить второй
+    // «живой» (pending/active) абонемент в ту же группу за тот же месяц.
+    const duplicateSub = await db.subscription.findFirst({
+      where: {
+        tenantId,
+        wardId: ward.id,
+        groupId: data.groupId,
+        periodYear,
+        periodMonth,
+        status: { in: ["pending", "active"] },
+        deletedAt: null,
+      },
+      select: { id: true },
+    })
+    if (duplicateSub) {
+      return NextResponse.json(
+        { error: "У подопечного уже есть абонемент в эту группу на выбранный период." },
+        { status: 409 },
+      )
+    }
+
+    lessonPrice = new Prisma.Decimal(direction.lessonPrice)
   }
 
-  // Запрет дублей абонементов (баг #52): подопечный не может получить второй
-  // «живой» (pending/active) абонемент в ту же группу за тот же месяц.
-  const duplicateSub = await db.subscription.findFirst({
-    where: {
-      tenantId,
-      wardId: ward.id,
-      groupId: data.groupId,
-      periodYear,
-      periodMonth,
-      status: { in: ["pending", "active"] },
-      deletedAt: null,
-    },
-    select: { id: true },
-  })
-  if (duplicateSub) {
-    return NextResponse.json(
-      { error: "У подопечного уже есть абонемент в эту группу на выбранный период." },
-      { status: 409 },
-    )
-  }
-
-  const lessonPrice = new Prisma.Decimal(direction.lessonPrice)
   const totalAmount = lessonPrice.mul(totalLessons)
   const finalAmount = totalAmount
-
-  const now = new Date()
 
   const result = await db.$transaction(async (tx) => {
     const subscription = await tx.subscription.create({
@@ -211,10 +280,10 @@ export async function POST(
         wardId: ward.id,
         directionId: data.directionId,
         groupId: data.groupId,
-        type: "calendar",
+        type: subType,
         status: "pending",
-        periodYear,
-        periodMonth,
+        periodYear: subPeriodYear,
+        periodMonth: subPeriodMonth,
         lessonPrice,
         totalLessons,
         totalAmount,
@@ -222,6 +291,8 @@ export async function POST(
         finalAmount,
         balance: finalAmount,
         startDate: firstPaid,
+        expiresAt,
+        packageTemplateId: subPackageTemplateId,
         createdBy: session.user.employeeId,
       },
     })

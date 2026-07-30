@@ -18,12 +18,19 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Calendar } from "@/components/ui/calendar"
 import { AlertCircle, Loader2 } from "lucide-react"
 
 interface BranchOption {
   id: string
   name: string
+}
+
+interface PackageTemplateOption {
+  id: string
+  lessonsCount: number
+  validDays: number | null
 }
 
 interface DirectionOption {
@@ -88,6 +95,13 @@ export function AwaitingPaymentDialog({
   // группа не выбрана; [] = группа выбрана, занятий нет (нужна перегенерация).
   const [groupLessonDates, setGroupLessonDates] = useState<string[] | null>(null)
 
+  // Пакетное ценообразование (баг #89). Элементы показываем только пакетным орг.
+  const [isPackageOrg, setIsPackageOrg] = useState(false)
+  const [packageDefaultValidDays, setPackageDefaultValidDays] = useState(30)
+  const [packageTemplates, setPackageTemplates] = useState<PackageTemplateOption[]>([])
+  const [packageTemplateId, setPackageTemplateId] = useState<string>("")
+  const [validDays, setValidDays] = useState<string>("")
+
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -101,9 +115,32 @@ export function AwaitingPaymentDialog({
       fetch("/api/branches").then((r) => (r.ok ? r.json() : [])),
       fetch("/api/directions").then((r) => (r.ok ? r.json() : [])),
       fetch("/api/groups").then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/organization").then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/package-templates").then((r) => (r.ok ? r.json() : [])),
     ])
-      .then(([b, d, g]) => {
+      .then(([b, d, g, org, tpls]) => {
         if (cancelled) return
+        const o = org as {
+          subscriptionType?: string | null
+          packageDefaultValidDays?: number | null
+        } | null
+        setIsPackageOrg(o?.subscriptionType === "package")
+        if (o?.packageDefaultValidDays != null) {
+          setPackageDefaultValidDays(o.packageDefaultValidDays)
+        }
+        setPackageTemplates(
+          (
+            tpls as Array<{
+              id: string
+              lessonsCount: number
+              validDays: number | null
+            }>
+          ).map((x) => ({
+            id: x.id,
+            lessonsCount: x.lessonsCount,
+            validDays: x.validDays,
+          })),
+        )
         setBranches(
           (b as Array<{ id: string; name: string }>).map((x) => ({
             id: x.id,
@@ -156,6 +193,8 @@ export function AwaitingPaymentDialog({
       setGroupId(defaultGroupId ?? "")
       setFirstPaidDate("")
       setGroupLessonDates(null)
+      setPackageTemplateId("")
+      setValidDays("")
       setError(null)
     }
   }, [open, defaultBranchId, defaultDirectionId, defaultGroupId])
@@ -247,18 +286,28 @@ export function AwaitingPaymentDialog({
     setSubmitting(true)
     setError(null)
     try {
+      const payload: Record<string, unknown> = {
+        applicationId,
+        branchId,
+        directionId,
+        groupId,
+        firstPaidLessonDate: firstPaidDate,
+      }
+      // Пакетным орг — прокидываем выбранный пакет и срок. Пустой пакет не
+      // блокируем: сервер подставит packageTemplateId из заявки.
+      if (isPackageOrg) {
+        if (packageTemplateId) payload.packageTemplateId = packageTemplateId
+        const days = Number(validDays)
+        if (validDays.trim() !== "" && Number.isFinite(days) && days > 0) {
+          payload.validDays = days
+        }
+      }
       const res = await fetch(
         `/api/wards/${wardId}/move-to-awaiting-payment`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            applicationId,
-            branchId,
-            directionId,
-            groupId,
-            firstPaidLessonDate: firstPaidDate,
-          }),
+          body: JSON.stringify(payload),
         },
       )
       if (!res.ok) {
@@ -407,6 +456,73 @@ export function AwaitingPaymentDialog({
                 emptyHint="У группы нет занятий. Перегенерируйте расписание группы."
               />
             </div>
+
+            {isPackageOrg && (
+              <div className="space-y-3">
+                {packageTemplates.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label>Шаблон пакета</Label>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {packageTemplates.map((tpl) => (
+                        <button
+                          type="button"
+                          key={tpl.id}
+                          onClick={() =>
+                            setPackageTemplateId(
+                              packageTemplateId === tpl.id ? "" : tpl.id,
+                            )
+                          }
+                          className={[
+                            "rounded-md border p-2 text-left text-xs transition-colors",
+                            packageTemplateId === tpl.id
+                              ? "border-primary bg-primary/5"
+                              : "border-input hover:bg-muted/50",
+                          ].join(" ")}
+                        >
+                          <div className="font-medium">
+                            {tpl.lessonsCount} занятий
+                          </div>
+                          <div className="text-muted-foreground">
+                            {tpl.validDays ?? packageDefaultValidDays} дн.
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <Label>Срок (дн.)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="3650"
+                    placeholder={String(
+                      packageTemplates.find((t) => t.id === packageTemplateId)
+                        ?.validDays ?? packageDefaultValidDays,
+                    )}
+                    value={validDays}
+                    onChange={(e) => setValidDays(e.target.value)}
+                  />
+                </div>
+
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  Истекает:{" "}
+                  {(() => {
+                    if (!firstPaidDate) return "—"
+                    const days =
+                      Number(validDays) ||
+                      (packageTemplates.find((t) => t.id === packageTemplateId)
+                        ?.validDays ??
+                        packageDefaultValidDays)
+                    const d = new Date(firstPaidDate)
+                    if (Number.isNaN(d.getTime())) return "—"
+                    d.setDate(d.getDate() + days)
+                    return d.toLocaleDateString("ru-RU")
+                  })()}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

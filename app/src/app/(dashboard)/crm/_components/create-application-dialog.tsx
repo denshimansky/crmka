@@ -18,6 +18,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { ClientCombobox, type ClientComboboxOption } from "@/components/client-combobox"
 import { AlertTriangle, ClipboardPlus } from "lucide-react"
 import { formatWardName } from "@/lib/format-name"
+import { useCurrencySymbol } from "@/components/currency-provider"
+import { packageLessonPrice } from "@/lib/subscriptions/package-price"
 
 interface DuplicateApplication {
   id: string
@@ -41,6 +43,14 @@ interface BranchOption {
 interface DirectionOption {
   id: string
   name: string
+  lessonPrice?: number | string
+  packagePrices?: Record<string, number> | null | unknown
+}
+
+interface PackageTemplateOption {
+  id: string
+  lessonsCount: number
+  validDays: number | null
 }
 
 const wardName = formatWardName
@@ -73,6 +83,7 @@ export function CreateApplicationDialog({
   onCreated?: (application: { id: string; clientId: string }) => void
 }) {
   const router = useRouter()
+  const currencySymbol = useCurrencySymbol()
   // Режим поиска клиента: клиент заранее не задан, выбираем из списка.
   const pickClient = !fixedClientId
   const [open, setOpen] = useState(false)
@@ -89,6 +100,12 @@ export function CreateApplicationDialog({
   const [directionId, setDirectionId] = useState("")
   const [comment, setComment] = useState("")
   const [duplicates, setDuplicates] = useState<DuplicateApplication[]>([])
+  // Пакетное ценообразование (баг #89): показываем выбор шаблона пакета только
+  // для организаций с типом абонемента «package».
+  const [isPackageOrg, setIsPackageOrg] = useState(false)
+  const [packageDefaultValidDays, setPackageDefaultValidDays] = useState(30)
+  const [packageTemplates, setPackageTemplates] = useState<PackageTemplateOption[]>([])
+  const [packageTemplateId, setPackageTemplateId] = useState<string | null>(null)
 
   const clientId = pickClient ? pickedClientId : fixedClientId
   const wards = pickClient ? pickedWards : (fixedWards ?? [])
@@ -104,12 +121,26 @@ export function CreateApplicationDialog({
     setDirectionId("")
     setComment("")
     setDuplicates([])
+    setPackageTemplateId(null)
     ;(async () => {
       try {
-        const [bRes, dRes] = await Promise.all([fetch("/api/branches"), fetch("/api/directions")])
+        const [bRes, dRes, oRes, tRes] = await Promise.all([
+          fetch("/api/branches"),
+          fetch("/api/directions"),
+          fetch("/api/organization"),
+          fetch("/api/package-templates"),
+        ])
         if (cancelled) return
         if (bRes.ok) setBranches(await bRes.json())
         if (dRes.ok) setDirections(await dRes.json())
+        if (oRes.ok) {
+          const org = await oRes.json()
+          setIsPackageOrg(org?.subscriptionType === "package")
+          if (typeof org?.packageDefaultValidDays === "number") {
+            setPackageDefaultValidDays(org.packageDefaultValidDays)
+          }
+        }
+        if (tRes.ok) setPackageTemplates(await tRes.json())
       } catch {
         /* ignore */
       }
@@ -198,6 +229,7 @@ export function CreateApplicationDialog({
           directionId,
           comment: comment.trim() || undefined,
           callCampaignItemId,
+          packageTemplateId: isPackageOrg ? packageTemplateId : undefined,
         }),
       })
       if (!res.ok) {
@@ -331,6 +363,47 @@ export function CreateApplicationDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {isPackageOrg && packageTemplates.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Пакет</Label>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {packageTemplates.map((tpl) => (
+                  <button
+                    type="button"
+                    key={tpl.id}
+                    onClick={() =>
+                      setPackageTemplateId(packageTemplateId === tpl.id ? null : tpl.id)
+                    }
+                    className={[
+                      "rounded-md border p-2 text-left text-xs transition-colors",
+                      packageTemplateId === tpl.id
+                        ? "border-primary bg-primary/5"
+                        : "border-input hover:bg-muted/50",
+                    ].join(" ")}
+                  >
+                    <div className="font-medium">{tpl.lessonsCount} занятий</div>
+                    <div className="text-muted-foreground">
+                      {tpl.validDays ?? packageDefaultValidDays} дн.
+                    </div>
+                  </button>
+                ))}
+              </div>
+              {selectedDirection && (
+                <p className="text-xs text-muted-foreground">
+                  Цена занятия:{" "}
+                  {packageLessonPrice(
+                    {
+                      lessonPrice: selectedDirection.lessonPrice ?? 0,
+                      packagePrices: selectedDirection.packagePrices,
+                    },
+                    packageTemplateId,
+                  )}{" "}
+                  {currencySymbol}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Комментарий</Label>

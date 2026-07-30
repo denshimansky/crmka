@@ -100,6 +100,7 @@ function DirectionCard({ dir, sym, archived = false }: { dir: Direction; sym: st
                   singleVisitPrice: dir.singleVisitPrice ? String(dir.singleVisitPrice) : null,
                   color: dir.color,
                   icon: dir.icon,
+                  packagePrices: (dir.packagePrices as Record<string, number> | null) ?? null,
                 }}
               />
               <ArchiveDirectionButton id={dir.id} name={dir.name} />

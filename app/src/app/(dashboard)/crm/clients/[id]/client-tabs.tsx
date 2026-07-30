@@ -35,6 +35,7 @@ import { formatWardName } from "@/lib/format-name"
 import { useRoleNames } from "@/components/role-names-provider"
 import { useMoneyFormat, useCurrencySymbol } from "@/components/currency-provider"
 import type { DiscountPreview } from "@/lib/discounts/preview-discount"
+import { packageLessonPrice } from "@/lib/subscriptions/package-price"
 
 interface Ward {
   id: string
@@ -1279,6 +1280,7 @@ interface DirectionOption {
   id: string
   name: string
   lessonPrice: string
+  packagePrices?: Record<string, number> | null
 }
 
 interface GroupOption {
@@ -1443,8 +1445,15 @@ function AddSubscriptionDialog({
     if (tpl) {
       setTotalLessons(String(tpl.lessonsCount))
       setValidDays(tpl.validDays ? String(tpl.validDays) : "")
+      const dir = directions.find((d) => d.id === directionId)
+      if (dir) {
+        setLessonPrice(String(packageLessonPrice(
+          { lessonPrice: Number(dir.lessonPrice), packagePrices: dir.packagePrices ?? null },
+          tpl.id,
+        )))
+      }
     }
-  }, [subscriptionType, packageTemplateId, packageTemplates])
+  }, [subscriptionType, packageTemplateId, packageTemplates, directionId, directions])
 
   // Предпросчёт скидки: дёргаем сервер при изменении цены/кол-ва/периода.
   useEffect(() => {
