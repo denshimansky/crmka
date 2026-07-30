@@ -57,6 +57,9 @@ interface AttendanceItem {
   isMakeup: boolean
   chargeAmount: number
   markedAt: string | null
+  // Отметка ещё не проставлена (заглушка): вид по умолчанию «Был», но занятие
+  // не отмечено — показываем «Не отмечен» и не считаем посещённым (баг #90).
+  isPending: boolean
   direction: { id: string; name: string }
   group: { id: string; name: string }
   room: string
@@ -169,8 +172,11 @@ export function AttendanceTab({
     let makeup = 0
     let totalCharge = 0
     for (const a of items) {
-      if (a.attendanceType.countsAsRevenue) present++
-      else absent++
+      // Непроставленную отметку («Не отмечен») не считаем ни посещением, ни пропуском.
+      if (!a.isPending) {
+        if (a.attendanceType.countsAsRevenue) present++
+        else absent++
+      }
       if (a.isTrial) trial++
       if (a.isMakeup) makeup++
       totalCharge += a.chargeAmount
@@ -400,15 +406,21 @@ function AttendanceItemsTable({
               {a.instructorName}
             </TableCell>
             <TableCell>
-              <Badge
-                variant={typeBadgeVariant(
-                  a.attendanceType.code,
-                  a.attendanceType.countsAsRevenue
-                )}
-                title={a.absenceReason || undefined}
-              >
-                {a.attendanceType.name}
-              </Badge>
+              {a.isPending ? (
+                <Badge variant="outline" className="text-muted-foreground">
+                  Не отмечен
+                </Badge>
+              ) : (
+                <Badge
+                  variant={typeBadgeVariant(
+                    a.attendanceType.code,
+                    a.attendanceType.countsAsRevenue
+                  )}
+                  title={a.absenceReason || undefined}
+                >
+                  {a.attendanceType.name}
+                </Badge>
+              )}
             </TableCell>
             <TableCell className="text-muted-foreground">
               {a.subscription

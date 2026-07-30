@@ -62,6 +62,7 @@ export async function GET(
       isTrial: true,
       isMakeup: true,
       markedAt: true,
+      isPending: true,
       wardId: true,
       lesson: {
         select: {
@@ -133,6 +134,9 @@ export async function GET(
       isMakeup: a.isMakeup,
       chargeAmount: Number(a.chargeAmount),
       markedAt: a.markedAt ? a.markedAt.toISOString() : null,
+      // Заглушка непроставленной отметки (is_pending): attendanceType='present'
+      // ('Был') по умолчанию — карточка должна показывать «Не отмечен» (баг #90).
+      isPending: a.isPending,
       direction: a.lesson.group.direction,
       group: { id: a.lesson.group.id, name: a.lesson.group.name },
       room: a.lesson.group.room.name,
