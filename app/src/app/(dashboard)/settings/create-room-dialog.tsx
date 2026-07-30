@@ -21,7 +21,6 @@ interface Branch {
 export interface CreatedRoom {
   id: string
   name: string
-  capacity: number
   branchId: string
 }
 
@@ -57,7 +56,6 @@ export function CreateRoomDialog({
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState("")
   const [branchId, setBranchId] = useState(fixedBranchId ?? "")
-  const [capacity, setCapacity] = useState("15")
 
   useEffect(() => {
     if (fixedBranchId) setBranchId(fixedBranchId)
@@ -66,7 +64,6 @@ export function CreateRoomDialog({
   function resetForm() {
     setName("")
     setBranchId(fixedBranchId ?? "")
-    setCapacity("15")
     setError(null)
   }
 
@@ -84,7 +81,6 @@ export function CreateRoomDialog({
         body: JSON.stringify({
           name: name.trim(),
           branchId,
-          capacity: Number(capacity) || 15,
         }),
       })
       if (!res.ok) {
@@ -140,10 +136,6 @@ export function CreateRoomDialog({
               </Select>
             </div>
           )}
-          <div className="space-y-1.5">
-            <Label>Вместимость</Label>
-            <Input type="number" min={1} value={capacity} onChange={(e) => setCapacity(e.target.value)} />
-          </div>
           <DialogFooter>
             <Button type="submit" disabled={loading}>{loading ? "Создание..." : "Создать"}</Button>
           </DialogFooter>

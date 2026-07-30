@@ -16,7 +16,7 @@ export async function GET() {
       deletedAt: null,
     },
     include: {
-      rooms: { where: { deletedAt: null }, select: { id: true, name: true, capacity: true } },
+      rooms: { where: { deletedAt: null }, select: { id: true, name: true } },
     },
     orderBy: { name: "asc" },
   })

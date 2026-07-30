@@ -118,14 +118,13 @@ export default async function BranchesPage() {
                               room={{
                                 id: room.id,
                                 name: room.name,
-                                capacity: room.capacity,
                                 branchId: branch.id,
                               }}
                               branches={branches.map((b) => ({ id: b.id, name: b.name }))}
                             />
                           ) : (
                             <Badge key={room.id} variant="outline" className="text-xs">
-                              {room.name} ({room.capacity} чел.)
+                              {room.name}
                             </Badge>
                           )
                         )}

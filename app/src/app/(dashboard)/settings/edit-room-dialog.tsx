@@ -22,7 +22,6 @@ interface Branch {
 interface RoomData {
   id: string
   name: string
-  capacity: number
   branchId: string
 }
 
@@ -34,12 +33,10 @@ export function EditRoomDialog({ room, branches }: { room: RoomData; branches: B
   const [error, setError] = useState<string | null>(null)
 
   const [name, setName] = useState(room.name)
-  const [capacity, setCapacity] = useState(String(room.capacity))
   const [branchId, setBranchId] = useState(room.branchId)
 
   function resetForm() {
     setName(room.name)
-    setCapacity(String(room.capacity))
     setBranchId(room.branchId)
     setError(null)
   }
@@ -48,8 +45,6 @@ export function EditRoomDialog({ room, branches }: { room: RoomData; branches: B
     e.preventDefault()
     if (!name.trim()) { setError("Название обязательно"); return }
     if (!branchId) { setError("Выберите филиал"); return }
-    const capacityNum = Number(capacity)
-    if (!capacityNum || capacityNum < 1) { setError("Вместимость минимум 1"); return }
 
     setLoading(true)
     setError(null)
@@ -59,7 +54,6 @@ export function EditRoomDialog({ room, branches }: { room: RoomData; branches: B
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          capacity: capacityNum,
           branchId,
         }),
       })
@@ -110,7 +104,7 @@ export function EditRoomDialog({ room, branches }: { room: RoomData; branches: B
           />
         )}
       >
-        {room.name} ({room.capacity} чел.)
+        {room.name}
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -134,10 +128,6 @@ export function EditRoomDialog({ room, branches }: { room: RoomData; branches: B
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Вместимость</Label>
-            <Input type="number" min={1} value={capacity} onChange={(e) => setCapacity(e.target.value)} />
           </div>
           <DialogFooter className="flex-row justify-between gap-2 sm:justify-between">
             <Button

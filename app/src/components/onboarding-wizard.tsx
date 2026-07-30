@@ -29,6 +29,7 @@ import {
   AddAccountDialog, type CreatedAccount,
 } from "@/app/(dashboard)/finance/cash/add-account-dialog"
 import { useRoleNames } from "@/components/role-names-provider"
+import { useCurrencySymbol } from "@/components/currency-provider"
 
 interface OnboardingWizardProps {
   orgName: string
@@ -70,7 +71,7 @@ interface BranchItem {
   address?: string | null
   workingHoursStart?: string | null
   workingHoursEnd?: string | null
-  rooms: { id: string; name: string; capacity: number }[]
+  rooms: { id: string; name: string }[]
 }
 
 interface DirectionItem {
@@ -114,6 +115,7 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
 export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
   const router = useRouter()
   const roleNames = useRoleNames()
+  const sym = useCurrencySymbol()
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -310,7 +312,7 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
     setBranches((prev) =>
       prev.map((b) =>
         b.id === branchId
-          ? { ...b, rooms: [...b.rooms, { id: r.id, name: r.name, capacity: r.capacity }] }
+          ? { ...b, rooms: [...b.rooms, { id: r.id, name: r.name }] }
           : b,
       ),
     )
@@ -618,7 +620,6 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
                             <div key={r.id} className="flex items-center gap-2 text-xs">
                               <DoorOpen className="size-3 text-muted-foreground" />
                               <span>{r.name}</span>
-                              <span className="text-muted-foreground">· до {r.capacity} мест</span>
                             </div>
                           ))
                         )}
@@ -692,7 +693,7 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-medium">{d.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {Number(d.lessonPrice)} ₽ за занятие
+                          {Number(d.lessonPrice)} {sym} за занятие
                         </div>
                       </div>
                     </div>

@@ -16,7 +16,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const schema = z.object({
     name: z.string().min(1).optional(),
-    capacity: z.number().int().min(1).optional(),
     branchId: z.string().uuid().optional(),
   })
 

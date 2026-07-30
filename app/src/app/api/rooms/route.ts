@@ -20,7 +20,6 @@ export async function GET() {
 const createSchema = z.object({
   name: z.string({ required_error: "Название обязательно" }).min(1, "Название обязательно"),
   branchId: z.string().uuid("Выберите филиал"),
-  capacity: z.number().int().min(1, "Минимум 1").default(15),
 })
 
 export async function POST(req: NextRequest) {
@@ -41,7 +40,6 @@ export async function POST(req: NextRequest) {
       tenantId: session.user.tenantId,
       branchId: parsed.data.branchId,
       name: parsed.data.name,
-      capacity: parsed.data.capacity,
     },
   })
 
