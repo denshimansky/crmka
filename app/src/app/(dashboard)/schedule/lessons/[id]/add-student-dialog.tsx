@@ -158,10 +158,17 @@ export function AddStudentDialog({ lessonId, groupIsOneTime = false }: AddStuden
             </label>
           )}
 
-          <p className="text-xs text-muted-foreground">
-            Ученик появится в списке как «Не отмечен». Списание происходит позже,
-            при отметке «Был».
-          </p>
+          <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
+            <p>
+              Ученик появится в списке как «Не отмечен». При отметке «Был» стоимость
+              разового занятия <b>спишется с баланса родителя</b> — если денег не хватает,
+              баланс уйдёт в минус (долг).
+            </p>
+            <p className="text-amber-800/90 dark:text-amber-200/80">
+              Постоянная скидка клиента (если задана в карточке) применяется; абонементные
+              скидки («за второй абонемент») к разовому посещению не действуют.
+            </p>
+          </div>
 
           {searching && (
             <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
