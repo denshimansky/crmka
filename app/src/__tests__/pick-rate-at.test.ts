@@ -2,13 +2,16 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { pickRateAt } from "../lib/salary/pick-rate-at"
 
+type Sched = { effectiveFrom: Date; deletedAt?: Date | null; tag: string }
 const base = { ratePerLesson: 700, tag: "base" }
 const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d))
 const tagOf = (r: { tag: string }) => r.tag
 
 test("нет версий → база", () => {
-  assert.equal(tagOf(pickRateAt(base, [], utc(2026, 9, 1))), "base")
-  assert.equal(tagOf(pickRateAt(base, null, utc(2026, 9, 1))), "base")
+  // При [] / null дженерик S не выводится из аргумента — задаём его явно,
+  // чтобы union B | S сохранял поле tag.
+  assert.equal(tagOf(pickRateAt<typeof base, Sched>(base, [], utc(2026, 9, 1))), "base")
+  assert.equal(tagOf(pickRateAt<typeof base, Sched>(base, null, utc(2026, 9, 1))), "base")
 })
 
 test("atDate до границы → база (старая ставка)", () => {
