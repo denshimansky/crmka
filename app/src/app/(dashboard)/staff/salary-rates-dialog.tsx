@@ -25,6 +25,7 @@ import {
   type SchemeKey,
   type TrialPayMode,
 } from "@/components/salary/salary-rate-form"
+import { RateScheduleSection } from "@/components/salary/rate-schedule-section"
 
 interface RateRow {
   id: string
@@ -330,6 +331,7 @@ function RateBlock({
           </div>
         )}
       </div>
+      {rate && <RateScheduleSection rateId={rate.id} currentValue={rowToForm(rate)} />}
     </div>
   )
 }
