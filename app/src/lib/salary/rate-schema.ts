@@ -62,3 +62,19 @@ export function validateForScheme(data: RateInput): string | null {
     }
   }
 }
+
+// Версия ставки «с даты»: базовый ставочный блок + effectiveFrom строго в будущем.
+export const scheduleCreateSchema = baseRateSchema.extend({
+  effectiveFrom: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), { message: "Некорректная дата" })
+    .refine((s) => {
+      const d = new Date(s)
+      const dUtc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+      const now = new Date()
+      const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+      return dUtc > todayUtc
+    }, { message: "Дата вступления должна быть в будущем" }),
+})
+
+export type ScheduleCreateInput = z.infer<typeof scheduleCreateSchema>
