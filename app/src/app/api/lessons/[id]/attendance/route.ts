@@ -293,7 +293,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         tenantId,
         employeeId: trialEffInstructorId,
         directionId: lesson.group.directionId,
-      })
+      }, new Date(lesson.date))
     : "none"
 
   // Тип дня без начисления инструктору (Уваж. пропуск, Перерасчёт и т.п.) —
@@ -515,7 +515,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         groupId: lesson.groupId,
         employeeId: lesson.substituteInstructorId || lesson.instructorId,
         directionId: lesson.group.directionId,
-      })
+      }, new Date(lesson.date))
       if (rate) {
         instructorPayAmount = await calcPay(tx, {
           rate,
@@ -1067,7 +1067,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     groupId: lesson.groupId,
     employeeId: effectiveInstructorId,
     directionId: lesson.group.directionId,
-  })
+  }, new Date(lesson.date))
 
   // Режим оплаты пробных — из ставки инструктора этого занятия (перенесено из
   // настройки организации). Резолвим один раз на занятие.
@@ -1076,7 +1076,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         tenantId,
         employeeId: effectiveInstructorId,
         directionId: lesson.group.directionId,
-      })
+      }, new Date(lesson.date))
     : "none"
 
   // === Предзагрузка existing attendances (batch вместо N+1) ===

@@ -159,7 +159,7 @@ export async function reallocateLessonPay(
     groupId: lesson.groupId,
     employeeId: effectiveInstructorId,
     directionId: lesson.group.directionId,
-  })
+  }, new Date(lesson.date))
   if (!rate || (rate.scheme !== "per_lesson" && rate.scheme !== "floating_by_students")) {
     return { handled: false }
   }

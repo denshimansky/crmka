@@ -303,7 +303,7 @@ export async function createTrialLessonForClient(
         tenantId,
         employeeId: trialInstructorId,
         directionId: effectiveDirectionId,
-      })
+      }, date)
     : "none"
   let defaultInstructorPay = false
   if (trialPayMode === "all") {

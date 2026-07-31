@@ -35,6 +35,7 @@ async function computeTrialPay(
     instructorId: string
     directionId: string
     instructorPayEnabled: boolean
+    atDate: Date
   }
 ): Promise<Prisma.Decimal> {
   if (!args.instructorPayEnabled) return new Prisma.Decimal(0)
@@ -44,7 +45,7 @@ async function computeTrialPay(
     groupId: args.groupId,
     employeeId: args.instructorId,
     directionId: args.directionId,
-  })
+  }, args.atDate)
   if (!rate) return new Prisma.Decimal(0)
 
   return calcPay(tx, {
@@ -275,6 +276,7 @@ export async function PATCH(
             instructorId: lessonInstructorId,
             directionId: trial.lesson.group.directionId,
             instructorPayEnabled: attendancePayEnabled,
+            atDate: trial.scheduledDate,
           })
         : new Prisma.Decimal(0)
 
@@ -364,6 +366,7 @@ export async function PATCH(
           instructorId: lessonInstructorId,
           directionId: trial.lesson.group.directionId,
           instructorPayEnabled: survivorPayEnabled,
+          atDate: trial.scheduledDate,
         })
         await tx.attendance.updateMany({
           where: {
