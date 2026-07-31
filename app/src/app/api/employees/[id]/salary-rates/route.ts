@@ -68,7 +68,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (existing) {
     return NextResponse.json(
-      { error: directionId ? "Исключение по этому направлению уже существует" : "Дефолтная ставка уже задана" },
+      { error: directionId ? "Исключение по этому направлению уже существует" : "Ставка по умолчанию уже задана" },
       { status: 409 }
     )
   }

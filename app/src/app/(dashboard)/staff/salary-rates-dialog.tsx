@@ -209,7 +209,7 @@ export function SalaryRatesDialog({
         <DialogHeader>
           <DialogTitle>Ставки ЗП — {employeeName}</DialogTitle>
           <DialogDescription>
-            Дефолтная ставка применяется ко всем направлениям. Исключения — отдельные ставки по конкретным направлениям.
+            Ставка по умолчанию применяется ко всем направлениям. Исключения — отдельные ставки по конкретным направлениям.
           </DialogDescription>
         </DialogHeader>
 
@@ -229,7 +229,7 @@ export function SalaryRatesDialog({
                   onChange={(e) => setEditDirectionId(e.target.value)}
                   className="h-9 w-full rounded border bg-background px-3 text-sm"
                 >
-                  <option value="">— Дефолтная ставка —</option>
+                  <option value="">— Ставка по умолчанию —</option>
                   {availableDirections.map((d) => (
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
