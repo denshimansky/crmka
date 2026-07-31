@@ -16,6 +16,7 @@ import { ClientTabs } from "../clients/[id]/client-tabs"
 import { EditClientDialog } from "../clients/[id]/edit-client-dialog"
 import { UnprolongedCommentsSection } from "../clients/[id]/unprolonged-comments"
 import { LeadStatusActions } from "./lead-status-actions"
+import { wasEverClient } from "@/lib/clients/was-ever-client"
 import { ApplicationsSection } from "./applications-section"
 import { SegmentBadgeSelect } from "./segment-badge-select"
 import {
@@ -533,6 +534,11 @@ export async function ClientCardContent({
             activeSubscriptions.length > 0 ||
             client.clientStatus === "active"
           }
+          wasEverClient={wasEverClient({
+            firstPaymentDate: client.firstPaymentDate,
+            firstPaidLessonDate: client.firstPaidLessonDate,
+            clientStatus: client.clientStatus,
+          })}
         />
       </div>
 
