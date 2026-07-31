@@ -138,13 +138,14 @@ identity выбирается по наличию базовой строки (�
 
 ### 1. Данные (Prisma-миграция, аддитивно)
 
-- Новая модель `SalaryRateSchedule` (снимок ставочного блока на дату):
+- Новая модель `SalaryRateSchedule` (снимок ставочного блока на дату). Привязана
+  к базовой `SalaryRate` через `salaryRateId` (identity — employee+direction —
+  наследуется от неё; отдельно дублировать не нужно):
   ```prisma
   model SalaryRateSchedule {
     id                String       @id @default(uuid()) @db.Uuid
     tenantId          String       @map("tenant_id") @db.Uuid
-    employeeId        String       @map("employee_id") @db.Uuid
-    directionId       String?      @map("direction_id") @db.Uuid
+    salaryRateId      String       @map("salary_rate_id") @db.Uuid
     effectiveFrom     DateTime     @map("effective_from") @db.Date
     scheme            SalaryScheme
     ratePerStudent    Decimal?     @map("rate_per_student") @db.Decimal(12, 2)
@@ -156,11 +157,10 @@ identity выбирается по наличию базовой строки (�
     createdBy         String?      @map("created_by") @db.Uuid
     deletedAt         DateTime?    @map("deleted_at")
 
-    employee  Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-    direction Direction?      @relation(fields: [directionId], references: [id])
-    brackets  SalaryBracket[]
+    salaryRate SalaryRate      @relation(fields: [salaryRateId], references: [id], onDelete: Cascade)
+    brackets   SalaryBracket[]
 
-    @@index([tenantId, employeeId, directionId, effectiveFrom])
+    @@index([tenantId, salaryRateId, effectiveFrom])
     @@map("salary_rate_schedules")
   }
   ```
@@ -170,7 +170,8 @@ identity выбирается по наличию базовой строки (�
   salaryRateSchedule   SalaryRateSchedule? @relation(fields: [salaryRateScheduleId], references: [id], onDelete: Cascade)
   @@index([tenantId, salaryRateScheduleId])
   ```
-- Back-relations: `Employee.salaryRateSchedules`, `Direction.salaryRateSchedules`.
+- Back-relation: `SalaryRate.schedules SalaryRateSchedule[]` (при удалении базовой
+  ставки её версии каскадно удаляются).
 - Семантика: `SalaryRateSchedule` — изменения ставки с датой (на момент создания
   `effectiveFrom > сегодня`). Прошлые версии остаются в таблице как история и
   участвуют в резолве по дате. Базовый `SalaryRate` = ставка до первой версии.
@@ -219,8 +220,8 @@ identity выбирается по наличию базовой строки (�
   для истории; UI фильтрует).
 - `POST /api/salary-rates/[id]/schedule` — создать версию: полный снимок
   (`baseRateSchema` + `validateForScheme`) + `effectiveFrom` **строго в будущем**;
-  брекеты пишем с `salaryRateScheduleId`. Наследует identity (`employeeId`,
-  `directionId`) от базовой ставки.
+  брекеты пишем с `salaryRateScheduleId`. Привязывается к базовой ставке через
+  `salaryRateId = [id]`; identity (employee, direction) наследуется от неё.
 - `PATCH/DELETE /api/salary-rates/[id]/schedule/[scheduleId]` — правка (полное
   переписывание матрицы, как в `salary-rates/[id]`) / soft delete (`deletedAt`).
 - `GET /api/salary-rates/[id]/schedule/impact?from=YYYY-MM-DD` — счётчик будущих
