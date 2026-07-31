@@ -7,6 +7,7 @@ import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
 import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
 import { recordClientStatusChange } from "@/lib/clients/status-history"
+import { planFormerClientTransition } from "@/lib/clients/former-client-status"
 import { logClientNote } from "@/lib/communications/log-note"
 import { z } from "zod"
 
@@ -101,6 +102,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Укажите фамилию или имя" }, { status: 400 })
   }
 
+  // Правила «бывшего клиента» (R1: запрет Потенциального; R2: вывод из ЧС/Архива
+  // в Выбывшие + гейт роли; очистка clientStatus при переходе в воронковый бакет).
+  const plan = planFormerClientTransition({
+    existing,
+    patchFunnelStatus: data.funnelStatus,
+    patchClientStatus: data.clientStatus,
+    role: session.user.role,
+  })
+  if ("error" in plan) {
+    return NextResponse.json({ error: plan.error }, { status: plan.httpStatus })
+  }
+  const finalFunnelStatus = plan.funnelStatusInject ?? data.funnelStatus
+
   // Нельзя вернуть клиента в лида
   if (existing.clientStatus === "active" && data.funnelStatus && data.funnelStatus !== "active_client") {
     return NextResponse.json({ error: "Нельзя вернуть активного клиента в воронку лидов" }, { status: 400 })
@@ -191,12 +205,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  // Если воронка переводится в archived/blacklisted — снимаем clientStatus,
-  // чтобы устаревшая плашка («Выбывший» и т.п.) не висела на карточке.
-  const movingToArchived =
-    !!data.funnelStatus &&
-    (data.funnelStatus === "archived" || data.funnelStatus === "blacklisted") &&
-    data.clientStatus === undefined
+  // Снятие clientStatus при переводе в воронковый бакет — решает planFormerClientTransition
+  // (archived/blacklisted как раньше + new/non_target для бывшего клиента).
+  const clearClientStatus = plan.clearClientStatus
 
   // Архив/ЧС — терминальные состояния: активные заявки клиента выводим из
   // воронки (иначе они висят в «Продажах» вечно, а по правилу сегментной
@@ -231,8 +242,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(data.email !== undefined && { email: data.email }),
         ...(data.socialLink !== undefined && { socialLink: data.socialLink }),
         ...(data.channelId !== undefined && { channelId: data.channelId }),
-        ...(data.funnelStatus && { funnelStatus: data.funnelStatus }),
-        ...(movingToArchived
+        ...(finalFunnelStatus && { funnelStatus: finalFunnelStatus }),
+        ...(clearClientStatus
           ? { clientStatus: null }
           : data.clientStatus !== undefined && { clientStatus: data.clientStatus }),
         // Возврат из «Выбывших» (Баг #5) — дата выбытия больше не актуальна.
