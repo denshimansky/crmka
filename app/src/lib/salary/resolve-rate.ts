@@ -48,6 +48,7 @@ const withSchedules = {
   brackets: { orderBy: { minStudents: "asc" as const } },
   schedules: {
     where: { deletedAt: null },
+    orderBy: { effectiveFrom: "asc" as const },
     include: { brackets: { orderBy: { minStudents: "asc" as const } } },
   },
 } as const
@@ -117,6 +118,7 @@ export async function resolveTrialPayMode(
 ): Promise<string> {
   const trialSchedules = {
     where: { deletedAt: null },
+    orderBy: { effectiveFrom: "asc" as const },
     select: { trialPayMode: true, effectiveFrom: true, deletedAt: true },
   } as const
 

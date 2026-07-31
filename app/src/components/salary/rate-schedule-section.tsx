@@ -160,6 +160,7 @@ export function RateScheduleSection({ rateId, currentValue }: Props) {
   const activeNow = rows
     .filter((r) => new Date(r.effectiveFrom) <= now)
     .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0]
+  const futureRows = rows.filter((r) => new Date(r.effectiveFrom) > now)
 
   return (
     <div className="mt-2 border-t pt-2">
@@ -185,7 +186,13 @@ export function RateScheduleSection({ rateId, currentValue }: Props) {
           {error && <div className="rounded bg-destructive/10 p-2 text-xs text-destructive">{error}</div>}
           <div className="space-y-1.5">
             <Label className="text-xs">Действует с даты</Label>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-8" />
+            <Input
+              type="date"
+              value={date}
+              min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+              onChange={(e) => setDate(e.target.value)}
+              className="h-8"
+            />
           </div>
           <SalaryRateForm value={form} onChange={setForm} />
           <div className="rounded bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
@@ -203,11 +210,11 @@ export function RateScheduleSection({ rateId, currentValue }: Props) {
         </div>
       ) : loading ? (
         <div className="mt-1 text-xs text-muted-foreground">Загрузка…</div>
-      ) : rows.length === 0 ? (
+      ) : futureRows.length === 0 ? (
         <div className="mt-1 text-xs text-muted-foreground">Нет запланированных изменений.</div>
       ) : (
         <div className="mt-1 space-y-1">
-          {rows.map((r) => (
+          {futureRows.map((r) => (
             <div key={r.id} className="flex items-center justify-between gap-2 text-xs">
               <span>
                 <span className="font-medium">с {fmtDate(r.effectiveFrom)}</span>

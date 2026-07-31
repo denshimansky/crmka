@@ -47,13 +47,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const validationError = validateForScheme(parsed.data)
   if (validationError) return NextResponse.json({ error: validationError }, { status: 400 })
 
+  const effectiveFrom = new Date(parsed.data.effectiveFrom)
+  const duplicate = await db.salaryRateSchedule.findFirst({
+    where: { salaryRateId: id, tenantId, deletedAt: null, effectiveFrom },
+    select: { id: true },
+  })
+  if (duplicate) {
+    return NextResponse.json({ error: "Версия ставки на эту дату уже запланирована" }, { status: 409 })
+  }
+
   const createdBy = (session.user as { employeeId?: string | null }).employeeId ?? null
 
   const created = await db.salaryRateSchedule.create({
     data: {
       tenantId,
       salaryRateId: id,
-      effectiveFrom: new Date(parsed.data.effectiveFrom),
+      effectiveFrom,
       scheme: parsed.data.scheme,
       ratePerStudent: parsed.data.ratePerStudent ?? null,
       ratePerLesson: parsed.data.ratePerLesson ?? null,

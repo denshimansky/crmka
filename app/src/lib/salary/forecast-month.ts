@@ -127,6 +127,7 @@ export async function computeSalaryForecastBreakdown(
         brackets: { orderBy: { minStudents: "asc" } },
         schedules: {
           where: { deletedAt: null },
+          orderBy: { effectiveFrom: "asc" },
           include: { brackets: { orderBy: { minStudents: "asc" } } },
         },
       },

@@ -5,6 +5,11 @@ import { db } from "@/lib/db"
 import { z } from "zod"
 import { baseRateSchema, validateForScheme } from "@/lib/salary/rate-schema"
 
+// Календарный UTC-день (для сравнения дат вступления «строго в будущем»).
+function utcDay(d: Date): number {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+}
+
 // Правка версии: тот же ставочный блок + опциональная смена effectiveFrom.
 const patchSchema = baseRateSchema.extend({
   effectiveFrom: z.string().optional(),
@@ -25,9 +30,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const existing = await db.salaryRateSchedule.findFirst({
     where: { id: scheduleId, salaryRateId: id, tenantId, deletedAt: null },
-    select: { id: true },
+    select: { id: true, effectiveFrom: true },
   })
   if (!existing) return NextResponse.json({ error: "Изменение не найдено" }, { status: 404 })
+
+  const today = utcDay(new Date())
+  if (utcDay(existing.effectiveFrom) <= today) {
+    return NextResponse.json(
+      { error: "Нельзя изменить уже наступившую версию ставки. Создайте новую версию с будущей даты или измените базовую ставку." },
+      { status: 400 },
+    )
+  }
 
   const body = await req.json()
   const parsed = patchSchema.safeParse(body)
@@ -36,6 +49,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   const validationError = validateForScheme(parsed.data)
   if (validationError) return NextResponse.json({ error: validationError }, { status: 400 })
+
+  if (parsed.data.effectiveFrom) {
+    const newDate = new Date(parsed.data.effectiveFrom)
+    if (Number.isNaN(newDate.getTime())) {
+      return NextResponse.json({ error: "Некорректная дата" }, { status: 400 })
+    }
+    if (utcDay(newDate) <= today) {
+      return NextResponse.json({ error: "Дата вступления должна быть в будущем" }, { status: 400 })
+    }
+    const duplicate = await db.salaryRateSchedule.findFirst({
+      where: { salaryRateId: id, tenantId, deletedAt: null, effectiveFrom: newDate, NOT: { id: scheduleId } },
+      select: { id: true },
+    })
+    if (duplicate) {
+      return NextResponse.json({ error: "Версия ставки на эту дату уже запланирована" }, { status: 409 })
+    }
+  }
 
   const updated = await db.$transaction(async (tx) => {
     await tx.salaryRateSchedule.update({
@@ -87,9 +117,16 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const existing = await db.salaryRateSchedule.findFirst({
     where: { id: scheduleId, salaryRateId: id, tenantId, deletedAt: null },
-    select: { id: true },
+    select: { id: true, effectiveFrom: true },
   })
   if (!existing) return NextResponse.json({ error: "Изменение не найдено" }, { status: 404 })
+
+  if (utcDay(existing.effectiveFrom) <= utcDay(new Date())) {
+    return NextResponse.json(
+      { error: "Нельзя удалить уже наступившую версию ставки. Создайте новую версию с будущей даты или измените базовую ставку." },
+      { status: 400 },
+    )
+  }
 
   await db.salaryRateSchedule.update({ where: { id: scheduleId }, data: { deletedAt: new Date() } })
   return NextResponse.json({ ok: true })
