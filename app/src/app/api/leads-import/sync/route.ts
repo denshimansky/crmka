@@ -96,6 +96,8 @@ export async function POST(req: NextRequest) {
     balanceMissing: result.balanceMissing,
     branchAssigned: result.branchAssigned,
     branchMissing: result.branchMissing,
+    branchCorrected: result.branchCorrected,
+    branchConflicts: result.branchConflicts,
     warnings: result.warnings,
   })
 }

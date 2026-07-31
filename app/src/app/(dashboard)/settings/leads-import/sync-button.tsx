@@ -46,6 +46,8 @@ interface SyncReport {
   balanceMissing: number
   branchAssigned: number
   branchMissing: number
+  branchCorrected: number
+  branchConflicts: number
   warnings: string[]
 }
 
@@ -243,6 +245,8 @@ export function SyncBalanceButton() {
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Филиал проставлен: {report.branchAssigned}
+                  {report.branchCorrected > 0 ? ` · обновлён по файлу: ${report.branchCorrected}` : ""}
+                  {report.branchConflicts > 0 ? ` · расхождений (с абонементами): ${report.branchConflicts}` : ""}
                   {report.branchMissing > 0 ? ` · без филиала: ${report.branchMissing}` : ""}
                 </div>
                 {report.clientsCreatedWithoutPhone > 0 && (

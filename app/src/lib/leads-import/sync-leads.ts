@@ -10,6 +10,7 @@ import { recordClientStatusChange } from "@/lib/clients/status-history"
 import { readSheet, normPhone, normName, indexClientsByNormPhone } from "./parse-xlsx"
 import { parseStatus, toDbStatus, topStatus, type LeadStatus } from "./status-map"
 import { splitParentFio } from "./surname-gender"
+import { decideBranchUpdate } from "./branch-update"
 
 interface LeadFileRow {
   parent: string
@@ -58,6 +59,8 @@ export interface SyncReport {
   balanceMissing: number
   branchAssigned: number
   branchMissing: number
+  branchCorrected: number
+  branchConflicts: number
   warnings: string[]
 }
 
@@ -401,6 +404,9 @@ export async function syncLeads(
           branchId: true,
           lastBranchId: true,
           wards: { select: { firstName: true, lastName: true } },
+          // Наличие абонемента: если есть — филиал производный от абонементов
+          // (ADM-04), импорт его не перезаписывает (decideBranchUpdate).
+          subscriptions: { take: 1, select: { id: true } },
         },
       })
     : []
@@ -415,6 +421,10 @@ export async function syncLeads(
   let totalBalance = 0
   let branchAssigned = 0
   let branchMissing = 0
+  // Коррекция филиала при переимпорте: непустой филиал изменён по файлу (у клиентов
+  // без абонементов) / расхождение оставлено как есть (у клиентов с абонементами).
+  let branchCorrected = 0
+  let branchConflicts = 0
 
   // Транзакция: одна большая операция.
   await db.$transaction(async (tx) => {
@@ -463,19 +473,29 @@ export async function syncLeads(
           ? topStatus([currentTopFromExisting, top]) ?? top
           : top
         const mergedDb = toDbStatus(merged)
-        // Бэкфилл филиала: проставляем каждое из полей только если в БД оно
-        // пусто — не затираем реальный филиал, проставленный позже из абонемента.
-        // Это даёт привязку выбывших при повторном прогоне импорта тем же файлом.
-        const setBranchId = resolvedBranchId !== null && existing.branchId === null
-        const setLastBranchId = resolvedBranchId !== null && existing.lastBranchId === null
+        // Обновление филиала при merge (decideBranchUpdate):
+        //  - пустой в БД → бэкфилл из файла;
+        //  - непустой, но клиент БЕЗ абонементов → филиал был проставлен импортом,
+        //    разрешаем КОРРЕКЦИЮ из файла (иначе ошибочный первый импорт нельзя
+        //    исправить переимпортом — баг Monkey Space, «филиал не привязывается»);
+        //  - клиент С абонементами → филиал производный от абонементов (ADM-04),
+        //    не трогаем, расхождение с файлом фиксируем предупреждением.
+        const branchDecision = decideBranchUpdate(
+          {
+            branchId: existing.branchId,
+            lastBranchId: existing.lastBranchId,
+            hasSubscriptions: existing.subscriptions.length > 0,
+          },
+          resolvedBranchId,
+        )
         await tx.client.update({
           where: { id: existing.id },
           data: {
             funnelStatus: mergedDb.funnelStatus,
             clientStatus: mergedDb.clientStatus,
             socialLink: existing.wards.length ? undefined : socialLink ?? undefined,
-            branchId: setBranchId ? resolvedBranchId : undefined,
-            lastBranchId: setLastBranchId ? resolvedBranchId : undefined,
+            branchId: branchDecision.setBranchId ? resolvedBranchId : undefined,
+            lastBranchId: branchDecision.setLastBranchId ? resolvedBranchId : undefined,
           },
         })
         await recordClientStatusChange(tx, {
@@ -486,7 +506,9 @@ export async function syncLeads(
           client: { old: existing.clientStatus, new: mergedDb.clientStatus },
           reason: "import",
         })
-        if (setBranchId || setLastBranchId) branchAssigned++
+        if (branchDecision.setBranchId || branchDecision.setLastBranchId) branchAssigned++
+        if (branchDecision.corrected) branchCorrected++
+        if (branchDecision.conflictSkipped) branchConflicts++
         // Терминальный статус из файла (Архив/ЧС) выводит активные заявки
         // клиента из воронки — тот же инвариант, что movingToTerminal в
         // PATCH /api/clients/[id]: иначе заявка зависает активной навечно
@@ -639,6 +661,18 @@ export async function syncLeads(
     timeout: 120_000,
   })
 
+  if (branchCorrected > 0) {
+    warnings.push(
+      `Филиал обновлён по файлу у ${branchCorrected} ранее импортированных клиентов (без абонементов).`,
+    )
+  }
+  if (branchConflicts > 0) {
+    warnings.push(
+      `У ${branchConflicts} клиентов филиал в файле отличается от филиала по абонементам — ` +
+        `оставлен прежний (импорт не меняет филиал клиентов с абонементами).`,
+    )
+  }
+
   // Аудит-метка: с этого момента в течение 7 дней доступна «Очистить базу клиентов».
   if (opts.createdBy) {
     await db.auditLog.create({
@@ -655,6 +689,8 @@ export async function syncLeads(
           totalBalance,
           branchAssigned,
           branchMissing,
+          branchCorrected,
+          branchConflicts,
           clientsCreatedWithoutPhone: withoutPhone.length,
           withoutPhone: withoutPhone.slice(0, 200),
           warnings: warnings.slice(0, 200),
@@ -676,6 +712,8 @@ export async function syncLeads(
     balanceMissing,
     branchAssigned,
     branchMissing,
+    branchCorrected,
+    branchConflicts,
     warnings,
   }
 }
