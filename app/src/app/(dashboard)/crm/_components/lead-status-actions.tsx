@@ -8,28 +8,15 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select"
+import { statusSelectorOptions } from "@/lib/clients/status-selector-options"
 
 // Этапы воронки продаж (Пробное / Прошёл пробное / Ожидание оплаты) переехали
 // на подопечного (Ward.salesStage) — селектор статуса родителя описывает только
-// «качество контакта»: лид, потенциальный, не целевой, ЧС, архив.
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "new", label: "Лид" },
-  { value: "potential", label: "Потенциальный" },
-  { value: "non_target", label: "Не целевой" },
-  { value: "blacklisted", label: "Чёрный список" },
-  { value: "archived", label: "Архив" },
-]
-
-// Доступные переходы для активного клиента (есть активный абонемент).
-// Перевести в Лиды/Потенциал/etc. нельзя — клиент уже «прошёл» воронку.
-const ACTIVE_TRANSITIONS: { value: string; label: string }[] = [
-  { value: "churned", label: "В Выбывшие" },
-  { value: "archived", label: "В Архив" },
-  { value: "blacklisted", label: "В Чёрный список" },
-]
+// «качество контакта»: лид, потенциальный, не целевой, ЧС, архив. Набор опций
+// селектора (funnel/transition) считает statusSelectorOptions.
 
 // Полный набор подписей для отображения текущего funnelStatus в триггере
-// селекта (включая значения, которых нет в STATUS_OPTIONS — например,
+// селекта (включая значения, которых нет в опциях селектора — например,
 // `active_client` остаётся на родителе у выбывших). Без этой карты в кнопку
 // просачивается сырой enum («active_client»).
 const STATUS_LABELS: Record<string, string> = {
@@ -49,6 +36,7 @@ export function LeadStatusActions({
   currentStatus,
   clientStatus,
   isActiveClient = false,
+  wasEverClient = false,
 }: {
   clientId: string
   currentStatus: string
@@ -59,6 +47,8 @@ export function LeadStatusActions({
   // Активный клиент — селектор воронки заменяем на ограниченный набор
   // переходов (Выбывшие/Архив/ЧС).
   isActiveClient?: boolean
+  // Бывший клиент (хоть раз был активным) — «Потенциальный» недоступен, но есть «В Выбывшие».
+  wasEverClient?: boolean
 }) {
   const router = useRouter()
   const [statusLoading, setStatusLoading] = useState(false)
@@ -81,6 +71,12 @@ export function LeadStatusActions({
   useEffect(() => {
     setStatusValue(currentStatus)
   }, [currentStatus])
+
+  const selector = statusSelectorOptions({
+    isActiveClient,
+    wasEverClient,
+    clientStatus: clientStatus ?? null,
+  })
 
   async function handleActiveTransition(value: string | null) {
     if (!value) return
@@ -132,23 +128,13 @@ export function LeadStatusActions({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {isActiveClient ? (
+      {selector.mode === "transition" ? (
         <Select value="" onValueChange={handleActiveTransition}>
-          <SelectTrigger
-            className="h-7 min-w-[170px] text-xs"
-            disabled={statusLoading}
-          >
+          <SelectTrigger className="h-7 min-w-[170px] text-xs" disabled={statusLoading}>
             {currentBucketLabel}
           </SelectTrigger>
           <SelectContent>
-            {/* Выбывшему с активными абонементами даём путь назад (Баг #5):
-                повторная оплата возвращает автоматически, но и вручную можно. */}
-            {clientStatus === "churned" && (
-              <SelectItem value="active">Вернуть в Активные</SelectItem>
-            )}
-            {ACTIVE_TRANSITIONS.filter(
-              (s) => !(clientStatus === "churned" && s.value === "churned"),
-            ).map((s) => (
+            {selector.options.map((s) => (
               <SelectItem key={s.value} value={s.value}>
                 {s.label}
               </SelectItem>
@@ -157,14 +143,11 @@ export function LeadStatusActions({
         </Select>
       ) : (
         <Select value={statusValue} onValueChange={handleStatusChange}>
-          <SelectTrigger
-            className="h-7 min-w-[170px] text-xs"
-            disabled={statusLoading}
-          >
+          <SelectTrigger className="h-7 min-w-[170px] text-xs" disabled={statusLoading}>
             {currentBucketLabel}
           </SelectTrigger>
           <SelectContent>
-            {STATUS_OPTIONS.map((s) => (
+            {selector.options.map((s) => (
               <SelectItem key={s.value} value={s.value}>
                 {s.label}
               </SelectItem>
