@@ -18,7 +18,7 @@ interface Invoice {
   dueDate: string
   paidAt: string | null
   paidAmount: string | null
-  organization: { id: string; name: string }
+  organization: { id: string; name: string; employees: { firstName: string; lastName: string }[] }
   subscription: { id: string; plan: { name: string } }
 }
 
@@ -122,6 +122,7 @@ export default function InvoicesPage() {
               <TableRow>
                 <TableHead>Номер</TableHead>
                 <TableHead>Партнёр</TableHead>
+                <TableHead>Владелец</TableHead>
                 <TableHead>Тариф</TableHead>
                 <TableHead>Период</TableHead>
                 <TableHead>Сумма</TableHead>
@@ -140,6 +141,11 @@ export default function InvoicesPage() {
                       <Link href={`/admin/partners/${inv.organization.id}`} className="text-primary hover:underline">
                         {inv.organization.name}
                       </Link>
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {inv.organization.employees[0]
+                        ? `${inv.organization.employees[0].lastName} ${inv.organization.employees[0].firstName}`
+                        : "—"}
                     </TableCell>
                     <TableCell className="text-sm">{inv.subscription.plan.name}</TableCell>
                     <TableCell className="text-sm">
@@ -173,7 +179,7 @@ export default function InvoicesPage() {
                 )
               })}
               {invoices.length === 0 && (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Нет счетов</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Нет счетов</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

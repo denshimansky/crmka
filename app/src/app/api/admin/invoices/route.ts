@@ -21,7 +21,17 @@ export async function GET(req: NextRequest) {
   const invoices = await db.billingInvoice.findMany({
     where,
     include: {
-      organization: { select: { id: true, name: true } },
+      organization: {
+        select: {
+          id: true,
+          name: true,
+          // Владелец организации (как в /admin/partners) — для столбца «Владелец»
+          employees: {
+            where: { role: "owner", deletedAt: null },
+            select: { firstName: true, lastName: true },
+          },
+        },
+      },
       subscription: { select: { id: true, plan: { select: { name: true } } } },
     },
     orderBy: { createdAt: "desc" },
