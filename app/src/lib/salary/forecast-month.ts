@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient, type SalaryScheme } from "@prisma/client"
+import { pickRateAt } from "./pick-rate-at"
 
 type DB = PrismaClient | Prisma.TransactionClient
 
@@ -92,6 +93,7 @@ export async function computeSalaryForecastBreakdown(
       status: { in: ["scheduled", "completed"] },
     },
     select: {
+      date: true,
       groupId: true,
       instructorId: true,
       substituteInstructorId: true,
@@ -121,7 +123,13 @@ export async function computeSalaryForecastBreakdown(
     }),
     db.salaryRate.findMany({
       where: { tenantId, employeeId: { in: instructorIds } },
-      include: { brackets: { orderBy: { minStudents: "asc" } } },
+      include: {
+        brackets: { orderBy: { minStudents: "asc" } },
+        schedules: {
+          where: { deletedAt: null },
+          include: { brackets: { orderBy: { minStudents: "asc" } } },
+        },
+      },
     }),
     db.groupEnrollment.groupBy({
       by: ["groupId"],
@@ -132,21 +140,28 @@ export async function computeSalaryForecastBreakdown(
 
   const okladMap = new Map(oklads.map((e) => [e.id, Number(e.monthlySalary)]))
   const groupRateMap = new Map(groupRates.map((r) => [r.groupId, r as RateLike]))
-  const personalByDir = new Map<string, RateLike>()
-  const personalDefault = new Map<string, RateLike>()
+  const personalByDir = new Map<string, RateLike & { schedules: (RateLike & { effectiveFrom: Date; deletedAt: Date | null })[] }>()
+  const personalDefault = new Map<string, RateLike & { schedules: (RateLike & { effectiveFrom: Date; deletedAt: Date | null })[] }>()
   for (const r of personalRates) {
-    if (r.directionId) personalByDir.set(`${r.employeeId}:${r.directionId}`, r as RateLike)
-    else personalDefault.set(r.employeeId, r as RateLike)
+    const v = r as RateLike & { schedules: (RateLike & { effectiveFrom: Date; deletedAt: Date | null })[] }
+    if (r.directionId) personalByDir.set(`${r.employeeId}:${r.directionId}`, v)
+    else personalDefault.set(r.employeeId, v)
   }
   const enrollCount = new Map(enrollGroups.map((g) => [g.groupId, g._count._all]))
 
-  function resolveRate(groupId: string, employeeId: string, directionId: string): RateLike | null {
-    return (
-      groupRateMap.get(groupId) ||
-      personalByDir.get(`${employeeId}:${directionId}`) ||
-      personalDefault.get(employeeId) ||
-      null
-    )
+  function resolveRate(
+    groupId: string,
+    employeeId: string,
+    directionId: string,
+    atDate: Date,
+  ): RateLike | null {
+    const group = groupRateMap.get(groupId)
+    if (group) return group
+    const exc = personalByDir.get(`${employeeId}:${directionId}`)
+    if (exc) return pickRateAt(exc, exc.schedules, atDate) as RateLike
+    const def = personalDefault.get(employeeId)
+    if (def) return pickRateAt(def, def.schedules, atDate) as RateLike
+    return null
   }
 
   interface Acc {
@@ -187,7 +202,7 @@ export async function computeSalaryForecastBreakdown(
       continue
     }
 
-    const rate = resolveRate(l.groupId, effId, l.group.directionId)
+    const rate = resolveRate(l.groupId, effId, l.group.directionId, new Date(l.date))
     if (!rate) continue
     const students = enrollCount.get(l.groupId) || 0
     const a = ensure(effId, name, false)
