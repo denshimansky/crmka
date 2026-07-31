@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Pencil } from "lucide-react"
 import { DIRECTION_ICONS, DEFAULT_DIRECTION_ICON } from "@/lib/direction-icons"
-import { useCurrencySymbol } from "@/components/currency-provider"
+import { useCurrencySymbol, useMoneyFormat } from "@/components/currency-provider"
 import { cn } from "@/lib/utils"
 
 interface DirectionData {
@@ -71,6 +71,7 @@ function tomorrowIso(): string {
 export function EditDirectionDialog({ direction }: { direction: DirectionData }) {
   const router = useRouter()
   const sym = useCurrencySymbol()
+  const money = useMoneyFormat()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -247,6 +248,14 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
 
     if (!name.trim()) { setError("Название обязательно"); return }
     if (!lessonPrice || Number(lessonPrice) < 0) { setError("Укажите стоимость занятия"); return }
+    if (isPackageOrg && templates.length > 0) {
+      const missing = templates.some((t) => {
+        const raw = (packagePrices[t.id] ?? "").trim()
+        const n = Number(raw)
+        return raw === "" || !Number.isFinite(n) || n < 0
+      })
+      if (missing) { setError("Укажите цену занятия для каждого пакета"); return }
+    }
 
     setLoading(true)
     try {
@@ -317,24 +326,32 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
 
             {isPackageOrg && templates.length > 0 && (
               <div className="space-y-2">
-                <Label>Цены по пакетам</Label>
+                <Label>Цены по пакетам *</Label>
                 <div className="space-y-2">
-                  {templates.map((t) => (
-                    <div key={t.id} className="flex items-center gap-2">
-                      <span className="w-28 shrink-0 text-sm text-muted-foreground">{t.lessonsCount} занятий</span>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={packagePrices[t.id] ?? ""}
-                        onChange={(e) => setPackagePrices((prev) => ({ ...prev, [t.id]: e.target.value }))}
-                        placeholder={lessonPrice || "базовая"}
-                      />
-                      <span className="shrink-0 text-sm text-muted-foreground">{sym}</span>
-                    </div>
-                  ))}
+                  {templates.map((t) => {
+                    const raw = packagePrices[t.id] ?? ""
+                    const per = Number(raw)
+                    const hasPrice = raw.trim() !== "" && Number.isFinite(per) && per >= 0
+                    return (
+                      <div key={t.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="w-24 shrink-0 text-sm text-muted-foreground">{t.lessonsCount} занятий</span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="w-24"
+                          value={raw}
+                          onChange={(e) => setPackagePrices((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                          placeholder={lessonPrice || "400"}
+                        />
+                        <span className="shrink-0 text-sm text-muted-foreground">{sym}/за занятие</span>
+                        {hasPrice && (
+                          <span className="shrink-0 text-sm font-medium">= {money(per * t.lessonsCount)} за пакет</span>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-                <p className="text-xs text-muted-foreground">Пусто — берётся базовая цена занятия.</p>
               </div>
             )}
 
