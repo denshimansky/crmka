@@ -4,7 +4,7 @@ import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { ChevronUp, ChevronDown, Trash2, Check, ImageUp, Loader2 } from "lucide-react"
+import { ChevronUp, ChevronDown, Trash2, Check, ImageUp, Loader2, Bold, Italic, Underline } from "lucide-react"
 import { KbVideo } from "@/components/kb/kb-video"
 
 export interface EditableBlock {
@@ -57,10 +57,33 @@ export function KbBlockEditor({
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState("")
   const fileRef = useRef<HTMLInputElement>(null)
+  const textRef = useRef<HTMLTextAreaElement>(null)
 
   const flashSaved = () => {
     setSaved(true)
     setTimeout(() => setSaved(false), 1500)
+  }
+
+  // Обернуть выделенный фрагмент маркерами разметки (**жирный**, *курсив*,
+  // __подчёркнутый__). Если ничего не выделено — вставляем «текст»-заглушку
+  // и выделяем её, чтобы можно было сразу набрать поверх. Кнопки гасят
+  // mousedown (preventDefault), поэтому фокус и выделение textarea сохраняются;
+  // если же поле ни разу не фокусировали (selectionStart===0) — дописываем в конец.
+  const wrapSelection = (marker: string) => {
+    const ta = textRef.current
+    if (!ta || !canEdit) return
+    const focused = document.activeElement === ta
+    const start = focused ? ta.selectionStart : text.length
+    const end = focused ? ta.selectionEnd : text.length
+    const selected = text.slice(start, end) || "текст"
+    const next = text.slice(0, start) + marker + selected + marker + text.slice(end)
+    setText(next)
+    // React перерисует textarea позже — восстанавливаем выделение на следующем кадре.
+    requestAnimationFrame(() => {
+      ta.focus()
+      const from = start + marker.length
+      ta.setSelectionRange(from, from + selected.length)
+    })
   }
 
   const save = async () => {
@@ -150,13 +173,29 @@ export function KbBlockEditor({
       )}
 
       {block.type === "text" && (
-        <Textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          disabled={!canEdit}
-          rows={4}
-          placeholder="Текст. Поддерживается **жирный**, *курсив*, `код`. Пустая строка — новый абзац."
-        />
+        <div className="space-y-2">
+          {canEdit && (
+            <div className="flex items-center gap-1">
+              <Button type="button" variant="outline" size="icon" className="size-8" onMouseDown={(e) => e.preventDefault()} onClick={() => wrapSelection("**")} aria-label="Жирный" title="Жирный (**текст**)">
+                <Bold className="size-4" />
+              </Button>
+              <Button type="button" variant="outline" size="icon" className="size-8" onMouseDown={(e) => e.preventDefault()} onClick={() => wrapSelection("*")} aria-label="Курсив" title="Курсив (*текст*)">
+                <Italic className="size-4" />
+              </Button>
+              <Button type="button" variant="outline" size="icon" className="size-8" onMouseDown={(e) => e.preventDefault()} onClick={() => wrapSelection("__")} aria-label="Подчёркнутый" title="Подчёркнутый (__текст__)">
+                <Underline className="size-4" />
+              </Button>
+            </div>
+          )}
+          <Textarea
+            ref={textRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            disabled={!canEdit}
+            rows={4}
+            placeholder="Текст. Поддерживается **жирный**, *курсив*, __подчёркнутый__, `код`. Enter — перенос строки, пустая строка — новый абзац."
+          />
+        </div>
       )}
 
       {block.type === "image" && (

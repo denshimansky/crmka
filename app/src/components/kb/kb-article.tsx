@@ -1,3 +1,4 @@
+import { Fragment } from "react"
 import { renderInline } from "@/components/markdown-guide"
 import { KbVideo } from "@/components/kb/kb-video"
 
@@ -15,12 +16,20 @@ export interface KbArticleBlock {
 }
 
 function TextBlock({ text, keyBase }: { text: string; keyBase: string }) {
+  // Пустая строка (\n\n) разделяет абзацы; одиночный перенос строки (Enter)
+  // сохраняется как <br> внутри абзаца — иначе строки склеивались в сплошной
+  // текст, т.к. <p> схлопывает одиночные \n в пробел (баг #87).
   const paragraphs = text.replace(/\r\n/g, "\n").split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
   return (
     <>
       {paragraphs.map((p, i) => (
         <p key={`${keyBase}-${i}`} className="my-3 text-sm leading-relaxed">
-          {renderInline(p, `${keyBase}-${i}`)}
+          {p.split("\n").map((line, li) => (
+            <Fragment key={`${keyBase}-${i}-${li}`}>
+              {li > 0 && <br />}
+              {renderInline(line, `${keyBase}-${i}-${li}`)}
+            </Fragment>
+          ))}
         </p>
       ))}
     </>

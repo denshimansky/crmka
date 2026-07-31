@@ -3,7 +3,7 @@ import * as React from "react"
 /**
  * Лёгкий рендер подмножества Markdown, которое использует руководство
  * docs/getting-started-guide.md: заголовки #..####, **жирный**, *курсив*,
- * `код`, маркированные и нумерованные списки (с одним уровнем вложенности),
+ * __подчёркнутый__, `код`, маркированные и нумерованные списки (с одним уровнем вложенности),
  * таблицы, чек-листы «- [ ]», горизонтальные разделители «---» и
  * callout-абзацы, начинающиеся с «⚠️».
  *
@@ -22,7 +22,9 @@ function unesc(s: string): string {
 export function renderInline(raw: string, kp: string): React.ReactNode[] {
   const text = raw.replace(/\\\*/g, ESC)
   const nodes: React.ReactNode[] = []
-  const re = /\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*/g
+  // Порядок веток важен: **жирный** и __подчёркнутый__ (двойные) проверяются
+  // раньше *курсива* (одиночная звезда), иначе жадность съест разметку.
+  const re = /\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`|\*([^*]+)\*/g
   let last = 0
   let m: RegExpExecArray | null
   let i = 0
@@ -31,16 +33,18 @@ export function renderInline(raw: string, kp: string): React.ReactNode[] {
     if (m[1] !== undefined) {
       nodes.push(<strong key={`${kp}-b${i}`}>{unesc(m[1])}</strong>)
     } else if (m[2] !== undefined) {
+      nodes.push(<u key={`${kp}-u${i}`}>{unesc(m[2])}</u>)
+    } else if (m[3] !== undefined) {
       nodes.push(
         <code
           key={`${kp}-c${i}`}
           className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]"
         >
-          {unesc(m[2])}
+          {unesc(m[3])}
         </code>,
       )
-    } else if (m[3] !== undefined) {
-      nodes.push(<em key={`${kp}-i${i}`}>{unesc(m[3])}</em>)
+    } else if (m[4] !== undefined) {
+      nodes.push(<em key={`${kp}-i${i}`}>{unesc(m[4])}</em>)
     }
     last = m.index + m[0].length
     i++
@@ -51,7 +55,7 @@ export function renderInline(raw: string, kp: string): React.ReactNode[] {
 
 /** Текст заголовка без разметки — для оглавления. */
 function stripFmt(s: string): string {
-  return s.replace(/\*\*/g, "").replace(/`/g, "").replace(/\\\*/g, "*").trim()
+  return s.replace(/\*\*/g, "").replace(/__/g, "").replace(/`/g, "").replace(/\\\*/g, "*").trim()
 }
 
 const isHr = (l: string) => /^---+\s*$/.test(l.trim())
