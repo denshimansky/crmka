@@ -154,35 +154,47 @@ export async function POST(req: NextRequest) {
 
       // Выплата (может отсутствовать, если проводят только премию/штраф).
       if (data.items.length > 0) {
-        // Шапка документа. employeeId/accountId/amount — репрезентативные (для обратной
-        // совместимости со старыми выборками). Источник истины — items.
-        const created = await tx.salaryPayment.create({
-          data: {
-            tenantId,
-            employeeId: data.items[0].employeeId,
-            accountId: data.items[0].accountId,
-            amount: totalAmount,
-            date: new Date(data.date),
-            periodYear: data.periodYear,
-            periodMonth: data.periodMonth,
-            periodHalf: data.periodHalf,
-            comment: data.comment,
-            createdBy: employeeId,
-          },
-        })
-        p = created
+        // Одна SalaryPayment = один сотрудник. Документ выплаты может охватывать
+        // нескольких (кнопка «Заполнить» тянет начисления по всем) — группируем
+        // позиции по сотруднику и создаём отдельную выплату на каждого. Иначе шапка
+        // (employeeId/amount) приписывала бы всю сумму документа первому сотруднику,
+        // а ведомость/ДДС, читающие по шапке, показали бы чужие деньги (баг ДЦ Easy).
+        const itemsByEmployee = new Map<string, typeof data.items>()
+        for (const it of data.items) {
+          const bucket = itemsByEmployee.get(it.employeeId)
+          if (bucket) bucket.push(it)
+          else itemsByEmployee.set(it.employeeId, [it])
+        }
 
-        await tx.salaryPaymentItem.createMany({
-          data: data.items.map((it) => ({
-            tenantId,
-            salaryPaymentId: created.id,
-            employeeId: it.employeeId,
-            accountId: it.accountId,
-            directionId: it.directionId ?? null,
-            amount: it.amount,
-            comment: it.comment ?? null,
-          })),
-        })
+        for (const [empId, empItems] of itemsByEmployee.entries()) {
+          const created = await tx.salaryPayment.create({
+            data: {
+              tenantId,
+              employeeId: empId,
+              accountId: empItems[0].accountId,
+              amount: empItems.reduce((s, it) => s + it.amount, 0),
+              date: new Date(data.date),
+              periodYear: data.periodYear,
+              periodMonth: data.periodMonth,
+              periodHalf: data.periodHalf,
+              comment: data.comment,
+              createdBy: employeeId,
+            },
+          })
+          if (!p) p = created
+
+          await tx.salaryPaymentItem.createMany({
+            data: empItems.map((it) => ({
+              tenantId,
+              salaryPaymentId: created.id,
+              employeeId: it.employeeId,
+              accountId: it.accountId,
+              directionId: it.directionId ?? null,
+              amount: it.amount,
+              comment: it.comment ?? null,
+            })),
+          })
+        }
 
         // Списываем суммы со счетов (агрегируем по счёту, чтобы не дёргать update N раз).
         const byAccount = new Map<string, number>()
