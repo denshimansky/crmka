@@ -725,6 +725,7 @@ model SalaryRate {
   employee  Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   direction Direction?      @relation(fields: [directionId], references: [id])
   brackets  SalaryBracket[]
+  schedules SalaryRateSchedule[]
 
   @@index([tenantId])
   @@index([tenantId, employeeId, directionId])
@@ -753,22 +754,52 @@ model GroupSalaryRate {
   @@map("group_salary_rates")
 }
 
+// Запланированное/историческое изменение ЛИЧНОЙ ставки инструктора (ставка педагога
+// «с даты»). Одна строка — полный снимок ставочного блока, действующий с
+// effectiveFrom. Привязана к базовой SalaryRate (salaryRateId); резолв по дате
+// занятия — lib/salary/pick-rate-at.ts. Промоутера нет: базовая SalaryRate =
+// ставка «с начала», версии накладываются по дате. Групповая ставка версий не имеет.
+model SalaryRateSchedule {
+  id                String       @id @default(uuid()) @db.Uuid
+  tenantId          String       @map("tenant_id") @db.Uuid
+  salaryRateId      String       @map("salary_rate_id") @db.Uuid
+  effectiveFrom     DateTime     @map("effective_from") @db.Date
+  scheme            SalaryScheme
+  ratePerStudent    Decimal?     @map("rate_per_student") @db.Decimal(12, 2)
+  ratePerLesson     Decimal?     @map("rate_per_lesson") @db.Decimal(12, 2)
+  fixedPerShift     Decimal?     @map("fixed_per_shift") @db.Decimal(12, 2)
+  percentOfPayments Decimal?     @map("percent_of_payments") @db.Decimal(5, 2)
+  trialPayMode      String       @default("none") @map("trial_pay_mode")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  createdBy         String?      @map("created_by") @db.Uuid
+  deletedAt         DateTime?    @map("deleted_at")
+
+  salaryRate SalaryRate      @relation(fields: [salaryRateId], references: [id], onDelete: Cascade)
+  brackets   SalaryBracket[]
+
+  @@index([tenantId, salaryRateId, effectiveFrom])
+  @@map("salary_rate_schedules")
+}
+
 // Строка плавающей матрицы «N учеников → ставка за занятие». Может относиться
 // либо к личной SalaryRate, либо к GroupSalaryRate (используется ровно один FK).
 model SalaryBracket {
-  id                String   @id @default(uuid()) @db.Uuid
-  tenantId          String   @map("tenant_id") @db.Uuid
-  salaryRateId      String?  @map("salary_rate_id") @db.Uuid
-  groupSalaryRateId String?  @map("group_salary_rate_id") @db.Uuid
-  minStudents       Int      @map("min_students")
-  ratePerLesson     Decimal  @map("rate_per_lesson") @db.Decimal(12, 2)
-  createdAt         DateTime @default(now()) @map("created_at")
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  salaryRateId         String?  @map("salary_rate_id") @db.Uuid
+  groupSalaryRateId    String?  @map("group_salary_rate_id") @db.Uuid
+  salaryRateScheduleId String?  @map("salary_rate_schedule_id") @db.Uuid
+  minStudents          Int      @map("min_students")
+  ratePerLesson        Decimal  @map("rate_per_lesson") @db.Decimal(12, 2)
+  createdAt            DateTime @default(now()) @map("created_at")
 
-  salaryRate      SalaryRate?      @relation(fields: [salaryRateId], references: [id], onDelete: Cascade)
-  groupSalaryRate GroupSalaryRate? @relation(fields: [groupSalaryRateId], references: [id], onDelete: Cascade)
+  salaryRate         SalaryRate?         @relation(fields: [salaryRateId], references: [id], onDelete: Cascade)
+  groupSalaryRate    GroupSalaryRate?    @relation(fields: [groupSalaryRateId], references: [id], onDelete: Cascade)
+  salaryRateSchedule SalaryRateSchedule? @relation(fields: [salaryRateScheduleId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, salaryRateId])
   @@index([tenantId, groupSalaryRateId])
+  @@index([tenantId, salaryRateScheduleId])
   @@map("salary_brackets")
 }
 
