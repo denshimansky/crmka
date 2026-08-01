@@ -43,6 +43,18 @@ jobs:
             if [ -n "${CRON_SECRET}" ] && ! grep -q "^CRON_SECRET=" .env 2>/dev/null; then
               echo "CRON_SECRET=${CRON_SECRET}" >> .env
             fi
+            # Пре-билд-страховка от ENOSPC (инцидент 01.08.2026 на msk1): build cache
+            # рос быстрее, чем пост-билд-очистка `until=168h` его снимала, и забивал
+            # диск до 100%. `docker compose build` падал с ENOSPC под set -e, а шаг
+            # очистки НИЖЕ уже не отрабатывал → самоблокировка деплоя. Чистим весь
+            # build cache ДО сборки, если диск занят ≥75%. Образы и тома не трогаем.
+            USED=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+            echo "Диск занят ${USED:-?}% до сборки"
+            if [ "${USED:-0}" -ge 75 ]; then
+              echo "≥75% — чистим весь build cache до сборки"
+              docker builder prune -af || true
+              df -h /
+            fi
             docker compose build app
             # Убираем застрявшие переименованные контейнеры от прерванного прошлого
             # recreate (docker оставляет <hash>_crmka-<svc>-1 → следующий up конфликтует
