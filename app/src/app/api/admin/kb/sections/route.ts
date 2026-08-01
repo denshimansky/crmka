@@ -17,6 +17,7 @@ export async function GET() {
     select: {
       id: true,
       parentId: true,
+      variant: true,
       title: true,
       slug: true,
       icon: true,
@@ -36,6 +37,8 @@ const createSchema = z.object({
   parentId: z.string().uuid().nullable().optional(),
   title: z.string().min(1, "Название обязательно"),
   icon: z.string().nullable().optional(),
+  // Вкладка для верхнего раздела. У подраздела игнорируется — наследует variant родителя.
+  variant: z.enum(["calendar", "package"]).optional(),
 })
 
 // POST /api/admin/kb/sections — создать раздел/подраздел
@@ -51,6 +54,9 @@ export async function POST(req: NextRequest) {
   const { title, icon } = parsed.data
   const parentId = parsed.data.parentId ?? null
 
+  // Вкладка: у подраздела = вкладке родителя; у верхнего — из тела (по умолчанию calendar).
+  let variant: "calendar" | "package" = parsed.data.variant ?? "calendar"
+
   // Максимум два уровня разделов (раздел → подраздел); статьи — третий уровень.
   if (parentId) {
     const parent = await db.kbSection.findFirst({ where: { id: parentId, deletedAt: null } })
@@ -58,6 +64,7 @@ export async function POST(req: NextRequest) {
     if (parent.parentId) {
       return NextResponse.json({ error: "Максимум два уровня разделов" }, { status: 400 })
     }
+    variant = parent.variant
   }
 
   const slug = await uniqueSectionSlug(parentId, title)
@@ -70,6 +77,7 @@ export async function POST(req: NextRequest) {
   const section = await db.kbSection.create({
     data: {
       parentId,
+      variant,
       title,
       slug,
       icon: icon ?? null,

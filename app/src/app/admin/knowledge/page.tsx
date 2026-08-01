@@ -6,12 +6,15 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
 import {
-  Plus, Pencil, Trash2, ChevronUp, ChevronDown, FolderPlus, FileText, Pencil as PencilIcon, ExternalLink,
+  Plus, Pencil, Trash2, ChevronUp, ChevronDown, FolderPlus, FileText, Pencil as PencilIcon,
+  ExternalLink, Copy, ClipboardPaste, X, ArrowLeftRight,
 } from "lucide-react"
+import { KB_VARIANT_LABELS, type KbVariant } from "@/lib/kb-variant"
 
 interface AdminArticle {
   id: string
@@ -23,6 +26,7 @@ interface AdminArticle {
 interface AdminSection {
   id: string
   parentId: string | null
+  variant: KbVariant
   title: string
   slug: string
   icon: string | null
@@ -37,6 +41,8 @@ type DialogState =
   | { mode: "create-article"; sectionId: string; title: string }
   | { mode: "rename-section"; id: string; title: string }
   | { mode: "rename-article"; id: string; title: string }
+
+const OTHER_VARIANT: Record<KbVariant, KbVariant> = { calendar: "package", package: "calendar" }
 
 async function req(method: string, url: string, body?: unknown) {
   const res = await fetch(url, {
@@ -66,6 +72,10 @@ export default function AdminKnowledgePage() {
   const [dlg, setDlg] = useState<DialogState | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [variant, setVariant] = useState<KbVariant>("calendar")
+  // Буфер копирования статьи: копируем в одной вкладке, вставляем в разделе
+  // (в т.ч. другой вкладки). Держится до явной очистки — можно вставить в несколько разделов.
+  const [clipboard, setClipboard] = useState<{ id: string; title: string } | null>(null)
 
   const refetch = () =>
     fetch("/api/admin/kb/sections")
@@ -85,6 +95,16 @@ export default function AdminKnowledgePage() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Держим буфер в согласии с деревом: если статью-источник удалили (сама статья
+  // или её раздел) — очищаем буфер (иначе «Вставить» упрётся в 404); если
+  // переименовали — обновляем подпись в баннере.
+  useEffect(() => {
+    if (!clipboard) return
+    const found = sections.flatMap((s) => s.articles).find((a) => a.id === clipboard.id)
+    if (!found) setClipboard(null)
+    else if (found.title !== clipboard.title) setClipboard({ id: found.id, title: found.title })
+  }, [sections, clipboard])
+
   // Обёртка действия: показываем ошибку, перечитываем дерево.
   const run = async (fn: () => Promise<unknown>) => {
     setError("")
@@ -103,7 +123,7 @@ export default function AdminKnowledgePage() {
     setSaving(true)
     setError("")
     try {
-      if (dlg.mode === "create-top") await req("POST", "/api/admin/kb/sections", { title })
+      if (dlg.mode === "create-top") await req("POST", "/api/admin/kb/sections", { title, variant })
       else if (dlg.mode === "create-sub") await req("POST", "/api/admin/kb/sections", { title, parentId: dlg.parentId })
       else if (dlg.mode === "create-article") await req("POST", "/api/admin/kb/articles", { sectionId: dlg.sectionId, title })
       else if (dlg.mode === "rename-section") await req("PATCH", `/api/admin/kb/sections/${dlg.id}`, { title })
@@ -117,7 +137,9 @@ export default function AdminKnowledgePage() {
     }
   }
 
-  const tops = sections.filter((s) => !s.parentId)
+  // Разделы текущей вкладки. Подразделы фильтруем через parentId (variant у них
+  // равен родителю, поэтому дополнительно по variant не режем).
+  const tops = sections.filter((s) => !s.parentId && s.variant === variant)
   const childrenOf = (id: string) => sections.filter((s) => s.parentId === id)
 
   const moveSection = (siblings: AdminSection[], id: string, dir: -1 | 1) =>
@@ -130,6 +152,26 @@ export default function AdminKnowledgePage() {
       const next = reorderIds(list.map((a) => a.id), id, dir)
       if (next) await req("POST", "/api/admin/kb/reorder", { entity: "article", ids: next })
     })
+
+  const pasteArticleInto = (sectionId: string) =>
+    run(async () => {
+      if (!clipboard) return
+      await req("POST", "/api/admin/kb/articles/duplicate", {
+        sourceArticleId: clipboard.id,
+        targetSectionId: sectionId,
+      })
+    })
+
+  const copySectionToOtherTab = (section: AdminSection) => {
+    const target = OTHER_VARIANT[section.variant]
+    if (!confirm(
+      `Скопировать раздел «${section.title}» во вкладку «${KB_VARIANT_LABELS[target]}» со всеми подразделами и статьями?`,
+    )) return
+    run(async () => {
+      await req("POST", "/api/admin/kb/sections/duplicate", { sectionId: section.id, targetVariant: target })
+      setVariant(target) // показать результат в целевой вкладке
+    })
+  }
 
   const dialogTitle = dlg
     ? {
@@ -157,6 +199,12 @@ export default function AdminKnowledgePage() {
                 onCheckedChange={(v) => run(() => req("PATCH", `/api/admin/kb/articles/${article.id}`, { isPublished: v }))}
               />
             </label>
+            <IconBtn
+              onClick={() => setClipboard({ id: article.id, title: article.title })}
+              label="Копировать статью (для вставки в другую вкладку/раздел)"
+            >
+              <Copy className={`size-4 ${clipboard?.id === article.id ? "text-primary" : ""}`} />
+            </IconBtn>
             <IconBtn disabled={list[0]?.id === article.id} onClick={() => moveArticle(list, article.id, -1)} label="Выше"><ChevronUp className="size-4" /></IconBtn>
             <IconBtn disabled={list[list.length - 1]?.id === article.id} onClick={() => moveArticle(list, article.id, 1)} label="Ниже"><ChevronDown className="size-4" /></IconBtn>
             <IconBtn onClick={() => setDlg({ mode: "rename-article", id: article.id, title: article.title })} label="Переименовать"><Pencil className="size-4" /></IconBtn>
@@ -177,6 +225,18 @@ export default function AdminKnowledgePage() {
         <span className="hidden text-xs text-muted-foreground sm:inline">/{section.slug}</span>
         {!section.isPublished && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">черновик</span>}
         <div className="ml-auto flex items-center gap-1">
+          {canEdit && clipboard && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={() => pasteArticleInto(section.id)}
+              title={`Вставить статью «${clipboard.title}» в этот раздел`}
+            >
+              <ClipboardPaste className="mr-1.5 size-4" />Вставить статью
+            </Button>
+          )}
           {canEdit && (
             <>
               <Switch
@@ -186,7 +246,13 @@ export default function AdminKnowledgePage() {
               <IconBtn disabled={siblings[0]?.id === section.id} onClick={() => moveSection(siblings, section.id, -1)} label="Выше"><ChevronUp className="size-4" /></IconBtn>
               <IconBtn disabled={siblings[siblings.length - 1]?.id === section.id} onClick={() => moveSection(siblings, section.id, 1)} label="Ниже"><ChevronDown className="size-4" /></IconBtn>
               {!isSub && (
-                <IconBtn onClick={() => setDlg({ mode: "create-sub", parentId: section.id, title: "" })} label="Добавить подраздел"><FolderPlus className="size-4" /></IconBtn>
+                <>
+                  <IconBtn onClick={() => setDlg({ mode: "create-sub", parentId: section.id, title: "" })} label="Добавить подраздел"><FolderPlus className="size-4" /></IconBtn>
+                  <IconBtn
+                    onClick={() => copySectionToOtherTab(section)}
+                    label={`Скопировать раздел во вкладку «${KB_VARIANT_LABELS[OTHER_VARIANT[section.variant]]}»`}
+                  ><ArrowLeftRight className="size-4" /></IconBtn>
+                </>
               )}
               <IconBtn onClick={() => setDlg({ mode: "create-article", sectionId: section.id, title: "" })} label="Добавить статью"><Plus className="size-4" /></IconBtn>
               <IconBtn onClick={() => setDlg({ mode: "rename-section", id: section.id, title: section.title })} label="Переименовать"><PencilIcon className="size-4" /></IconBtn>
@@ -203,7 +269,10 @@ export default function AdminKnowledgePage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">База знаний</h1>
-          <p className="text-sm text-muted-foreground">Разделы, подразделы и статьи. Видны всем пользователям всех организаций.</p>
+          <p className="text-sm text-muted-foreground">
+            Разделы, подразделы и статьи. Вкладка показывается партнёру по типу его абонемента:
+            «Пакетный» — организациям с пакетным типом, «Календарный» — остальным.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Link href="/knowledge" target="_blank">
@@ -211,11 +280,28 @@ export default function AdminKnowledgePage() {
           </Link>
           {canEdit && (
             <Button onClick={() => setDlg({ mode: "create-top", title: "" })}>
-              <Plus className="mr-2 size-4" />Добавить раздел
+              <Plus className="mr-2 size-4" />Добавить раздел в «{KB_VARIANT_LABELS[variant]}»
             </Button>
           )}
         </div>
       </div>
+
+      <Tabs value={variant} onValueChange={(v) => setVariant(v as KbVariant)} className="mb-4">
+        <TabsList>
+          <TabsTrigger value="calendar">Календарный</TabsTrigger>
+          <TabsTrigger value="package">Пакетный</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {clipboard && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+          <Copy className="size-4 text-primary" />
+          <span>В буфере статья: <b>{clipboard.title}</b>. Откройте нужную вкладку и нажмите «Вставить статью» в разделе.</span>
+          <Button variant="ghost" size="sm" className="ml-auto h-7" onClick={() => setClipboard(null)}>
+            <X className="mr-1 size-4" />Очистить
+          </Button>
+        </div>
+      )}
 
       {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
       {!canEdit && !loading && (
@@ -228,7 +314,8 @@ export default function AdminKnowledgePage() {
         <div className="text-muted-foreground">Загрузка...</div>
       ) : tops.length === 0 ? (
         <div className="rounded-md border p-8 text-center text-muted-foreground">
-          Разделов пока нет. {canEdit && "Нажмите «Добавить раздел», чтобы начать."}
+          В этой вкладке разделов пока нет.{" "}
+          {canEdit && "Нажмите «Добавить раздел», чтобы начать, или скопируйте раздел из другой вкладки."}
         </div>
       ) : (
         <div className="space-y-4">

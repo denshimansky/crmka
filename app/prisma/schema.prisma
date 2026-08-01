@@ -1506,6 +1506,10 @@ model LoginAttempt {
 model KbSection {
   id          String    @id @default(uuid()) @db.Uuid
   parentId    String?   @map("parent_id") @db.Uuid // NULL = раздел верхнего уровня; иначе подраздел
+  // Вкладка: «Календарный» или «Пакетный». У подраздела всегда равен variant
+  // родителя (проставляется при создании). Читалка показывает верхние разделы
+  // только своей вкладки; подразделы и статьи наследуют её через родителя.
+  variant     KbVariant @default(calendar)
   title       String
   slug        String
   icon        String? // имя lucide-иконки (как Direction.icon)
@@ -1520,6 +1524,7 @@ model KbSection {
   articles KbArticle[]
 
   @@index([parentId])
+  @@index([variant])
   @@map("kb_sections")
 }
 
@@ -1636,6 +1641,14 @@ enum LessonStatus {
 enum SubscriptionType {
   calendar
   fixed
+  package
+}
+
+// Вкладка базы знаний. Тип-абонемента партнёра определяет, какое дерево статей
+// он видит: package → «Пакетный», всё остальное (calendar/fixed/не выбран) →
+// «Календарный». См. kbVariantForSubscriptionType в lib/kb-variant.ts.
+enum KbVariant {
+  calendar
   package
 }
 

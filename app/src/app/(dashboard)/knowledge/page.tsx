@@ -1,11 +1,15 @@
 import Link from "next/link"
-import { getKbNavTree, firstArticleHref } from "@/lib/kb"
+import { getKbNavTree, firstArticleHref, kbVariantForTenant } from "@/lib/kb"
+import { getSession } from "@/lib/session"
 import { PageHelp } from "@/components/page-help"
 import { Button } from "@/components/ui/button"
 
 // Лендинг базы знаний: приветствие + карточки разделов со ссылками на статьи.
+// Раздел показывает вкладку по типу абонемента организации.
 export default async function KnowledgePage() {
-  const tree = await getKbNavTree()
+  const session = await getSession()
+  const variant = await kbVariantForTenant(session.user.tenantId)
+  const tree = await getKbNavTree(variant)
   const firstHref = firstArticleHref(tree)
 
   return (

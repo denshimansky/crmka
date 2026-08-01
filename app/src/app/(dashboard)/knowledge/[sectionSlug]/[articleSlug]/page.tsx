@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
-import { getKbArticle } from "@/lib/kb"
+import { getKbArticle, kbVariantForTenant } from "@/lib/kb"
+import { getSession } from "@/lib/session"
 import { KbArticleBody } from "@/components/kb/kb-article"
 import { PageHelp } from "@/components/page-help"
 
@@ -9,7 +10,9 @@ export default async function KbArticlePage({
   params: Promise<{ sectionSlug: string; articleSlug: string }>
 }) {
   const { sectionSlug, articleSlug } = await params
-  const data = await getKbArticle(sectionSlug, articleSlug)
+  const session = await getSession()
+  const variant = await kbVariantForTenant(session.user.tenantId)
+  const data = await getKbArticle(sectionSlug, articleSlug, variant)
   if (!data) notFound()
 
   const { article, section, parent } = data

@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { kbVariantForTenant } from "@/lib/kb"
 
 // GET /api/kb/search?q=... — поиск по опубликованным статьям базы знаний
 // (заголовок + текст блоков). Доступно любому залогиненному пользователю.
+// Ищем только по вкладке, соответствующей типу абонемента организации.
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -12,10 +14,14 @@ export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get("q") || "").trim()
   if (q.length < 2) return NextResponse.json([])
 
-  // Раздел статьи виден, только если он и его родитель (если есть) опубликованы.
+  const variant = await kbVariantForTenant(session.user.tenantId)
+
+  // Раздел статьи виден, только если он своей вкладки и он и его родитель
+  // (если есть) опубликованы.
   const visibleSection = {
     deletedAt: null,
     isPublished: true,
+    variant,
     OR: [{ parentId: null }, { parent: { deletedAt: null, isPublished: true } }],
   }
 

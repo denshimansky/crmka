@@ -1,7 +1,24 @@
+import { cache } from "react"
+import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { slugCode } from "@/lib/translit"
 import type { AdminPayload } from "@/lib/admin-auth"
 import { isValidRutube } from "@/lib/kb-video"
+import { kbVariantForSubscriptionType, type KbVariant } from "@/lib/kb-variant"
+
+/**
+ * Вкладка базы знаний для организации по её типу абонемента. Читалка вызывает с
+ * tenantId из сессии; результат передаётся в getKbNavTree/getKbArticle.
+ * Обёрнуто в React cache(): на /knowledge layout и page дёргают её в одном
+ * рендере — дедупим один org-запрос (тот же паттерн, что в lib/api-permissions).
+ */
+export const kbVariantForTenant = cache(async (tenantId: string): Promise<KbVariant> => {
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionType: true },
+  })
+  return kbVariantForSubscriptionType(org?.subscriptionType ?? null)
+})
 
 // Хелперы базы знаний (серверные): слаги разделов/статей и проверка прав.
 
@@ -32,11 +49,12 @@ export async function uniqueSectionSlug(
   _parentId: string | null,
   title: string,
   excludeId?: string,
+  client: Prisma.TransactionClient = db,
 ): Promise<string> {
   const base = kbSlugify(title)
   let candidate = base
   for (let i = 2; ; i++) {
-    const clash = await db.kbSection.findFirst({
+    const clash = await client.kbSection.findFirst({
       where: {
         slug: candidate,
         deletedAt: null,
@@ -66,12 +84,16 @@ export interface KbNavSection {
 
 /**
  * Дерево навигации для читалки: верхние разделы → подразделы, у каждого — свои
- * статьи. Подразделы, чей родитель снят с публикации/удалён, не попадают
- * (родитель отсутствует среди верхних → потомок отбрасывается).
+ * статьи. Показываются только разделы вкладки `variant` (package/calendar).
+ * WHERE фильтрует по variant все уровни; для подразделов это безопасно, т.к. они
+ * наследуют variant родителя при создании (POST sections / duplicateSectionToVariant).
+ * Подразделы, чей родитель снят с публикации/удалён, не попадают (родитель
+ * отсутствует среди верхних → потомок отбрасывается).
+ * Обёрнуто в React cache(): layout и page строят дерево в одном рендере.
  */
-export async function getKbNavTree(): Promise<KbNavSection[]> {
+export const getKbNavTree = cache(async (variant: KbVariant): Promise<KbNavSection[]> => {
   const sections = await db.kbSection.findMany({
-    where: { deletedAt: null, isPublished: true },
+    where: { deletedAt: null, isPublished: true, variant },
     orderBy: { sortOrder: "asc" },
     select: {
       id: true,
@@ -105,15 +127,25 @@ export async function getKbNavTree(): Promise<KbNavSection[]> {
   })
 
   return sections.filter((s) => !s.parentId).map(toNode)
-}
+})
 
-/** Статья по слагам раздела и статьи (с блоками) + хлебные крошки. */
-export async function getKbArticle(sectionSlug: string, articleSlug: string) {
+/**
+ * Статья по слагам раздела и статьи (с блоками) + хлебные крошки. `variant`
+ * ограничивает выдачу вкладкой организации: прямой переход по URL чужой вкладки
+ * даст 404 (раздел не своей вкладки не найдётся). Подраздел хранит variant
+ * родителя, поэтому фильтр по разделу корректен и для подразделов.
+ */
+export async function getKbArticle(
+  sectionSlug: string,
+  articleSlug: string,
+  variant: KbVariant,
+) {
   const section = await db.kbSection.findFirst({
     where: {
       slug: sectionSlug,
       deletedAt: null,
       isPublished: true,
+      variant,
       OR: [{ parentId: null }, { parent: { deletedAt: null, isPublished: true } }],
     },
     include: { parent: { select: { title: true, slug: true } } },
@@ -197,11 +229,12 @@ export async function uniqueArticleSlug(
   sectionId: string,
   title: string,
   excludeId?: string,
+  client: Prisma.TransactionClient = db,
 ): Promise<string> {
   const base = kbSlugify(title)
   let candidate = base
   for (let i = 2; ; i++) {
-    const clash = await db.kbArticle.findFirst({
+    const clash = await client.kbArticle.findFirst({
       where: {
         sectionId,
         slug: candidate,
@@ -213,4 +246,147 @@ export async function uniqueArticleSlug(
     if (!clash) return candidate
     candidate = `${base}-${i}`
   }
+}
+
+// === Копирование (между вкладками и внутри) ===
+
+/**
+ * Копирует статью со всеми блоками в целевой раздел. Заголовок сохраняется,
+ * слаг пересчитывается на уникальность в целевом разделе, порядок — в конец.
+ * Работает внутри переданной транзакции. Не переносит, а дублирует (оригинал
+ * остаётся). variant у копии определяется целевым разделом (у статьи своего нет).
+ */
+export async function duplicateArticle(
+  tx: Prisma.TransactionClient,
+  sourceArticleId: string,
+  targetSectionId: string,
+  createdBy: string | null,
+) {
+  const src = await tx.kbArticle.findFirst({
+    where: { id: sourceArticleId, deletedAt: null },
+    include: { blocks: { orderBy: { sortOrder: "asc" } } },
+  })
+  if (!src) throw new Error("Статья-источник не найдена")
+
+  const target = await tx.kbSection.findFirst({
+    where: { id: targetSectionId, deletedAt: null },
+    select: { id: true },
+  })
+  if (!target) throw new Error("Целевой раздел не найден")
+
+  const slug = await uniqueArticleSlug(targetSectionId, src.title, undefined, tx)
+  const last = await tx.kbArticle.findFirst({
+    where: { sectionId: targetSectionId, deletedAt: null },
+    orderBy: { sortOrder: "desc" },
+    select: { sortOrder: true },
+  })
+
+  const created = await tx.kbArticle.create({
+    data: {
+      sectionId: targetSectionId,
+      title: src.title,
+      slug,
+      sortOrder: (last?.sortOrder ?? -1) + 1,
+      isPublished: src.isPublished,
+      createdBy,
+    },
+  })
+
+  if (src.blocks.length > 0) {
+    await tx.kbBlock.createMany({
+      data: src.blocks.map((b, i) => ({
+        articleId: created.id,
+        type: b.type,
+        text: b.text,
+        level: b.level,
+        mediaUrl: b.mediaUrl,
+        caption: b.caption,
+        sortOrder: i,
+      })),
+    })
+  }
+
+  return created
+}
+
+/**
+ * Копирует верхний раздел целиком (подразделы + все статьи + блоки) в другую
+ * вкладку. Нужно, потому что вкладки — независимые деревья: без этого пришлось
+ * бы пересоздавать структуру руками. Возвращает созданный верхний раздел.
+ */
+export async function duplicateSectionToVariant(
+  sourceSectionId: string,
+  targetVariant: KbVariant,
+  createdBy: string | null,
+) {
+  return db.$transaction(
+    async (tx) => {
+      const top = await tx.kbSection.findFirst({
+        where: { id: sourceSectionId, deletedAt: null, parentId: null },
+      })
+      if (!top) throw new Error("Раздел не найден или не является верхним")
+      if (top.variant === targetVariant) {
+        throw new Error("Раздел уже в этой вкладке")
+      }
+
+      const topSlug = await uniqueSectionSlug(null, top.title, undefined, tx)
+      const lastTop = await tx.kbSection.findFirst({
+        where: { parentId: null, deletedAt: null },
+        orderBy: { sortOrder: "desc" },
+        select: { sortOrder: true },
+      })
+      const newTop = await tx.kbSection.create({
+        data: {
+          parentId: null,
+          variant: targetVariant,
+          title: top.title,
+          slug: topSlug,
+          icon: top.icon,
+          sortOrder: (lastTop?.sortOrder ?? -1) + 1,
+          isPublished: top.isPublished,
+        },
+      })
+
+      // Статьи самого верхнего раздела.
+      const topArticles = await tx.kbArticle.findMany({
+        where: { sectionId: top.id, deletedAt: null },
+        orderBy: { sortOrder: "asc" },
+        select: { id: true },
+      })
+      for (const a of topArticles) {
+        await duplicateArticle(tx, a.id, newTop.id, createdBy)
+      }
+
+      // Подразделы + их статьи.
+      const subs = await tx.kbSection.findMany({
+        where: { parentId: top.id, deletedAt: null },
+        orderBy: { sortOrder: "asc" },
+      })
+      for (const sub of subs) {
+        const subSlug = await uniqueSectionSlug(newTop.id, sub.title, undefined, tx)
+        const newSub = await tx.kbSection.create({
+          data: {
+            parentId: newTop.id,
+            variant: targetVariant,
+            title: sub.title,
+            slug: subSlug,
+            icon: sub.icon,
+            sortOrder: sub.sortOrder,
+            isPublished: sub.isPublished,
+          },
+        })
+        const subArticles = await tx.kbArticle.findMany({
+          where: { sectionId: sub.id, deletedAt: null },
+          orderBy: { sortOrder: "asc" },
+          select: { id: true },
+        })
+        for (const a of subArticles) {
+          await duplicateArticle(tx, a.id, newSub.id, createdBy)
+        }
+      }
+
+      return newTop
+    },
+    { timeout: 30000 },
+  )
 }

@@ -13,7 +13,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const article = await db.kbArticle.findFirst({
     where: { id, deletedAt: null },
     include: {
-      section: { select: { id: true, title: true, slug: true } },
+      section: { select: { id: true, title: true, slug: true, variant: true } },
       blocks: { orderBy: { sortOrder: "asc" } },
     },
   })

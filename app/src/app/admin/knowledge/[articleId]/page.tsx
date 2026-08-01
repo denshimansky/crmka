@@ -12,13 +12,14 @@ import {
 } from "@/components/ui/dialog"
 import { ArrowLeft, Pencil, ExternalLink, Heading, Type, ImageIcon, ClipboardPaste, Video } from "lucide-react"
 import { KbBlockEditor, type EditableBlock } from "@/components/kb/kb-block-editor"
+import { KB_VARIANT_LABELS, type KbVariant } from "@/lib/kb-variant"
 
 interface ArticleData {
   id: string
   title: string
   slug: string
   isPublished: boolean
-  section: { id: string; title: string; slug: string }
+  section: { id: string; title: string; slug: string; variant: KbVariant }
   blocks: EditableBlock[]
 }
 
@@ -209,7 +210,12 @@ export default function AdminArticleEditorPage() {
               </Button>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">Раздел: {article.section.title}</p>
+          <p className="text-sm text-muted-foreground">
+            Раздел: {article.section.title}
+            <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[11px]">
+              Вкладка: {KB_VARIANT_LABELS[article.section.variant]}
+            </span>
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {canEdit && (
