@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,7 +15,7 @@ import {
   Plus, Pencil, Trash2, ChevronUp, ChevronDown, FolderPlus, FileText, Pencil as PencilIcon,
   ExternalLink, Copy, ClipboardPaste, X, ArrowLeftRight,
 } from "lucide-react"
-import { KB_VARIANT_LABELS, type KbVariant } from "@/lib/kb-variant"
+import { KB_VARIANT_LABELS, isKbVariant, type KbVariant } from "@/lib/kb-variant"
 
 interface AdminArticle {
   id: string
@@ -66,13 +67,34 @@ function reorderIds(ids: string[], id: string, dir: -1 | 1): string[] | null {
 }
 
 export default function AdminKnowledgePage() {
+  // useSearchParams требует Suspense-границу (иначе билд ругается и роут
+  // деоптимизируется в клиентский рендер) — оборачиваем, как в login/page.tsx.
+  return (
+    <Suspense fallback={<div className="p-6 text-muted-foreground">Загрузка...</div>}>
+      <AdminKnowledgeContent />
+    </Suspense>
+  )
+}
+
+function AdminKnowledgeContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [sections, setSections] = useState<AdminSection[]>([])
   const [loading, setLoading] = useState(true)
   const [canEdit, setCanEdit] = useState(false)
   const [dlg, setDlg] = useState<DialogState | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
-  const [variant, setVariant] = useState<KbVariant>("calendar")
+  // Активная вкладка живёт в URL (?tab=), а не в локальном состоянии: возврат из
+  // редактора статьи (кнопка «К списку разделов» несёт ?tab=<variant> статьи)
+  // и кнопка «назад» браузера открывают ту же вкладку, а не всегда «Календарный».
+  const tabParam = searchParams.get("tab")
+  const variant: KbVariant = isKbVariant(tabParam) ? tabParam : "calendar"
+  const setVariant = (v: KbVariant) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("tab", v)
+    router.replace(`/admin/knowledge?${params.toString()}`, { scroll: false })
+  }
   // Буфер копирования статьи: копируем в одной вкладке, вставляем в разделе
   // (в т.ч. другой вкладки). Держится до явной очистки — можно вставить в несколько разделов.
   const [clipboard, setClipboard] = useState<{ id: string; title: string } | null>(null)

@@ -215,7 +215,7 @@ export default function AdminArticleEditorPage() {
 
   return (
     <div className="p-6">
-      <Link href="/admin/knowledge" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+      <Link href={`/admin/knowledge?tab=${article.section.variant}`} className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" /> К списку разделов
       </Link>
 
