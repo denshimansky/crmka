@@ -191,7 +191,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
           lessonPrice: Number(schedLessonPrice),
           trialFree: schedTrialFree,
           trialPrice: !schedTrialFree && schedTrialPrice ? Number(schedTrialPrice) : null,
-          singleVisitPrice: schedSingleVisit ? Number(schedSingleVisit) : null,
+          singleVisitPrice: isPackageOrg ? null : schedSingleVisit ? Number(schedSingleVisit) : null,
           packagePrices: buildSchedPackagePrices(),
         }),
       })
@@ -247,7 +247,10 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
     setError(null)
 
     if (!name.trim()) { setError("Название обязательно"); return }
-    if (!lessonPrice || Number(lessonPrice) < 0) { setError("Укажите стоимость занятия"); return }
+    if (!lessonPrice || Number(lessonPrice) < 0) {
+      setError(isPackageOrg ? "Укажите стоимость разового занятия" : "Укажите стоимость занятия")
+      return
+    }
     if (isPackageOrg && templates.length > 0) {
       const missing = templates.some((t) => {
         const raw = (packagePrices[t.id] ?? "").trim()
@@ -268,7 +271,9 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
           lessonDuration: Number(lessonDuration) || 45,
           trialFree,
           trialPrice: !trialFree && trialPrice ? Number(trialPrice) : null,
-          singleVisitPrice: singleVisitPrice ? Number(singleVisitPrice) : null,
+          // Пакетный тип: разовое занятие = стоимость занятия → singleVisitPrice
+          // не задаётся, бэкенд берёт lessonPrice (direction.singleVisitPrice ?? lessonPrice).
+          singleVisitPrice: isPackageOrg ? null : singleVisitPrice ? Number(singleVisitPrice) : null,
           color,
           icon,
           packagePrices: buildPackagePrices(),
@@ -313,16 +318,25 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Развивайка 3-4" />
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            {isPackageOrg ? (
+              // Пакетный тип: цену занятия переносим вниз («Стоимость разового занятия») —
+              // основная цена задаётся в блоке «Цены по пакетам».
               <div>
-                <Label>Стоимость занятия, {sym} *</Label>
-                <Input type="number" step="0.01" min="0" value={lessonPrice} onChange={(e) => setLessonPrice(e.target.value)} placeholder="400" />
-              </div>
-              <div>
-                <Label>Длительность, мин</Label>
+                <Label>Длительность занятия, мин</Label>
                 <Input type="number" min="15" max="480" value={lessonDuration} onChange={(e) => setLessonDuration(e.target.value)} />
               </div>
-            </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>Стоимость занятия, {sym} *</Label>
+                  <Input type="number" step="0.01" min="0" value={lessonPrice} onChange={(e) => setLessonPrice(e.target.value)} placeholder="400" />
+                </div>
+                <div>
+                  <Label>Длительность, мин</Label>
+                  <Input type="number" min="15" max="480" value={lessonDuration} onChange={(e) => setLessonDuration(e.target.value)} />
+                </div>
+              </div>
+            )}
 
             {isPackageOrg && templates.length > 0 && (
               <div className="space-y-2">
@@ -368,20 +382,32 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
               )}
             </div>
 
-            <div>
-              <Label>Стоимость разового посещения, {sym}</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={singleVisitPrice}
-                onChange={(e) => setSingleVisitPrice(e.target.value)}
-                placeholder="Если пусто — берём цену занятия"
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Списывается с баланса родителя, когда ученика добавляют на конкретное занятие без абонемента
-              </p>
-            </div>
+            {isPackageOrg ? (
+              // Пакетный тип: «Стоимость разового занятия» = та же цена занятия
+              // (в БД lessonPrice; отдельного «разового посещения» нет).
+              <div>
+                <Label>Стоимость разового занятия, {sym} *</Label>
+                <Input type="number" step="0.01" min="0" value={lessonPrice} onChange={(e) => setLessonPrice(e.target.value)} placeholder="400" />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Цена одного занятия без пакета — списывается с баланса родителя, когда ученика добавляют на занятие без абонемента
+                </p>
+              </div>
+            ) : (
+              <div>
+                <Label>Стоимость разового посещения, {sym}</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={singleVisitPrice}
+                  onChange={(e) => setSingleVisitPrice(e.target.value)}
+                  placeholder="Если пусто — берём цену занятия"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Списывается с баланса родителя, когда ученика добавляют на конкретное занятие без абонемента
+                </p>
+              </div>
+            )}
 
             {/* Запланированные изменения цены с датой вступления в силу (баг #88). */}
             <div className="space-y-2 rounded-md border p-3">
@@ -428,7 +454,7 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
                       <Input type="date" min={tomorrowIso()} value={schedFrom} onChange={(e) => setSchedFrom(e.target.value)} />
                     </div>
                     <div>
-                      <Label>Цена занятия, {sym} *</Label>
+                      <Label>{isPackageOrg ? "Стоимость разового занятия" : "Цена занятия"}, {sym} *</Label>
                       <Input type="number" step="0.01" min="0" value={schedLessonPrice} onChange={(e) => setSchedLessonPrice(e.target.value)} />
                     </div>
                   </div>
@@ -443,10 +469,12 @@ export function EditDirectionDialog({ direction }: { direction: DirectionData })
                       <Input type="number" step="0.01" min="0" value={schedTrialPrice} onChange={(e) => setSchedTrialPrice(e.target.value)} />
                     </div>
                   )}
-                  <div>
-                    <Label>Стоимость разового, {sym}</Label>
-                    <Input type="number" step="0.01" min="0" value={schedSingleVisit} onChange={(e) => setSchedSingleVisit(e.target.value)} placeholder="Если пусто — цена занятия" />
-                  </div>
+                  {!isPackageOrg && (
+                    <div>
+                      <Label>Стоимость разового, {sym}</Label>
+                      <Input type="number" step="0.01" min="0" value={schedSingleVisit} onChange={(e) => setSchedSingleVisit(e.target.value)} placeholder="Если пусто — цена занятия" />
+                    </div>
+                  )}
 
                   {isPackageOrg && templates.length > 0 && (
                     <div className="space-y-2">
