@@ -107,7 +107,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const loginPhone = normalizePhone(client.phone)
   if (!loginPhone) {
     return NextResponse.json(
-      { error: "Укажите корректный российский телефон в карточке клиента — он станет логином." },
+      { error: "Укажите телефон в карточке клиента — он станет логином (нужна хотя бы одна цифра)." },
       { status: 422 }
     )
   }

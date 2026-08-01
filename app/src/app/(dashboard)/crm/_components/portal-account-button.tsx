@@ -132,7 +132,7 @@ export function PortalAccountButton({ clientId }: { clientId: string }) {
     blockers.push({
       text: checks.phoneMissing
         ? "У клиента не указан телефон — он нужен как логин."
-        : "Телефон клиента не похож на российский номер — логином может быть только телефон формата +7…",
+        : "В телефоне клиента нет ни одной цифры — логином может быть только номер из цифр.",
     })
   }
   if (checks?.phoneDuplicate) {
