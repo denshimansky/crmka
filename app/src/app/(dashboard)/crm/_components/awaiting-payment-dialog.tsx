@@ -278,8 +278,11 @@ export function AwaitingPaymentDialog({
     )
   }, [groups, branchId, directionId])
 
+  // Пакетным орг пакет выбирается ЗДЕСЬ (заявка создаётся без пакета), поэтому
+  // он обязателен для перехода — сервер иначе ответит «Выберите пакет».
+  const packageOk = !isPackageOrg || packageTemplateId !== ""
   const canSubmit =
-    branchId && directionId && groupId && firstPaidDate && !submitting
+    branchId && directionId && groupId && firstPaidDate && packageOk && !submitting
 
   async function handleSubmit() {
     if (!canSubmit) return
@@ -293,8 +296,8 @@ export function AwaitingPaymentDialog({
         groupId,
         firstPaidLessonDate: firstPaidDate,
       }
-      // Пакетным орг — прокидываем выбранный пакет и срок. Пустой пакет не
-      // блокируем: сервер подставит packageTemplateId из заявки.
+      // Пакетным орг — прокидываем выбранный пакет (обязателен, см. canSubmit)
+      // и срок годности.
       if (isPackageOrg) {
         if (packageTemplateId) payload.packageTemplateId = packageTemplateId
         const days = Number(validDays)
@@ -459,9 +462,17 @@ export function AwaitingPaymentDialog({
 
             {isPackageOrg && (
               <div className="space-y-3">
-                {packageTemplates.length > 0 && (
+                {packageTemplates.length === 0 ? (
+                  <div className="flex items-start gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                    <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                    <span>
+                      Нет доступных пакетов. Создайте пакет в «Настройки →
+                      Направления», чтобы выписать абонемент.
+                    </span>
+                  </div>
+                ) : (
                   <div className="space-y-1.5">
-                    <Label>Шаблон пакета</Label>
+                    <Label>Шаблон пакета *</Label>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       {packageTemplates.map((tpl) => (
                         <button

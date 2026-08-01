@@ -22,8 +22,8 @@ const createSchema = z.object({
   // Заявка создаётся из кампании обзвона — привязываем к позиции обзвона для
   // атрибуции воронки (отчёт «Эффективность обзвонов»).
   callCampaignItemId: z.string().uuid().optional(),
-  // Пакетный тип (фича #89): пер-пакетная цена занятия при создании заявки.
-  packageTemplateId: z.string().uuid().nullable().optional(),
+  // Пакет (для пакетного типа) на этапе заявки НЕ выбирается — он задаётся при
+  // переводе в «Ожидаем оплату» (move-to-awaiting-payment). См. фичу #89.
 })
 
 export async function GET(req: NextRequest) {
@@ -109,16 +109,6 @@ export async function POST(req: NextRequest) {
     callCampaignItemId = item?.id
   }
 
-  // Пакетный тип (фича #89): если передан шаблон пакета — он должен быть своим,
-  // живым и активным. Иначе цена занятия могла бы ссылаться на чужой/удалённый пакет.
-  if (data.packageTemplateId) {
-    const pkg = await db.packageTemplate.findFirst({
-      where: { id: data.packageTemplateId, tenantId, deletedAt: null, isActive: true },
-      select: { id: true },
-    })
-    if (!pkg) return NextResponse.json({ error: "Пакет не найден" }, { status: 400 })
-  }
-
   // ADM-04: создавать заявку можно только в свой филиал.
   const allowedBranchIds = (session.user as any).allowedBranchIds as string[] | null | undefined
   const scope = branchScopeFromSession(allowedBranchIds)
@@ -160,7 +150,6 @@ export async function POST(req: NextRequest) {
         directionId: data.directionId,
         comment: data.comment,
         callCampaignItemId,
-        packageTemplateId: data.packageTemplateId ?? null,
         createdBy: session.user.employeeId ?? undefined,
       },
       include: {
