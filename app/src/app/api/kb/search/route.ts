@@ -32,7 +32,9 @@ export async function GET(req: NextRequest) {
       section: visibleSection,
       OR: [
         { title: { contains: q, mode: "insensitive" } },
-        { blocks: { some: { type: "text", text: { contains: q, mode: "insensitive" } } } },
+        // Ищем по тексту любого блока: text-абзацы И heading-заголовки (оба хранят
+        // текст в поле text). У image/video text=null — под contains не попадут.
+        { blocks: { some: { text: { contains: q, mode: "insensitive" } } } },
       ],
     },
     orderBy: { updatedAt: "desc" },
@@ -43,7 +45,7 @@ export async function GET(req: NextRequest) {
       slug: true,
       section: { select: { slug: true, title: true } },
       blocks: {
-        where: { type: "text", text: { contains: q, mode: "insensitive" } },
+        where: { text: { contains: q, mode: "insensitive" } },
         orderBy: { sortOrder: "asc" },
         take: 1,
         select: { text: true },

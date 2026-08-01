@@ -173,6 +173,39 @@ export default function AdminKnowledgePage() {
     })
   }
 
+  // Пропсы заголовка раздела для текущего раздела (общие для верхних и подразделов).
+  const sectionHeaderProps = (section: AdminSection, siblings: AdminSection[]) => ({
+    section,
+    siblings,
+    canEdit,
+    clipboardTitle: clipboard?.title ?? null,
+    onPaste: () => pasteArticleInto(section.id),
+    onTogglePublish: (v: boolean) => run(() => req("PATCH", `/api/admin/kb/sections/${section.id}`, { isPublished: v })),
+    onMove: (dir: -1 | 1) => moveSection(siblings, section.id, dir),
+    onAddSub: () => setDlg({ mode: "create-sub", parentId: section.id, title: "" }),
+    onCopyToOtherTab: () => copySectionToOtherTab(section),
+    onAddArticle: () => setDlg({ mode: "create-article", sectionId: section.id, title: "" }),
+    onRename: () => setDlg({ mode: "rename-section", id: section.id, title: section.title }),
+    onDelete: () =>
+      confirm(`Удалить раздел «${section.title}» со всеми статьями и подразделами?`) &&
+      run(() => req("DELETE", `/api/admin/kb/sections/${section.id}`)),
+  })
+
+  // Пропсы строки статьи.
+  const articleRowProps = (article: AdminArticle, list: AdminArticle[]) => ({
+    article,
+    list,
+    canEdit,
+    copied: clipboard?.id === article.id,
+    onCopy: () => setClipboard({ id: article.id, title: article.title }),
+    onTogglePublish: (v: boolean) => run(() => req("PATCH", `/api/admin/kb/articles/${article.id}`, { isPublished: v })),
+    onMove: (dir: -1 | 1) => moveArticle(list, article.id, dir),
+    onRename: () => setDlg({ mode: "rename-article", id: article.id, title: article.title }),
+    onDelete: () =>
+      confirm(`Удалить статью «${article.title}»?`) &&
+      run(() => req("DELETE", `/api/admin/kb/articles/${article.id}`)),
+  })
+
   const dialogTitle = dlg
     ? {
         "create-top": "Новый раздел",
@@ -182,87 +215,6 @@ export default function AdminKnowledgePage() {
         "rename-article": "Переименовать статью",
       }[dlg.mode]
     : ""
-
-  function ArticleRow({ article, list }: { article: AdminArticle; list: AdminArticle[] }) {
-    return (
-      <div className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5">
-        <FileText className="size-4 shrink-0 text-muted-foreground" />
-        <Link href={`/admin/knowledge/${article.id}`} className="flex-1 truncate text-sm hover:underline">
-          {article.title}
-        </Link>
-        <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">/{article.slug}</span>
-        {canEdit && (
-          <>
-            <label className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Switch
-                checked={article.isPublished}
-                onCheckedChange={(v) => run(() => req("PATCH", `/api/admin/kb/articles/${article.id}`, { isPublished: v }))}
-              />
-            </label>
-            <IconBtn
-              onClick={() => setClipboard({ id: article.id, title: article.title })}
-              label="Копировать статью (для вставки в другую вкладку/раздел)"
-            >
-              <Copy className={`size-4 ${clipboard?.id === article.id ? "text-primary" : ""}`} />
-            </IconBtn>
-            <IconBtn disabled={list[0]?.id === article.id} onClick={() => moveArticle(list, article.id, -1)} label="Выше"><ChevronUp className="size-4" /></IconBtn>
-            <IconBtn disabled={list[list.length - 1]?.id === article.id} onClick={() => moveArticle(list, article.id, 1)} label="Ниже"><ChevronDown className="size-4" /></IconBtn>
-            <IconBtn onClick={() => setDlg({ mode: "rename-article", id: article.id, title: article.title })} label="Переименовать"><Pencil className="size-4" /></IconBtn>
-            <IconBtn onClick={() => confirm(`Удалить статью «${article.title}»?`) && run(() => req("DELETE", `/api/admin/kb/articles/${article.id}`))} label="Удалить"><Trash2 className="size-4 text-destructive" /></IconBtn>
-          </>
-        )}
-        <Link href={`/admin/knowledge/${article.id}`}>
-          <Button variant="ghost" size="sm">Открыть</Button>
-        </Link>
-      </div>
-    )
-  }
-
-  function SectionHeader({ section, siblings, isSub }: { section: AdminSection; siblings: AdminSection[]; isSub: boolean }) {
-    return (
-      <div className="flex items-center gap-2">
-        <span className={isSub ? "text-sm font-medium" : "font-semibold"}>{section.title}</span>
-        <span className="hidden text-xs text-muted-foreground sm:inline">/{section.slug}</span>
-        {!section.isPublished && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">черновик</span>}
-        <div className="ml-auto flex items-center gap-1">
-          {canEdit && clipboard && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={() => pasteArticleInto(section.id)}
-              title={`Вставить статью «${clipboard.title}» в этот раздел`}
-            >
-              <ClipboardPaste className="mr-1.5 size-4" />Вставить статью
-            </Button>
-          )}
-          {canEdit && (
-            <>
-              <Switch
-                checked={section.isPublished}
-                onCheckedChange={(v) => run(() => req("PATCH", `/api/admin/kb/sections/${section.id}`, { isPublished: v }))}
-              />
-              <IconBtn disabled={siblings[0]?.id === section.id} onClick={() => moveSection(siblings, section.id, -1)} label="Выше"><ChevronUp className="size-4" /></IconBtn>
-              <IconBtn disabled={siblings[siblings.length - 1]?.id === section.id} onClick={() => moveSection(siblings, section.id, 1)} label="Ниже"><ChevronDown className="size-4" /></IconBtn>
-              {!isSub && (
-                <>
-                  <IconBtn onClick={() => setDlg({ mode: "create-sub", parentId: section.id, title: "" })} label="Добавить подраздел"><FolderPlus className="size-4" /></IconBtn>
-                  <IconBtn
-                    onClick={() => copySectionToOtherTab(section)}
-                    label={`Скопировать раздел во вкладку «${KB_VARIANT_LABELS[OTHER_VARIANT[section.variant]]}»`}
-                  ><ArrowLeftRight className="size-4" /></IconBtn>
-                </>
-              )}
-              <IconBtn onClick={() => setDlg({ mode: "create-article", sectionId: section.id, title: "" })} label="Добавить статью"><Plus className="size-4" /></IconBtn>
-              <IconBtn onClick={() => setDlg({ mode: "rename-section", id: section.id, title: section.title })} label="Переименовать"><PencilIcon className="size-4" /></IconBtn>
-              <IconBtn onClick={() => confirm(`Удалить раздел «${section.title}» со всеми статьями и подразделами?`) && run(() => req("DELETE", `/api/admin/kb/sections/${section.id}`))} label="Удалить"><Trash2 className="size-4 text-destructive" /></IconBtn>
-            </>
-          )}
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="p-6">
@@ -323,24 +275,24 @@ export default function AdminKnowledgePage() {
             const subs = childrenOf(top.id)
             return (
               <div key={top.id} className="rounded-lg border p-4">
-                <SectionHeader section={top} siblings={tops} isSub={false} />
+                <SectionHeader {...sectionHeaderProps(top, tops)} isSub={false} />
 
                 {top.articles.length > 0 && (
                   <div className="mt-3 space-y-1.5">
                     {top.articles.map((a) => (
-                      <ArticleRow key={a.id} article={a} list={top.articles} />
+                      <ArticleRow key={a.id} {...articleRowProps(a, top.articles)} />
                     ))}
                   </div>
                 )}
 
                 {subs.map((sub) => (
                   <div key={sub.id} className="mt-3 rounded-md border border-dashed p-3">
-                    <SectionHeader section={sub} siblings={subs} isSub />
+                    <SectionHeader {...sectionHeaderProps(sub, subs)} isSub />
                     <div className="mt-2 space-y-1.5">
                       {sub.articles.length === 0 ? (
                         <p className="text-xs text-muted-foreground">Статей нет</p>
                       ) : (
-                        sub.articles.map((a) => <ArticleRow key={a.id} article={a} list={sub.articles} />)
+                        sub.articles.map((a) => <ArticleRow key={a.id} {...articleRowProps(a, sub.articles)} />)
                       )}
                     </div>
                   </div>
@@ -375,6 +327,111 @@ export default function AdminKnowledgePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+// Компоненты вынесены на уровень модуля (не внутрь AdminKnowledgePage): иначе на
+// каждый ре-рендер родителя (например, ввод символа в диалоге) их тип менялся бы
+// и React перемонтировал всё дерево разделов/статей. Всё нужное — через пропсы.
+
+function ArticleRow({
+  article, list, canEdit, copied, onCopy, onTogglePublish, onMove, onRename, onDelete,
+}: {
+  article: AdminArticle
+  list: AdminArticle[]
+  canEdit: boolean
+  copied: boolean
+  onCopy: () => void
+  onTogglePublish: (v: boolean) => void
+  onMove: (dir: -1 | 1) => void
+  onRename: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5">
+      <FileText className="size-4 shrink-0 text-muted-foreground" />
+      <Link href={`/admin/knowledge/${article.id}`} className="flex-1 truncate text-sm hover:underline">
+        {article.title}
+      </Link>
+      <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">/{article.slug}</span>
+      {canEdit && (
+        <>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Switch checked={article.isPublished} onCheckedChange={onTogglePublish} />
+          </label>
+          <IconBtn onClick={onCopy} label="Копировать статью (для вставки в другую вкладку/раздел)">
+            <Copy className={`size-4 ${copied ? "text-primary" : ""}`} />
+          </IconBtn>
+          <IconBtn disabled={list[0]?.id === article.id} onClick={() => onMove(-1)} label="Выше"><ChevronUp className="size-4" /></IconBtn>
+          <IconBtn disabled={list[list.length - 1]?.id === article.id} onClick={() => onMove(1)} label="Ниже"><ChevronDown className="size-4" /></IconBtn>
+          <IconBtn onClick={onRename} label="Переименовать"><Pencil className="size-4" /></IconBtn>
+          <IconBtn onClick={onDelete} label="Удалить"><Trash2 className="size-4 text-destructive" /></IconBtn>
+        </>
+      )}
+      <Link href={`/admin/knowledge/${article.id}`}>
+        <Button variant="ghost" size="sm">Открыть</Button>
+      </Link>
+    </div>
+  )
+}
+
+function SectionHeader({
+  section, siblings, isSub, canEdit, clipboardTitle,
+  onPaste, onTogglePublish, onMove, onAddSub, onCopyToOtherTab, onAddArticle, onRename, onDelete,
+}: {
+  section: AdminSection
+  siblings: AdminSection[]
+  isSub: boolean
+  canEdit: boolean
+  clipboardTitle: string | null
+  onPaste: () => void
+  onTogglePublish: (v: boolean) => void
+  onMove: (dir: -1 | 1) => void
+  onAddSub: () => void
+  onCopyToOtherTab: () => void
+  onAddArticle: () => void
+  onRename: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={isSub ? "text-sm font-medium" : "font-semibold"}>{section.title}</span>
+      <span className="hidden text-xs text-muted-foreground sm:inline">/{section.slug}</span>
+      {!section.isPublished && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">черновик</span>}
+      <div className="ml-auto flex items-center gap-1">
+        {canEdit && clipboardTitle && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={onPaste}
+            title={`Вставить статью «${clipboardTitle}» в этот раздел`}
+          >
+            <ClipboardPaste className="mr-1.5 size-4" />Вставить статью
+          </Button>
+        )}
+        {canEdit && (
+          <>
+            <Switch checked={section.isPublished} onCheckedChange={onTogglePublish} />
+            <IconBtn disabled={siblings[0]?.id === section.id} onClick={() => onMove(-1)} label="Выше"><ChevronUp className="size-4" /></IconBtn>
+            <IconBtn disabled={siblings[siblings.length - 1]?.id === section.id} onClick={() => onMove(1)} label="Ниже"><ChevronDown className="size-4" /></IconBtn>
+            {!isSub && (
+              <>
+                <IconBtn onClick={onAddSub} label="Добавить подраздел"><FolderPlus className="size-4" /></IconBtn>
+                <IconBtn
+                  onClick={onCopyToOtherTab}
+                  label={`Скопировать раздел во вкладку «${KB_VARIANT_LABELS[OTHER_VARIANT[section.variant]]}»`}
+                ><ArrowLeftRight className="size-4" /></IconBtn>
+              </>
+            )}
+            <IconBtn onClick={onAddArticle} label="Добавить статью"><Plus className="size-4" /></IconBtn>
+            <IconBtn onClick={onRename} label="Переименовать"><PencilIcon className="size-4" /></IconBtn>
+            <IconBtn onClick={onDelete} label="Удалить"><Trash2 className="size-4 text-destructive" /></IconBtn>
+          </>
+        )}
+      </div>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
-import { canEditKb, uniqueSectionSlug } from "@/lib/kb"
+import { canEditKb, uniqueSectionSlug, withSlugRetry } from "@/lib/kb"
 import { z } from "zod"
 
 // GET /api/admin/kb/sections — всё дерево разделов (с их статьями) для редактора.
@@ -67,22 +67,24 @@ export async function POST(req: NextRequest) {
     variant = parent.variant
   }
 
-  const slug = await uniqueSectionSlug(parentId, title)
-  const last = await db.kbSection.findFirst({
-    where: { parentId, deletedAt: null },
-    orderBy: { sortOrder: "desc" },
-    select: { sortOrder: true },
-  })
-
-  const section = await db.kbSection.create({
-    data: {
-      parentId,
-      variant,
-      title,
-      slug,
-      icon: icon ?? null,
-      sortOrder: (last?.sortOrder ?? -1) + 1,
-    },
+  // Слаг + вставка под ретраем на случай гонки с UNIQUE-индексом слага.
+  const section = await withSlugRetry(async () => {
+    const slug = await uniqueSectionSlug(parentId, title)
+    const last = await db.kbSection.findFirst({
+      where: { parentId, deletedAt: null },
+      orderBy: { sortOrder: "desc" },
+      select: { sortOrder: true },
+    })
+    return db.kbSection.create({
+      data: {
+        parentId,
+        variant,
+        title,
+        slug,
+        icon: icon ?? null,
+        sortOrder: (last?.sortOrder ?? -1) + 1,
+      },
+    })
   })
   return NextResponse.json(section, { status: 201 })
 }

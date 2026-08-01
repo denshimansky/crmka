@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
-import { canEditKb, duplicateArticle } from "@/lib/kb"
+import { canEditKb, duplicateArticle, withSlugRetry } from "@/lib/kb"
 import { z } from "zod"
 
 // POST /api/admin/kb/articles/duplicate — скопировать статью (с блоками) в
@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
   const { sourceArticleId, targetSectionId } = parsed.data
 
   try {
-    const created = await db.$transaction((tx) =>
-      duplicateArticle(tx, sourceArticleId, targetSectionId, admin.adminId),
+    const created = await withSlugRetry(() =>
+      db.$transaction((tx) => duplicateArticle(tx, sourceArticleId, targetSectionId, admin.adminId)),
     )
     return NextResponse.json(created, { status: 201 })
   } catch (e) {

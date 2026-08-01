@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
-import { canEditKb, uniqueSectionSlug } from "@/lib/kb"
+import { canEditKb, uniqueSectionSlug, withSlugRetry } from "@/lib/kb"
 import { z } from "zod"
 
 const updateSchema = z.object({
@@ -26,14 +26,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!existing) return NextResponse.json({ error: "Раздел не найден" }, { status: 404 })
 
   const data: { title?: string; slug?: string; icon?: string | null; isPublished?: boolean } = {}
-  if (parsed.data.title !== undefined && parsed.data.title !== existing.title) {
-    data.title = parsed.data.title
-    data.slug = await uniqueSectionSlug(existing.parentId, parsed.data.title, id)
-  }
+  const newTitle = parsed.data.title
   if (parsed.data.icon !== undefined) data.icon = parsed.data.icon
   if (parsed.data.isPublished !== undefined) data.isPublished = parsed.data.isPublished
 
-  const section = await db.kbSection.update({ where: { id }, data })
+  // Слаг пересчитываем внутри ретрая: при гонке переименований партиал-UNIQUE
+  // отклонит второй апдейт (P2002) — берём следующий свободный слаг.
+  const section = await withSlugRetry(async () => {
+    if (newTitle !== undefined && newTitle !== existing.title) {
+      data.title = newTitle
+      data.slug = await uniqueSectionSlug(existing.parentId, newTitle, id)
+    }
+    return db.kbSection.update({ where: { id }, data })
+  })
   return NextResponse.json(section)
 }
 

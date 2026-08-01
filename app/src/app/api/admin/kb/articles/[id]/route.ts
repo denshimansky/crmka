@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
-import { canEditKb, uniqueArticleSlug } from "@/lib/kb"
+import { canEditKb, uniqueArticleSlug, withSlugRetry } from "@/lib/kb"
 import { z } from "zod"
 
 // GET /api/admin/kb/articles/[id] — статья с блоками (для редактора)
@@ -61,16 +61,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const newTitle = parsed.data.title
-  if (newTitle !== undefined && (newTitle !== existing.title || data.sectionId)) {
-    data.title = newTitle
-    data.slug = await uniqueArticleSlug(targetSectionId, newTitle, id)
-  } else if (data.sectionId) {
-    // Перенос без переименования — слаг всё равно проверяем на уникальность в новом разделе.
-    data.slug = await uniqueArticleSlug(targetSectionId, existing.title, id)
-  }
   if (parsed.data.isPublished !== undefined) data.isPublished = parsed.data.isPublished
 
-  const article = await db.kbArticle.update({ where: { id }, data })
+  // Слаг пересчитываем внутри ретрая: при гонке переименований/переносов в один
+  // раздел партиал-UNIQUE(section_id, slug) отклонит второй апдейт (P2002) —
+  // берём следующий свободный слаг.
+  const article = await withSlugRetry(async () => {
+    if (newTitle !== undefined && (newTitle !== existing.title || data.sectionId)) {
+      data.title = newTitle
+      data.slug = await uniqueArticleSlug(targetSectionId, newTitle, id)
+    } else if (data.sectionId) {
+      // Перенос без переименования — слаг всё равно проверяем на уникальность в новом разделе.
+      data.slug = await uniqueArticleSlug(targetSectionId, existing.title, id)
+    }
+    return db.kbArticle.update({ where: { id }, data })
+  })
   return NextResponse.json(article)
 }
 

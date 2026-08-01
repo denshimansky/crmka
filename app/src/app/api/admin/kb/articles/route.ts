@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
-import { canEditKb, uniqueArticleSlug } from "@/lib/kb"
+import { canEditKb, uniqueArticleSlug, withSlugRetry } from "@/lib/kb"
 import { z } from "zod"
 
 const createSchema = z.object({
@@ -24,21 +24,23 @@ export async function POST(req: NextRequest) {
   const section = await db.kbSection.findFirst({ where: { id: sectionId, deletedAt: null } })
   if (!section) return NextResponse.json({ error: "Раздел не найден" }, { status: 404 })
 
-  const slug = await uniqueArticleSlug(sectionId, title)
-  const last = await db.kbArticle.findFirst({
-    where: { sectionId, deletedAt: null },
-    orderBy: { sortOrder: "desc" },
-    select: { sortOrder: true },
-  })
-
-  const article = await db.kbArticle.create({
-    data: {
-      sectionId,
-      title,
-      slug,
-      sortOrder: (last?.sortOrder ?? -1) + 1,
-      createdBy: admin.adminId,
-    },
+  // Слаг + вставка под ретраем на случай гонки с UNIQUE-индексом слага.
+  const article = await withSlugRetry(async () => {
+    const slug = await uniqueArticleSlug(sectionId, title)
+    const last = await db.kbArticle.findFirst({
+      where: { sectionId, deletedAt: null },
+      orderBy: { sortOrder: "desc" },
+      select: { sortOrder: true },
+    })
+    return db.kbArticle.create({
+      data: {
+        sectionId,
+        title,
+        slug,
+        sortOrder: (last?.sortOrder ?? -1) + 1,
+        createdBy: admin.adminId,
+      },
+    })
   })
   return NextResponse.json(article, { status: 201 })
 }

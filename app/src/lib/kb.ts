@@ -30,6 +30,29 @@ export function canEditKb(admin: AdminPayload | null): boolean {
   return !!admin && KB_EDITOR_ROLES.has(admin.role)
 }
 
+/** P2002 — нарушение UNIQUE (коллизия слага из-за гонки check-then-insert). */
+function isUniqueViolation(e: unknown): boolean {
+  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002"
+}
+
+/**
+ * Ретрай на коллизии UNIQUE-слага. uniqueSectionSlug/uniqueArticleSlug выбирают
+ * свободный слаг через findFirst, но между чтением и вставкой другой редактор мог
+ * занять тот же кандидат. Партиал-UNIQUE в БД (миграция 20260801130000) отклонит
+ * вставку (P2002) — повторяем, и слаг-генератор увидит уже занятую строку и
+ * возьмёт следующий свободный.
+ */
+export async function withSlugRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      if (i < attempts - 1 && isUniqueViolation(e)) continue
+      throw e
+    }
+  }
+}
+
 /** URL-слаг из заголовка: [a-z0-9-], без краевых дефисов. */
 export function kbSlugify(title: string, maxLen = 60): string {
   const base = slugCode(title, maxLen)

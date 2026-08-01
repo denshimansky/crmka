@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminSession } from "@/lib/admin-auth"
-import { canEditKb, duplicateSectionToVariant } from "@/lib/kb"
+import { canEditKb, duplicateSectionToVariant, withSlugRetry } from "@/lib/kb"
 import { z } from "zod"
 
 // POST /api/admin/kb/sections/duplicate — скопировать верхний раздел целиком
@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
   const { sectionId, targetVariant } = parsed.data
 
   try {
-    const created = await duplicateSectionToVariant(sectionId, targetVariant, admin.adminId)
+    const created = await withSlugRetry(() =>
+      duplicateSectionToVariant(sectionId, targetVariant, admin.adminId),
+    )
     return NextResponse.json(created, { status: 201 })
   } catch (e) {
     return NextResponse.json(

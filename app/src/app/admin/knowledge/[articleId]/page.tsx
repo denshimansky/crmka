@@ -49,10 +49,21 @@ export default function AdminArticleEditorPage() {
   const [saving, setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const refetch = () =>
-    fetch(`/api/admin/kb/articles/${articleId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: ArticleData | null) => setArticle(data))
+  // Обнуляем статью только на явный 404 (реально удалена). При транзиентной
+  // ошибке (5xx/502 в момент автодеплоя или сетевой сбой) НЕ затираем текущую —
+  // иначе после успешной правки редактор исчезал бы под «Статья не найдена».
+  // refetch сам глотает ошибки (никогда не реджектится), поэтому безопасен и как
+  // onChanged в KbBlockEditor (fire-and-forget), и в Promise.all инициализации.
+  const refetch = async () => {
+    try {
+      const r = await fetch(`/api/admin/kb/articles/${articleId}`)
+      if (r.ok) setArticle(await r.json())
+      else if (r.status === 404) setArticle(null)
+      else setError("Не удалось загрузить статью — сервер временно недоступен. Обновите страницу.")
+    } catch {
+      setError("Не удалось загрузить статью — проверьте соединение и обновите страницу.")
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -187,7 +198,15 @@ export default function AdminArticleEditorPage() {
   }
 
   if (loading) return <div className="p-6 text-muted-foreground">Загрузка...</div>
-  if (!article) return <div className="p-6 text-muted-foreground">Статья не найдена. <Link href="/admin/knowledge" className="text-primary hover:underline">Назад</Link></div>
+  // article=null при явном 404 → «не найдена»; при транзиентной ошибке загрузки
+  // (5xx/сеть) article остаётся null, но задан error → показываем его, а не
+  // вводящее в заблуждение «не найдена».
+  if (!article) return (
+    <div className="p-6 text-muted-foreground">
+      {error || "Статья не найдена."}{" "}
+      <Link href="/admin/knowledge" className="text-primary hover:underline">Назад</Link>
+    </div>
+  )
 
   // Предпросмотр — в бэк-офисе (admin-API отдаёт и черновики). Читалка
   // /knowledge/… показывает только опубликованное и требует сессию арендатора,
