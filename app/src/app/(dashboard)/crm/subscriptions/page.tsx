@@ -220,7 +220,9 @@ export default async function SubscriptionsPage({
   // реально показывается (вкладка «Ожидающие оплаты» + права), чтобы не тратить
   // запросы на остальных вкладках.
   const renewDefault =
-    canRenew && tab === "pending" ? await suggestDefaultRenewRange(tenantId) : null
+    canRenew && tab === "pending"
+      ? await suggestDefaultRenewRange(tenantId, { branchId, directionId })
+      : null
 
   return (
     <div className="space-y-6">

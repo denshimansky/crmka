@@ -27,6 +27,8 @@ import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { directionPriceAt, toUtcDay } from "@/lib/subscriptions/direction-price"
+import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
+import { netPaidBySubscriptions } from "@/lib/subscriptions/net-paid"
 
 export interface BulkRenewInput {
   tenantId: string
@@ -151,6 +153,7 @@ function monthRangeStrings(year: number, month1: number): { rangeStart: string; 
  */
 export async function suggestDefaultRenewRange(
   tenantId: string,
+  filters?: { branchId?: string | null; directionId?: string | null },
 ): Promise<{ rangeStart: string; rangeEnd: string }> {
   // «Сейчас» = серверные часы (getMonth локально). Осознанно согласовано с
   // гейтом «выписка задним числом» в роутах (currentMonthStart = new Date()):
@@ -160,23 +163,17 @@ export async function suggestDefaultRenewRange(
   // правит вручную), а не жёсткое ограничение. Пер-орг TZ в схеме нет.
   const now = new Date()
   const cur = { year: now.getFullYear(), month: now.getMonth() + 1 }
-  const prev = cur.month === 1 ? { year: cur.year - 1, month: 12 } : { year: cur.year, month: cur.month - 1 }
+  const branchId = filters?.branchId ?? null
+  const directionId = filters?.directionId ?? null
 
-  // Источники для выписки в текущий месяц (зеркалит loadSources без расписания).
-  const sources = await db.subscription.findMany({
-    where: {
-      tenantId,
-      deletedAt: null,
-      type: "calendar",
-      scheduledWithdrawalDate: null,
-      client: { deletedAt: null, funnelStatus: { notIn: ["archived", "blacklisted"] } },
-      OR: [
-        { status: "active" },
-        { status: "closed", periodYear: prev.year, periodMonth: prev.month },
-      ],
-    },
-    select: { clientId: true, wardId: true, directionId: true, groupId: true },
-  })
+  // Источники для выписки в ТЕКУЩИЙ месяц — через сам loadSources (одна и та же
+  // eligibility, без дрейфа: active + closed/pending-непустые за прошлый месяц).
+  // Уважаем активный фильтр филиала/направления, чтобы подсказанный месяц
+  // совпадал с тем, что реально выпишется из кнопки (ревью: иначе дефолт
+  // считался тенант-широко и расходился с отфильтрованным прогоном).
+  const curStart = new Date(cur.year, cur.month - 1, 1)
+  const curEnd = new Date(cur.year, cur.month, 0)
+  const sources = await loadSources({ tenantId, rangeStart: curStart, rangeEnd: curEnd, branchId, directionId })
   if (sources.length === 0) {
     const t = nextMonthOf(cur.year, cur.month)
     return monthRangeStrings(t.year, t.month)
@@ -184,7 +181,15 @@ export async function suggestDefaultRenewRange(
 
   // Уже выписанные в текущий месяц (приблизительно — по period, без интервала).
   const issued = await db.subscription.findMany({
-    where: { tenantId, deletedAt: null, type: "calendar", periodYear: cur.year, periodMonth: cur.month },
+    where: {
+      tenantId,
+      deletedAt: null,
+      type: "calendar",
+      periodYear: cur.year,
+      periodMonth: cur.month,
+      ...(directionId ? { directionId } : {}),
+      ...(branchId ? { group: { branchId } } : {}),
+    },
     select: { clientId: true, wardId: true, directionId: true, groupId: true },
   })
   const issuedSet = new Set(
@@ -209,17 +214,19 @@ async function loadSources(opts: BulkRenewInput): Promise<SourceRow[]> {
     // /api/subscriptions/[id]/renew) и soft-deleted клиенты (удаление клиента
     // не помечает его абонементы deletedAt).
     client: { deletedAt: null, funnelStatus: { notIn: ["archived", "blacklisted"] } },
-    // Источники: живые + штатно закрытые за прошлый месяц (иначе автозакрытие,
-    // идущее ежедневно с 1-го числа, выкидывало бы из продления клиентов с
-    // полностью отхоженным и оплаченным месяцем). closed без periodYear/Month
-    // (легаси) не берём — месяц неизвестен. withdrawn (отчисленные) — никогда.
-    // Для точечного продления (subscriptionId) диапазон = следующий месяц
-    // источника, т.е. closed-источник по построению «за прошлый месяц»; от
-    // продления древних closed-источников в давно прошедшие месяцы защищает
-    // guard «целевой месяц не в прошлом» в самом renew-роуте.
+    // Источники продления за прошлый месяц (решение владельца 02.08.2026):
+    // продлеваем ВСЁ, кроме «пустых» и снятых руками.
+    //   - active (любого периода) — как раньше;
+    //   - closed И pending ЗА ПРОШЛЫЙ МЕСЯЦ (period = prev) — включая
+    //     недоплаченные (partial) и неоплаченные, если по ним была активность.
+    // withdrawn (отчисленные руками) и scheduledWithdrawalDate (запланированное
+    // отчисление) — никогда. «Пустые» (ни оплаты, ни платного занятия) —
+    // отсеиваются ниже в JS (нужен netPaid, его нельзя выразить в where).
+    // closed/pending без periodYear/Month (легаси) не берём — месяц неизвестен.
+    // Для точечного продления (subscriptionId) роут сам огораживает статус.
     OR: [
       { status: "active" },
-      { status: "closed", periodYear: prev.year, periodMonth: prev.month },
+      { status: { in: ["closed", "pending"] }, periodYear: prev.year, periodMonth: prev.month },
     ],
   }
   if (opts.directionId) where.directionId = opts.directionId
@@ -230,6 +237,7 @@ async function loadSources(opts: BulkRenewInput): Promise<SourceRow[]> {
     where,
     select: {
       id: true,
+      status: true,
       clientId: true,
       client: { select: { id: true, firstName: true, lastName: true } },
       wardId: true,
@@ -239,18 +247,44 @@ async function loadSources(opts: BulkRenewInput): Promise<SourceRow[]> {
       groupId: true,
       group: { select: { id: true, name: true, branchId: true, branch: { select: { name: true } } } },
       startDate: true,
+      // Признак «было платное/зачётное посещение» (take:1 — только факт наличия).
+      attendances: {
+        where: { isPending: false, attendanceType: consumingAttendanceTypeWhere },
+        select: { id: true },
+        take: 1,
+      },
     },
     // status asc — тайбрейк при равном startDate: порядок enum в БД
-    // (pending, active, closed, withdrawn) ставит active раньше closed.
+    // (pending, active, closed, withdrawn). При равном старте предпочитаем не
+    // pending: см. фильтр keyToRow ниже.
     orderBy: [{ startDate: "desc" }, { status: "asc" }],
   })
 
-  // На случай нескольких строк с одним ключом (в т.ч. active + closed одного
-  // месяца) — оставляем самую свежую, при равном старте предпочитая active.
-  const keyToRow = new Map<string, SourceRow>()
-  for (const r of rows) {
+  // «Пустой» абонемент (ни оплаты, ни платного занятия) не продлеваем. Критерий
+  // единый для ВСЕХ статусов: было зачётное посещение ИЛИ netPaid > 0. Нельзя
+  // опираться на статус/баланс: крон close-unpaid-subscriptions авто-закрывает
+  // пустой неоплаченный pending в status=closed с balance=0 (обнуляет без
+  // оплаты) — «closed по определению непустой» и «balance<finalAmount ⟺ оплата»
+  // для него ложны. netPaid (transfer_in − возвраты из кассы, как в net-paid.ts)
+  // переживает обнуление и отражает реальную оплату (адверсариальное ревью).
+  const netPaid = await netPaidBySubscriptions(db, opts.tenantId, rows.map((r) => r.id))
+  const nonEmpty = rows.filter(
+    (r) => r.attendances.length > 0 || (netPaid.get(r.id)?.greaterThan(0) ?? false),
+  )
+
+  // На случай нескольких строк с одним ключом (active + closed/pending одного
+  // месяца) — оставляем самую свежую; при равном старте предпочитаем НЕ pending
+  // (реальный оплаченный/закрытый источник), т.к. созданный абонемент от выбора
+  // источника не зависит — важна лишь ссылка previousSubscriptionId.
+  const keyToRow = new Map<string, (typeof rows)[number]>()
+  for (const r of nonEmpty) {
     const k = `${r.clientId}|${r.wardId ?? ""}|${r.directionId}|${r.groupId}`
-    if (!keyToRow.has(k)) keyToRow.set(k, r)
+    const existing = keyToRow.get(k)
+    if (!existing) {
+      keyToRow.set(k, r)
+    } else if (existing.status === "pending" && r.status !== "pending") {
+      keyToRow.set(k, r)
+    }
   }
   return [...keyToRow.values()]
 }
@@ -340,13 +374,13 @@ async function loadCollisions(
   return set
 }
 
-// (б) Закрытые календарные абонементы, чей естественный следующий период (месяц
-// закрытия + 1) НЕ совпадает с выбранным диапазоном — то есть под этот период
-// они не подходят. Группируем по естественному периоду. Фильтры: не в прошлом
-// (гейт задним числом всё равно не даст выписать) и ещё не продлённые (нет
-// абонемента того же ключа на этот период). Уважаем те же branch/direction, что
-// и выбранный прогон. Для точечного продления (subscriptionId) подсказка не
-// нужна — возвращаем пусто.
+// (б) Абонементы за прошлые месяцы, чей естественный следующий период (месяц
+// периода + 1) НЕ совпадает с выбранным диапазоном — то есть под этот период
+// они не подходят. Те же источники, что продлевает выписка: closed и pending
+// (непустые — была оплата или платное занятие), но за другой месяц. Группируем
+// по естественному периоду. Фильтры: не в прошлом (гейт задним числом всё равно
+// не даст выписать) и ещё не продлённые. Уважаем те же branch/direction, что и
+// прогон. Для точечного продления (subscriptionId) подсказка не нужна — пусто.
 async function loadOffPeriodClosed(opts: BulkRenewInput): Promise<OffPeriodBucket[]> {
   if (opts.subscriptionId) return []
   const selInScope = prevMonthOfRange(opts.rangeStart) // месяц, который ловит выбранный диапазон
@@ -360,7 +394,7 @@ async function loadOffPeriodClosed(opts: BulkRenewInput): Promise<OffPeriodBucke
     tenantId: opts.tenantId,
     deletedAt: null,
     type: "calendar",
-    status: "closed",
+    status: { in: ["closed", "pending"] },
     scheduledWithdrawalDate: null,
     periodYear: { not: null },
     periodMonth: { not: null },
@@ -369,17 +403,30 @@ async function loadOffPeriodClosed(opts: BulkRenewInput): Promise<OffPeriodBucke
   if (opts.directionId) where.directionId = opts.directionId
   if (opts.branchId) where.group = { branchId: opts.branchId }
 
-  const closed = await db.subscription.findMany({
+  const candidates = await db.subscription.findMany({
     where,
     select: {
+      id: true,
       clientId: true,
       wardId: true,
       directionId: true,
       groupId: true,
       periodYear: true,
       periodMonth: true,
+      attendances: {
+        where: { isPending: false, attendanceType: consumingAttendanceTypeWhere },
+        select: { id: true },
+        take: 1,
+      },
     },
   })
+  // «Пустые» (ни оплаты, ни платного занятия) не считаем — их выписка не
+  // продлит, подсказка не должна их обещать. Критерий единый, как в loadSources:
+  // зачётное посещение ИЛИ netPaid > 0 (не статус/баланс — см. loadSources).
+  const netPaid = await netPaidBySubscriptions(db, opts.tenantId, candidates.map((s) => s.id))
+  const closed = candidates.filter(
+    (s) => s.attendances.length > 0 || (netPaid.get(s.id)?.greaterThan(0) ?? false),
+  )
   if (closed.length === 0) return []
 
   // Ключи всех календарных абонементов с периодом — чтобы отсеять уже продлённые.
@@ -407,6 +454,7 @@ async function loadOffPeriodClosed(opts: BulkRenewInput): Promise<OffPeriodBucke
   )
 
   const buckets = new Map<string, OffPeriodBucket>()
+  const seen = new Set<string>() // дедуп по ключу+период (как keyToRow в loadSources)
   for (const s of closed) {
     const py = s.periodYear as number
     const pm = s.periodMonth as number
@@ -418,6 +466,8 @@ async function loadOffPeriodClosed(opts: BulkRenewInput): Promise<OffPeriodBucke
     if (ntNum < curNum) continue // период уже прошёл — выписать нельзя
     const rk = `${s.clientId}|${s.wardId ?? ""}|${s.directionId}|${s.groupId}|${nt.year}|${nt.month}`
     if (issuedSet.has(rk)) continue // уже продлён в свой период
+    if (seen.has(rk)) continue // один ключ — один источник (closed+pending одного месяца)
+    seen.add(rk)
     const bk = `${nt.year}-${nt.month}`
     const b = buckets.get(bk) ?? { year: nt.year, month: nt.month, count: 0 }
     b.count++
@@ -426,7 +476,13 @@ async function loadOffPeriodClosed(opts: BulkRenewInput): Promise<OffPeriodBucke
   return [...buckets.values()].sort((a, b) => a.year * 100 + a.month - (b.year * 100 + b.month))
 }
 
-export async function previewBulkRenew(opts: BulkRenewInput): Promise<BulkRenewPreview> {
+// includeOffPeriod=false пропускает расчёт подсказки off-period (два
+// тенант-широких скана) — applyBulkRenew её не читает, поэтому на коммите не
+// тратим на неё запросы (ревью: результат отбрасывался).
+export async function previewBulkRenew(
+  opts: BulkRenewInput,
+  includeOffPeriod = true,
+): Promise<BulkRenewPreview> {
   const sources = await loadSources(opts)
 
   // Будущие (непромоутнутые) версии цены направлений, участвующих в выписке (баг #88).
@@ -539,7 +595,7 @@ export async function previewBulkRenew(opts: BulkRenewInput): Promise<BulkRenewP
     })
   }
 
-  const offPeriodClosed = await loadOffPeriodClosed(opts)
+  const offPeriodClosed = includeOffPeriod ? await loadOffPeriodClosed(opts) : []
 
   return {
     rangeStart: ymd(opts.rangeStart),
@@ -557,7 +613,7 @@ export interface BulkRenewResult {
 }
 
 export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewResult> {
-  const preview = await previewBulkRenew(opts)
+  const preview = await previewBulkRenew(opts, false) // off-period подсказка на коммите не нужна
   if (preview.toCreate.length === 0) {
     return { created: 0, skipped: preview.skipped.length, totalIssuedAmount: 0 }
   }
