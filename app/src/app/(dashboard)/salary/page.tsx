@@ -127,7 +127,13 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
     const penalties = penaltiesByEmployee.get(emp.id) || 0
     const paid = paidByEmployee.get(emp.id) || 0
     const accrued = pieceAccrued + okladAccrued
-    const remaining = accrued + bonuses - penalties - paid
+    // «Осталось» и предзаполнение суммы выплаты — по РЕЛЕВАНТНОЙ вкладке части
+    // начисления (оклад для «Оклады», сделка для «Сдельной»). Иначе на вкладке
+    // «Оклады» в выплату окладника-инструктора подставилась бы и сделочная часть,
+    // и она попала бы в твин-расход «Зарплата окладников» → двойной счёт в ОПИУ
+    // (сделка уже начисляется отдельно из посещений).
+    const tabAccrued = activeTab === "salary" ? okladAccrued : pieceAccrued
+    const remaining = tabAccrued + bonuses - penalties - paid
     const substitutions = substituteLessonCount.get(emp.id) || 0
     return { id: emp.id, name, role: emp.role, pieceAccrued, okladAccrued, accrued, bonuses, penalties, paid, remaining, substitutions }
   })
