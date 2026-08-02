@@ -824,9 +824,10 @@ model SalaryPayment {
   createdBy   String?  @map("created_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
 
-  employee Employee            @relation(fields: [employeeId], references: [id])
-  account  FinancialAccount    @relation(fields: [accountId], references: [id])
-  items    SalaryPaymentItem[]
+  employee     Employee            @relation(fields: [employeeId], references: [id])
+  account      FinancialAccount    @relation(fields: [accountId], references: [id])
+  items        SalaryPaymentItem[]
+  opiuExpenses Expense[]           @relation("SalaryPaymentTwin")
 
   @@index([tenantId, periodYear, periodMonth])
   @@map("salary_payments")
@@ -1238,6 +1239,10 @@ model Expense {
   isVariable            Boolean                @default(false) @map("is_variable")
   isRecurring           Boolean                @default(false) @map("is_recurring")
   recurringGroupId      String?                @map("recurring_group_id") @db.Uuid
+  // ОПИУ-твин выплаты оклада: этот расход создан из SalaryPayment (accountId=NULL,
+  // только для признания в финрезе; ДДС/касса — на самой выплате). Удаление выплаты
+  // каскадит твин. NULL — обычный расход, не связан с зарплатной выплатой.
+  salaryPaymentId       String?                @map("salary_payment_id") @db.Uuid
   // Канал привлечения для расходов на маркетинг (категория «Маркетинг и реклама»).
   leadChannelId         String?                @map("lead_channel_id") @db.Uuid
   createdBy             String?                @map("created_by") @db.Uuid
@@ -1249,6 +1254,7 @@ model Expense {
   account        FinancialAccount? @relation(fields: [accountId], references: [id])
   branches       ExpenseBranch[]
   leadChannel    LeadChannel?     @relation(fields: [leadChannelId], references: [id])
+  salaryPayment  SalaryPayment?    @relation("SalaryPaymentTwin", fields: [salaryPaymentId], references: [id], onDelete: Cascade)
   // legacy: расход от СТАРОЙ закупки на склад (до переработки склада). Новые внесения
   // денег не двигают; связь сохранена для исторических записей.
   stockMovements StockMovement[]
@@ -1256,6 +1262,7 @@ model Expense {
   @@index([tenantId, date])
   @@index([tenantId, categoryId])
   @@index([tenantId, leadChannelId])
+  @@index([salaryPaymentId])
   @@map("expenses")
 }
 

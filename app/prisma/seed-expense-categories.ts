@@ -18,6 +18,7 @@ async function main() {
     { name: "Налоги и взносы", isSalary: false, isVariable: false, sortOrder: 11 },
     { name: "Хозяйственные расходы", isSalary: false, isVariable: false, sortOrder: 12 },
     { name: "Обучение персонала", isSalary: false, isVariable: false, sortOrder: 13 },
+    { name: "Зарплата окладников", isSalary: true, isVariable: false, sortOrder: 14 },
   ]
 
   for (const c of categories) {

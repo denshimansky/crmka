@@ -16,7 +16,8 @@ BEGIN
       (gen_random_uuid(), 'Бухгалтерия', false, false, true, true, 10, NOW()),
       (gen_random_uuid(), 'Налоги и взносы', false, false, true, true, 11, NOW()),
       (gen_random_uuid(), 'Хозяйственные расходы', false, false, true, true, 12, NOW()),
-      (gen_random_uuid(), 'Обучение персонала', false, false, true, true, 13, NOW());
+      (gen_random_uuid(), 'Обучение персонала', false, false, true, true, 13, NOW()),
+      (gen_random_uuid(), 'Зарплата окладников', true, false, true, true, 14, NOW());
     RAISE NOTICE 'Expense categories seeded';
   ELSE
     RAISE NOTICE 'Expense categories already exist';
