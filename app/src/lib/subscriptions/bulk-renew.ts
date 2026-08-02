@@ -66,11 +66,22 @@ export interface BulkRenewSkipped {
   reason: "already_renewed" | "no_schedule_lessons"
 }
 
+export interface OffPeriodBucket {
+  year: number
+  month: number // 1..12 — естественный период выписки (месяц закрытия + 1)
+  count: number
+}
+
 export interface BulkRenewPreview {
   rangeStart: string // YYYY-MM-DD
   rangeEnd: string
   toCreate: BulkRenewCandidate[]
   skipped: BulkRenewSkipped[]
+  // (б) Закрытые абонементы, чей естественный следующий период НЕ попадает в
+  // выбранный диапазон (сгруппированы по этому периоду, только не в прошлом и
+  // ещё не продлённые). Сигнал оператору, что выбран не тот месяц: вместо
+  // тихого нуля показываем «за июль есть 42 закрытых — они не в этом периоде».
+  offPeriodClosed: OffPeriodBucket[]
 }
 
 interface SourceRow {
@@ -111,6 +122,79 @@ export function prevMonthOfRange(rangeStart: Date): { year: number; month: numbe
   const y = rangeStart.getFullYear()
   const m = rangeStart.getMonth() + 1 // 1..12
   return m === 1 ? { year: y - 1, month: 12 } : { year: y, month: m - 1 }
+}
+
+// Следующий месяц (1-based) без Date — чтобы не задеть TZ.
+function nextMonthOf(year: number, month1: number): { year: number; month: number } {
+  return month1 === 12 ? { year: year + 1, month: 1 } : { year, month: month1 + 1 }
+}
+
+// YYYY-MM-DD границы календарного месяца (1..12) — контракт parseDay роутов.
+function monthRangeStrings(year: number, month1: number): { rangeStart: string; rangeEnd: string } {
+  const mm = String(month1).padStart(2, "0")
+  // new Date(year, month1, 0) — month1 как индекс следующего месяца, день 0 =
+  // последнее число месяца month1.
+  const lastDay = new Date(year, month1, 0).getDate()
+  return { rangeStart: `${year}-${mm}-01`, rangeEnd: `${year}-${mm}-${String(lastDay).padStart(2, "0")}` }
+}
+
+/**
+ * (а) Умный дефолт периода массовой выписки. Обычно центры продлевают «наперёд»
+ * (в конце месяца — на следующий), поэтому базовый дефолт = следующий месяц. Но
+ * если у центра ещё есть невыписанные источники за ТЕКУЩИЙ месяц (активные или
+ * закрытые за прошлый месяц, которым не создан абонемент текущего месяца) —
+ * значит, они «отстали» и им нужен текущий месяц: тогда дефолт = текущий.
+ *
+ * Иначе (штатно: всё за текущий месяц уже выписано, либо источников нет) —
+ * следующий месяц, как раньше. Проверка облегчённая (без расписания групп): это
+ * лишь стартовое значение полей, оператор всегда может поменять вручную.
+ */
+export async function suggestDefaultRenewRange(
+  tenantId: string,
+): Promise<{ rangeStart: string; rangeEnd: string }> {
+  // «Сейчас» = серверные часы (getMonth локально). Осознанно согласовано с
+  // гейтом «выписка задним числом» в роутах (currentMonthStart = new Date()):
+  // и дефолт, и гейт коммита берут одни и те же часы, поэтому не противоречат.
+  // На UTC-сервере в первые часы 1-го числа для восточных тенантов «текущий
+  // месяц» может отставать — но это лишь стартовое значение поля (оператор
+  // правит вручную), а не жёсткое ограничение. Пер-орг TZ в схеме нет.
+  const now = new Date()
+  const cur = { year: now.getFullYear(), month: now.getMonth() + 1 }
+  const prev = cur.month === 1 ? { year: cur.year - 1, month: 12 } : { year: cur.year, month: cur.month - 1 }
+
+  // Источники для выписки в текущий месяц (зеркалит loadSources без расписания).
+  const sources = await db.subscription.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      type: "calendar",
+      scheduledWithdrawalDate: null,
+      client: { deletedAt: null, funnelStatus: { notIn: ["archived", "blacklisted"] } },
+      OR: [
+        { status: "active" },
+        { status: "closed", periodYear: prev.year, periodMonth: prev.month },
+      ],
+    },
+    select: { clientId: true, wardId: true, directionId: true, groupId: true },
+  })
+  if (sources.length === 0) {
+    const t = nextMonthOf(cur.year, cur.month)
+    return monthRangeStrings(t.year, t.month)
+  }
+
+  // Уже выписанные в текущий месяц (приблизительно — по period, без интервала).
+  const issued = await db.subscription.findMany({
+    where: { tenantId, deletedAt: null, type: "calendar", periodYear: cur.year, periodMonth: cur.month },
+    select: { clientId: true, wardId: true, directionId: true, groupId: true },
+  })
+  const issuedSet = new Set(
+    issued.map((s) => `${s.clientId}|${s.wardId ?? ""}|${s.directionId}|${s.groupId}`),
+  )
+  const remaining = sources.some(
+    (s) => !issuedSet.has(`${s.clientId}|${s.wardId ?? ""}|${s.directionId}|${s.groupId}`),
+  )
+  const target = remaining ? cur : nextMonthOf(cur.year, cur.month)
+  return monthRangeStrings(target.year, target.month)
 }
 
 async function loadSources(opts: BulkRenewInput): Promise<SourceRow[]> {
@@ -256,6 +340,92 @@ async function loadCollisions(
   return set
 }
 
+// (б) Закрытые календарные абонементы, чей естественный следующий период (месяц
+// закрытия + 1) НЕ совпадает с выбранным диапазоном — то есть под этот период
+// они не подходят. Группируем по естественному периоду. Фильтры: не в прошлом
+// (гейт задним числом всё равно не даст выписать) и ещё не продлённые (нет
+// абонемента того же ключа на этот период). Уважаем те же branch/direction, что
+// и выбранный прогон. Для точечного продления (subscriptionId) подсказка не
+// нужна — возвращаем пусто.
+async function loadOffPeriodClosed(opts: BulkRenewInput): Promise<OffPeriodBucket[]> {
+  if (opts.subscriptionId) return []
+  const selInScope = prevMonthOfRange(opts.rangeStart) // месяц, который ловит выбранный диапазон
+  // curNum отсекает «прошедшие» естественные периоды тем же серверным клоком,
+  // что и гейт бэкдейтинга в роуте, — подсказка и коммит согласованы (кнопка не
+  // предложит месяц, который коммит отвергнет). См. заметку в suggestDefaultRenewRange.
+  const now = new Date()
+  const curNum = now.getFullYear() * 100 + (now.getMonth() + 1)
+
+  const where: Prisma.SubscriptionWhereInput = {
+    tenantId: opts.tenantId,
+    deletedAt: null,
+    type: "calendar",
+    status: "closed",
+    scheduledWithdrawalDate: null,
+    periodYear: { not: null },
+    periodMonth: { not: null },
+    client: { deletedAt: null, funnelStatus: { notIn: ["archived", "blacklisted"] } },
+  }
+  if (opts.directionId) where.directionId = opts.directionId
+  if (opts.branchId) where.group = { branchId: opts.branchId }
+
+  const closed = await db.subscription.findMany({
+    where,
+    select: {
+      clientId: true,
+      wardId: true,
+      directionId: true,
+      groupId: true,
+      periodYear: true,
+      periodMonth: true,
+    },
+  })
+  if (closed.length === 0) return []
+
+  // Ключи всех календарных абонементов с периодом — чтобы отсеять уже продлённые.
+  const issued = await db.subscription.findMany({
+    where: {
+      tenantId: opts.tenantId,
+      deletedAt: null,
+      type: "calendar",
+      periodYear: { not: null },
+      periodMonth: { not: null },
+    },
+    select: {
+      clientId: true,
+      wardId: true,
+      directionId: true,
+      groupId: true,
+      periodYear: true,
+      periodMonth: true,
+    },
+  })
+  const issuedSet = new Set(
+    issued.map(
+      (s) => `${s.clientId}|${s.wardId ?? ""}|${s.directionId}|${s.groupId}|${s.periodYear}|${s.periodMonth}`,
+    ),
+  )
+
+  const buckets = new Map<string, OffPeriodBucket>()
+  for (const s of closed) {
+    const py = s.periodYear as number
+    const pm = s.periodMonth as number
+    // py === selInScope ⟺ естественный период == выбранному диапазону: попадает,
+    // не «мимо».
+    if (py === selInScope.year && pm === selInScope.month) continue
+    const nt = nextMonthOf(py, pm)
+    const ntNum = nt.year * 100 + nt.month
+    if (ntNum < curNum) continue // период уже прошёл — выписать нельзя
+    const rk = `${s.clientId}|${s.wardId ?? ""}|${s.directionId}|${s.groupId}|${nt.year}|${nt.month}`
+    if (issuedSet.has(rk)) continue // уже продлён в свой период
+    const bk = `${nt.year}-${nt.month}`
+    const b = buckets.get(bk) ?? { year: nt.year, month: nt.month, count: 0 }
+    b.count++
+    buckets.set(bk, b)
+  }
+  return [...buckets.values()].sort((a, b) => a.year * 100 + a.month - (b.year * 100 + b.month))
+}
+
 export async function previewBulkRenew(opts: BulkRenewInput): Promise<BulkRenewPreview> {
   const sources = await loadSources(opts)
 
@@ -369,11 +539,14 @@ export async function previewBulkRenew(opts: BulkRenewInput): Promise<BulkRenewP
     })
   }
 
+  const offPeriodClosed = await loadOffPeriodClosed(opts)
+
   return {
     rangeStart: ymd(opts.rangeStart),
     rangeEnd: ymd(opts.rangeEnd),
     toCreate,
     skipped,
+    offPeriodClosed,
   }
 }
 

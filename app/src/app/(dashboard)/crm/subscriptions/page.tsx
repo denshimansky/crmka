@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client"
 import { currencySymbol } from "@/lib/currency"
 import { getOrgUiSettings } from "@/lib/role-names"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
+import { suggestDefaultRenewRange } from "@/lib/subscriptions/bulk-renew"
 import { PageHelp } from "@/components/page-help"
 import { SubscriptionsTable, type SubscriptionRow, type SubsTabKey } from "./subscriptions-table"
 import {
@@ -215,6 +216,11 @@ export default async function SubscriptionsPage({
   const tabs = TAB_ORDER.map((t) => ({ value: t, label: TAB_LABELS[t], count: counts[t] }))
 
   const canRenew = session.user.role === "owner" || session.user.role === "manager"
+  // (а) Умный дефолт периода массовой выписки. Считаем только когда кнопка
+  // реально показывается (вкладка «Ожидающие оплаты» + права), чтобы не тратить
+  // запросы на остальных вкладках.
+  const renewDefault =
+    canRenew && tab === "pending" ? await suggestDefaultRenewRange(tenantId) : null
 
   return (
     <div className="space-y-6">
@@ -234,6 +240,8 @@ export default async function SubscriptionsPage({
         initialDirectionId={directionId ?? "all"}
         initialSort={sortDir}
         canRenew={canRenew}
+        renewDefaultStart={renewDefault?.rangeStart ?? null}
+        renewDefaultEnd={renewDefault?.rangeEnd ?? null}
       />
     </div>
   )

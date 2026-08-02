@@ -33,11 +33,18 @@ interface Skipped {
   reason: "already_renewed" | "no_schedule_lessons"
 }
 
+interface OffPeriodBucket {
+  year: number
+  month: number
+  count: number
+}
+
 interface PreviewResp {
   rangeStart: string
   rangeEnd: string
   toCreate: Candidate[]
   skipped: Skipped[]
+  offPeriodClosed?: OffPeriodBucket[]
 }
 
 interface CommitResp {
@@ -60,6 +67,18 @@ function defaultRange(): { start: string; end: string } {
   return { start: ymd(start), end: ymd(end) }
 }
 
+const MONTHS_RU = [
+  "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+  "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+]
+
+// YYYY-MM-DD границы календарного месяца (1..12) для быстрого переключения периода.
+function monthRange(year: number, month1: number): { start: string; end: string } {
+  const start = new Date(year, month1 - 1, 1)
+  const end = new Date(year, month1, 0) // последний день месяца month1
+  return { start: ymd(start), end: ymd(end) }
+}
+
 function fmt(n: number): string {
   return n.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
 }
@@ -72,13 +91,25 @@ function skipLabel(r: Skipped["reason"]): string {
 export function RenewButton({
   branchId,
   directionId,
+  defaultRangeStart,
+  defaultRangeEnd,
 }: {
   branchId: string | null
   directionId: string | null
+  // (а) Серверный умный дефолт периода. Если не передан — падаем на клиентский
+  // «следующий месяц» (defaultRange), чтобы поведение не сломалось.
+  defaultRangeStart?: string | null
+  defaultRangeEnd?: string | null
 }) {
   const router = useRouter()
   const sym = useCurrencySymbol()
-  const def = useMemo(defaultRange, [])
+  const def = useMemo(
+    () =>
+      defaultRangeStart && defaultRangeEnd
+        ? { start: defaultRangeStart, end: defaultRangeEnd }
+        : defaultRange(),
+    [defaultRangeStart, defaultRangeEnd],
+  )
   const [open, setOpen] = useState(false)
   const [rangeStart, setRangeStart] = useState(def.start)
   const [rangeEnd, setRangeEnd] = useState(def.end)
@@ -107,9 +138,8 @@ export function RenewButton({
     }
   }
 
-  async function handlePreview(e: React.FormEvent) {
-    e.preventDefault()
-    if (rangeStart > rangeEnd) {
+  async function runPreview(rs: string, re: string) {
+    if (rs > re) {
       setError("Начало периода позже конца")
       return
     }
@@ -119,7 +149,12 @@ export function RenewButton({
       const res = await fetch("/api/subscriptions/bulk-renew/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body()),
+        body: JSON.stringify({
+          rangeStart: rs,
+          rangeEnd: re,
+          branchId: useFilters ? branchId : null,
+          directionId: useFilters ? directionId : null,
+        }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -132,6 +167,19 @@ export function RenewButton({
     } finally {
       setLoading(false)
     }
+  }
+
+  function handlePreview(e: React.FormEvent) {
+    e.preventDefault()
+    runPreview(rangeStart, rangeEnd)
+  }
+
+  // (б) Переключить период на подсказанный месяц и сразу пересчитать превью.
+  function switchPeriod(year: number, month: number) {
+    const { start, end } = monthRange(year, month)
+    setRangeStart(start)
+    setRangeEnd(end)
+    runPreview(start, end)
   }
 
   async function handleCommit() {
@@ -235,6 +283,38 @@ export function RenewButton({
                   </b>
                 </div>
               </div>
+
+              {preview.offPeriodClosed && preview.offPeriodClosed.length > 0 && (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="size-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-500" />
+                    <div>
+                      <div className="font-medium text-amber-700 dark:text-amber-500">
+                        Есть закрытые абонементы за другой месяц
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Эти абонементы закрыты за прошлые месяцы и не попадают в
+                        выбранный период. Их естественный период выписки — ниже;
+                        нажмите, чтобы переключиться на него.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {preview.offPeriodClosed.map((b) => (
+                      <Button
+                        key={`${b.year}-${b.month}`}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={loading}
+                        onClick={() => switchPeriod(b.year, b.month)}
+                      >
+                        {MONTHS_RU[b.month - 1]} {b.year} — {b.count}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {preview.toCreate.length > 0 && (
                 <details className="text-xs">

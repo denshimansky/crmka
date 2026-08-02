@@ -141,6 +141,8 @@ export function SubscriptionsTable({
   initialDirectionId,
   initialSort,
   canRenew,
+  renewDefaultStart,
+  renewDefaultEnd,
 }: {
   tab: SubsTabKey
   tabs: SubsTab[]
@@ -152,6 +154,8 @@ export function SubscriptionsTable({
   initialDirectionId: string
   initialSort: "asc" | "desc"
   canRenew: boolean
+  renewDefaultStart?: string | null
+  renewDefaultEnd?: string | null
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -257,6 +261,8 @@ export function SubscriptionsTable({
           <RenewButton
             branchId={initialBranchId !== "all" ? initialBranchId : null}
             directionId={initialDirectionId !== "all" ? initialDirectionId : null}
+            defaultRangeStart={renewDefaultStart ?? null}
+            defaultRangeEnd={renewDefaultEnd ?? null}
           />
         )}
       </div>
