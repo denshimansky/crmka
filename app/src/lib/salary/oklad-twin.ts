@@ -51,7 +51,13 @@ export function buildOkladTwinExpenses(input: BuildOkladTwinInput): OkladTwinExp
       categoryId: input.categoryId,
       accountId: null,
       amount,
-      date: input.date,
+      // date = ЯКОРЬ признания в ОПИУ, а не дата выплаты. Твин не участвует в ДДС
+      // (accountId=NULL), поэтому date служит только окном выборки расходов в P&L.
+      // Отчёты тянут расходы по `date <= конец_месяца`, а признание может быть в
+      // ПРОШЛОМ месяце относительно выплаты (ЗП июля выплачена в августе → ОПИУ июль).
+      // Ставим date = месяц признания (amortizationStartDate), иначе будущий по дате
+      // выплаты твин не попадёт в окно своего месяца признания и оклад исчезнет из ОПИУ.
+      date: input.amortizationStartDate ?? input.date,
       recognitionMode: input.recognitionMode,
       amortizationStartDate: input.amortizationStartDate,
       amortizationMonths: input.amortizationMonths,

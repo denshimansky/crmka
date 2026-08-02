@@ -14,15 +14,27 @@ const baseInput = {
 }
 
 describe("buildOkladTwinExpenses", () => {
-  it("одна позиция без направления → один твин, directionId=null", () => {
+  it("одна позиция без направления → один твин, directionId=null, date = месяц признания", () => {
     const out = buildOkladTwinExpenses({ ...baseInput, items: [{ directionId: null, amount: 40000 }] })
     assert.equal(out.length, 1)
     assert.deepEqual(out[0], {
       tenantId: "t1", categoryId: "cat-oklad", accountId: null, amount: 40000,
-      date: baseInput.date, recognitionMode: "single_period",
+      // date = amortizationStartDate (июль), а не дата выплаты (август) — якорь признания в ОПИУ.
+      date: baseInput.amortizationStartDate, recognitionMode: "single_period",
       amortizationStartDate: baseInput.amortizationStartDate, amortizationMonths: 1,
       isVariable: false, createdBy: "emp-owner", salaryPaymentId: "sp1", directionId: null,
     })
+  })
+
+  it("by_payment_date (нет amortizationStartDate) → date = дата выплаты", () => {
+    const out = buildOkladTwinExpenses({
+      ...baseInput,
+      recognitionMode: "by_payment_date",
+      amortizationStartDate: null,
+      amortizationMonths: null,
+      items: [{ directionId: null, amount: 40000 }],
+    })
+    assert.equal(out[0].date, baseInput.date)
   })
 
   it("позиции по нескольким направлениям → один твин на направление, суммы агрегированы", () => {
