@@ -6,6 +6,23 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { z } from "zod"
 import { logAudit } from "@/lib/audit"
 import { requirePermission } from "@/lib/api-permissions"
+import { buildOkladTwinExpenses } from "@/lib/salary/oklad-twin"
+
+const OKLAD_EXPENSE_CATEGORY_NAME = "Зарплата окладников"
+
+/** Возвращает id системной категории оклад-расхода, создавая её при отсутствии. */
+async function getOkladCategoryId(tx: { expenseCategory: any }): Promise<string> {
+  const existing = await tx.expenseCategory.findFirst({
+    where: { name: OKLAD_EXPENSE_CATEGORY_NAME, tenantId: null },
+    select: { id: true },
+  })
+  if (existing) return existing.id
+  const created = await tx.expenseCategory.create({
+    data: { tenantId: null, name: OKLAD_EXPENSE_CATEGORY_NAME, isSalary: true, isVariable: false, isSystem: true, isActive: true, sortOrder: 14 },
+    select: { id: true },
+  })
+  return created.id
+}
 
 // Legacy: одна выплата = (employee × account × amount). Используется простым диалогом
 // «Провести выплату». Сохраняется как SalaryPayment + одна позиция SalaryPaymentItem
@@ -22,6 +39,10 @@ const legacySchema = z.object({
     return n === 1 || n === 2 ? n : undefined
   }),
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  kind: z.enum(["salary", "piece"]).default("piece"),
+  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized", "not_in_pnl"]).default("by_payment_date"),
+  amortizationStartDate: z.string().optional().nullable(),
+  amortizationMonths: z.number().int().min(1).max(60).optional().nullable(),
 })
 
 // Document: одна выплата = N позиций (сотрудник × счёт × направление × сумма).
@@ -52,6 +73,10 @@ const docSchema = z.object({
     amount: z.number().min(0.01),
     comment: z.string().min(1, "Комментарий к премии/штрафу обязателен"),
   })).default([]),
+  kind: z.enum(["salary", "piece"]).default("piece"),
+  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized", "not_in_pnl"]).default("by_payment_date"),
+  amortizationStartDate: z.string().optional().nullable(),
+  amortizationMonths: z.number().int().min(1).max(60).optional().nullable(),
 }).refine((d) => d.items.length > 0 || d.adjustments.length > 0, {
   message: "Добавьте строку выплаты или премию/штраф",
   path: ["items"],
@@ -194,6 +219,45 @@ export async function POST(req: NextRequest) {
               comment: it.comment ?? null,
             })),
           })
+
+          // Оклад-выплата → твин-расход(ы) для ОПИУ (accountId=NULL, ДДС их игнорирует).
+          if (data.kind === "salary") {
+            const okladCategoryId = await getOkladCategoryId(tx)
+            const twins = buildOkladTwinExpenses({
+              tenantId,
+              categoryId: okladCategoryId,
+              salaryPaymentId: created.id,
+              date: new Date(data.date),
+              recognitionMode: data.recognitionMode,
+              amortizationStartDate: data.amortizationStartDate ? new Date(data.amortizationStartDate) : null,
+              amortizationMonths: data.amortizationMonths ?? null,
+              createdBy: employeeId ?? null,
+              items: empItems.map((it) => ({ directionId: it.directionId ?? null, amount: it.amount })),
+            })
+            for (const t of twins) {
+              const exp = await tx.expense.create({
+                data: {
+                  tenantId: t.tenantId,
+                  categoryId: t.categoryId,
+                  accountId: null,
+                  amount: t.amount,
+                  date: t.date,
+                  recognitionMode: t.recognitionMode,
+                  amortizationStartDate: t.amortizationStartDate,
+                  amortizationMonths: t.amortizationMonths,
+                  isVariable: false,
+                  salaryPaymentId: t.salaryPaymentId,
+                  createdBy: t.createdBy,
+                },
+                select: { id: true },
+              })
+              if (t.directionId) {
+                await tx.expenseBranch.create({
+                  data: { tenantId, expenseId: exp.id, branchId: null, directionId: t.directionId },
+                })
+              }
+            }
+          }
         }
 
         // Списываем суммы со счетов (агрегируем по счёту, чтобы не дёргать update N раз).
@@ -252,7 +316,7 @@ export async function POST(req: NextRequest) {
   const data = parsed.data
 
   const [employee, account] = await Promise.all([
-    db.employee.findFirst({ where: { id: data.employeeId, tenantId }, select: { id: true } }),
+    db.employee.findFirst({ where: { id: data.employeeId, tenantId }, select: { id: true, defaultDirectionId: true } }),
     db.financialAccount.findFirst({ where: { id: data.accountId, tenantId }, select: { id: true } }),
   ])
   if (!employee) return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
@@ -295,6 +359,33 @@ export async function POST(req: NextRequest) {
         comment: data.comment ?? null,
       },
     })
+
+    // Оклад-выплата → твин-расход для ОПИУ (accountId=NULL). Направление — из карточки
+    // сотрудника (простой диалог направление не передаёт).
+    if (data.kind === "salary") {
+      const okladCategoryId = await getOkladCategoryId(tx)
+      const exp = await tx.expense.create({
+        data: {
+          tenantId,
+          categoryId: okladCategoryId,
+          accountId: null,
+          amount: data.amount,
+          date: new Date(data.date),
+          recognitionMode: data.recognitionMode,
+          amortizationStartDate: data.amortizationStartDate ? new Date(data.amortizationStartDate) : null,
+          amortizationMonths: data.amortizationMonths ?? null,
+          isVariable: false,
+          salaryPaymentId: p.id,
+          createdBy: employeeId ?? null,
+        },
+        select: { id: true },
+      })
+      if (employee.defaultDirectionId) {
+        await tx.expenseBranch.create({
+          data: { tenantId, expenseId: exp.id, branchId: null, directionId: employee.defaultDirectionId },
+        })
+      }
+    }
 
     await tx.financialAccount.update({
       where: { id: data.accountId },
