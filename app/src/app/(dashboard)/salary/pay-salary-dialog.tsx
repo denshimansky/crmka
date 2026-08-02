@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/select"
 import { Banknote } from "lucide-react"
 import { useCurrencySymbol } from "@/components/currency-provider"
+import { OpiuRecognitionFieldset, type OpiuRecognitionState } from "@/components/opiu-recognition-fieldset"
+import { resolveRecognition, type RecognitionPayload } from "@/lib/expense-recognition"
 
 interface EmployeeOption {
   id: string
@@ -38,11 +40,13 @@ export function PaySalaryDialog({
   accounts,
   periodYear,
   periodMonth,
+  kind,
 }: {
   employees: EmployeeOption[]
   accounts: AccountOption[]
   periodYear: number
   periodMonth: number
+  kind: "salary" | "piece"
 }) {
   const router = useRouter()
   const sym = useCurrencySymbol()
@@ -55,6 +59,11 @@ export function PaySalaryDialog({
   const [amount, setAmount] = useState("")
   const [comment, setComment] = useState("")
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+
+  const periodMonthStr = `${periodYear}-${String(periodMonth).padStart(2, "0")}`
+  const [opiu, setOpiu] = useState<OpiuRecognitionState>({
+    recognitionMode: "single_period", singleMonth: periodMonthStr, amortStartMonth: periodMonthStr, amortMonths: "3",
+  })
 
   function reset() {
     setEmployeeId("")
@@ -76,12 +85,18 @@ export function PaySalaryDialog({
     if (!accountId) { setError("Выберите счёт"); return }
     if (!amount || Number(amount) <= 0) { setError("Укажите сумму"); return }
 
+    let recognition: RecognitionPayload = { recognitionMode: "by_payment_date", amortizationStartDate: undefined, amortizationMonths: undefined }
+    if (kind === "salary") {
+      try { recognition = resolveRecognition(opiu) } catch (err) { setError(err instanceof Error ? err.message : "Ошибка признания"); return }
+    }
+
     setLoading(true)
     try {
       const res = await fetch("/api/salary-payments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          kind,
           employeeId,
           accountId,
           amount: Number(amount),
@@ -89,6 +104,9 @@ export function PaySalaryDialog({
           periodYear,
           periodMonth,
           comment: comment || undefined,
+          recognitionMode: recognition.recognitionMode,
+          amortizationStartDate: recognition.amortizationStartDate,
+          amortizationMonths: recognition.amortizationMonths,
         }),
       })
 
@@ -182,6 +200,10 @@ export function PaySalaryDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {kind === "salary" && (
+            <OpiuRecognitionFieldset value={opiu} onChange={setOpiu} amount={Number(amount) || 0} sym={sym} />
+          )}
 
           <div className="space-y-1.5">
             <Label>Комментарий</Label>
