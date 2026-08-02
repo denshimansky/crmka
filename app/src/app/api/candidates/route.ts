@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import crypto from "crypto"
+import { uniqueViolationMessage } from "@/lib/employee-identity"
 
 const createSchema = z.object({
   firstName: z.string().min(1, "Имя обязательно"),
@@ -65,22 +67,32 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data
 
-  const candidate = await db.employee.create({
-    data: {
-      tenantId: session.user.tenantId,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      middleName: data.middleName,
-      phone: data.phone,
-      email: data.email,
-      type: "CANDIDATE",
-      candidateStatus: "NEW",
-      login: `candidate_${Date.now()}`,
-      passwordHash: "",
-      role: "instructor",
-      interviewHistory: data.comment ? [{ date: new Date().toISOString(), comment: data.comment }] : [],
-    },
-  })
+  let candidate
+  try {
+    candidate = await db.employee.create({
+      data: {
+        tenantId: session.user.tenantId,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        middleName: data.middleName,
+        phone: data.phone,
+        email: data.email,
+        type: "CANDIDATE",
+        candidateStatus: "NEW",
+        // Плейсхолдер-логин: Date.now() + рандом — под глобальным unique-индексом
+        // логина иначе возможна коллизия двух кандидатов в один миллисекунд.
+        login: `candidate_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
+        passwordHash: "",
+        role: "instructor",
+        interviewHistory: data.comment ? [{ date: new Date().toISOString(), comment: data.comment }] : [],
+      },
+    })
+  } catch (e) {
+    // Email кандидата под пер-тенант индексом может нарушить уникальность → 409.
+    const msg = uniqueViolationMessage(e)
+    if (msg) return NextResponse.json({ error: msg }, { status: 409 })
+    throw e
+  }
 
   return NextResponse.json(candidate, { status: 201 })
 }

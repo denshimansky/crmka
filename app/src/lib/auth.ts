@@ -35,35 +35,41 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Слишком много попыток. Попробуйте через 15 минут")
         }
 
-        let employee
+        // Вход по логину/email — регистро- и пробелонезависимо (норм = trim+lower).
+        // mode:"insensitive" сужает выборку в БД, а точный матч по lower(trim())
+        // в JS убирает возможные ложные совпадения (ILIKE трактует '_'/'%' как
+        // wildcard) и хвостовые пробелы в хранимом значении. Логин глобально
+        // уникален (unique lower(login)); email уникален в рамках центра, поэтому
+        // один email в разных центрах даёт неоднозначность — просим уточнить.
+        const raw = credentials.login.trim()
+        const norm = raw.toLowerCase()
+        const isEmail = raw.includes("@")
 
-        if (credentials.login.includes("@")) {
-          // Email — глобально уникален, ищем напрямую
-          employee = await db.employee.findFirst({
-            where: {
-              email: credentials.login,
-              isActive: true,
-              deletedAt: null,
-            },
-            include: { organization: true },
-          })
-        } else {
-          // Login — может совпадать между тенантами
-          const employees = await db.employee.findMany({
-            where: {
-              login: credentials.login,
-              isActive: true,
-              deletedAt: null,
-            },
-            include: { organization: true },
-          })
+        const candidates = await db.employee.findMany({
+          where: {
+            isActive: true,
+            deletedAt: null,
+            ...(isEmail
+              ? { email: { equals: raw, mode: "insensitive" } }
+              : { login: { equals: raw, mode: "insensitive" } }),
+          },
+          include: { organization: true },
+        })
+        const matches = candidates.filter((e) =>
+          isEmail
+            ? (e.email ?? "").trim().toLowerCase() === norm
+            : e.login.trim().toLowerCase() === norm,
+        )
 
-          if (employees.length > 1) {
-            logLoginAttempt({ ...loginCtx, success: false, reason: "ambiguous_login" })
-            throw new Error("Используйте email для входа")
-          }
-          employee = employees[0] || null
+        if (matches.length > 1) {
+          logLoginAttempt({ ...loginCtx, success: false, reason: "ambiguous_login" })
+          throw new Error(
+            isEmail
+              ? "Этот email используется в нескольких центрах — обратитесь в поддержку"
+              : "Используйте email для входа",
+          )
         }
+        const employee = matches[0] || null
 
         if (!employee) {
           logLoginAttempt({ ...loginCtx, success: false, reason: "user_not_found" })

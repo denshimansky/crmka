@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
+import { isEmailTaken, EMAIL_TAKEN_MSG, uniqueViolationMessage } from "@/lib/employee-identity"
 
 const updateSchema = z.object({
   firstName: z.string().min(1, "Имя обязательно").optional(),
@@ -52,22 +53,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   // Email уникален глобально (второй логин + адрес сброса пароля). При смене
-  // проверяем, что его не занял другой сотрудник (без учёта регистра).
-  if (data.email) {
-    const emailTaken = await db.employee.findFirst({
-      where: {
-        email: { equals: data.email, mode: "insensitive" },
-        deletedAt: null,
-        id: { not: id },
-      },
-      select: { id: true },
-    })
-    if (emailTaken) {
-      return NextResponse.json(
-        { error: "Этот email уже используется другим сотрудником. Email должен быть уникальным — это второй логин и адрес для сброса пароля." },
-        { status: 409 },
-      )
-    }
+  // проверяем, что его не занял другой сотрудник (регистро-/пробелонезависимо).
+  if (data.email && (await isEmailTaken(db, data.email, session.user.tenantId, id))) {
+    return NextResponse.json({ error: EMAIL_TAKEN_MSG }, { status: 409 })
   }
 
   // Нельзя менять роль владельца
@@ -112,25 +100,33 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  const employee = await db.employee.update({
-    where: { id },
-    data: {
-      ...(data.firstName && { firstName: data.firstName }),
-      ...(data.lastName && { lastName: data.lastName }),
-      ...(data.middleName !== undefined && { middleName: data.middleName }),
-      ...(data.email !== undefined && { email: data.email }),
-      ...(data.phone !== undefined && { phone: data.phone }),
-      ...(data.birthDate !== undefined && { birthDate: data.birthDate ? new Date(data.birthDate) : null }),
-      ...(data.role && { role: data.role }),
-      ...(data.password && { passwordHash: await bcrypt.hash(data.password, 10) }),
-      ...(data.isActive !== undefined && { isActive: data.isActive }),
-      ...(data.monthlySalary !== undefined && { monthlySalary: data.monthlySalary }),
-      ...(data.defaultDirectionId !== undefined && { defaultDirectionId: data.defaultDirectionId }),
-    },
-    include: {
-      employeeBranches: { include: { branch: { select: { id: true, name: true } } } },
-    },
-  })
+  let employee
+  try {
+    employee = await db.employee.update({
+      where: { id },
+      data: {
+        ...(data.firstName && { firstName: data.firstName }),
+        ...(data.lastName && { lastName: data.lastName }),
+        ...(data.middleName !== undefined && { middleName: data.middleName }),
+        ...(data.email !== undefined && { email: data.email }),
+        ...(data.phone !== undefined && { phone: data.phone }),
+        ...(data.birthDate !== undefined && { birthDate: data.birthDate ? new Date(data.birthDate) : null }),
+        ...(data.role && { role: data.role }),
+        ...(data.password && { passwordHash: await bcrypt.hash(data.password, 10) }),
+        ...(data.isActive !== undefined && { isActive: data.isActive }),
+        ...(data.monthlySalary !== undefined && { monthlySalary: data.monthlySalary }),
+        ...(data.defaultDirectionId !== undefined && { defaultDirectionId: data.defaultDirectionId }),
+      },
+      include: {
+        employeeBranches: { include: { branch: { select: { id: true, name: true } } } },
+      },
+    })
+  } catch (e) {
+    // Гонка между isEmailTaken и update (смена email) → БД-индекс → 409.
+    const msg = uniqueViolationMessage(e)
+    if (msg) return NextResponse.json({ error: msg }, { status: 409 })
+    throw e
+  }
 
   return NextResponse.json(employee)
 }

@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
 import { requirePermission } from "@/lib/api-permissions"
+import { isLoginTaken, isEmailTaken, LOGIN_TAKEN_MSG, EMAIL_TAKEN_MSG, uniqueViolationMessage } from "@/lib/employee-identity"
 
 const createSchema = z.object({
   login: z.string({ required_error: "Логин обязателен" }).min(2, "Логин минимум 2 символа").regex(/^[a-zA-Z0-9._-]+$/, "Только латиница, цифры, точка, дефис, подчёркивание"),
@@ -62,50 +63,46 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Проверяем уникальность логина (в пределах организации)
-  const existing = await db.employee.findFirst({
-    where: { tenantId: session.user.tenantId, login: data.login, deletedAt: null },
-  })
-  if (existing) {
-    return NextResponse.json({ error: "Логин уже занят" }, { status: 409 })
+  // Логин — глобально уникален (регистро-/пробелонезависимо). Вход по логину
+  // ищет по всей системе, поэтому одинаковый логин в разных центрах ломал бы вход.
+  if (await isLoginTaken(db, data.login)) {
+    return NextResponse.json({ error: LOGIN_TAKEN_MSG }, { status: 409 })
   }
 
-  // Email — второй способ входа (вход по email ищет сотрудника ПО ВСЕЙ СИСТЕМЕ)
-  // и адрес для сброса пароля, поэтому уникальность проверяем глобально, без
-  // учёта регистра — иначе общая почта ломает и вход по email, и сброс пароля.
-  if (data.email) {
-    const emailTaken = await db.employee.findFirst({
-      where: { email: { equals: data.email, mode: "insensitive" }, deletedAt: null },
-      select: { id: true },
+  // Email уникален в рамках центра (регистро-/пробелонезависимо) — второй способ
+  // входа и адрес для сброса пароля.
+  if (data.email && (await isEmailTaken(db, data.email, session.user.tenantId))) {
+    return NextResponse.json({ error: EMAIL_TAKEN_MSG }, { status: 409 })
+  }
+
+  let employee
+  try {
+    employee = await db.employee.create({
+      data: {
+        tenantId: session.user.tenantId,
+        login: data.login.trim(),
+        passwordHash: await bcrypt.hash(data.password, 10),
+        firstName: data.firstName,
+        lastName: data.lastName,
+        middleName: data.middleName,
+        email: data.email,
+        phone: data.phone,
+        birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
+        role: data.role,
+        employeeBranches: data.branchIds?.length
+          ? { create: data.branchIds.map((branchId) => ({ tenantId: session.user.tenantId, branchId })) }
+          : undefined,
+      },
+      include: {
+        employeeBranches: { include: { branch: { select: { id: true, name: true } } } },
+      },
     })
-    if (emailTaken) {
-      return NextResponse.json(
-        { error: "Этот email уже используется другим сотрудником. Email должен быть уникальным — это второй логин и адрес для сброса пароля." },
-        { status: 409 },
-      )
-    }
+  } catch (e) {
+    // Гонка между isLoginTaken/isEmailTaken и вставкой (TOCTOU) → БД-индекс → 409.
+    const msg = uniqueViolationMessage(e)
+    if (msg) return NextResponse.json({ error: msg }, { status: 409 })
+    throw e
   }
-
-  const employee = await db.employee.create({
-    data: {
-      tenantId: session.user.tenantId,
-      login: data.login,
-      passwordHash: await bcrypt.hash(data.password, 10),
-      firstName: data.firstName,
-      lastName: data.lastName,
-      middleName: data.middleName,
-      email: data.email,
-      phone: data.phone,
-      birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
-      role: data.role,
-      employeeBranches: data.branchIds?.length
-        ? { create: data.branchIds.map((branchId) => ({ tenantId: session.user.tenantId, branchId })) }
-        : undefined,
-    },
-    include: {
-      employeeBranches: { include: { branch: { select: { id: true, name: true } } } },
-    },
-  })
 
   return NextResponse.json(employee, { status: 201 })
 }

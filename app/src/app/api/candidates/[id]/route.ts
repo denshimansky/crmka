@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
+import { isLoginTaken, isEmailTaken, LOGIN_TAKEN_MSG, EMAIL_TAKEN_MSG, uniqueViolationMessage } from "@/lib/employee-identity"
 
 const updateSchema = z.object({
   firstName: z.string().min(1).optional(),
@@ -84,10 +85,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     updateData.interviewHistory = history
   }
 
-  const updated = await db.employee.update({
-    where: { id },
-    data: updateData,
-  })
+  // Email кандидата — пер-тенант уникальность (под тем же БД-индексом), чтобы
+  // при найме он не столкнулся с чужим email и не отдал 500 вместо 409.
+  if (updateData.email && (await isEmailTaken(db, updateData.email, session.user.tenantId, id))) {
+    return NextResponse.json({ error: EMAIL_TAKEN_MSG }, { status: 409 })
+  }
+
+  let updated
+  try {
+    updated = await db.employee.update({ where: { id }, data: updateData })
+  } catch (e) {
+    const msg = uniqueViolationMessage(e)
+    if (msg) return NextResponse.json({ error: msg }, { status: 409 })
+    throw e
+  }
 
   return NextResponse.json(updated)
 }
@@ -113,37 +124,47 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (!candidate) return NextResponse.json({ error: "Не найден" }, { status: 404 })
 
-  // Проверяем уникальность логина
-  const existing = await db.employee.findFirst({
-    where: { tenantId: session.user.tenantId, login: data.login, deletedAt: null, id: { not: id } },
-  })
-  if (existing) return NextResponse.json({ error: "Логин уже занят" }, { status: 409 })
+  // Уникальность логина глобально (регистро-/пробелонезависимо) и email
+  // кандидата — при найме он становится активным сотрудником, который входит.
+  if (await isLoginTaken(db, data.login, id)) {
+    return NextResponse.json({ error: LOGIN_TAKEN_MSG }, { status: 409 })
+  }
+  if (candidate.email && (await isEmailTaken(db, candidate.email, session.user.tenantId, id))) {
+    return NextResponse.json({ error: EMAIL_TAKEN_MSG }, { status: 409 })
+  }
 
   const passwordHash = await bcrypt.hash(data.password, 12)
 
-  await db.$transaction(async (tx) => {
-    await tx.employee.update({
-      where: { id },
-      data: {
-        type: "ACTIVE",
-        candidateStatus: "HIRED",
-        login: data.login,
-        passwordHash,
-        role: data.role,
-        hireDate: new Date(),
-      },
-    })
-
-    if (data.branchIds?.length) {
-      await tx.employeeBranch.createMany({
-        data: data.branchIds.map(branchId => ({
-          employeeId: id,
-          tenantId: session.user.tenantId,
-          branchId,
-        })),
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.employee.update({
+        where: { id },
+        data: {
+          type: "ACTIVE",
+          candidateStatus: "HIRED",
+          login: data.login.trim(),
+          passwordHash,
+          role: data.role,
+          hireDate: new Date(),
+        },
       })
-    }
-  })
+
+      if (data.branchIds?.length) {
+        await tx.employeeBranch.createMany({
+          data: data.branchIds.map(branchId => ({
+            employeeId: id,
+            tenantId: session.user.tenantId,
+            branchId,
+          })),
+        })
+      }
+    })
+  } catch (e) {
+    // Гонка на глобальном индексе логина при активации кандидата → 409.
+    const msg = uniqueViolationMessage(e)
+    if (msg) return NextResponse.json({ error: msg }, { status: 409 })
+    throw e
+  }
 
   return NextResponse.json({ success: true })
 }

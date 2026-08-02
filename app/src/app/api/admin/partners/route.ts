@@ -10,6 +10,7 @@ import {
 import { generateUniquePortalSlug } from "@/lib/portal-slug"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
+import { isLoginTaken, LOGIN_TAKEN_MSG, uniqueViolationMessage } from "@/lib/employee-identity"
 
 // GET /api/admin/partners — список партнёров
 export async function GET() {
@@ -94,64 +95,76 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const org = await db.organization.create({
-    data: {
-      name: d.name,
-      legalName: d.legalName,
-      inn: innDigits,
-      phone: d.phone,
-      email: d.email,
-      contactPerson: d.contactPerson,
-      // Слаг ЛК родителя (/p/<slug>) — сразу при создании организации
-      portalSlug: await generateUniquePortalSlug(d.name),
-    },
-  })
-
-  let owner = null
-
-  // Создаём owner если указаны данные
-  if (d.ownerLogin && d.ownerPassword && d.ownerFirstName && d.ownerLastName) {
-    // Проверяем уникальность логина глобально
-    const existingLogin = await db.employee.findFirst({
-      where: { tenantId: org.id, login: d.ownerLogin, deletedAt: null },
-    })
-    if (existingLogin) {
-      return NextResponse.json({ error: "Логин владельца уже занят" }, { status: 409 })
-    }
-
-    owner = await db.employee.create({
-      data: {
-        tenantId: org.id,
-        login: d.ownerLogin,
-        passwordHash: bcrypt.hashSync(d.ownerPassword, 10),
-        firstName: d.ownerFirstName,
-        lastName: d.ownerLastName,
-        email: d.ownerEmail,
-        role: "owner",
-      },
-    })
+  // Уникальность ЛОГИНА владельца — глобально, ДО создания организации, иначе при
+  // конфликте останется осиротевшая org (прежняя проверка шла по org.id только
+  // что созданной пустой орг → не срабатывала никогда — дыра). Email — уникален в
+  // рамках центра, а орг ещё пуста, поэтому здесь проверять нечего.
+  if (d.ownerLogin && (await isLoginTaken(db, d.ownerLogin))) {
+    return NextResponse.json({ error: LOGIN_TAKEN_MSG }, { status: 409 })
   }
 
-  // Автоматически создаём подписку на тариф «Стандарт» если есть.
-  // Новый партнёр стартует с 14-дневного теста: старт = сегодня, срок первой
-  // оплаты = конец теста, далее — индивидуальный день-якорь (Bug #65).
+  // Слаг ЛК и тариф читаем до транзакции. Организацию, владельца и подписку
+  // создаём АТОМАРНО: иначе гонка на глобальном unique-индексе логина (P2002 на
+  // вставке владельца между isLoginTaken и create) оставляла бы осиротевшую орг.
+  const portalSlug = await generateUniquePortalSlug(d.name)
   const defaultPlan = await db.billingPlan.findFirst({ where: { isActive: true }, orderBy: { createdAt: "asc" } })
-  if (defaultPlan) {
-    const start = toUtcDate(new Date())
-    const trialEnd = trialEndFromStart(start)
-    await db.billingSubscription.create({
-      data: {
-        organizationId: org.id,
-        planId: defaultPlan.id,
-        branchCount: 1,
-        monthlyAmount: monthlyPriceFor(defaultPlan, 1),
-        status: "trial",
-        startDate: start,
-        trialEndsAt: trialEnd,
-        billingAnchorDay: anchorDayFromTrialEnd(trialEnd),
-        nextPaymentDate: trialEnd,
-      },
-    })
+
+  let org, owner
+  try {
+    ;({ org, owner } = await db.$transaction(async (tx) => {
+      const createdOrg = await tx.organization.create({
+        data: {
+          name: d.name,
+          legalName: d.legalName,
+          inn: innDigits,
+          phone: d.phone,
+          email: d.email,
+          contactPerson: d.contactPerson,
+          portalSlug,
+        },
+      })
+
+      let createdOwner = null
+      if (d.ownerLogin && d.ownerPassword && d.ownerFirstName && d.ownerLastName) {
+        createdOwner = await tx.employee.create({
+          data: {
+            tenantId: createdOrg.id,
+            login: d.ownerLogin.trim(),
+            passwordHash: bcrypt.hashSync(d.ownerPassword, 10),
+            firstName: d.ownerFirstName,
+            lastName: d.ownerLastName,
+            email: d.ownerEmail,
+            role: "owner",
+          },
+        })
+      }
+
+      // Подписка «Стандарт»: 14-дневный тест (старт = сегодня, срок первой оплаты
+      // = конец теста, далее — индивидуальный день-якорь, Bug #65).
+      if (defaultPlan) {
+        const start = toUtcDate(new Date())
+        const trialEnd = trialEndFromStart(start)
+        await tx.billingSubscription.create({
+          data: {
+            organizationId: createdOrg.id,
+            planId: defaultPlan.id,
+            branchCount: 1,
+            monthlyAmount: monthlyPriceFor(defaultPlan, 1),
+            status: "trial",
+            startDate: start,
+            trialEndsAt: trialEnd,
+            billingAnchorDay: anchorDayFromTrialEnd(trialEnd),
+            nextPaymentDate: trialEnd,
+          },
+        })
+      }
+
+      return { org: createdOrg, owner: createdOwner }
+    }))
+  } catch (e) {
+    const msg = uniqueViolationMessage(e)
+    if (msg) return NextResponse.json({ error: msg }, { status: 409 })
+    throw e
   }
 
   return NextResponse.json({ ...org, owner: owner ? { id: owner.id, login: owner.login } : null }, { status: 201 })

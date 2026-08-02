@@ -43,7 +43,15 @@ function LoginForm() {
     setLoading(false)
 
     if (result?.error) {
-      setError("Неверный логин или пароль")
+      // authorize() бросает конкретные сообщения (превышен лимит попыток,
+      // неоднозначный логин/email) — показываем их как есть. Стандартный отказ
+      // next-auth при неверных кредах — код "CredentialsSignin" (возврат null) →
+      // обобщённый текст, чтобы не подсказывать, логин или пароль неверен.
+      setError(
+        result.error && result.error !== "CredentialsSignin"
+          ? result.error
+          : "Неверный логин или пароль",
+      )
       return
     }
 
