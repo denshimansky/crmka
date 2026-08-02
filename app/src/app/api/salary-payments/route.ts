@@ -7,22 +7,9 @@ import { z } from "zod"
 import { logAudit } from "@/lib/audit"
 import { requirePermission } from "@/lib/api-permissions"
 import { buildOkladTwinExpenses } from "@/lib/salary/oklad-twin"
-
-const OKLAD_EXPENSE_CATEGORY_NAME = "Зарплата окладников"
-
-/** Возвращает id системной категории оклад-расхода, создавая её при отсутствии. */
-async function getOkladCategoryId(tx: { expenseCategory: any }): Promise<string> {
-  const existing = await tx.expenseCategory.findFirst({
-    where: { name: OKLAD_EXPENSE_CATEGORY_NAME, tenantId: null },
-    select: { id: true },
-  })
-  if (existing) return existing.id
-  const created = await tx.expenseCategory.create({
-    data: { tenantId: null, name: OKLAD_EXPENSE_CATEGORY_NAME, isSalary: true, isVariable: false, isSystem: true, isActive: true, sortOrder: 14 },
-    select: { id: true },
-  })
-  return created.id
-}
+import { getOkladCategoryId } from "@/lib/salary/oklad-category"
+import { getBranchScope } from "@/lib/session"
+import { scopeEmployee } from "@/lib/branch-scope"
 
 // Legacy: одна выплата = (employee × account × amount). Используется простым диалогом
 // «Провести выплату». Сохраняется как SalaryPayment + одна позиция SalaryPaymentItem
@@ -96,10 +83,15 @@ export async function GET(req: NextRequest) {
   // kind: "salary" (окладные — есть твин-Expense) | "piece" (сдельные — твина нет).
   const kind = searchParams.get("kind")
 
+  // ADM-04: список выплат скоупим по филиалу как ведомость. Инструкторов тут нет —
+  // GET закрыт requirePermission("finance.salary") (у инструктора права нет), поэтому
+  // достаточно scopeEmployee: owner/manager → {} (все), админ филиала → его сотрудники.
+  const scope = await getBranchScope()
   const where: any = {
     tenantId: session.user.tenantId,
     periodYear,
     periodMonth,
+    employee: scopeEmployee(scope),
   }
   if (employeeId) where.employeeId = employeeId
 
@@ -201,9 +193,15 @@ export async function POST(req: NextRequest) {
     const okladEmpIds = new Set(
       employees.filter((e) => Number(e.monthlySalary) > 0).map((e) => e.id),
     )
+    // Категорию оклад-расхода резолвим ДО money-транзакции (гонку партиал-UNIQUE
+    // безопасно перехватить только вне tx — см. getOkladCategoryId).
+    const willCreateTwins = data.kind === "salary" && data.items.some((it) => okladEmpIds.has(it.employeeId))
+    const okladCategoryId = willCreateTwins ? await getOkladCategoryId() : null
 
     const payment = await db.$transaction(async (tx) => {
       let p: { id: string } | null = null
+      // employeeId → id его выплаты в этом документе (для линковки премий/штрафов).
+      const paymentIdByEmployee = new Map<string, string>()
 
       // Выплата (может отсутствовать, если проводят только премию/штраф).
       if (data.items.length > 0) {
@@ -235,6 +233,7 @@ export async function POST(req: NextRequest) {
             },
           })
           if (!p) p = created
+          paymentIdByEmployee.set(empId, created.id)
 
           await tx.salaryPaymentItem.createMany({
             data: empItems.map((it) => ({
@@ -250,8 +249,7 @@ export async function POST(req: NextRequest) {
 
           // Оклад-выплата → твин-расход(ы) для ОПИУ (accountId=NULL, ДДС их игнорирует).
           // Только для окладников — см. okladEmpIds выше.
-          if (data.kind === "salary" && okladEmpIds.has(empId)) {
-            const okladCategoryId = await getOkladCategoryId(tx)
+          if (data.kind === "salary" && okladEmpIds.has(empId) && okladCategoryId) {
             const twins = buildOkladTwinExpenses({
               tenantId,
               categoryId: okladCategoryId,
@@ -299,7 +297,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Премии/штрафы за период (атомарно с выплатой).
+      // Премии/штрафы за период (атомарно с выплатой). Линкуем к выплате сотрудника,
+      // если она есть в документе → аннулирование выплаты каскадом уберёт и их
+      // (иначе salaryPaymentId=null — самостоятельная корректировка).
       if (data.adjustments.length > 0) {
         await tx.salaryAdjustment.createMany({
           data: data.adjustments.map((a) => ({
@@ -311,6 +311,7 @@ export async function POST(req: NextRequest) {
             periodMonth: data.periodMonth,
             comment: a.comment,
             createdBy: employeeId,
+            salaryPaymentId: paymentIdByEmployee.get(a.employeeId) ?? null,
           })),
         })
       }
@@ -355,6 +356,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
 
+  // Твин только для реального окладника (monthlySalary>0). Категорию резолвим до tx.
+  const legacyWillTwin = data.kind === "salary" && Number(employee.monthlySalary) > 0
+  const legacyOkladCategoryId = legacyWillTwin ? await getOkladCategoryId() : null
+
   const payment = await db.$transaction(async (tx) => {
     const p = await tx.salaryPayment.create({
       data: {
@@ -393,12 +398,11 @@ export async function POST(req: NextRequest) {
     // сотрудника (простой диалог направление не передаёт). Твин только для реального
     // окладника (monthlySalary>0) — иначе сделочная выплата с kind=salary задвоила бы
     // сделку в ОПИУ.
-    if (data.kind === "salary" && Number(employee.monthlySalary) > 0) {
-      const okladCategoryId = await getOkladCategoryId(tx)
+    if (legacyWillTwin && legacyOkladCategoryId) {
       const exp = await tx.expense.create({
         data: {
           tenantId,
-          categoryId: okladCategoryId,
+          categoryId: legacyOkladCategoryId,
           accountId: null,
           amount: data.amount,
           date: new Date(data.date),

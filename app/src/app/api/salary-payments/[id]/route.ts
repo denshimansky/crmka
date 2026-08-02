@@ -6,27 +6,18 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { z } from "zod"
 import { buildOkladTwinExpenses } from "@/lib/salary/oklad-twin"
+import { getOkladCategoryId } from "@/lib/salary/oklad-category"
 
-const OKLAD_EXPENSE_CATEGORY_NAME = "Зарплата окладников"
-
-async function getOkladCategoryId(tx: { expenseCategory: any }): Promise<string> {
-  const existing = await tx.expenseCategory.findFirst({
-    where: { name: OKLAD_EXPENSE_CATEGORY_NAME, tenantId: null },
-    select: { id: true },
-  })
-  if (existing) return existing.id
-  const created = await tx.expenseCategory.create({
-    data: { tenantId: null, name: OKLAD_EXPENSE_CATEGORY_NAME, isSalary: true, isVariable: false, isSystem: true, isActive: true, sortOrder: 14 },
-    select: { id: true },
-  })
-  return created.id
-}
-
+// Правка выплаты: заменяет строки выплаты целиком (по направлениям/счетам), чтобы
+// мульти-направленная оклад-выплата не схлопывалась в одну строку/один твин.
 const patchSchema = z.object({
-  amount: z.number().min(0.01),
-  accountId: z.string().uuid(),
   date: z.string().min(1),
-  directionId: z.string().uuid().nullable().optional(),
+  items: z.array(z.object({
+    accountId: z.string().uuid(),
+    directionId: z.string().uuid().nullable().optional(),
+    amount: z.number().min(0.01),
+    comment: z.string().optional().nullable(),
+  })).min(1, "Добавьте хотя бы одну строку выплаты"),
   recognitionMode: z.enum(["by_payment_date", "single_period", "amortized", "not_in_pnl"]).default("by_payment_date"),
   amortizationStartDate: z.string().optional().nullable(),
   amortizationMonths: z.number().int().min(1).max(60).optional().nullable(),
@@ -51,7 +42,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   const payment = await db.salaryPayment.findFirst({
     where: { id, tenantId },
-    select: { id: true, accountId: true, amount: true, periodYear: true, periodMonth: true },
+    select: {
+      id: true, accountId: true, amount: true, periodYear: true, periodMonth: true,
+      items: { select: { accountId: true, amount: true } },
+    },
   })
   if (!payment) return NextResponse.json({ error: "Выплата не найдена" }, { status: 404 })
 
@@ -60,10 +54,17 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   await db.$transaction(async (tx) => {
-    // Вернуть деньги на счёт.
-    await tx.financialAccount.update({ where: { id: payment.accountId }, data: { balance: { increment: payment.amount } } })
-    // Твин-Expense удалятся каскадом по FK (expenses.salary_payment_id ON DELETE CASCADE),
-    // SalaryPaymentItem — каскадом по своей связи. Явно удаляем шапку выплаты.
+    // Вернуть деньги на счета по ФАКТИЧЕСКИМ позициям (выплата может быть разнесена
+    // по нескольким счетам — откат по шапке был бы неверен). Фолбэк на шапку, если
+    // позиций почему-то нет.
+    const byAccount = new Map<string, number>()
+    for (const it of payment.items) byAccount.set(it.accountId, (byAccount.get(it.accountId) || 0) + Number(it.amount))
+    if (byAccount.size === 0) byAccount.set(payment.accountId, Number(payment.amount))
+    for (const [acc, sum] of byAccount) {
+      await tx.financialAccount.update({ where: { id: acc }, data: { balance: { increment: sum } } })
+    }
+    // Твин-Expense, SalaryPaymentItem и связанные премии/штрафы (salary_payment_id)
+    // удаляются каскадом по FK ON DELETE CASCADE. Явно удаляем шапку выплаты.
     await tx.salaryPayment.delete({ where: { id: payment.id } })
   })
 
@@ -88,44 +89,77 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const payment = await db.salaryPayment.findFirst({
     where: { id, tenantId },
-    select: { id: true, accountId: true, amount: true, employeeId: true, periodYear: true, periodMonth: true, opiuExpenses: { select: { id: true } } },
+    select: {
+      id: true, employeeId: true, periodYear: true, periodMonth: true,
+      opiuExpenses: { select: { id: true } },
+      items: { select: { accountId: true, amount: true } },
+    },
   })
   if (!payment) return NextResponse.json({ error: "Выплата не найдена" }, { status: 404 })
 
   if (await isPeriodLocked(tenantId, new Date(Date.UTC(payment.periodYear, payment.periodMonth - 1, 1)), g.role)) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
-  const account = await db.financialAccount.findFirst({ where: { id: data.accountId, tenantId }, select: { id: true } })
-  if (!account) return NextResponse.json({ error: "Счёт не найден" }, { status: 404 })
 
-  const isSalary = payment.opiuExpenses.length > 0 // была ли выплата оклад-типа (есть твин)
+  // Валидируем новые счета/направления в рамках тенанта.
+  const accountIds = Array.from(new Set(data.items.map((i) => i.accountId)))
+  const directionIds = Array.from(new Set(data.items.map((i) => i.directionId).filter((v): v is string => !!v)))
+  const [accounts, directions] = await Promise.all([
+    db.financialAccount.findMany({ where: { id: { in: accountIds }, tenantId }, select: { id: true } }),
+    directionIds.length > 0
+      ? db.direction.findMany({ where: { id: { in: directionIds }, tenantId }, select: { id: true } })
+      : Promise.resolve([] as Array<{ id: string }>),
+  ])
+  if (accounts.length !== accountIds.length) return NextResponse.json({ error: "Один или несколько счетов не найдены" }, { status: 404 })
+  if (directions.length !== directionIds.length) return NextResponse.json({ error: "Одно или несколько направлений не найдены" }, { status: 404 })
+
+  // Была ли выплата оклад-типа (есть твин) — тогда пересоздаём твин. Категорию
+  // резолвим ДО money-транзакции.
+  const isSalary = payment.opiuExpenses.length > 0
+  const okladCategoryId = isSalary ? await getOkladCategoryId() : null
+  const newAmount = data.items.reduce((s, it) => s + it.amount, 0)
 
   await db.$transaction(async (tx) => {
-    // Откат старого баланса и применение нового (счёт мог смениться).
-    await tx.financialAccount.update({ where: { id: payment.accountId }, data: { balance: { increment: payment.amount } } })
-    await tx.financialAccount.update({ where: { id: data.accountId }, data: { balance: { decrement: data.amount } } })
+    // Откат старого баланса по счетам старых позиций + применение нового по счетам новых.
+    const oldByAccount = new Map<string, number>()
+    for (const it of payment.items) oldByAccount.set(it.accountId, (oldByAccount.get(it.accountId) || 0) + Number(it.amount))
+    for (const [acc, sum] of oldByAccount) {
+      await tx.financialAccount.update({ where: { id: acc }, data: { balance: { increment: sum } } })
+    }
+    const newByAccount = new Map<string, number>()
+    for (const it of data.items) newByAccount.set(it.accountId, (newByAccount.get(it.accountId) || 0) + it.amount)
+    for (const [acc, sum] of newByAccount) {
+      await tx.financialAccount.update({ where: { id: acc }, data: { balance: { decrement: sum } } })
+    }
 
-    // Обновить шапку и зеркальную позицию.
+    // Шапка (представительные employeeId/accountId/amount) + позиции.
     await tx.salaryPayment.update({
       where: { id: payment.id },
-      data: { accountId: data.accountId, amount: data.amount, date: new Date(data.date) },
+      data: { accountId: data.items[0].accountId, amount: newAmount, date: new Date(data.date) },
     })
     await tx.salaryPaymentItem.deleteMany({ where: { salaryPaymentId: payment.id } })
-    await tx.salaryPaymentItem.create({
-      data: { tenantId, salaryPaymentId: payment.id, employeeId: payment.employeeId, accountId: data.accountId, directionId: data.directionId ?? null, amount: data.amount },
+    await tx.salaryPaymentItem.createMany({
+      data: data.items.map((it) => ({
+        tenantId,
+        salaryPaymentId: payment.id,
+        employeeId: payment.employeeId,
+        accountId: it.accountId,
+        directionId: it.directionId ?? null,
+        amount: it.amount,
+        comment: it.comment ?? null,
+      })),
     })
 
-    // Пересоздать твин (только если выплата оклад-типа).
+    // Пересоздать твин(ы) по направлениям (только если выплата оклад-типа).
     await tx.expense.deleteMany({ where: { salaryPaymentId: payment.id } })
-    if (isSalary) {
-      const okladCategoryId = await getOkladCategoryId(tx)
+    if (isSalary && okladCategoryId) {
       const twins = buildOkladTwinExpenses({
         tenantId, categoryId: okladCategoryId, salaryPaymentId: payment.id, date: new Date(data.date),
         recognitionMode: data.recognitionMode,
         amortizationStartDate: data.amortizationStartDate ? new Date(data.amortizationStartDate) : null,
         amortizationMonths: data.amortizationMonths ?? null,
         createdBy: actor ?? null,
-        items: [{ directionId: data.directionId ?? null, amount: data.amount }],
+        items: data.items.map((it) => ({ directionId: it.directionId ?? null, amount: it.amount })),
       })
       for (const t of twins) {
         const exp = await tx.expense.create({
@@ -145,7 +179,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   logAudit({
     tenantId, employeeId: actor, action: "update", entityType: "SalaryPayment", entityId: payment.id,
-    changes: { amount: { old: Number(payment.amount), new: data.amount } }, req,
+    changes: { amount: { new: newAmount }, items: { new: data.items.length } }, req,
   })
   return NextResponse.json({ ok: true })
 }
