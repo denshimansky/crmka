@@ -3,13 +3,20 @@ import { db } from "@/lib/db"
 import { requirePermission } from "@/lib/api-permissions"
 
 /**
- * GET /api/salary-payments/accruals?periodYear&periodMonth&upTo
+ * GET /api/salary-payments/accruals?periodYear&periodMonth&upTo&kind
  *
  * `upTo` (yyyy-mm-dd, опционально) — граница начислений ВНУТРИ месяца периода
  * (сценарий аванса «по 15-е включительно»): занятия учитываются по эту дату,
  * оклад берётся пропорционально дням месяца, премии/штрафы НЕ включаются
  * (они выплачиваются при полном месяце). Дата вне месяца/некорректная —
  * считается весь месяц. Выплаты (`alreadyPaid`, `paid`) всегда за весь период.
+ *
+ * `kind` (опционально) — тип документа выплаты, скоупит источник начислений:
+ *   `salary` → только оклад (Employee.monthlySalary);
+ *   `piece`  → только сделка (Attendance.instructorPayAmount);
+ *   не задан / прочее → слияние обоих (обратная совместимость, как раньше).
+ * Нужно, чтобы автозаполнение оклад-документа не подтягивало сделочные деньги
+ * (иначе мисклассификация сделки как оклада + двойной счёт в ОПИУ).
  *
  * Возвращает по каждому сотруднику начисление за период, разнесённое по направлениям —
  * для автозаполнения документа выплаты ЗП.
@@ -101,38 +108,68 @@ export async function GET(req: NextRequest) {
     }),
   ])
 
-  // === Начисления преподавателей ===
+  // === Начисления: два раздельных источника ===
+  // Держим сделку и оклад в отдельных картах, чтобы автозаполнение документа
+  // выплаты можно было заскоупить по типу (kind): оклад-документ не должен
+  // подтягивать сделочные деньги (двойной счёт в ОПИУ), и наоборот.
   type AccrualPerDir = { directionId: string | null; directionName: string; amount: number }
-  const accrualsByEmployee = new Map<string, Map<string, AccrualPerDir>>()
+  const kind = searchParams.get("kind")
 
+  // 1. Сделка — из посещений преподавателей (ключ направления = directionId).
+  const pieceAccruals = new Map<string, Map<string, AccrualPerDir>>()
   for (const a of attendances) {
     const empId = a.lesson.substituteInstructorId || a.lesson.instructorId
     if (!empId) continue
     const dirId = a.lesson.group.directionId
     const dirName = a.lesson.group.direction.name
-    if (!accrualsByEmployee.has(empId)) accrualsByEmployee.set(empId, new Map())
-    const m = accrualsByEmployee.get(empId)!
+    if (!pieceAccruals.has(empId)) pieceAccruals.set(empId, new Map())
+    const m = pieceAccruals.get(empId)!
     const key = dirId
     const prev = m.get(key) || { directionId: dirId, directionName: dirName, amount: 0 }
     prev.amount += Number(a.instructorPayAmount)
     m.set(key, prev)
   }
 
-  // === Окладники ===
+  // 2. Оклад — из Employee.monthlySalary (ключ = defaultDirectionId ?? "__no_direction__").
   // При границе внутри месяца оклад начисляется пропорционально дням.
+  const okladAccruals = new Map<string, Map<string, AccrualPerDir>>()
   const salaryShare = partial ? accrualEnd.getUTCDate() / monthEnd.getUTCDate() : 1
   for (const emp of employees) {
     const ms = (emp.monthlySalary ? Number(emp.monthlySalary) : 0) * salaryShare
     if (ms <= 0) continue
     const dirId = emp.defaultDirectionId ?? null
     const dirName = emp.defaultDirection?.name ?? "Без направления"
-    if (!accrualsByEmployee.has(emp.id)) accrualsByEmployee.set(emp.id, new Map())
-    const m = accrualsByEmployee.get(emp.id)!
+    if (!okladAccruals.has(emp.id)) okladAccruals.set(emp.id, new Map())
+    const m = okladAccruals.get(emp.id)!
     const key = dirId ?? "__no_direction__"
-    // Окладник = базовое начисление (если у преподавателя тоже есть оклад — складываем).
     const prev = m.get(key) || { directionId: dirId, directionName: dirName, amount: 0 }
     prev.amount += ms
     m.set(key, prev)
+  }
+
+  // Выбор источника(ов) под тип документа. По умолчанию (kind не задан) —
+  // слияние обоих ПОБАЙТОВО как раньше: сначала сделка, затем оклад
+  // суммируется в тот же ключ направления (сохраняя directionName сделки).
+  let accrualsByEmployee: Map<string, Map<string, AccrualPerDir>>
+  if (kind === "salary") {
+    accrualsByEmployee = okladAccruals
+  } else if (kind === "piece") {
+    accrualsByEmployee = pieceAccruals
+  } else {
+    accrualsByEmployee = new Map<string, Map<string, AccrualPerDir>>()
+    const mergeInto = (source: Map<string, Map<string, AccrualPerDir>>) => {
+      for (const [empId, dirMap] of source) {
+        if (!accrualsByEmployee.has(empId)) accrualsByEmployee.set(empId, new Map())
+        const tm = accrualsByEmployee.get(empId)!
+        for (const [key, entry] of dirMap) {
+          const prev = tm.get(key) || { directionId: entry.directionId, directionName: entry.directionName, amount: 0 }
+          prev.amount += entry.amount
+          tm.set(key, prev)
+        }
+      }
+    }
+    mergeInto(pieceAccruals)
+    mergeInto(okladAccruals)
   }
 
   // === Корректировки и выплаты ===
