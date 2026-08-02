@@ -200,8 +200,6 @@ export async function POST(req: NextRequest) {
 
     const payment = await db.$transaction(async (tx) => {
       let p: { id: string } | null = null
-      // employeeId → id его выплаты в этом документе (для линковки премий/штрафов).
-      const paymentIdByEmployee = new Map<string, string>()
 
       // Выплата (может отсутствовать, если проводят только премию/штраф).
       if (data.items.length > 0) {
@@ -233,7 +231,6 @@ export async function POST(req: NextRequest) {
             },
           })
           if (!p) p = created
-          paymentIdByEmployee.set(empId, created.id)
 
           await tx.salaryPaymentItem.createMany({
             data: empItems.map((it) => ({
@@ -297,9 +294,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Премии/штрафы за период (атомарно с выплатой). Линкуем к выплате сотрудника,
-      // если она есть в документе → аннулирование выплаты каскадом уберёт и их
-      // (иначе salaryPaymentId=null — самостоятельная корректировка).
+      // Премии/штрафы за период (атомарно с выплатой). Это период-уровневые
+      // начисления, НЕ привязанные к конкретной выплате: аннулирование выплаты их
+      // не трогает (штраф-депремирование дисциплинарный и не должен «возвращаться»).
       if (data.adjustments.length > 0) {
         await tx.salaryAdjustment.createMany({
           data: data.adjustments.map((a) => ({
@@ -311,7 +308,6 @@ export async function POST(req: NextRequest) {
             periodMonth: data.periodMonth,
             comment: a.comment,
             createdBy: employeeId,
-            salaryPaymentId: paymentIdByEmployee.get(a.employeeId) ?? null,
           })),
         })
       }

@@ -828,7 +828,6 @@ model SalaryPayment {
   account      FinancialAccount    @relation(fields: [accountId], references: [id])
   items        SalaryPaymentItem[]
   opiuExpenses Expense[]           @relation("SalaryPaymentTwin")
-  adjustments  SalaryAdjustment[]
 
   @@index([tenantId, periodYear, periodMonth])
   @@map("salary_payments")
@@ -870,16 +869,10 @@ model SalaryAdjustment {
   comment     String
   createdBy   String?        @map("created_by") @db.Uuid
   createdAt   DateTime       @default(now()) @map("created_at")
-  // Премия/штраф, внесённые вместе с выплатой («Документ выплат»), линкуются к
-  // выплате сотрудника. onDelete Cascade → аннулирование выплаты убирает и их.
-  // NULL — самостоятельная корректировка (внесена отдельно, без выплаты).
-  salaryPaymentId String?    @map("salary_payment_id") @db.Uuid
 
-  employee      Employee       @relation(fields: [employeeId], references: [id])
-  salaryPayment SalaryPayment? @relation(fields: [salaryPaymentId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id])
 
   @@index([tenantId, periodYear, periodMonth])
-  @@index([salaryPaymentId])
   @@map("salary_adjustments")
 }
 

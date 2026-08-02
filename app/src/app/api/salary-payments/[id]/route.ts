@@ -63,8 +63,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     for (const [acc, sum] of byAccount) {
       await tx.financialAccount.update({ where: { id: acc }, data: { balance: { increment: sum } } })
     }
-    // Твин-Expense, SalaryPaymentItem и связанные премии/штрафы (salary_payment_id)
-    // удаляются каскадом по FK ON DELETE CASCADE. Явно удаляем шапку выплаты.
+    // Твин-Expense и SalaryPaymentItem удаляются каскадом по FK ON DELETE CASCADE.
+    // Премии/штрафы (SalaryAdjustment) — период-уровневые, аннулом НЕ трогаются.
+    // Явно удаляем шапку выплаты.
     await tx.salaryPayment.delete({ where: { id: payment.id } })
   })
 
@@ -90,7 +91,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const payment = await db.salaryPayment.findFirst({
     where: { id, tenantId },
     select: {
-      id: true, employeeId: true, periodYear: true, periodMonth: true,
+      id: true, employeeId: true, accountId: true, amount: true, periodYear: true, periodMonth: true,
       opiuExpenses: { select: { id: true } },
       items: { select: { accountId: true, amount: true } },
     },
@@ -123,6 +124,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // Откат старого баланса по счетам старых позиций + применение нового по счетам новых.
     const oldByAccount = new Map<string, number>()
     for (const it of payment.items) oldByAccount.set(it.accountId, (oldByAccount.get(it.accountId) || 0) + Number(it.amount))
+    // Фолбэк на шапку для legacy-выплат без позиций (как в DELETE) — иначе старый
+    // декремент не вернётся, и правка спишет со счёта дважды.
+    if (oldByAccount.size === 0) oldByAccount.set(payment.accountId, Number(payment.amount))
     for (const [acc, sum] of oldByAccount) {
       await tx.financialAccount.update({ where: { id: acc }, data: { balance: { increment: sum } } })
     }
