@@ -16,6 +16,7 @@ import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
 import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
+import { ConductedPaymentsList } from "@/components/salary/conducted-payments-list"
 
 export default async function SalaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
@@ -25,7 +26,9 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
   const formatMoney = (amount: number) => fmtCurrency(amount, currency)
 
-  const { year, month } = getMonthFromParams(await searchParams)
+  const sp = await searchParams
+  const activeTab = sp.tab === "salary" ? "salary" : "piece"
+  const { year, month } = getMonthFromParams(sp)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0))
 
@@ -107,30 +110,43 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
     paidByEmployee.set(p.employeeId, (paidByEmployee.get(p.employeeId) || 0) + Number(p.amount))
   }
 
-  // Таблица
+  // Классификация по источнику ЗП (спека Р6/Р7):
+  //  • «Оклады» — у кого задан оклад в карточке (monthlySalary>0).
+  //  • «Сдельная» — у кого есть начисление за занятия.
+  //  Совмещающий попадает в обе вкладки (в каждой — своя часть).
+  const okladIds = new Set(employees.filter((e) => Number(e.monthlySalary) > 0).map((e) => e.id))
+
+  // Таблица. Строка несёт обе части начисления раздельно: pieceAccrued (сделка
+  // за занятия) и okladAccrued (оклад из карточки). Колонка «Начислено» на
+  // каждой вкладке показывает свою часть, чтобы вкладки не смешивались.
   const rows = employees.map((emp) => {
     const name = [emp.lastName, emp.firstName].filter(Boolean).join(" ") || "Без имени"
-    // Начислено = ЗП за занятия + оклад окладника (Employee.monthlySalary).
-    // Без оклада сводная ведомость показывала окладникам 0, хотя на детализации
-    // (instructor-detail) оклад начисляется — расхождение. Теперь согласовано.
-    const accrued = (accrualsByEmployee.get(emp.id) || 0) + (Number(emp.monthlySalary) || 0)
+    const pieceAccrued = accrualsByEmployee.get(emp.id) || 0
+    const okladAccrued = Number(emp.monthlySalary) || 0
     const bonuses = bonusesByEmployee.get(emp.id) || 0
     const penalties = penaltiesByEmployee.get(emp.id) || 0
     const paid = paidByEmployee.get(emp.id) || 0
-    const remaining = accrued + bonuses - penalties - paid
+    const accrued = pieceAccrued + okladAccrued
+    // «Осталось» и предзаполнение суммы выплаты — по РЕЛЕВАНТНОЙ вкладке части
+    // начисления (оклад для «Оклады», сделка для «Сдельной»). Иначе на вкладке
+    // «Оклады» в выплату окладника-инструктора подставилась бы и сделочная часть,
+    // и она попала бы в твин-расход «Зарплата окладников» → двойной счёт в ОПИУ
+    // (сделка уже начисляется отдельно из посещений).
+    const tabAccrued = activeTab === "salary" ? okladAccrued : pieceAccrued
+    const remaining = tabAccrued + bonuses - penalties - paid
     const substitutions = substituteLessonCount.get(emp.id) || 0
-    return { id: emp.id, name, role: emp.role, accrued, bonuses, penalties, paid, remaining, substitutions }
-  }).filter(r => r.accrued > 0 || r.bonuses > 0 || r.penalties > 0 || r.paid > 0 || r.remaining !== 0)
+    return { id: emp.id, name, role: emp.role, pieceAccrued, okladAccrued, accrued, bonuses, penalties, paid, remaining, substitutions }
+  })
 
-  // Если нет данных, покажем всех с начислениями = 0
-  const displayRows = rows.length > 0 ? rows : employees.map((emp) => ({
-    id: emp.id,
-    name: [emp.lastName, emp.firstName].filter(Boolean).join(" ") || "Без имени",
-    role: emp.role,
-    accrued: 0, bonuses: 0, penalties: 0, paid: 0, remaining: 0, substitutions: 0,
-  }))
+  // Наборы строк по вкладкам: «Сдельная» — у кого есть сделочное начисление;
+  // «Оклады» — окладники (monthlySalary>0). Пустая вкладка → пустая ведомость.
+  const pieceRows = rows.filter((r) => r.pieceAccrued > 0)
+  const salaryRows = rows.filter((r) => okladIds.has(r.id))
+  const tabRows = activeTab === "salary" ? salaryRows : pieceRows
+  const displayRows = tabRows.length > 0 ? tabRows : []
 
-  const totalAccrued = displayRows.reduce((s, r) => s + r.accrued, 0)
+  // «Начислено» на вкладке = релевантная часть: оклад для «Оклады», сделка для «Сдельная».
+  const totalAccrued = displayRows.reduce((s, r) => s + (activeTab === "salary" ? r.okladAccrued : r.pieceAccrued), 0)
   const totalBonuses = displayRows.reduce((s, r) => s + r.bonuses, 0)
   const totalPenalties = displayRows.reduce((s, r) => s + r.penalties, 0)
   const totalPaid = displayRows.reduce((s, r) => s + r.paid, 0)
@@ -158,7 +174,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   const salaryExportRows = displayRows.map((r) => ({
     name: r.name,
     role: roleNames[r.role as keyof typeof roleNames] || r.role,
-    accrued: Math.round(r.accrued),
+    accrued: Math.round(activeTab === "salary" ? r.okladAccrued : r.pieceAccrued),
     bonuses: Math.round(r.bonuses),
     penalties: Math.round(r.penalties),
     paid: Math.round(r.paid),
@@ -188,8 +204,16 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
             period={monthName}
           />
         </div>
+        <div className="flex flex-wrap items-center gap-2 border-b pb-2">
+          <Link href={`/salary?year=${year}&month=${month}&tab=piece`}>
+            <Badge variant={activeTab === "piece" ? "default" : "outline"} className="cursor-pointer">Сдельная</Badge>
+          </Link>
+          <Link href={`/salary?year=${year}&month=${month}&tab=salary`}>
+            <Badge variant={activeTab === "salary" ? "default" : "outline"} className="cursor-pointer">Оклады</Badge>
+          </Link>
+        </div>
         <div className="flex items-center gap-2">
-          <Link href={`/salary/payments/new?year=${year}&month=${month}`}>
+          <Link href={`/salary/payments/new?year=${year}&month=${month}&kind=${activeTab === "salary" ? "salary" : "piece"}`}>
             <Button variant="outline">
               <FileText className="mr-2 size-4" />
               Документ выплат
@@ -200,6 +224,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
             accounts={accounts}
             periodYear={year}
             periodMonth={month}
+            kind={activeTab === "salary" ? "salary" : "piece"}
           />
         </div>
       </div>
@@ -267,7 +292,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
                       </Link>
                     </TableCell>
                     <TableCell><Badge variant="outline">{roleNames[r.role as keyof typeof roleNames] || r.role}</Badge></TableCell>
-                    <TableCell className="text-right">{formatMoney(r.accrued)}</TableCell>
+                    <TableCell className="text-right">{formatMoney(activeTab === "salary" ? r.okladAccrued : r.pieceAccrued)}</TableCell>
                     <TableCell className="text-right text-green-600">{r.bonuses > 0 ? formatMoney(r.bonuses) : "—"}</TableCell>
                     <TableCell className="text-right text-red-600">{r.penalties > 0 ? formatMoney(r.penalties) : "—"}</TableCell>
                     <TableCell className="text-right text-purple-600">{r.paid > 0 ? formatMoney(r.paid) : "—"}</TableCell>
@@ -289,6 +314,8 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
           </div>
         </CardContent>
       </Card>
+
+      <ConductedPaymentsList year={year} month={month} kind={activeTab === "salary" ? "salary" : "piece"} />
     </div>
   )
 }

@@ -26,6 +26,8 @@ import { Plus, Trash2, ArrowLeft, Sparkles } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { useCurrencySymbol } from "@/components/currency-provider"
+import { OpiuRecognitionFieldset, type OpiuRecognitionState } from "@/components/opiu-recognition-fieldset"
+import { resolveRecognition, type RecognitionPayload } from "@/lib/expense-recognition"
 
 interface AccountOption {
   id: string
@@ -134,6 +136,11 @@ function NewSalaryPaymentForm() {
       ? qMonth
       : now.getMonth() === 0 ? 12 : now.getMonth()
   )
+  const kind = searchParams.get("kind") === "salary" ? "salary" : "piece"
+  const periodMonthStr = `${periodYear}-${String(periodMonth).padStart(2, "0")}`
+  const [opiu, setOpiu] = useState<OpiuRecognitionState>({
+    recognitionMode: "single_period", singleMonth: periodMonthStr, amortStartMonth: periodMonthStr, amortMonths: "3",
+  })
   const [date, setDate] = useState(todayIso)
   const [comment, setComment] = useState("")
 
@@ -288,12 +295,18 @@ function NewSalaryPaymentForm() {
       if (!Number.isFinite(n) || n <= 0) { setError(`Укажите сумму для строки «${it.employeeName} — ${it.directionName}»`); return }
     }
 
+    let recognition: RecognitionPayload = { recognitionMode: "by_payment_date", amortizationStartDate: undefined, amortizationMonths: undefined }
+    if (kind === "salary") {
+      try { recognition = resolveRecognition(opiu) } catch (err) { setError(err instanceof Error ? err.message : "Ошибка признания"); return }
+    }
+
     setSaving(true)
     try {
       const res = await fetch("/api/salary-payments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          kind,
           date,
           periodYear,
           periodMonth,
@@ -308,6 +321,9 @@ function NewSalaryPaymentForm() {
             amount: Number(it.amount),
             comment: it.comment || undefined,
           })),
+          recognitionMode: recognition.recognitionMode,
+          amortizationStartDate: recognition.amortizationStartDate,
+          amortizationMonths: recognition.amortizationMonths,
         }),
       })
       if (!res.ok) {
@@ -350,7 +366,7 @@ function NewSalaryPaymentForm() {
         </Link>
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">Документ выплаты ЗП</h1>
+            <h1 className="text-2xl font-bold">Документ выплаты ЗП{kind === "salary" ? " (оклады)" : " (сдельная)"}</h1>
             <PageHelp pageKey="salary/payments/new" />
           </div>
           <p className="text-sm text-muted-foreground">
@@ -608,6 +624,10 @@ function NewSalaryPaymentForm() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {kind === "salary" && items.length > 0 && (
+        <OpiuRecognitionFieldset value={opiu} onChange={setOpiu} amount={totalAmount} sym={currencySym} />
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-y-3 rounded-md border bg-muted/30 px-4 py-3">

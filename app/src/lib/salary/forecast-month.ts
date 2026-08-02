@@ -16,7 +16,7 @@ interface RateLike {
 export interface InstructorForecastRow {
   instructorId: string
   instructorName: string
-  /** Оклад перекрывает сдельный расчёт: для окладника forecast = его оклад. */
+  /** Окладник: forecast = оклад + сдельное начисление за проведённые занятия. */
   isOklad: boolean
   forecast: number
   lessonsCount: number
@@ -62,8 +62,8 @@ function lessonPay(rate: RateLike, students: number): number {
  * Правило владельца: «ЗП инструкторов пишется или оклад если есть, или
  * подсчитывается по ставке и количеству занятий».
  *
- *   • Окладник (Employee.monthlySalary > 0) → берём оклад как фикс за месяц,
- *     независимо от числа занятий. Оклад перекрывает сдельный расчёт.
+ *   • Окладник (Employee.monthlySalary > 0) → оклад как фикс за месяц ПЛЮС
+ *     сдельное начисление за проведённые занятия (если ставка резолвится).
  *   • Сдельщик → по его ставке и занятиям месяца. Резолв ставки повторяет
  *     приоритет resolve-rate.ts: ставка группы (GroupSalaryRate) →
  *     личная по направлению → личная дефолтная. Число учеников на занятие
@@ -194,23 +194,19 @@ export async function computeSalaryForecastBreakdown(
     const effId = l.substituteInstructorId || l.instructorId
     const name = [eff?.lastName, eff?.firstName].filter(Boolean).join(" ") || effId
 
-    // Окладник: оклад — фикс за месяц (не за занятие). Считаем занятия, но
-    // forecast = оклад (проставляется один раз ниже). Оклад перекрывает сдельку.
-    if (okladMap.has(effId)) {
-      const a = ensure(effId, name, true)
-      a.lessonsCount += 1
-      if (l.group.direction?.name) a.directions.add(l.group.direction.name)
-      continue
-    }
+    // Оклад + сделка суммируются: у окладника считаем и оклад (фикс за месяц,
+    // прибавляется в сборке строк ниже), и сдельное начисление за проведённые
+    // занятия. Если ставка не резолвится — сделочная часть просто 0 (только оклад).
+    const isOklad = okladMap.has(effId)
+    const a = ensure(effId, name, isOklad)
+    a.lessonsCount += 1
+    if (l.group.direction?.name) a.directions.add(l.group.direction.name)
 
     const rate = resolveRate(l.groupId, effId, l.group.directionId, new Date(l.date))
     if (!rate) continue
     const students = enrollCount.get(l.groupId) || 0
-    const a = ensure(effId, name, false)
     a.forecast += lessonPay(rate, students)
-    a.lessonsCount += 1
     a.studentsCount += students
-    if (l.group.direction?.name) a.directions.add(l.group.direction.name)
     a.schemeCount.set(rate.scheme, (a.schemeCount.get(rate.scheme) || 0) + 1)
   }
 
@@ -224,7 +220,7 @@ export async function computeSalaryForecastBreakdown(
       instructorId: a.instructorId,
       instructorName: a.instructorName,
       isOklad: a.isOklad,
-      forecast: a.isOklad ? (okladMap.get(a.instructorId) || 0) : a.forecast,
+      forecast: a.forecast + (a.isOklad ? (okladMap.get(a.instructorId) || 0) : 0),
       lessonsCount: a.lessonsCount,
       studentsCount: a.studentsCount,
       directionNames: [...a.directions],

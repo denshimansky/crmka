@@ -6,6 +6,23 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { z } from "zod"
 import { logAudit } from "@/lib/audit"
 import { requirePermission } from "@/lib/api-permissions"
+import { buildOkladTwinExpenses } from "@/lib/salary/oklad-twin"
+
+const OKLAD_EXPENSE_CATEGORY_NAME = "Зарплата окладников"
+
+/** Возвращает id системной категории оклад-расхода, создавая её при отсутствии. */
+async function getOkladCategoryId(tx: { expenseCategory: any }): Promise<string> {
+  const existing = await tx.expenseCategory.findFirst({
+    where: { name: OKLAD_EXPENSE_CATEGORY_NAME, tenantId: null },
+    select: { id: true },
+  })
+  if (existing) return existing.id
+  const created = await tx.expenseCategory.create({
+    data: { tenantId: null, name: OKLAD_EXPENSE_CATEGORY_NAME, isSalary: true, isVariable: false, isSystem: true, isActive: true, sortOrder: 14 },
+    select: { id: true },
+  })
+  return created.id
+}
 
 // Legacy: одна выплата = (employee × account × amount). Используется простым диалогом
 // «Провести выплату». Сохраняется как SalaryPayment + одна позиция SalaryPaymentItem
@@ -22,6 +39,10 @@ const legacySchema = z.object({
     return n === 1 || n === 2 ? n : undefined
   }),
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  kind: z.enum(["salary", "piece"]).default("piece"),
+  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized", "not_in_pnl"]).default("by_payment_date"),
+  amortizationStartDate: z.string().optional().nullable(),
+  amortizationMonths: z.number().int().min(1).max(60).optional().nullable(),
 })
 
 // Document: одна выплата = N позиций (сотрудник × счёт × направление × сумма).
@@ -52,6 +73,10 @@ const docSchema = z.object({
     amount: z.number().min(0.01),
     comment: z.string().min(1, "Комментарий к премии/штрафу обязателен"),
   })).default([]),
+  kind: z.enum(["salary", "piece"]).default("piece"),
+  recognitionMode: z.enum(["by_payment_date", "single_period", "amortized", "not_in_pnl"]).default("by_payment_date"),
+  amortizationStartDate: z.string().optional().nullable(),
+  amortizationMonths: z.number().int().min(1).max(60).optional().nullable(),
 }).refine((d) => d.items.length > 0 || d.adjustments.length > 0, {
   message: "Добавьте строку выплаты или премию/штраф",
   path: ["items"],
@@ -63,9 +88,13 @@ export async function GET(req: NextRequest) {
   const session = guard.session
 
   const { searchParams } = new URL(req.url)
-  const periodYear = Number(searchParams.get("periodYear")) || new Date().getFullYear()
-  const periodMonth = Number(searchParams.get("periodMonth")) || new Date().getMonth() + 1
+  // `year`/`month` — алиасы `periodYear`/`periodMonth` (ConductedPaymentsList шлёт короткие
+  // имена); оставляем и длинные для обратной совместимости с существующими вызовами.
+  const periodYear = Number(searchParams.get("periodYear") ?? searchParams.get("year")) || new Date().getFullYear()
+  const periodMonth = Number(searchParams.get("periodMonth") ?? searchParams.get("month")) || new Date().getMonth() + 1
   const employeeId = searchParams.get("employeeId")
+  // kind: "salary" (окладные — есть твин-Expense) | "piece" (сдельные — твина нет).
+  const kind = searchParams.get("kind")
 
   const where: any = {
     tenantId: session.user.tenantId,
@@ -86,11 +115,26 @@ export async function GET(req: NextRequest) {
           direction: { select: { id: true, name: true } },
         },
       },
+      _count: { select: { opiuExpenses: true } },
     },
     orderBy: { date: "desc" },
   })
 
-  return NextResponse.json(payments)
+  // Обогащаем ответ плоскими полями для ConductedPaymentsList (employeeName/accountName/
+  // isOklad/date как YYYY-MM-DD), сохраняя исходную структуру (employee/account/items) —
+  // существующие вызовы GET (напр. будущие отчёты) не ломаются, форма ответа (массив) та же.
+  let enriched = payments.map((p) => ({
+    ...p,
+    employeeName: [p.employee?.lastName, p.employee?.firstName].filter(Boolean).join(" ").trim() || p.employee?.id || "",
+    accountName: p.account?.name ?? "",
+    isOklad: p._count.opiuExpenses > 0,
+    date: p.date.toISOString().slice(0, 10),
+  }))
+
+  if (kind === "salary") enriched = enriched.filter((p) => p.isOklad)
+  else if (kind === "piece") enriched = enriched.filter((p) => !p.isOklad)
+
+  return NextResponse.json(enriched)
 }
 
 export async function POST(req: NextRequest) {
@@ -129,7 +173,7 @@ export async function POST(req: NextRequest) {
     const directionIds = Array.from(new Set(data.items.map(i => i.directionId).filter((v): v is string => !!v)))
 
     const [employees, accounts, directions] = await Promise.all([
-      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true } }),
+      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true, monthlySalary: true } }),
       accountIds.length > 0
         ? db.financialAccount.findMany({ where: { id: { in: accountIds }, tenantId }, select: { id: true } })
         : Promise.resolve([] as Array<{ id: string }>),
@@ -148,6 +192,15 @@ export async function POST(req: NextRequest) {
     }
 
     const totalAmount = data.items.reduce((s, it) => s + it.amount, 0)
+
+    // Твин-расход оклада создаём ТОЛЬКО для реальных окладников (monthlySalary>0),
+    // а не по одному kind: сделочная выплата, ошибочно отправленная с kind=salary,
+    // иначе стала бы «Зарплата окладников» и задвоила сделку в ОПИУ (та начисляется
+    // отдельно из посещений). UI это не допускает (вкладка/автозаполнение скоуплены),
+    // но эндпоинт — источник истины.
+    const okladEmpIds = new Set(
+      employees.filter((e) => Number(e.monthlySalary) > 0).map((e) => e.id),
+    )
 
     const payment = await db.$transaction(async (tx) => {
       let p: { id: string } | null = null
@@ -194,6 +247,46 @@ export async function POST(req: NextRequest) {
               comment: it.comment ?? null,
             })),
           })
+
+          // Оклад-выплата → твин-расход(ы) для ОПИУ (accountId=NULL, ДДС их игнорирует).
+          // Только для окладников — см. okladEmpIds выше.
+          if (data.kind === "salary" && okladEmpIds.has(empId)) {
+            const okladCategoryId = await getOkladCategoryId(tx)
+            const twins = buildOkladTwinExpenses({
+              tenantId,
+              categoryId: okladCategoryId,
+              salaryPaymentId: created.id,
+              date: new Date(data.date),
+              recognitionMode: data.recognitionMode,
+              amortizationStartDate: data.amortizationStartDate ? new Date(data.amortizationStartDate) : null,
+              amortizationMonths: data.amortizationMonths ?? null,
+              createdBy: employeeId ?? null,
+              items: empItems.map((it) => ({ directionId: it.directionId ?? null, amount: it.amount })),
+            })
+            for (const t of twins) {
+              const exp = await tx.expense.create({
+                data: {
+                  tenantId: t.tenantId,
+                  categoryId: t.categoryId,
+                  accountId: null,
+                  amount: t.amount,
+                  date: t.date,
+                  recognitionMode: t.recognitionMode,
+                  amortizationStartDate: t.amortizationStartDate,
+                  amortizationMonths: t.amortizationMonths,
+                  isVariable: false,
+                  salaryPaymentId: t.salaryPaymentId,
+                  createdBy: t.createdBy,
+                },
+                select: { id: true },
+              })
+              if (t.directionId) {
+                await tx.expenseBranch.create({
+                  data: { tenantId, expenseId: exp.id, branchId: null, directionId: t.directionId },
+                })
+              }
+            }
+          }
         }
 
         // Списываем суммы со счетов (агрегируем по счёту, чтобы не дёргать update N раз).
@@ -252,7 +345,7 @@ export async function POST(req: NextRequest) {
   const data = parsed.data
 
   const [employee, account] = await Promise.all([
-    db.employee.findFirst({ where: { id: data.employeeId, tenantId }, select: { id: true } }),
+    db.employee.findFirst({ where: { id: data.employeeId, tenantId }, select: { id: true, defaultDirectionId: true, monthlySalary: true } }),
     db.financialAccount.findFirst({ where: { id: data.accountId, tenantId }, select: { id: true } }),
   ])
   if (!employee) return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
@@ -295,6 +388,35 @@ export async function POST(req: NextRequest) {
         comment: data.comment ?? null,
       },
     })
+
+    // Оклад-выплата → твин-расход для ОПИУ (accountId=NULL). Направление — из карточки
+    // сотрудника (простой диалог направление не передаёт). Твин только для реального
+    // окладника (monthlySalary>0) — иначе сделочная выплата с kind=salary задвоила бы
+    // сделку в ОПИУ.
+    if (data.kind === "salary" && Number(employee.monthlySalary) > 0) {
+      const okladCategoryId = await getOkladCategoryId(tx)
+      const exp = await tx.expense.create({
+        data: {
+          tenantId,
+          categoryId: okladCategoryId,
+          accountId: null,
+          amount: data.amount,
+          date: new Date(data.date),
+          recognitionMode: data.recognitionMode,
+          amortizationStartDate: data.amortizationStartDate ? new Date(data.amortizationStartDate) : null,
+          amortizationMonths: data.amortizationMonths ?? null,
+          isVariable: false,
+          salaryPaymentId: p.id,
+          createdBy: employeeId ?? null,
+        },
+        select: { id: true },
+      })
+      if (employee.defaultDirectionId) {
+        await tx.expenseBranch.create({
+          data: { tenantId, expenseId: exp.id, branchId: null, directionId: employee.defaultDirectionId },
+        })
+      }
+    }
 
     await tx.financialAccount.update({
       where: { id: data.accountId },
