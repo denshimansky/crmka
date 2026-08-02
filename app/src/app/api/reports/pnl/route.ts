@@ -167,7 +167,11 @@ export async function GET(req: NextRequest) {
 
   const totalExpenses = slices.reduce((s, x) => s + x.amountInWindow, 0)
 
-  // Начисленная ЗП инструкторов = факт занятий (по дате занятия), как было.
+  // Начисленная ЗП инструкторов (сдельная) = факт занятий по дате занятия.
+  // Оклад окладников больше НЕ начисляется здесь фантомно: он приходит настоящим
+  // расходом (категория «Зарплата окладников», твин выплаты) и уже учтён в totalExpenses.
+  // Премии/штрафы окладников также приходят суммой выплаты (в твине), поэтому
+  // SalaryAdjustment в ОПИУ здесь не суммируется — иначе двойной счёт.
   const salaryAtt = await db.attendance.findMany({
     where: {
       tenantId,
@@ -177,45 +181,7 @@ export async function GET(req: NextRequest) {
     },
     select: { instructorPayAmount: true },
   })
-  const instructorSalaryAccrued = salaryAtt.reduce((s, a) => s + Number(a.instructorPayAmount), 0)
-
-  // Окладники: Employee.monthlySalary × (число месяцев в окне). Окно ОПИУ обычно = 1 месяц
-  // (MonthPicker), но если кто-то задал диапазон — считаем по числу полных месяцев.
-  const monthsInWindow =
-    (toY - fromY) * 12 + (toM - fromM) + 1
-  const salariedEmployees = await db.employee.findMany({
-    where: { tenantId, deletedAt: null, isActive: true, monthlySalary: { not: null } },
-    select: { id: true, monthlySalary: true },
-  })
-  const monthlySalaryTotal = salariedEmployees.reduce(
-    (s, e) => s + Number(e.monthlySalary ?? 0),
-    0,
-  )
-  const fixedSalaryAccrued = monthlySalaryTotal * monthsInWindow
-
-  // Премии / штрафы окладников и преподов за окно.
-  const adjustments = await db.salaryAdjustment.findMany({
-    where: {
-      tenantId,
-      periodYear: { gte: fromY, lte: toY },
-      // Дополнительной фильтрации по месяцу не делаем — для одиночного месяца fromY=toY,
-      // а в P&L UI окно почти всегда = 1 месяц.
-    },
-    select: { type: true, amount: true, periodYear: true, periodMonth: true },
-  })
-  let adjustBonus = 0
-  let adjustPenalty = 0
-  for (const adj of adjustments) {
-    const k = adj.periodYear * 12 + (adj.periodMonth - 1)
-    const fromKey = fromY * 12 + (fromM - 1)
-    const toKey = toY * 12 + (toM - 1)
-    if (k < fromKey || k > toKey) continue
-    if (adj.type === "bonus") adjustBonus += Number(adj.amount)
-    else adjustPenalty += Number(adj.amount)
-  }
-
-  const totalSalaryAccrued =
-    instructorSalaryAccrued + fixedSalaryAccrued + adjustBonus - adjustPenalty
+  const totalSalaryAccrued = salaryAtt.reduce((s, a) => s + Number(a.instructorPayAmount), 0)
 
   // По категориям.
   const byCategory: Record<string, { amount: number; isSalary: boolean; isVariable: boolean }> = {}
