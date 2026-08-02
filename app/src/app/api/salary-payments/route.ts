@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
     const directionIds = Array.from(new Set(data.items.map(i => i.directionId).filter((v): v is string => !!v)))
 
     const [employees, accounts, directions] = await Promise.all([
-      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true } }),
+      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true, monthlySalary: true } }),
       accountIds.length > 0
         ? db.financialAccount.findMany({ where: { id: { in: accountIds }, tenantId }, select: { id: true } })
         : Promise.resolve([] as Array<{ id: string }>),
@@ -192,6 +192,15 @@ export async function POST(req: NextRequest) {
     }
 
     const totalAmount = data.items.reduce((s, it) => s + it.amount, 0)
+
+    // Твин-расход оклада создаём ТОЛЬКО для реальных окладников (monthlySalary>0),
+    // а не по одному kind: сделочная выплата, ошибочно отправленная с kind=salary,
+    // иначе стала бы «Зарплата окладников» и задвоила сделку в ОПИУ (та начисляется
+    // отдельно из посещений). UI это не допускает (вкладка/автозаполнение скоуплены),
+    // но эндпоинт — источник истины.
+    const okladEmpIds = new Set(
+      employees.filter((e) => Number(e.monthlySalary) > 0).map((e) => e.id),
+    )
 
     const payment = await db.$transaction(async (tx) => {
       let p: { id: string } | null = null
@@ -240,7 +249,8 @@ export async function POST(req: NextRequest) {
           })
 
           // Оклад-выплата → твин-расход(ы) для ОПИУ (accountId=NULL, ДДС их игнорирует).
-          if (data.kind === "salary") {
+          // Только для окладников — см. okladEmpIds выше.
+          if (data.kind === "salary" && okladEmpIds.has(empId)) {
             const okladCategoryId = await getOkladCategoryId(tx)
             const twins = buildOkladTwinExpenses({
               tenantId,
@@ -335,7 +345,7 @@ export async function POST(req: NextRequest) {
   const data = parsed.data
 
   const [employee, account] = await Promise.all([
-    db.employee.findFirst({ where: { id: data.employeeId, tenantId }, select: { id: true, defaultDirectionId: true } }),
+    db.employee.findFirst({ where: { id: data.employeeId, tenantId }, select: { id: true, defaultDirectionId: true, monthlySalary: true } }),
     db.financialAccount.findFirst({ where: { id: data.accountId, tenantId }, select: { id: true } }),
   ])
   if (!employee) return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
@@ -380,8 +390,10 @@ export async function POST(req: NextRequest) {
     })
 
     // Оклад-выплата → твин-расход для ОПИУ (accountId=NULL). Направление — из карточки
-    // сотрудника (простой диалог направление не передаёт).
-    if (data.kind === "salary") {
+    // сотрудника (простой диалог направление не передаёт). Твин только для реального
+    // окладника (monthlySalary>0) — иначе сделочная выплата с kind=salary задвоила бы
+    // сделку в ОПИУ.
+    if (data.kind === "salary" && Number(employee.monthlySalary) > 0) {
       const okladCategoryId = await getOkladCategoryId(tx)
       const exp = await tx.expense.create({
         data: {
