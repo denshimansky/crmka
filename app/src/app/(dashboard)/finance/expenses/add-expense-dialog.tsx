@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/select"
 import { Plus } from "lucide-react"
 import { useCurrencySymbol } from "@/components/currency-provider"
+import { OpiuRecognitionFieldset, type OpiuRecognitionState } from "@/components/opiu-recognition-fieldset"
+import { resolveRecognition } from "@/lib/expense-recognition"
 
 interface CategoryOption {
   id: string
@@ -54,33 +56,6 @@ interface LeadChannelOption {
 const MARKETING_CATEGORY_NAME = "Маркетинг и реклама"
 const NONE_VALUE = "__none__"
 
-type RecognitionMode = "by_payment_date" | "single_period" | "amortized" | "not_in_pnl"
-
-const MONTH_NAMES = [
-  "январь", "февраль", "март", "апрель", "май", "июнь",
-  "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
-]
-
-function formatMonth(yyyymm: string): string {
-  // yyyymm = "2026-06"
-  const [y, m] = yyyymm.split("-").map(Number)
-  if (!y || !m || m < 1 || m > 12) return yyyymm
-  return `${MONTH_NAMES[m - 1]} ${y}`
-}
-
-function shiftMonth(yyyymm: string, delta: number): string {
-  const [y, m] = yyyymm.split("-").map(Number)
-  if (!y || !m) return yyyymm
-  const k = y * 12 + (m - 1) + delta
-  const yy = Math.floor(k / 12)
-  const mm = (k % 12) + 1
-  return `${yy}-${String(mm).padStart(2, "0")}`
-}
-
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(amount)
-}
-
 export function AddExpenseDialog({
   categories,
   accounts,
@@ -109,10 +84,9 @@ export function AddExpenseDialog({
   const [date, setDate] = useState(todayIso)
   const [comment, setComment] = useState("")
   const [isRecurring, setIsRecurring] = useState(false)
-  const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>("by_payment_date")
-  const [singleMonth, setSingleMonth] = useState(todayMonth)
-  const [amortStartMonth, setAmortStartMonth] = useState(todayMonth)
-  const [amortMonths, setAmortMonths] = useState("3")
+  const [opiu, setOpiu] = useState<OpiuRecognitionState>({
+    recognitionMode: "by_payment_date", singleMonth: todayMonth, amortStartMonth: todayMonth, amortMonths: "3",
+  })
   const [selectedBranches, setSelectedBranches] = useState<string[]>([])
   const [directionId, setDirectionId] = useState<string>("")
   const [leadChannelId, setLeadChannelId] = useState<string>("")
@@ -124,10 +98,7 @@ export function AddExpenseDialog({
     setDate(todayIso)
     setComment("")
     setIsRecurring(false)
-    setRecognitionMode("by_payment_date")
-    setSingleMonth(todayMonth)
-    setAmortStartMonth(todayMonth)
-    setAmortMonths("3")
+    setOpiu({ recognitionMode: "by_payment_date", singleMonth: todayMonth, amortStartMonth: todayMonth, amortMonths: "3" })
     setSelectedBranches([])
     setDirectionId("")
     setLeadChannelId("")
@@ -168,20 +139,14 @@ export function AddExpenseDialog({
     if (!amount || Number(amount) <= 0) { setError("Укажите сумму"); return }
     if (!date) { setError("Укажите дату"); return }
 
-    let amortizationStartDate: string | undefined
-    let amortizationMonths: number | undefined
-    if (recognitionMode === "single_period") {
-      amortizationStartDate = `${singleMonth}-01`
-      amortizationMonths = 1
-    } else if (recognitionMode === "amortized") {
-      const n = Number(amortMonths)
-      if (!Number.isFinite(n) || n < 2 || n > 60) {
-        setError("Количество месяцев должно быть от 2 до 60")
-        return
-      }
-      amortizationStartDate = `${amortStartMonth}-01`
-      amortizationMonths = n
+    let recognitionPayload
+    try {
+      recognitionPayload = resolveRecognition(opiu)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ошибка признания")
+      return
     }
+    const { recognitionMode, amortizationStartDate, amortizationMonths } = recognitionPayload
 
     const selectedCategory = categories.find(c => c.id === categoryId)
     const isMarketing = selectedCategory?.name === MARKETING_CATEGORY_NAME
@@ -240,12 +205,6 @@ export function AddExpenseDialog({
 
   // Если филиалы изменились и текущее направление в них не доступно — сбросим.
   // (делаем в обработчике filter снизу, чтобы не вводить лишний useEffect)
-
-  // Превью раскладки.
-  const amountNum = Number(amount) || 0
-  const amortN = Math.max(2, Math.min(60, Number(amortMonths) || 0))
-  const amortPerMonth = amountNum > 0 && amortN > 0 ? amountNum / amortN : 0
-  const amortEndMonth = shiftMonth(amortStartMonth, amortN - 1)
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
@@ -394,113 +353,7 @@ export function AddExpenseDialog({
               появится крон-генерация. Состояние оставляем (isRecurring=false по умолчанию). */}
 
           {/* Блок «Как провести в ОПИУ» */}
-          <fieldset className="space-y-2 rounded-md border p-3">
-            <legend className="px-1 text-sm font-medium">Как провести в ОПИУ</legend>
-            <p className="text-xs text-muted-foreground">
-              В ДДС расход всегда учитывается по дате платежа. В ОПИУ — по периоду признания.
-            </p>
-
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="radio"
-                name="recognition-mode"
-                className="mt-1"
-                checked={recognitionMode === "by_payment_date"}
-                onChange={() => setRecognitionMode("by_payment_date")}
-              />
-              <span>
-                <span className="font-medium">Одной суммой по дате платежа</span>
-                <span className="block text-xs text-muted-foreground">
-                  ОПИУ и ДДС совпадают: расход относится к месяцу даты выше.
-                </span>
-              </span>
-            </label>
-
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="radio"
-                name="recognition-mode"
-                className="mt-1"
-                checked={recognitionMode === "single_period"}
-                onChange={() => setRecognitionMode("single_period")}
-              />
-              <span className="flex-1">
-                <span className="font-medium">Одной суммой в другом месяце</span>
-                <span className="block text-xs text-muted-foreground">
-                  Например, аренда июня оплачена 25 мая → ОПИУ июнь.
-                </span>
-                {recognitionMode === "single_period" && (
-                  <div className="mt-2 space-y-1.5">
-                    <Label className="text-xs">Месяц признания</Label>
-                    <Input
-                      type="month"
-                      value={singleMonth}
-                      onChange={(e) => setSingleMonth(e.target.value)}
-                    />
-                  </div>
-                )}
-              </span>
-            </label>
-
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="radio"
-                name="recognition-mode"
-                className="mt-1"
-                checked={recognitionMode === "amortized"}
-                onChange={() => setRecognitionMode("amortized")}
-              />
-              <span className="flex-1">
-                <span className="font-medium">Разделить на N месяцев</span>
-                <span className="block text-xs text-muted-foreground">
-                  Например, принтер 30 000 ₽ на 3 месяца → по 10 000 ₽/мес.
-                </span>
-                {recognitionMode === "amortized" && (
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Начиная с</Label>
-                      <Input
-                        type="month"
-                        value={amortStartMonth}
-                        onChange={(e) => setAmortStartMonth(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Месяцев</Label>
-                      <Input
-                        type="number"
-                        min="2"
-                        max="60"
-                        value={amortMonths}
-                        onChange={(e) => setAmortMonths(e.target.value)}
-                      />
-                    </div>
-                    {amortPerMonth > 0 && (
-                      <p className="col-span-2 text-xs text-muted-foreground">
-                        {formatMonth(amortStartMonth)} — {formatMonth(amortEndMonth)} (по {formatMoney(amortPerMonth)} {sym}/мес)
-                      </p>
-                    )}
-                  </div>
-                )}
-              </span>
-            </label>
-
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="radio"
-                name="recognition-mode"
-                className="mt-1"
-                checked={recognitionMode === "not_in_pnl"}
-                onChange={() => setRecognitionMode("not_in_pnl")}
-              />
-              <span>
-                <span className="font-medium">Не учитывать в финрезе</span>
-                <span className="block text-xs text-muted-foreground">
-                  Только ДДС: расход уменьшит остаток на счёте, но не попадёт в ОПИУ и отчёты о прибыли (вывод средств, возврат займа, покупка актива).
-                </span>
-              </span>
-            </label>
-          </fieldset>
+          <OpiuRecognitionFieldset value={opiu} onChange={setOpiu} amount={Number(amount) || 0} sym={sym} />
 
           <DialogFooter>
             <Button type="submit" disabled={loading}>
