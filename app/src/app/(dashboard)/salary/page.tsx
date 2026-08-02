@@ -16,7 +16,7 @@ import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
 import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
-// TODO Task 12: import { ConductedPaymentsList } from "@/components/salary/conducted-payments-list"
+import { ConductedPaymentsList } from "@/components/salary/conducted-payments-list"
 
 export default async function SalaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
@@ -309,9 +309,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
         </CardContent>
       </Card>
 
-      {/* TODO Task 12: список проведённых выплат с «Изменить»/«Аннулировать»
       <ConductedPaymentsList year={year} month={month} kind={activeTab === "salary" ? "salary" : "piece"} />
-      */}
     </div>
   )
 }

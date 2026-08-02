@@ -88,9 +88,13 @@ export async function GET(req: NextRequest) {
   const session = guard.session
 
   const { searchParams } = new URL(req.url)
-  const periodYear = Number(searchParams.get("periodYear")) || new Date().getFullYear()
-  const periodMonth = Number(searchParams.get("periodMonth")) || new Date().getMonth() + 1
+  // `year`/`month` — алиасы `periodYear`/`periodMonth` (ConductedPaymentsList шлёт короткие
+  // имена); оставляем и длинные для обратной совместимости с существующими вызовами.
+  const periodYear = Number(searchParams.get("periodYear") ?? searchParams.get("year")) || new Date().getFullYear()
+  const periodMonth = Number(searchParams.get("periodMonth") ?? searchParams.get("month")) || new Date().getMonth() + 1
   const employeeId = searchParams.get("employeeId")
+  // kind: "salary" (окладные — есть твин-Expense) | "piece" (сдельные — твина нет).
+  const kind = searchParams.get("kind")
 
   const where: any = {
     tenantId: session.user.tenantId,
@@ -111,11 +115,26 @@ export async function GET(req: NextRequest) {
           direction: { select: { id: true, name: true } },
         },
       },
+      _count: { select: { opiuExpenses: true } },
     },
     orderBy: { date: "desc" },
   })
 
-  return NextResponse.json(payments)
+  // Обогащаем ответ плоскими полями для ConductedPaymentsList (employeeName/accountName/
+  // isOklad/date как YYYY-MM-DD), сохраняя исходную структуру (employee/account/items) —
+  // существующие вызовы GET (напр. будущие отчёты) не ломаются, форма ответа (массив) та же.
+  let enriched = payments.map((p) => ({
+    ...p,
+    employeeName: [p.employee?.lastName, p.employee?.firstName].filter(Boolean).join(" ").trim() || p.employee?.id || "",
+    accountName: p.account?.name ?? "",
+    isOklad: p._count.opiuExpenses > 0,
+    date: p.date.toISOString().slice(0, 10),
+  }))
+
+  if (kind === "salary") enriched = enriched.filter((p) => p.isOklad)
+  else if (kind === "piece") enriched = enriched.filter((p) => !p.isOklad)
+
+  return NextResponse.json(enriched)
 }
 
 export async function POST(req: NextRequest) {
