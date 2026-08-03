@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import { NON_CONSUMING_CODES } from "@/lib/subscriptions/consumed-lessons"
+import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 import { closeSubscription } from "@/lib/subscriptions/close-subscription"
 
 /**
@@ -12,8 +12,14 @@ import { closeSubscription } from "@/lib/subscriptions/close-subscription"
  *   2. status='active' (pending не трогаем — там по определению долг)
  *   3. periodYear+periodMonth < текущего периода
  *   4. balance <= 0 (нет долга — иначе администратор должен разобраться)
- *   5. количество посещений с attendanceType.chargesSubscription=true и
- *      chargePercent=100 >= totalLessons
+ *   5. число израсходованных занятий >= totalLessons. «Израсходовано» =
+ *      каноничная семантика consumed-slot (consumedTypeWhereFor): любая
+ *      СПИСЫВАЮЩАЯ отметка (в т.ч. частичная, как «Болезнь 50%»!) + финальные
+ *      несписывающие «Уваж. пропуск»/«Перерасчёт». Раньше здесь был хардкод
+ *      chargePercent=100 → календарный с частичным списанием никогда не набирал
+ *      порог и не закрывался (а ручного «Закрыть» в UI больше нет → админ мог
+ *      только отчислить, но отчисленный не попадает в источники массовой
+ *      выписки). Теперь считаем так же, как reprice (countAttendedLessons).
  *
  * Отменённые занятия (Lesson.status='cancelled') в текущей системе НЕ
  * декрементят Subscription.totalLessons, поэтому абонементы с отменёнными
@@ -78,22 +84,17 @@ export async function closeFinishedCalendarSubscriptions(now: Date = new Date())
     return { closed: 0, skipped: 0, enrollmentsDeactivated: 0 }
   }
 
-  // По каждому считаем израсходованные занятия через groupBy: посещения со
-  // 100%-списанием ПЛЮС финальные несписывающие отметки (Уваж. пропуск,
-  // Перерасчёт) — они расходуют занятие без оплаты, и месяц с ними должен
-  // закрываться так же, как полностью отхоженный. Один большой запрос вместо
-  // N маленьких — затраты на cron'е минимальные даже на тысячах абонементов.
+  // По каждому считаем израсходованные занятия через groupBy по каноничной
+  // семантике consumed-slot (та же, что в reprice/countAttendedLessons): любая
+  // СПИСЫВАЮЩАЯ отметка — включая частичную (chargePercent<100, «Болезнь 50%») —
+  // ПЛЮС финальные несписывающие «Уваж. пропуск»/«Перерасчёт». Один большой
+  // запрос вместо N маленьких — затраты на cron'е минимальные даже на тысячах.
   const counts = await db.attendance.groupBy({
     by: ["subscriptionId"],
     where: {
       subscriptionId: { in: candidates.map((c) => c.id) },
       isPending: false,
-      attendanceType: {
-        OR: [
-          { chargesSubscription: true, chargePercent: 100 },
-          { chargesSubscription: false, code: { notIn: NON_CONSUMING_CODES } },
-        ],
-      },
+      attendanceType: consumedTypeWhereFor("calendar"),
     },
     _count: { _all: true },
   })
