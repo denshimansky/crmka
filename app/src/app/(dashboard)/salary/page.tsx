@@ -204,14 +204,6 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
             period={monthName}
           />
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-b pb-2">
-          <Link href={`/salary?year=${year}&month=${month}&tab=piece`}>
-            <Badge variant={activeTab === "piece" ? "default" : "outline"} className="cursor-pointer">Сдельная</Badge>
-          </Link>
-          <Link href={`/salary?year=${year}&month=${month}&tab=salary`}>
-            <Badge variant={activeTab === "salary" ? "default" : "outline"} className="cursor-pointer">Оклады</Badge>
-          </Link>
-        </div>
         <div className="flex items-center gap-2">
           <Link href={`/salary/payments/new?year=${year}&month=${month}&kind=${activeTab === "salary" ? "salary" : "piece"}`}>
             <Button variant="outline">
@@ -229,9 +221,19 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
         </div>
       </div>
 
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span>Период:</span>
-        <Badge variant="outline">{monthName}</Badge>
+      <div className="flex flex-wrap items-center gap-4 border-b pb-2">
+        <div className="flex items-center gap-2">
+          <Link href={`/salary?year=${year}&month=${month}&tab=piece`}>
+            <Badge variant={activeTab === "piece" ? "default" : "outline"} className="cursor-pointer h-8 px-4 text-sm">Сдельная</Badge>
+          </Link>
+          <Link href={`/salary?year=${year}&month=${month}&tab=salary`}>
+            <Badge variant={activeTab === "salary" ? "default" : "outline"} className="cursor-pointer h-8 px-4 text-sm">Оклады</Badge>
+          </Link>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>Период:</span>
+          <Badge variant="outline">{monthName}</Badge>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
