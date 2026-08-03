@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect, useRef } from "react"
+import { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -1396,7 +1396,7 @@ interface LessonOption {
   date: string
   startTime: string
   durationMinutes: number
-  group: { name: string; direction: { name: string }; room: { name: string } | null }
+  group: { name: string; direction: { id: string; name: string }; room: { name: string } | null }
   instructor: { firstName: string | null; lastName: string | null }
   substituteInstructor: { firstName: string | null; lastName: string | null } | null
 }
@@ -1416,68 +1416,94 @@ function ScheduleMakeupDialog({
 }) {
   const [date, setDate] = useState(defaultDate)
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([])
-  const [directions, setDirections] = useState<{ id: string; name: string }[]>([])
   const [branchId, setBranchId] = useState<string>("")
   const [directionId, setDirectionId] = useState<string>("")
+  // Все занятия выбранной даты+филиала (без фильтра направления) — из них
+  // строим список доступных направлений и отфильтрованный по направлению список.
+  const [dayLessons, setDayLessons] = useState<LessonOption[] | null>(null)
+  const [loadingDay, setLoadingDay] = useState(false)
+  const [dayError, setDayError] = useState<string | null>(null)
+  // Занятия, показанные после нажатия «Показать занятия» (уже с фильтром направления).
   const [lessons, setLessons] = useState<LessonOption[] | null>(null)
-  const [loading, setLoading] = useState(false)
   const [targetId, setTargetId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   const displayName = student.wardName || student.clientName
 
-  // Подгружаем филиалы и направления один раз при открытии модалки.
+  // Филиалы подгружаем один раз при открытии модалки.
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      fetch("/api/branches").then((r) => (r.ok ? r.json() : [])),
-      fetch("/api/directions").then((r) => (r.ok ? r.json() : [])),
-    ])
-      .then(([bs, ds]: [Array<{ id: string; name: string }>, Array<{ id: string; name: string }>]) => {
+    fetch("/api/branches")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((bs: Array<{ id: string; name: string }>) => {
         if (cancelled) return
         if (Array.isArray(bs)) setBranches(bs.map((b) => ({ id: b.id, name: b.name })))
-        if (Array.isArray(ds)) setDirections(ds.map((d) => ({ id: d.id, name: d.name })))
       })
-      .catch(() => { /* ignore — оператор увидит пустые селекты */ })
+      .catch(() => { /* ignore — оператор увидит пустой селект филиалов */ })
     return () => { cancelled = true }
   }, [])
 
-  // При смене любого из фильтров сбрасываем список занятий: оператор должен
-  // снова нажать «Показать занятия», иначе выбор может не соответствовать фильтру.
+  // При выбранных дате и филиале подгружаем все занятия этого дня в филиале —
+  // из них формируется список направлений (показываем только те, по которым
+  // реально есть занятия). Смена даты/филиала перезапускает загрузку.
+  useEffect(() => {
+    setDirectionId("")
+    setLessons(null)
+    setTargetId(null)
+    setDayError(null)
+    if (!date || !branchId) {
+      setDayLessons(null)
+      return
+    }
+    let cancelled = false
+    setLoadingDay(true)
+    const params = new URLSearchParams({ date, excludeId: excludeLessonId, branchId })
+    fetch(`/api/lessons?${params.toString()}`)
+      .then(async (r) => {
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}))
+          throw new Error(data.error || "Не удалось загрузить занятия")
+        }
+        return r.json()
+      })
+      .then((ls: LessonOption[]) => {
+        if (cancelled) return
+        setDayLessons(Array.isArray(ls) ? ls : [])
+      })
+      .catch((e: Error) => {
+        if (cancelled) return
+        setDayError(e.message || "Ошибка сети")
+        setDayLessons([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDay(false)
+      })
+    return () => { cancelled = true }
+  }, [date, branchId, excludeLessonId])
+
+  // Уникальные направления, по которым есть занятия в выбранную дату+филиал.
+  const directions = useMemo(() => {
+    if (!dayLessons) return []
+    const map = new Map<string, string>()
+    for (const l of dayLessons) map.set(l.group.direction.id, l.group.direction.name)
+    return Array.from(map, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name, "ru")
+    )
+  }, [dayLessons])
+
+  // Смена направления сбрасывает показанный список — нужно снова нажать «Показать занятия».
   useEffect(() => {
     setLessons(null)
     setTargetId(null)
-  }, [date, branchId, directionId])
+  }, [directionId])
 
-  const loadLessons = useCallback(async () => {
-    if (!date || !branchId || !directionId) return
-    setLoading(true)
-    setError(null)
+  const loadLessons = useCallback(() => {
+    if (!dayLessons || !directionId) return
+    setLessons(dayLessons.filter((l) => l.group.direction.id === directionId))
     setTargetId(null)
-    try {
-      const params = new URLSearchParams({
-        date,
-        excludeId: excludeLessonId,
-        branchId,
-        directionId,
-      })
-      const res = await fetch(`/api/lessons?${params.toString()}`)
-      if (res.ok) {
-        setLessons(await res.json())
-      } else {
-        const data = await res.json().catch(() => ({}))
-        setError(data.error || "Не удалось загрузить занятия")
-        setLessons([])
-      }
-    } catch {
-      setError("Ошибка сети")
-      setLessons([])
-    } finally {
-      setLoading(false)
-    }
-  }, [date, branchId, directionId, excludeLessonId])
+  }, [dayLessons, directionId])
 
-  const canSearch = !!date && !!branchId && !!directionId && !loading
+  const canSearch = !!directionId && !loadingDay
+  const directionDisabled = !date || !branchId || loadingDay || directions.length === 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1520,13 +1546,27 @@ function ScheduleMakeupDialog({
             <select
               value={directionId}
               onChange={(e) => setDirectionId(e.target.value)}
-              className="h-9 w-full rounded border bg-background px-3 text-sm"
+              disabled={directionDisabled}
+              className="h-9 w-full rounded border bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <option value="">— выберите направление —</option>
+              <option value="">
+                {!date || !branchId
+                  ? "— сначала выберите дату и филиал —"
+                  : loadingDay
+                    ? "Загрузка направлений…"
+                    : directions.length === 0
+                      ? "— в эту дату нет занятий —"
+                      : "— выберите направление —"}
+              </option>
               {directions.map((d) => (
                 <option key={d.id} value={d.id}>{d.name}</option>
               ))}
             </select>
+            {date && branchId && !loadingDay && directions.length === 0 && !dayError && (
+              <p className="text-xs text-muted-foreground">
+                В выбранную дату в этом филиале занятий нет — выберите другую дату или филиал.
+              </p>
+            )}
           </div>
 
           <Button
@@ -1535,12 +1575,12 @@ function ScheduleMakeupDialog({
             onClick={loadLessons}
             disabled={!canSearch}
           >
-            {loading ? "Загрузка..." : "Показать занятия"}
+            {loadingDay ? "Загрузка..." : "Показать занятия"}
           </Button>
 
-          {error && (
+          {dayError && (
             <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
+              {dayError}
             </div>
           )}
 
