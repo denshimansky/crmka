@@ -1,6 +1,7 @@
 import { Fragment } from "react"
 import { renderInline } from "@/components/markdown-guide"
 import { KbVideo } from "@/components/kb/kb-video"
+import { KbLightboxImage } from "@/components/kb/kb-lightbox-image"
 
 // Рендер статьи базы знаний из блоков. Серверный компонент; блок-видео —
 // клиентский <KbVideo>. Безопасно: текст рендерится React-узлами (renderInline),
@@ -56,12 +57,7 @@ export function KbArticleBody({ blocks }: { blocks: KbArticleBlock[] }) {
           case "image":
             return b.mediaUrl ? (
               <figure key={b.id} className="my-5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={b.mediaUrl}
-                  alt={b.caption || ""}
-                  className="mx-auto max-w-full rounded-lg border"
-                />
+                <KbLightboxImage src={b.mediaUrl} alt={b.caption || ""} />
                 {b.caption && (
                   <figcaption className="mt-1.5 text-center text-xs text-muted-foreground">
                     {b.caption}
