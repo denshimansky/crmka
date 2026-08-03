@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     // (Level 2), ручная база знаний ai_faq (глобальная, кэшируется вместе с nav).
     const navMap = buildNavMap()
     const [baseContext, dynamicSlice, faqSlice] = await Promise.all([
-      buildBaseContext(tenantId, role),
+      buildBaseContext(tenantId, role, (session.user as any).employeeId ?? null, (session.user as any).allowedBranchIds ?? null),
       buildDynamicSlice(message, tenantId),
       buildFaqSlice(),
     ])
