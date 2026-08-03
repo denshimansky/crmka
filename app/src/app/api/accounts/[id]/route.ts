@@ -3,9 +3,12 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
-import { balanceSchema } from "@/lib/account-balance"
-import { logAudit } from "@/lib/audit"
+// logAudit больше не нужен: единственное аудируемое действие здесь была ручная
+// правка остатка, которая теперь запрещена.
 
+// Остаток счёта здесь НЕ редактируется: ручная правка остатка запрещена (решение
+// 03.08.2026) — изменить его можно только кассовой операцией (выемка/инкассация/
+// перевод) или платежом/расходом. Поле balance намеренно отсутствует в схеме.
 const updateSchema = z.object({
   name: z.string().min(1, "Название обязательно").optional(),
   type: z
@@ -18,9 +21,6 @@ const updateSchema = z.object({
     .transform((v) =>
       typeof v === "string" && v.trim() ? v.trim() : null
     ),
-  balance: balanceSchema,
-  // остаток, который видел клиент — защита от затирания параллельных операций
-  expectedBalance: balanceSchema,
 })
 
 export async function PATCH(
@@ -67,53 +67,6 @@ export async function PATCH(
     ...(data.name !== undefined && { name: data.name }),
     ...(data.type !== undefined && { type: data.type }),
     ...(data.branchId !== undefined && { branchId: data.branchId }),
-  }
-
-  if (data.balance !== undefined) {
-    if (!existing.isActive) {
-      return NextResponse.json(
-        { error: "Нельзя изменять остаток архивного счёта" },
-        { status: 409 }
-      )
-    }
-    if (data.expectedBalance === undefined) {
-      return NextResponse.json(
-        { error: "Не передан текущий остаток (expectedBalance)" },
-        { status: 400 }
-      )
-    }
-    // conditional write: если баланс сместила параллельная операция
-    // (платёж, вебхук ЮKassa, перевод) — не затираем, а просим повторить
-    const updated = await db.financialAccount.updateMany({
-      where: {
-        id,
-        tenantId: session.user.tenantId,
-        deletedAt: null,
-        isActive: true,
-        balance: data.expectedBalance,
-      },
-      data: { ...updateData, balance: data.balance },
-    })
-    if (updated.count === 0) {
-      return NextResponse.json(
-        { error: "Остаток счёта изменился (параллельная операция) — обновите страницу и повторите" },
-        { status: 409 }
-      )
-    }
-    logAudit({
-      tenantId: session.user.tenantId,
-      employeeId: session.user.employeeId,
-      action: "update",
-      entityType: "FinancialAccount",
-      entityId: id,
-      changes: { balance: { old: data.expectedBalance, new: data.balance } },
-      req,
-    })
-    const account = await db.financialAccount.findFirst({
-      where: { id, tenantId: session.user.tenantId },
-      include: { branch: { select: { id: true, name: true } } },
-    })
-    return NextResponse.json(account)
   }
 
   const account = await db.financialAccount.update({

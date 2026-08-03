@@ -107,6 +107,7 @@ const reportGroups: ReportGroup[] = [
       { name: "Ожидаемые поступления", href: "/reports/finance/expected-income", description: "Неоплаченные абонементы активных клиентов + прогноз на следующий месяц", source: "subscriptions" },
       { name: "Прогноз прибыли", href: "/reports/finance/profit-forecast", description: "Абонементы − ЗП − переменные − постоянные расходы", source: "subscriptions" },
       { name: "Поступления по дням", href: "/reports/finance/daily-income", description: "Ежедневные поступления нал/безнал", source: "payments" },
+      { name: "Баланс касс", href: "/reports/finance/cash-balance", description: "Остатки по всем счетам на конец выбранного дня", source: "payments" },
       { name: "Расчёты с учениками", href: "/reports/finance/student-settlements", description: "Баланс, начисление план/факт, оплата по ученикам", source: "subscriptions" },
       { name: "Доход от новых / упущенный по выбывшим", href: "/reports/finance/new-client-income", description: "Доход новых клиентов против упущенной выручки по выбывшим", source: "attendance" },
       { name: "Финрез по группам (формат C)", href: "/reports/finance/pnl-group", description: "Прибыльность каждой группы с распределением расходов", source: "attendance" },

@@ -90,10 +90,14 @@ export function AddAccountDialog({
     if (!name.trim()) { setError("Введите название счёта"); return }
     if (!type) { setError("Выберите тип счёта"); return }
 
-    const balanceNum = balance.trim()
-      ? Number(balance.replace(",", ".").replace(/\s/g, ""))
-      : undefined
-    if (balanceNum !== undefined && !Number.isFinite(balanceNum)) {
+    // Начальный остаток обязателен: если он нулевой — оператор указывает 000
+    // (осознанно, чтобы не забыть внести реальный остаток).
+    if (!balance.trim()) {
+      setError("Укажите начальный остаток. Если он нулевой — впишите 000")
+      return
+    }
+    const balanceNum = Number(balance.replace(",", ".").replace(/\s/g, ""))
+    if (!Number.isFinite(balanceNum)) {
       setError("Некорректный начальный остаток")
       return
     }
@@ -193,13 +197,16 @@ export function AddAccountDialog({
           )}
 
           <div className="space-y-1.5">
-            <Label>Начальный остаток, {sym}</Label>
+            <Label>Начальный остаток, {sym} *</Label>
             <Input
               inputMode="decimal"
               value={balance}
               onChange={e => setBalance(e.target.value)}
-              placeholder="0"
+              placeholder="000"
             />
+            <p className="text-xs text-muted-foreground">
+              Обязательное поле. Если остаток нулевой — впишите 000.
+            </p>
           </div>
 
           <DialogFooter>

@@ -53,6 +53,15 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data
 
+  // Начальный остаток обязателен при создании счёта (03.08.2026): balanceSchema
+  // возвращает undefined для пустого значения — явно это отклоняем.
+  if (data.balance === undefined) {
+    return NextResponse.json(
+      { error: "Укажите начальный остаток. Если он нулевой — впишите 000" },
+      { status: 400 }
+    )
+  }
+
   if (data.branchId) {
     const branch = await db.branch.findFirst({
       where: { id: data.branchId, tenantId: session.user.tenantId, deletedAt: null },
