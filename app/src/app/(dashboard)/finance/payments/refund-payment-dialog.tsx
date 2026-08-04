@@ -26,6 +26,7 @@ import { Undo2 } from "lucide-react"
 interface ClientOption {
   id: string
   name: string
+  phone?: string
 }
 
 interface AccountOption {
@@ -191,7 +192,7 @@ export function RefundPaymentDialog({
                 options={clients}
                 value={clientId}
                 onChange={(id) => loadClientSubs(id)}
-                placeholder="Начните вводить ФИО..."
+                placeholder="Начните вводить ФИО или телефон..."
               />
             </div>
 

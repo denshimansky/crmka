@@ -8,6 +8,9 @@ import { cn } from "@/lib/utils"
 export interface ClientComboboxOption {
   id: string
   name: string
+  /** Телефон клиента (в любом формате). Если задан — по нему тоже идёт поиск и
+   *  он показывается в строке выпадашки для точной идентификации. */
+  phone?: string
 }
 
 interface ClientComboboxProps {
@@ -21,9 +24,10 @@ interface ClientComboboxProps {
 }
 
 /**
- * Селект-комбобокс с поиском по подстроке (по имени).
- * Поиск идёт без учёта регистра. Если введён непустой запрос — снимает выбранного клиента
- * пока пользователь не выберет вариант из выпадашки.
+ * Селект-комбобокс с поиском по подстроке (по имени и телефону).
+ * Поиск по имени — без учёта регистра; по телефону — по цифрам (форматирование
+ * номера в запросе и в данных игнорируется). Если введён непустой запрос — снимает
+ * выбранного клиента пока пользователь не выберет вариант из выпадашки.
  */
 export function ClientCombobox({
   options,
@@ -56,10 +60,18 @@ export function ClientCombobox({
   }, [])
 
   const q = query.trim().toLowerCase()
+  // Цифры из запроса — для поиска по телефону (игнорируем +, пробелы, скобки, дефисы).
+  const qDigits = q.replace(/\D/g, "")
   const filtered = React.useMemo(() => {
     if (!q) return options.slice(0, maxResults)
-    return options.filter((o) => o.name.toLowerCase().includes(q)).slice(0, maxResults)
-  }, [options, q, maxResults])
+    return options
+      .filter((o) => {
+        if (o.name.toLowerCase().includes(q)) return true
+        if (qDigits && o.phone) return o.phone.replace(/\D/g, "").includes(qDigits)
+        return false
+      })
+      .slice(0, maxResults)
+  }, [options, q, qDigits, maxResults])
 
   // Что показываем во вводе: пока открыт — то, что юзер печатает; пока закрыт — имя выбранного.
   const display = open ? query : selected?.name ?? ""
@@ -103,7 +115,14 @@ export function ClientCombobox({
                   o.id === value && "bg-accent/50 font-medium",
                 )}
               >
-                {o.name}
+                <span className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate">{o.name}</span>
+                  {o.phone && (
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                      {o.phone}
+                    </span>
+                  )}
+                </span>
               </button>
             ))
           )}

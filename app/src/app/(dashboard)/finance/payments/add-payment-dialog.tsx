@@ -26,6 +26,7 @@ import { Plus } from "lucide-react"
 interface ClientOption {
   id: string
   name: string
+  phone?: string
 }
 
 interface AccountOption {
@@ -214,7 +215,7 @@ export function AddPaymentDialog({
                 options={clients}
                 value={clientId}
                 onChange={setClientId}
-                placeholder="Начните вводить ФИО..."
+                placeholder="Начните вводить ФИО или телефон..."
               />
               <p className="text-xs text-muted-foreground">
                 Деньги попадут на баланс родителя. Списание в счёт абонемента — кнопка «Оплатить с баланса» в карточке абонемента.

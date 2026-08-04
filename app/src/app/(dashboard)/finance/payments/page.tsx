@@ -103,10 +103,18 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
       funnelStatus: { notIn: ["archived", "blacklisted"] },
       ...(Object.keys(clientScope).length > 0 ? clientScope : {}),
     },
-    select: { id: true, firstName: true, lastName: true },
+    select: { id: true, firstName: true, lastName: true, phone: true },
     orderBy: { lastName: "asc" },
     take: 10000,
   })
+
+  // Клиенты для комбобоксов оплаты/возврата: ФИО + телефон (поиск по телефону и
+  // показ номера в выпадашке для точной идентификации).
+  const clientOptions = clients.map((c) => ({
+    id: c.id,
+    name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
+    phone: c.phone ?? undefined,
+  }))
 
   const accounts = await db.financialAccount.findMany({
     where: { tenantId, deletedAt: null, ...accountScope },
@@ -154,11 +162,11 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
         </div>
         <div className="flex flex-wrap gap-2">
           <RefundPaymentDialog
-            clients={clients.map(c => ({ id: c.id, name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени" }))}
+            clients={clientOptions}
             accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
           />
           <AddPaymentDialog
-            clients={clients.map(c => ({ id: c.id, name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени" }))}
+            clients={clientOptions}
             accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
             incomeCategories={incomeCategories.map(c => ({ id: c.id, name: c.name }))}
           />
