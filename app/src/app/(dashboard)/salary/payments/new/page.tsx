@@ -182,7 +182,11 @@ function NewSalaryPaymentForm() {
     setError(null)
     try {
       const upToParam = accrualUpTo ? `&upTo=${accrualUpTo}` : ""
-      const res = await fetch(`/api/salary-payments/accruals?periodYear=${periodYear}&periodMonth=${periodMonth}${upToParam}`)
+      // Скоупим начисления под тип документа: сдельный документ не должен
+      // подтягивать оклад (иначе оклад дублируется строкой «Без направления» и
+      // выплачивается второй раз — уже начислен отдельным оклад-документом →
+      // двойной счёт в ОПИУ). Endpoint по kind отдаёт только нужный источник.
+      const res = await fetch(`/api/salary-payments/accruals?periodYear=${periodYear}&periodMonth=${periodMonth}&kind=${kind}${upToParam}`)
       if (!res.ok) {
         setError("Не удалось загрузить начисления")
         return
@@ -244,7 +248,7 @@ function NewSalaryPaymentForm() {
     } finally {
       setLoadingAccruals(false)
     }
-  }, [periodYear, periodMonth, accrualUpTo, defaultAccountId])
+  }, [periodYear, periodMonth, accrualUpTo, defaultAccountId, kind])
 
   // Граница начислений внутри месяца периода = режим аванса.
   const periodPrefix = `${periodYear}-${String(periodMonth).padStart(2, "0")}-`
@@ -370,7 +374,7 @@ function NewSalaryPaymentForm() {
             <PageHelp pageKey="salary/payments/new" />
           </div>
           <p className="text-sm text-muted-foreground">
-            Кнопка «Заполнить» подтягивает остатки к выплате: начисления по направлениям + оклады + премии, за вычетом уже выплаченного за период. Начисления считаются по дату из поля «Начисления по дату».
+            Кнопка «Заполнить» подтягивает остатки к выплате под тип документа: {kind === "salary" ? "оклады" : "сдельную оплату за занятия по направлениям"} + премии, за вычетом уже выплаченного за период. Начисления считаются по дату из поля «Начисления по дату».
           </p>
         </div>
       </div>
