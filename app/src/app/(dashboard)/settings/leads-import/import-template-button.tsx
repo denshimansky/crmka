@@ -10,11 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Upload, AlertCircle, Download } from "lucide-react"
 import { useCurrencySymbol } from "@/components/currency-provider"
-
-// Статический шаблон в public/ — «Скачать шаблон» ведёт сюда, download-атрибут
-// подставляет привычное пользователю имя файла.
-export const TEMPLATE_HREF = "/templates/client-import-template.xlsx"
-export const TEMPLATE_FILENAME = "Шаблон импорта клиентов.xlsx"
+import { TEMPLATE_HREF, TEMPLATE_FILENAME } from "./template-meta"
 
 interface NeedsReview {
   rowIdx: number

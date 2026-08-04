@@ -2,11 +2,12 @@ import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
 import { redirect } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
-import { buttonVariants } from "@/components/ui/button"
 import { PageHelp } from "@/components/page-help"
-import { ArrowLeft, AlertTriangle, Download } from "lucide-react"
+import { ArrowLeft, AlertTriangle } from "lucide-react"
 import Link from "next/link"
-import { ImportTemplateButton, TEMPLATE_HREF, TEMPLATE_FILENAME } from "./import-template-button"
+import { ImportTemplateButton } from "./import-template-button"
+import { DownloadTemplateLink } from "./download-template-link"
+import { TEMPLATE_FILENAME } from "./template-meta"
 import { WipeDatabaseButton } from "./wipe-button"
 import { isWipeAvailable } from "@/lib/leads-import/sync-leads"
 
@@ -57,14 +58,7 @@ export default async function LeadsImportPage() {
         <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
           <div className="flex flex-col gap-2 sm:w-56 sm:shrink-0">
             <ImportTemplateButton />
-            <a
-              href={TEMPLATE_HREF}
-              download={TEMPLATE_FILENAME}
-              className={buttonVariants({ variant: "outline" })}
-            >
-              <Download className="size-4" />
-              Скачать шаблон
-            </a>
+            <DownloadTemplateLink />
           </div>
           <div className="min-w-0 flex-1">
             <div className="mt-0.5 font-medium">Импорт клиента по шаблону</div>
