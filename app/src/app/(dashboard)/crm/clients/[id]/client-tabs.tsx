@@ -236,8 +236,12 @@ function EditSubscriptionDialog({
         body: JSON.stringify({
           lessonPrice: Number(lessonPrice),
           totalLessons: Number(totalLessons),
-          // Скидки v3: пер-абонементный шаблон шлём только в режиме и для не-легаси.
-          ...(perSubDiscountMode && discountEditable
+          // Скидки v3: пер-абонементный шаблон шлём только в режиме, для не-легаси
+          // И только если он РЕАЛЬНО изменён — иначе правка одной цены не должна
+          // трогать «доживающую» скидку (сервер пойдёт по repriceSubscription).
+          ...(perSubDiscountMode &&
+          discountEditable &&
+          discountTemplateId !== (subscription.discountTemplateId ?? "none")
             ? { discountTemplateId: discountTemplateId === "none" ? null : discountTemplateId }
             : {}),
         }),
@@ -340,7 +344,19 @@ function EditSubscriptionDialog({
                     ))}
                   </SelectContent>
                 </Select>
-              ) : (
+              ) : null}
+              {/* Скидки v3: «доживающая» клиентская скидка (без пер-абон. шаблона)
+                  показывается «Не применять» — поясняем, чтобы не путать. */}
+              {perSubDiscountMode &&
+                !subscription.discountTemplateId &&
+                (subscription.discountSource === "type1" ||
+                  subscription.discountSource === "type2") && (
+                  <p className="text-xs text-muted-foreground">
+                    На абонементе действует прежняя скидка (доживает до конца периода).
+                    Выберите шаблон, чтобы заменить её.
+                  </p>
+                )}
+              {!perSubDiscountMode && (
                 <>
                   <div className="flex h-9 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
                     Недоступно

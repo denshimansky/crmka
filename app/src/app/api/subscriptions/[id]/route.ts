@@ -524,8 +524,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // текущей цены). Если менялась ТОЛЬКО цена (без смены скидки) —
     // repriceSubscription сохраняет текущую скидку. Не для legacy и не для только
     // что отчисленных (у них balance уже выставлен; закрытие сюда не доходит).
+    // Скидка считается ИЗМЕНЁННОЙ, только если реально сменился выбранный шаблон
+    // (не просто «поле прислано» — форма для perSubDiscountMode-клиента шлёт
+    // discountTemplateId всегда) ИЛИ снимают «доживающую» скидку (выбрали «none»,
+    // а на абонементе есть живая скидка). Иначе правка ТОЛЬКО цены идёт по
+    // repriceSubscription: он пересчитывает finalAmount/balance И держит скидку
+    // зафиксированной в рублях (§8) — без этого недобилл/переперсчёт процента.
+    const requestedTpl = data.discountTemplateId // string | null | undefined
+    const currentTpl = existing.discountTemplateId ?? null
+    const hasLiveDiscount = new Prisma.Decimal(existing.discountPerLesson).greaterThan(0)
     const discountChanged =
-      data.discountTemplateId !== undefined && existing.client.perSubDiscountMode
+      existing.client.perSubDiscountMode &&
+      requestedTpl !== undefined &&
+      ((requestedTpl ?? null) !== currentTpl ||
+        ((requestedTpl ?? null) === null && currentTpl === null && hasLiveDiscount))
     if (
       discountChanged &&
       existing.discountSource !== "legacy" &&
@@ -534,7 +546,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       await setSubscriptionManualDiscount(tx, {
         tenantId: session.user.tenantId,
         subscriptionId: id,
-        templateId: data.discountTemplateId ?? null,
+        templateId: requestedTpl ?? null,
         createdBy: session.user.employeeId ?? null,
       })
     } else if (

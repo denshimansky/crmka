@@ -244,4 +244,44 @@ describe("setSubscriptionManualDiscount", () => {
     assert.equal(calls.discountUpdateMany, 1)
     assert.equal(calls.discountCreate.length, 0)
   })
+
+  it("снимает «доживающую» клиентскую скидку (discountTemplateId=null, но perLesson>0) при templateId=null", async () => {
+    // Регресс на находку ревью #4: без ослабленного гейта функция выходила рано
+    // (оба templateId null) и НЕ снимала живую скидку — для perSubDiscountMode
+    // клиента recalc это тоже не делает (no-op) → скидка застревала.
+    const surviving = baseSub({
+      discountPerLesson: 100,
+      discountSource: "type2",
+      discountTemplateId: null,
+    })
+    const { tx, calls } = makeManualTx(surviving)
+    await setSubscriptionManualDiscount(tx as any, {
+      tenantId: "t",
+      subscriptionId: "S",
+      templateId: null,
+    })
+    const money = calls.subUpdate.find((u) => "discountSource" in u.data)
+    assert.ok(money, "деньги должны пересчитаться — скидка снимается")
+    assert.equal(money.data.discountSource, "none")
+    assert.equal(dec(money.data.discountPerLesson), 0)
+    assert.equal(dec(money.data.finalAmount), 8000)
+  })
+})
+
+describe("recalcClientDiscounts — пер-абонементная скидка заморожена (доживает)", () => {
+  it("НЕ трогает абонемент с discountTemplateId!=null у обычного клиента (регресс #1)", async () => {
+    // Клиент вышел из режима (perSubDiscountMode=false), но абонемент несёт
+    // пер-абонементный шаблон X: discountSource=type2, discountTemplateId=X.
+    // Без фикса else-ветка (client.discountTemplateId===null) сняла бы скидку с
+    // движением денег. С фиксом абонемент исключён из состава — не трогается.
+    const frozen = {
+      ...twoEqualSubs()[0],
+      discountSource: "type2",
+      discountPerLesson: 100,
+      discountTemplateId: "X",
+    }
+    const { tx, calls } = makeRecalcTx({ perSubDiscountMode: false, subs: [frozen] })
+    await recalcClientDiscounts(tx as any, { tenantId: "t", clientId: "c1" })
+    assert.equal(calls.subUpdate.length, 0, "frozen per-sub абонемент не должен обновляться")
+  })
 })

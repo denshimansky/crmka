@@ -203,6 +203,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     data.discountTemplateId = null
     data.autoDiscountDisabled = false
   }
+  // Симметрично: выбор клиентского шаблона или «Отключить все» ВЫКЛЮЧАЕТ режим
+  // «на абонемент». Держит эксклюзивность даже при частичном PATCH, где
+  // perSubDiscountMode в теле не прислан (иначе у клиента остались бы оба флага —
+  // режим + клиентский шаблон, который позже «выстрелил» бы на новых абонементах).
+  if (data.discountTemplateId) data.perSubDiscountMode = false
+  if (data.autoDiscountDisabled === true) data.perSubDiscountMode = false
 
   // Скидки v2: вручную выбирается только постоянный шаблон (тип 2).
   // Автоскидка «за второй абонемент» (тип 1) и легаси-шаблоны не выбираются.

@@ -502,20 +502,28 @@ export async function recalcClientDiscounts(
       chargedAmount: true,
       discountPerLesson: true,
       discountSource: true,
+      discountTemplateId: true,
       createdAt: true,
     },
   })
 
   type Row = (typeof subsRaw)[number]
 
+  // Скидки v3 (docs/discounts-v3.md §5, §7): абонементы с ПЕР-АБОНЕМЕНТНОЙ скидкой
+  // (Subscription.discountTemplateId != null) — заморожены для клиентского движка:
+  // их скидку ставит/снимает ТОЛЬКО setSubscriptionManualDiscount, а recalc их не
+  // трогает и в состав тип-1 не включает (доживают независимо от режима клиента —
+  // иначе после выхода клиента из режима следующий recalc снял бы пер-абонементную
+  // скидку с оплаченного абонемента с движением денег). Исключаем их из наборов.
   const calendarSubs = subsRaw.filter(
     (s) =>
       s.type !== "package" &&
+      s.discountTemplateId == null &&
       s.periodYear != null &&
       s.periodMonth != null &&
       monthIndex(s.periodYear, s.periodMonth) >= currentMonth,
   )
-  const packageSubs = subsRaw.filter((s) => s.type === "package")
+  const packageSubs = subsRaw.filter((s) => s.type === "package" && s.discountTemplateId == null)
 
   // «Отхожено» по одному запросу на тип абонемента: календарные считают и
   // финальные несписывающие отметки (Уваж. пропуск/Перерасчёт расходуют слот),
@@ -790,8 +798,17 @@ export async function setSubscriptionManualDiscount(
   })
   if (!sub || sub.discountSource === "legacy") return
   if (sub.status !== "pending" && sub.status !== "active") return
-  // Ручной скидки нет и не просят ставить — не трогаем (тип 1/none оставит recalc).
-  if (input.templateId == null && sub.discountTemplateId == null) return
+  // Не трогаем, только если СНИМАЮТ (templateId=null), пер-абонементного шаблона нет
+  // И на абонементе нет живой скидки. Если живая скидка есть (в т.ч. «доживающая»
+  // клиентская тип-1/тип-2 с discountTemplateId=null), снятие обязано её убрать —
+  // для perSubDiscountMode-клиента recalc это не сделает (он no-op).
+  if (
+    input.templateId == null &&
+    sub.discountTemplateId == null &&
+    new Prisma.Decimal(sub.discountPerLesson).lessThanOrEqualTo(0)
+  ) {
+    return
+  }
 
   let tpl: TemplateLite | null = null
   if (input.templateId) {
