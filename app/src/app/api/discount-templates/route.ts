@@ -13,6 +13,9 @@ const createSchema = z.object({
   valueType: z.enum(["percent", "fixed"]),
   value: z.number().min(0, "Значение не может быть отрицательным"),
   isActive: z.boolean().default(true),
+  // Скидки v3 (docs/discounts-v3.md): область применения ручного шаблона.
+  // client — выбирается в карточке клиента (как v2); subscription — по абонементу.
+  scope: z.enum(["client", "subscription"]).default("client"),
 })
 
 export async function GET(req: NextRequest) {
@@ -24,6 +27,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const isActive = searchParams.get("isActive")
   const kind = searchParams.get("kind")
+  // Скидки v3: форма абонемента запрашивает только шаблоны scope=subscription.
+  const scope = searchParams.get("scope")
 
   const where: any = {
     tenantId: session.user.tenantId,
@@ -34,6 +39,7 @@ export async function GET(req: NextRequest) {
 
   if (isActive !== null) where.isActive = isActive === "true"
   if (kind) where.kind = kind
+  if (scope) where.scope = scope
 
   const items = await db.discountTemplate.findMany({
     where,
@@ -66,6 +72,7 @@ export async function POST(req: NextRequest) {
       valueType: data.valueType,
       value: data.value,
       isActive: data.isActive,
+      scope: data.scope,
     },
   })
 

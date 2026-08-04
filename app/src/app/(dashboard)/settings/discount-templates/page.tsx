@@ -41,11 +41,19 @@ interface DiscountTemplate {
   valueType: "percent" | "fixed"
   value: number
   isActive: boolean
+  // Скидки v3: область применения ручного шаблона (тип 2).
+  scope: "client" | "subscription"
 }
 
 const TYPE_LABELS: Record<string, string> = {
   percent: "Процент",
   fixed: "Скидка за занятие",
+}
+
+// Скидки v3: область применения шаблона (для списка и переключателя).
+const SCOPE_LABELS: Record<DiscountTemplate["scope"], string> = {
+  client: "Клиент",
+  subscription: "Абонемент",
 }
 
 const KIND_LABELS: Record<DiscountTemplate["kind"], string> = {
@@ -71,6 +79,8 @@ export default function DiscountTemplatesPage() {
   const [editTemplate, setEditTemplate] = useState<DiscountTemplate | null>(null)
   const [formName, setFormName] = useState("")
   const [formType, setFormType] = useState<"percent" | "fixed">("percent")
+  // Скидки v3: область применения шаблона (client|subscription).
+  const [formScope, setFormScope] = useState<"client" | "subscription">("client")
   const [formValue, setFormValue] = useState("")
   const [formDescription, setFormDescription] = useState("")
   const [formIsActive, setFormIsActive] = useState(true)
@@ -95,6 +105,7 @@ export default function DiscountTemplatesPage() {
     setEditTemplate(null)
     setFormName("")
     setFormType("percent")
+    setFormScope("client")
     setFormValue("")
     setFormDescription("")
     setFormIsActive(true)
@@ -106,6 +117,7 @@ export default function DiscountTemplatesPage() {
     setEditTemplate(t)
     setFormName(t.name)
     setFormType(t.valueType)
+    setFormScope(t.scope)
     setFormValue(String(t.value))
     setFormDescription("")
     setFormIsActive(t.isActive)
@@ -169,6 +181,8 @@ export default function DiscountTemplatesPage() {
       if (!isSystem) {
         body.name = formName.trim()
         if (!editTemplate) body.kind = "permanent"
+        // Скидки v3: область применения (client|subscription).
+        body.scope = formScope
       }
 
       const res = await fetch(url, {
@@ -253,6 +267,7 @@ export default function DiscountTemplatesPage() {
             <TableRow>
               <TableHead>Название</TableHead>
               <TableHead>Категория</TableHead>
+              <TableHead>Область</TableHead>
               <TableHead>Тип</TableHead>
               <TableHead>Значение</TableHead>
               <TableHead>Статус</TableHead>
@@ -270,6 +285,13 @@ export default function DiscountTemplatesPage() {
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline">{KIND_LABELS[t.kind]}</Badge>
+                </TableCell>
+                <TableCell>
+                  {t.kind === "permanent" ? (
+                    <Badge variant="outline">{SCOPE_LABELS[t.scope]}</Badge>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline">{TYPE_LABELS[t.valueType] || t.valueType}</Badge>
@@ -345,6 +367,34 @@ export default function DiscountTemplatesPage() {
                 </p>
               )}
             </div>
+
+            {/* Скидки v3: область применения — клиентская или на абонемент. */}
+            {!editTemplate?.systemKey && (
+              <div className="space-y-2">
+                <Label>Область скидки</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={formScope === "client" ? "default" : "outline"}
+                    onClick={() => setFormScope("client")}
+                  >
+                    Клиентская
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={formScope === "subscription" ? "default" : "outline"}
+                    onClick={() => setFormScope("subscription")}
+                  >
+                    Скидка на абонемент
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {formScope === "client"
+                    ? "Выбирается в карточке клиента, действует на все его абонементы."
+                    : "Выбирается в конкретном абонементе — когда у клиента включён режим «Шаблоны скидок на абонементы»."}
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-4">
               <div className="space-y-2 min-w-0">
