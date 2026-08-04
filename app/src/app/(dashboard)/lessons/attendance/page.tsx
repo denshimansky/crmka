@@ -4,7 +4,15 @@ import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
-import { rosterWhereOnDate, isEnrolledOnLesson } from "@/lib/subscriptions/roster-filter"
+import {
+  rosterWhereOnDate,
+  isEnrolledOnLesson,
+  coverageSubscriptionsWhere,
+  coverageSubscriptionSelect,
+  subscriptionCoversDate,
+  coverageKey,
+} from "@/lib/subscriptions/roster-filter"
+import { consumedPackageLessonsMap } from "@/lib/subscriptions/package-remaining"
 import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
@@ -399,6 +407,41 @@ export default async function LessonsAttendancePage({
     return balance
   }
 
+  // === Покрытие абонементом на дату (гейт как в карточке занятия) ===
+  // Плановую (без отметки) ячейку показываем ТОЛЬКО если у ребёнка есть покрывающий
+  // абонемент на дату состава (правило владельца 14.07: без покрытия занятие не
+  // планируется — иначе «Был» уходит в разовое списание с баланса). Уже отмеченные
+  // ячейки (включая разовые/выбывших) показываем всегда. Раньше сетка гейт НЕ применяла
+  // и показывала ребёнка в «дыре покрытия» (напр. между двумя пакетами) — его можно было
+  // ошибочно отметить. Матч по НАПРАВЛЕНИЮ (как в roster-filter), не по группе.
+  const directionIds = Array.from(new Set(groups.map((g) => g.directionId)))
+  const coverageSubs = directionIds.length > 0
+    ? await db.subscription.findMany({
+        where: coverageSubscriptionsWhere({ tenantId, directionIds, from: rosterFrom, to: rosterTo }),
+        select: { ...coverageSubscriptionSelect, directionId: true },
+      })
+    : []
+  const coverageConsumed = await consumedPackageLessonsMap(
+    db,
+    tenantId,
+    coverageSubs.filter((s) => s.type === "package").map((s) => s.id),
+  )
+  // Ключ: clientId:wardId:directionId → покрывающие абонементы ребёнка по направлению.
+  const coverageByKey = new Map<string, typeof coverageSubs>()
+  for (const s of coverageSubs) {
+    const k = `${coverageKey(s.clientId, s.wardId)}:${s.directionId}`
+    const arr = coverageByKey.get(k)
+    if (arr) arr.push(s)
+    else coverageByKey.set(k, [s])
+  }
+  function isCoveredOn(clientId: string, wardId: string | null, dirId: string, date: Date): boolean {
+    const arr = coverageByKey.get(`${coverageKey(clientId, wardId)}:${dirId}`)
+    if (!arr) return false
+    return arr.some((s) =>
+      subscriptionCoversDate(s, date, s.type === "package" ? coverageConsumed.get(s.id) ?? 0 : 0),
+    )
+  }
+
   // === Строим строки ===
   const groupById = new Map(groups.map((g) => [g.id, g]))
   const rows: AttendanceRow[] = []
@@ -432,11 +475,14 @@ export default async function LessonsAttendancePage({
         // у перенесённого и обычного занятия одного дня границы разные.
         const rosterDate = lessonInfo.rescheduledFromDate ?? new Date(Date.UTC(year, month - 1, day))
         if (!isEnrolledOnLesson(e, rosterDate)) continue
-        planCount++
         const att = lessonInfo.attendances.find((a) => {
           if (a.clientId !== e.clientId) return false
           return (a.wardId || null) === (e.wardId || null)
         })
+        // Гейт покрытия: плановую ячейку (без отметки) показываем только при наличии
+        // покрывающего абонемента на дату. Уже отмеченные — всегда (см. коммент выше).
+        if (!att && !isCoveredOn(e.clientId, e.wardId, g.directionId, rosterDate)) continue
+        planCount++
         dayCells.push({
           lessonId: lessonInfo.lessonId,
           startTime: lessonInfo.startTime,
@@ -449,12 +495,11 @@ export default async function LessonsAttendancePage({
       cells.push(dayCells)
     }
 
-    // Зачисление, попавшее только из-за расширенного окна (ради перенесённых
-    // через границу месяца занятий), без единой ячейки не показываем — иначе
-    // в сетке появятся пустые строки давно отчисленных.
-    const inMonthBounds =
-      e.enrolledAt <= dateTo && (!e.withdrawnAt || e.withdrawnAt > dateFrom)
-    if (!inMonthBounds && planCount === 0) continue
+    // Строка без единой видимой ячейки (нет покрытых плановых занятий и нет отметок)
+    // не показывается: сетка = агрегат составов карточек занятий за месяц. Так уходят
+    // и пустые строки давно отчисленных, и зачисленные без покрытия (в «дыре» между
+    // абонементами) — их в карточках занятий тоже нет.
+    if (planCount === 0) continue
 
     rows.push({
       // e.id в ключе: у одной тройки (клиент, подопечный, группа) бывает два
