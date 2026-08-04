@@ -16,6 +16,10 @@ export async function GET(req: NextRequest) {
   const totalLessons = Number(searchParams.get("totalLessons"))
   const periodYearRaw = searchParams.get("periodYear")
   const periodMonthRaw = searchParams.get("periodMonth")
+  // Скидки v3: выбранный в форме шаблон ручной скидки (пусто/none → без ручной).
+  const discountTemplateIdRaw = searchParams.get("discountTemplateId")
+  const discountTemplateId =
+    discountTemplateIdRaw && discountTemplateIdRaw !== "none" ? discountTemplateIdRaw : null
 
   if (!clientId || !Number.isFinite(lessonPrice) || !Number.isFinite(totalLessons)) {
     return NextResponse.json({ error: "Некорректные параметры" }, { status: 400 })
@@ -35,6 +39,7 @@ export async function GET(req: NextRequest) {
     periodMonth: periodMonthRaw != null ? Number(periodMonthRaw) : null,
     lessonPrice,
     totalLessons: Math.trunc(totalLessons),
+    discountTemplateId,
   })
 
   // null — некорректный вход (нет клиента / нулевая цена): для формы это «без

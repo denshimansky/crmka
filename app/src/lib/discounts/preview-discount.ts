@@ -90,6 +90,8 @@ export async function previewSubscriptionDiscount(
     periodMonth?: number | null
     lessonPrice: number
     totalLessons: number
+    /** Скидки v3: выбранный в форме абонемента шаблон (scope=subscription). */
+    discountTemplateId?: string | null
   },
 ): Promise<DiscountPreview | null> {
   const lessonPrice = new Prisma.Decimal(input.lessonPrice)
@@ -98,9 +100,36 @@ export async function previewSubscriptionDiscount(
 
   const client = await db.client.findFirst({
     where: { id: input.clientId, tenantId: input.tenantId, deletedAt: null },
-    select: { id: true, discountTemplateId: true, autoDiscountDisabled: true },
+    select: {
+      id: true,
+      discountTemplateId: true,
+      autoDiscountDisabled: true,
+      perSubDiscountMode: true,
+    },
   })
   if (!client) return null
+
+  // Скидки v3 (docs/discounts-v3.md §4, §6): клиент в режиме «на абонемент» —
+  // скидка ТОЛЬКО по выбранному в форме шаблону (scope=subscription, тип 2),
+  // эксклюзивно (тип 1 «за второй» и клиентский тип 2 не действуют). Нет шаблона
+  // — без скидки. v2-ветки ниже для такого клиента не применяются.
+  if (client.perSubDiscountMode) {
+    if (input.discountTemplateId) {
+      const t2 = await db.discountTemplate.findFirst({
+        where: {
+          id: input.discountTemplateId,
+          tenantId: input.tenantId,
+          scope: "subscription",
+          kind: "permanent",
+          isLegacy: false,
+          isActive: true,
+        },
+        select: { name: true, valueType: true, value: true },
+      })
+      if (t2) return withDiscount(t2, lessonPrice, totalLessons, "type2")
+    }
+    return noDiscount(lessonPrice, totalLessons)
+  }
 
   // Явный запрет автоскидок — новый абонемент без скидки (баг #50).
   if (client.autoDiscountDisabled) return noDiscount(lessonPrice, totalLessons)

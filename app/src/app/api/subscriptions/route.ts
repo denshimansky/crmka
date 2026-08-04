@@ -3,7 +3,10 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
-import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import {
+  recalcClientDiscounts,
+  setSubscriptionManualDiscount,
+} from "@/lib/discounts/recalc-client-discounts"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
@@ -22,6 +25,10 @@ const createSchema = z.object({
   totalLessons: z.number().int().min(1, "Минимум 1 занятие"),
   wardId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   startDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  // Скидки v3: выбранный в форме пер-абонементный шаблон (scope=subscription).
+  // Применяется только клиенту в режиме perSubDiscountMode. «none»/пусто → без ручной.
+  discountTemplateId: z.any().transform(v =>
+    (typeof v === "string" && v.trim() && v.trim() !== "none") ? v.trim() : null),
   // Поля только для пакетного типа
   packageTemplateId: z.string().uuid().optional(),
   validDays: z.number().int().min(1).max(3650).optional(),
@@ -324,9 +331,18 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Скидки v2: пересчёт скидок клиента — новый абонемент получает тип 2
-    // (если выбран в карточке), иначе срабатывает инвариант типа 1 по месяцу
-    // (скидка на все абонементы месяца, кроме самого дорогого).
+    // Скидки v3: клиент в режиме «на абонемент» — ставим выбранный в форме
+    // пер-абонементный шаблон (тип 2) на этот абонемент; recalc для него — no-op.
+    // Обычный клиент: discountTemplateId игнорируем, скидку кладёт recalc
+    // (тип 2 из карточки для нового, иначе инвариант тип 1 по месяцу).
+    if (client.perSubDiscountMode && data.discountTemplateId) {
+      await setSubscriptionManualDiscount(tx, {
+        tenantId: session.user.tenantId,
+        subscriptionId: sub.id,
+        templateId: data.discountTemplateId,
+        createdBy: session.user.employeeId ?? null,
+      })
+    }
     await recalcClientDiscounts(tx, {
       tenantId: session.user.tenantId,
       clientId: data.clientId,

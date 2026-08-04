@@ -796,7 +796,16 @@ export async function setSubscriptionManualDiscount(
   let tpl: TemplateLite | null = null
   if (input.templateId) {
     const row = await t.discountTemplate.findFirst({
-      where: { id: input.templateId, tenantId: input.tenantId, isLegacy: false, isActive: true },
+      // Скидки v3: пер-абонементно валидны только шаблоны scope=subscription
+      // (permanent, не легаси, включённые). Иначе — скидка не ставится (tpl=null).
+      where: {
+        id: input.templateId,
+        tenantId: input.tenantId,
+        scope: "subscription",
+        kind: "permanent",
+        isLegacy: false,
+        isActive: true,
+      },
       select: { id: true, name: true, valueType: true, value: true },
     })
     if (row) {

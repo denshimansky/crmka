@@ -666,7 +666,7 @@ export async function ClientCardContent({
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         {/* Main content: tabs */}
         <div className="min-w-0">
-          <ClientTabs clientId={client.id} wards={wardsForClient} />
+          <ClientTabs clientId={client.id} wards={wardsForClient} perSubDiscountMode={client.perSubDiscountMode} />
         </div>
 
         {/* Sidebar */}

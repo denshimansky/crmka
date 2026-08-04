@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client"
 import {
   recalcClientDiscounts,
   repriceSubscription,
+  setSubscriptionManualDiscount,
   type RecalcDiscountsResult,
 } from "@/lib/discounts/recalc-client-discounts"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
@@ -26,6 +27,12 @@ const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
   lessonPrice: z.number().min(0, "Цена не может быть отрицательной").optional(),
   totalLessons: z.number().int().min(1, "Минимум 1 занятие").optional(),
+  // Скидки v3: смена пер-абонементной скидки. undefined — не прислано (не трогаем);
+  // id — выбрать шаблон; null/""/"none" — снять. Действует для perSubDiscountMode.
+  discountTemplateId: z.any().transform(v => {
+    if (v === undefined) return undefined
+    return (typeof v === "string" && v.trim() && v.trim() !== "none") ? v.trim() : null
+  }),
   // Баг #72: было `: null` — undefined превращался в null и затирал wardId
   // при ЛЮБОМ PATCH без него (withdrawn, closed, edit). Теперь корректно: при
   // отсутствии в payload поле не трогаем.
@@ -279,6 +286,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const result = await db.$transaction(async (tx) => {
     const existing = await tx.subscription.findFirst({
       where: { id, tenantId: session.user.tenantId, deletedAt: null },
+      // Скидки v3: режим клиента нужен, чтобы применять пер-абонементную скидку
+      // только клиентам в perSubDiscountMode (у остальных — чистый v2).
+      include: { client: { select: { perSubDiscountMode: true } } },
     })
     if (!existing) return null
 
@@ -509,10 +519,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     }
 
-    // Скидки v2: пересчёт денег абонемента после правки цены/занятий
-    // (не для legacy и не для только что отчисленных — у них balance уже
-    // выставлен. Закрытие сюда не доходит — обработано ранним путём.)
+    // Скидки v3: смена пер-абонементной скидки (клиент в режиме «на абонемент»,
+    // выбран/снят шаблон) — пересчёт денег ЭТОГО абонемента под шаблон (percent от
+    // текущей цены). Если менялась ТОЛЬКО цена (без смены скидки) —
+    // repriceSubscription сохраняет текущую скидку. Не для legacy и не для только
+    // что отчисленных (у них balance уже выставлен; закрытие сюда не доходит).
+    const discountChanged =
+      data.discountTemplateId !== undefined && existing.client.perSubDiscountMode
     if (
+      discountChanged &&
+      existing.discountSource !== "legacy" &&
+      data.status !== "withdrawn"
+    ) {
+      await setSubscriptionManualDiscount(tx, {
+        tenantId: session.user.tenantId,
+        subscriptionId: id,
+        templateId: data.discountTemplateId ?? null,
+        createdBy: session.user.employeeId ?? null,
+      })
+    } else if (
       priceChanged &&
       existing.discountSource !== "legacy" &&
       data.status !== "withdrawn"
@@ -524,10 +549,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     }
 
-    // Скидки v2: изменение состава месяца (отчисление/аннулирование) или цены
-    // (мог смениться «самый дорогой») — пересчёт скидок клиента.
+    // Скидки v2/v3: изменение состава месяца (отчисление/аннулирование), цены или
+    // пер-абонементной скидки (мог смениться «самый дорогой») — пересчёт клиента.
     let discountRecalc: RecalcDiscountsResult = { changes: [] }
-    if (priceChanged || data.status === "withdrawn") {
+    if (priceChanged || discountChanged || data.status === "withdrawn") {
       discountRecalc = await recalcClientDiscounts(tx, {
         tenantId: session.user.tenantId,
         clientId: existing.clientId,
