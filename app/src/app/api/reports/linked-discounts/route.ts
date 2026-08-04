@@ -47,17 +47,22 @@ export async function GET(req: NextRequest) {
           value: true,
           calculatedAmount: true,
           startDate: true,
-          template: { select: { name: true } },
+          // Скидки v3: scope шаблона — чтобы различать клиентский тип-2 и
+          // пер-абонементный («На абонемент») в подписи источника.
+          template: { select: { name: true, scope: true } },
         },
       },
     },
     orderBy: [{ periodYear: "desc" }, { periodMonth: "desc" }],
   })
 
-  const sourceLabel: Record<string, string> = {
-    type1: "За второй абонемент (авто)",
-    type2: "Постоянная",
-    legacy: "Старая логика",
+  // Скидки v3: тип-2 может быть клиентским («Постоянная») или пер-абонементным
+  // («На абонемент», scope=subscription) — различаем в подписи источника.
+  const sourceLabelFor = (source: string, scope: string | null | undefined): string => {
+    if (source === "type1") return "За второй абонемент (авто)"
+    if (source === "type2") return scope === "subscription" ? "На абонемент" : "Постоянная"
+    if (source === "legacy") return "Старая логика"
+    return source
   }
 
   const data = subs.map((s) => {
@@ -81,7 +86,7 @@ export async function GET(req: NextRequest) {
             ? "Пакет"
             : null,
       source: s.discountSource,
-      sourceLabel: sourceLabel[s.discountSource] ?? s.discountSource,
+      sourceLabel: sourceLabelFor(s.discountSource, d?.template?.scope),
       templateName: d?.template?.name ?? null,
       discountPerLesson: Number(s.discountPerLesson),
       discountAmount: Number(s.discountAmount),
