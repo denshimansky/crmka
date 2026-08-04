@@ -90,6 +90,8 @@ export async function previewSubscriptionDiscount(
     periodMonth?: number | null
     lessonPrice: number
     totalLessons: number
+    /** Скидки v3: выбранный в форме абонемента шаблон (ручная скидка типа 2). */
+    discountTemplateId?: string | null
   },
 ): Promise<DiscountPreview | null> {
   const lessonPrice = new Prisma.Decimal(input.lessonPrice)
@@ -98,37 +100,29 @@ export async function previewSubscriptionDiscount(
 
   const client = await db.client.findFirst({
     where: { id: input.clientId, tenantId: input.tenantId, deletedAt: null },
-    select: { id: true, discountTemplateId: true, autoDiscountDisabled: true },
+    select: { id: true, autoDiscountDisabled: true },
   })
   if (!client) return null
 
-  // Явный запрет автоскидок — новый абонемент без скидки (баг #50).
-  if (client.autoDiscountDisabled) return noDiscount(lessonPrice, totalLessons)
-
-  // Тип 2 (постоянная скидка из карточки) — приоритетен и эксклюзивен, действует
-  // на ЛЮБОЙ новый абонемент, включая пакетный. При выбранном тип-2 тип 1 не действует.
-  // Логика зеркалит recalcClientDiscounts:
-  //   - активный permanent non-legacy → тип 2;
-  //   - выбранный permanent non-legacy, но ВЫКЛЮЧЕННЫЙ → новый без скидки
-  //     (выданные доживают, тип 1 не подключается);
-  //   - шаблон легаси/неперманент/удалённый → проваливаемся в тип 1.
-  if (client.discountTemplateId) {
+  // Ручная скидка (тип 2), ВЫБРАННАЯ в форме ЭТОГО абонемента — приоритет и
+  // эксклюзив: тип 1 не действует. Действует на любой тип абонемента.
+  if (input.discountTemplateId) {
     const t2 = await db.discountTemplate.findFirst({
       where: {
-        id: client.discountTemplateId,
+        id: input.discountTemplateId,
         tenantId: input.tenantId,
-        kind: "permanent",
         isLegacy: false,
+        isActive: true,
       },
-      select: { name: true, valueType: true, value: true, isActive: true },
+      select: { name: true, valueType: true, value: true },
     })
-    if (t2) {
-      return t2.isActive
-        ? withDiscount(t2, lessonPrice, totalLessons, "type2")
-        : noDiscount(lessonPrice, totalLessons)
-    }
-    // t2 === null: templateId указывает на легаси/неперманент шаблон — тип 1 ниже.
+    if (t2) return withDiscount(t2, lessonPrice, totalLessons, "type2")
+    // Шаблон не найден/выключен — считаем как без ручной скидки (тип 1 ниже).
   }
+
+  // Клиент с запретом автоскидок («Без скидки» из старой карточки) — тип 1 не
+  // действует (ручную скидку выше это не затрагивает).
+  if (client.autoDiscountDisabled) return noDiscount(lessonPrice, totalLessons)
 
   // Тип 1 «Скидка за второй абонемент» — только для календарных абонементов.
   if (input.type !== "calendar" || input.periodYear == null || input.periodMonth == null) {
@@ -160,8 +154,22 @@ export async function previewSubscriptionDiscount(
       periodMonth: input.periodMonth,
       status: { in: ["pending", "active", "closed"] },
     },
-    select: { id: true, status: true, totalAmount: true, discountSource: true },
+    select: {
+      id: true,
+      status: true,
+      totalAmount: true,
+      discountSource: true,
+      discountTemplateId: true,
+    },
   })
+
+  // Кандидаты тип-1 = абонементы БЕЗ ручной скидки (нет выбранного шаблона,
+  // не type2/legacy). Ручные в состав «за второй и следующие» не входят.
+  const eligible = (s: {
+    discountSource: string
+    discountTemplateId: string | null
+  }): boolean =>
+    s.discountTemplateId == null && s.discountSource !== "type2" && s.discountSource !== "legacy"
 
   // Зона действия: период со СЛЕДУЮЩЕГО месяца после включения (гейт activatedAt+1).
   // Зеркалит recalc: текущий месяц входит в зону, если у клиента в нём УЖЕ есть
@@ -175,7 +183,7 @@ export async function previewSubscriptionDiscount(
     return noDiscount(lessonPrice, totalLessons)
   }
 
-  const closedIds = existing.filter((s) => s.status === "closed").map((s) => s.id)
+  const closedIds = existing.filter((s) => s.status === "closed" && eligible(s)).map((s) => s.id)
   const attendedClosed = new Set<string>()
   if (closedIds.length > 0) {
     const rows = await db.attendance.groupBy({
@@ -193,8 +201,10 @@ export async function previewSubscriptionDiscount(
     }
   }
 
-  const roster = existing.filter((s) => s.status !== "closed" || attendedClosed.has(s.id))
-  // Новый абонемент — единственный в месяце: тип 1 требует больше одного.
+  const roster = existing.filter(
+    (s) => eligible(s) && (s.status !== "closed" || attendedClosed.has(s.id)),
+  )
+  // Новый абонемент — единственный кандидат в месяце: тип 1 требует больше одного.
   if (roster.length < 1) return noDiscount(lessonPrice, totalLessons)
 
   const newTotal = lessonPrice.mul(totalLessons)
