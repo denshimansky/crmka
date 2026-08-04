@@ -6,7 +6,8 @@ import { syncLeads } from "@/lib/leads-import/sync-leads"
 export const runtime = "nodejs"
 export const maxDuration = 120
 
-// POST /api/leads-import/sync — этап 2: промежуточный xlsx + деньги.xlsx → контакты в БД
+// POST /api/leads-import/sync — импорт клиентов по заполненному шаблону
+// «Шаблон импорта клиентов.xlsx» (лист «Клиенты») → контакты и балансы в БД.
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) {
@@ -18,9 +19,11 @@ export async function POST(req: NextRequest) {
 
   const formData = await req.formData()
   const leadsFile = formData.get("leadsFile") as File | null
+  // Опциональный файл балансов сохраняем для обратной совместимости, но UI его
+  // больше не отправляет — балансы приходят колонкой «Баланс» из шаблона.
   const moneyFile = formData.get("moneyFile") as File | null
   if (!leadsFile) {
-    return NextResponse.json({ error: "Не выбран файл «Список лидов — для импорта.xlsx»" }, { status: 400 })
+    return NextResponse.json({ error: "Не выбран заполненный шаблон импорта клиентов" }, { status: 400 })
   }
 
   const leadsBuffer = Buffer.from(await leadsFile.arrayBuffer())
@@ -43,8 +46,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "В файле «Список лидов — для импорта.xlsx» не найдено ни одной строки с заполненным ребёнком. " +
-          "Проверьте, что шапка содержит колонку «Ребёнок» и есть строки данных.",
+          "В шаблоне не найдено ни одной строки с заполненным ребёнком. " +
+          "Проверьте, что на листе «Клиенты» шапка содержит колонку «Ребёнок» и есть строки данных.",
         detectedHeaders: result.detectedHeaders,
       },
       { status: 400 },

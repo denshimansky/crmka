@@ -8,8 +8,13 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Wallet, AlertCircle } from "lucide-react"
+import { Upload, AlertCircle, Download } from "lucide-react"
 import { useCurrencySymbol } from "@/components/currency-provider"
+
+// Статический шаблон в public/ — «Скачать шаблон» ведёт сюда, download-атрибут
+// подставляет привычное пользователю имя файла.
+export const TEMPLATE_HREF = "/templates/client-import-template.xlsx"
+export const TEMPLATE_FILENAME = "Шаблон импорта клиентов.xlsx"
 
 interface NeedsReview {
   rowIdx: number
@@ -51,12 +56,11 @@ interface SyncReport {
   warnings: string[]
 }
 
-export function SyncBalanceButton() {
+export function ImportTemplateButton() {
   const router = useRouter()
   const sym = useCurrencySymbol()
   const [open, setOpen] = useState(false)
   const [leadsFile, setLeadsFile] = useState<File | null>(null)
-  const [moneyFile, setMoneyFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detectedHeaders, setDetectedHeaders] = useState<string[] | null>(null)
@@ -66,7 +70,7 @@ export function SyncBalanceButton() {
   const [report, setReport] = useState<SyncReport | null>(null)
 
   function reset() {
-    setLeadsFile(null); setMoneyFile(null)
+    setLeadsFile(null)
     setError(null); setDetectedHeaders(null); setNeedsReview(null)
     setBranchNotFound(null); setNoContacts(null); setReport(null)
   }
@@ -74,7 +78,7 @@ export function SyncBalanceButton() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!leadsFile) {
-      setError("Выберите файл «Список лидов — для импорта.xlsx»"); return
+      setError(`Выберите заполненный шаблон «${TEMPLATE_FILENAME}»`); return
     }
     setLoading(true); setError(null); setDetectedHeaders(null); setNeedsReview(null)
     setBranchNotFound(null); setNoContacts(null); setReport(null)
@@ -82,7 +86,6 @@ export function SyncBalanceButton() {
     try {
       const fd = new FormData()
       fd.append("leadsFile", leadsFile)
-      if (moneyFile) fd.append("moneyFile", moneyFile)
       const res = await fetch("/api/leads-import/sync", { method: "POST", body: fd })
 
       if (res.status === 422) {
@@ -121,38 +124,37 @@ export function SyncBalanceButton() {
   return (
     <>
       <Button onClick={() => setOpen(true)}>
-        <Wallet className="size-4" />
-        Синхронизировать баланс
+        <Upload className="size-4" />
+        Импорт клиента по шаблону
       </Button>
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Этап 2. Загрузка контактов в CRM</DialogTitle>
+            <DialogTitle>Импорт клиента по шаблону</DialogTitle>
             <DialogDescription>
-              Загрузите вычитанный <code>Список лидов — для импорта.xlsx</code>.
-              Файл <code>деньги.xlsx</code> опционален: если не приложить —
-              баланс существующих клиентов <b>не трогаем</b> (останется как был),
-              новые создадутся с нулевым балансом. Дети одного телефона станут
-              подопечными одного клиента (родителя), балансы суммируются.
-              Филиалы из колонки «Филиал» должны быть заранее заведены в CRM
+              Скачайте шаблон, заполните лист <code>Клиенты</code> и загрузите файл
+              обратно. Обязательны <b>Ребёнок</b> и <b>Статус</b>, а также хотя бы один
+              контакт — телефон <b>или</b> соцсети. Балансы берутся из колонки
+              «Баланс», дети одного телефона становятся подопечными одного клиента
+              (родителя). Филиалы из колонки «Филиал» должны быть заранее заведены в CRM
               с такими же названиями.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <a
+              href={TEMPLATE_HREF}
+              download={TEMPLATE_FILENAME}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
+            >
+              <Download className="size-4" />
+              Скачать шаблон «{TEMPLATE_FILENAME}»
+            </a>
             <div className="space-y-1.5">
-              <Label>Список лидов — для импорта.xlsx <span className="text-destructive">*</span></Label>
+              <Label>Заполненный шаблон <span className="text-destructive">*</span></Label>
               <Input
                 type="file"
                 accept=".xlsx"
                 onChange={(e) => setLeadsFile(e.target.files?.[0] ?? null)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>деньги.xlsx <span className="text-muted-foreground text-xs">(необязательно)</span></Label>
-              <Input
-                type="file"
-                accept=".xlsx"
-                onChange={(e) => setMoneyFile(e.target.files?.[0] ?? null)}
               />
             </div>
 
@@ -230,10 +232,7 @@ export function SyncBalanceButton() {
                   Импорт завершён
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Прочитано строк из «Список лидов»: {report.leadsParsed}
-                  {report.moneyParsed > 0
-                    ? ` · из «Деньги»: ${report.moneyParsed}`
-                    : " · файл «Деньги» не загружен"}
+                  Прочитано строк из шаблона: {report.leadsParsed}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Создано клиентов: {report.clientsCreated} · объединено: {report.clientsMerged} ·
@@ -295,7 +294,7 @@ export function SyncBalanceButton() {
                 </Button>
               ) : (
                 <Button type="submit" disabled={loading || !leadsFile}>
-                  {loading ? "Синхронизация…" : "Запустить синхронизацию"}
+                  {loading ? "Импорт…" : "Загрузить и импортировать"}
                 </Button>
               )}
             </DialogFooter>
