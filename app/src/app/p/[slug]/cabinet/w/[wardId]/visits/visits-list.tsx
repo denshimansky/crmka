@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ClipboardCheck } from "lucide-react"
+import { ChevronDown, ClipboardCheck } from "lucide-react"
 
 // Посещения подопечного: сводка + список карточками, «Показать ещё».
+// Карточка кликабельна — раскрывает статус (вид посещения), тему и домашнее задание.
 
 type Visit = {
   id: string
@@ -21,6 +22,8 @@ type Visit = {
   isTrial: boolean
   isMakeup: boolean
   absenceReason: string | null
+  topic: string | null
+  homework: string | null
 }
 
 type Data = {
@@ -47,6 +50,16 @@ export function VisitsList({ wardId }: { wardId: string }) {
   const [items, setItems] = useState<Visit[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set())
+
+  const toggle = useCallback((id: string) => {
+    setOpenIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   const load = useCallback(
     async (offset: number) => {
@@ -69,6 +82,7 @@ export function VisitsList({ wardId }: { wardId: string }) {
 
   useEffect(() => {
     setItems([])
+    setOpenIds(new Set())
     load(0)
   }, [load])
 
@@ -106,25 +120,61 @@ export function VisitsList({ wardId }: { wardId: string }) {
         <div className="space-y-2">
           {items.map((v) => {
             const badge = statusBadge(v)
+            const open = openIds.has(v.id)
             return (
-              <div key={v.id} className="rounded-md border p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm font-medium">
-                    {new Date(v.date).toLocaleDateString("ru")} · {v.startTime}
+              <div key={v.id} className="rounded-md border">
+                <button
+                  type="button"
+                  onClick={() => toggle(v.id)}
+                  aria-expanded={open}
+                  className="flex w-full flex-col gap-1 rounded-md p-3 text-left transition-colors hover:bg-muted/50"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-medium">
+                      {new Date(v.date).toLocaleDateString("ru")} · {v.startTime}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                      <ChevronDown
+                        className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                      />
+                    </div>
                   </div>
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}>
-                    {badge.label}
-                  </span>
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-                  <span>
-                    {v.directionName} · {v.groupName}
-                  </span>
-                  {v.isMakeup && <Badge variant="secondary">Отработка</Badge>}
-                  {v.isTrial && <Badge variant="secondary">Пробное</Badge>}
-                </div>
-                {v.absenceReason && (
-                  <div className="mt-1 text-xs text-muted-foreground">Причина: {v.absenceReason}</div>
+                  <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                    <span>
+                      {v.directionName} · {v.groupName}
+                    </span>
+                    {v.isMakeup && <Badge variant="secondary">Отработка</Badge>}
+                    {v.isTrial && <Badge variant="secondary">Пробное</Badge>}
+                  </div>
+                  {v.absenceReason && (
+                    <div className="text-xs text-muted-foreground">Причина: {v.absenceReason}</div>
+                  )}
+                </button>
+
+                {open && (
+                  <div className="space-y-3 border-t px-3 py-3">
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground">Статус</div>
+                      <div className="text-sm">{v.typeName}</div>
+                    </div>
+                    {v.topic && (
+                      <div>
+                        <div className="text-xs font-medium text-muted-foreground">Тема занятия</div>
+                        <div className="whitespace-pre-wrap text-sm">{v.topic}</div>
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground">Домашнее задание</div>
+                      {v.homework ? (
+                        <div className="whitespace-pre-wrap text-sm">{v.homework}</div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">Не задано</div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             )

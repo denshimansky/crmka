@@ -389,6 +389,8 @@ export async function getWardAttendances(
         select: {
           date: true,
           startTime: true,
+          topic: true,
+          homework: true,
           group: { select: { name: true, direction: { select: { name: true, color: true } } } },
         },
       },
@@ -417,6 +419,8 @@ export async function getWardAttendances(
       isTrial: a.isTrial,
       isMakeup: a.isMakeup,
       absenceReason: a.absenceReason?.name || null,
+      topic: a.lesson.topic,
+      homework: a.lesson.homework,
     })),
   }
 }
