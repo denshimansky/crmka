@@ -22,6 +22,7 @@ import {
 import type { Role } from "@prisma/client"
 import { branchScopeFromSession } from "./branch-scope"
 import { taskVisibilityWhere } from "./tasks/task-visibility"
+import { expenseAmountInWindow, expenseFetchWindow } from "./expense-amortization"
 
 // ─── Утилиты ───────────────────────────────────────────────────────────
 
@@ -435,6 +436,10 @@ export async function buildBaseContext(
   const current = months[months.length - 1]
   const periodStart = months[0].start
   const periodEnd = months[months.length - 1].end
+  // Окно выборки расходов для ОПИУ (финрез): расширяем на ±60 мес по дате платежа, т.к.
+  // месяц признания (recognitionMode) может отличаться от даты платежа в обе стороны.
+  // Точную долю за месяц даёт expenseAmountInWindow — как в отчёте P&L.
+  const expWindow = expenseFetchWindow(months[0].year, months[0].month, current.year, current.month)
 
   // Скоуп задач по роли + филиалу (та же логика, что на странице «Задачи» и
   // дашборде): управленцы видят все задачи тенанта, инструктор/«только чтение» —
@@ -538,9 +543,10 @@ export async function buildBaseContext(
     // Расходы за весь период (финрез: «Не учитывать в финрезе» исключаем —
     // они не участвуют в прибыли/марже).
     db.expense.findMany({
-      where: { tenantId, deletedAt: null, date: { gte: periodStart, lte: periodEnd }, recognitionMode: { not: "not_in_pnl" } },
+      where: { tenantId, deletedAt: null, date: { gte: expWindow.gte, lte: expWindow.lte }, recognitionMode: { not: "not_in_pnl" } },
       select: {
         amount: true, date: true, comment: true,
+        recognitionMode: true, amortizationMonths: true, amortizationStartDate: true,
         category: { select: { name: true } },
         branches: { select: { branchId: true, directionId: true } },
       },
@@ -641,12 +647,9 @@ export async function buildBaseContext(
       })
       .reduce((s, a) => s + Number(a.chargeAmount), 0)
 
+    // ОПИУ: расход относим к месяцу ПРИЗНАНИЯ (recognitionMode), не к дате платежа.
     const mExpenses = expensesPeriod
-      .filter(e => {
-        const d = new Date(e.date)
-        return d >= m.start && d <= m.end
-      })
-      .reduce((s, e) => s + Number(e.amount), 0)
+      .reduce((s, e) => s + expenseAmountInWindow(e, m.year, m.month, m.year, m.month), 0)
 
     const profit = mRevenue - mExpenses
     ctx += `${m.name}: выручка ${fmt(mRevenue)} ₽ | расходы ${fmt(mExpenses)} ₽ | прибыль ${fmt(profit)} ₽\n`
@@ -725,15 +728,14 @@ export async function buildBaseContext(
     directionPL.get(dirId)!.revenue += Number(a.chargeAmount)
   }
 
-  const monthExpenses = expensesPeriod.filter(e => {
-    const d = new Date(e.date)
-    return d >= current.start && d <= current.end
-  })
-  for (const e of monthExpenses) {
+  for (const e of expensesPeriod) {
+    // ОПИУ: берём долю, признанную в текущем месяце (а не сырую сумму платежа).
+    const recognized = expenseAmountInWindow(e, current.year, current.month, current.year, current.month)
+    if (recognized === 0) continue
     // Прямое отнесение по directionId в expenseBranches
     const linkedDirs = e.branches.filter(b => b.directionId).map(b => b.directionId!)
     if (linkedDirs.length > 0) {
-      const share = Number(e.amount) / linkedDirs.length
+      const share = recognized / linkedDirs.length
       for (const dirId of linkedDirs) {
         if (!directionPL.has(dirId)) directionPL.set(dirId, { revenue: 0, expenses: 0 })
         directionPL.get(dirId)!.expenses += share
@@ -1197,6 +1199,8 @@ function formatEmployeeDetails(
 // --- Месяц: P&L ---
 
 async function buildMonthSlice(month: MonthRange, tenantId: string): Promise<string> {
+  // ОПИУ: расходы за месяц берём по периоду признания, окно выборки ±60 мес по дате платежа.
+  const expWin = expenseFetchWindow(month.year, month.month, month.year, month.month)
   const [revenueAttendances, expenses, subs, churned, newLeads, firstPayments] = await Promise.all([
     db.attendance.findMany({
       where: {
@@ -1207,9 +1211,14 @@ async function buildMonthSlice(month: MonthRange, tenantId: string): Promise<str
       select: { chargeAmount: true, instructorPayAmount: true },
     }),
     db.expense.findMany({
-      where: { tenantId, deletedAt: null, date: { gte: month.start, lte: month.end } },
+      where: {
+        tenantId, deletedAt: null,
+        date: { gte: expWin.gte, lte: expWin.lte },
+        recognitionMode: { not: "not_in_pnl" },
+      },
       select: {
-        amount: true,
+        amount: true, date: true,
+        recognitionMode: true, amortizationMonths: true, amortizationStartDate: true,
         category: { select: { name: true } },
       },
     }),
@@ -1243,13 +1252,17 @@ async function buildMonthSlice(month: MonthRange, tenantId: string): Promise<str
 
   const revenue = revenueAttendances.reduce((s, a) => s + Number(a.chargeAmount), 0)
   const instructorPay = revenueAttendances.reduce((s, a) => s + Number(a.instructorPayAmount), 0)
-  const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0)
+  // ОПИУ: относим расход к месяцу признания (recognitionMode), не к дате платежа.
+  const totalExpenses = expenses.reduce(
+    (s, e) => s + expenseAmountInWindow(e, month.year, month.month, month.year, month.month), 0)
   const profit = revenue - totalExpenses
 
   const byCategory = new Map<string, number>()
   for (const e of expenses) {
+    const recognized = expenseAmountInWindow(e, month.year, month.month, month.year, month.month)
+    if (recognized === 0) continue
     const cat = e.category?.name || "—"
-    byCategory.set(cat, (byCategory.get(cat) || 0) + Number(e.amount))
+    byCategory.set(cat, (byCategory.get(cat) || 0) + recognized)
   }
   const topCats = Array.from(byCategory.entries())
     .sort((a, b) => b[1] - a[1])

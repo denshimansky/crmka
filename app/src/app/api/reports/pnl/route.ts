@@ -4,7 +4,7 @@ import { getReportContext, pct } from "@/lib/report-helpers"
 import { distributeFixedExpenses, type FixedExpenseItem } from "@/lib/expense-distribution"
 import {
   expenseAmountInWindow,
-  AMORTIZATION_LOOKBACK_MONTHS,
+  expenseFetchWindow,
 } from "@/lib/expense-amortization"
 import { isUnscoped, scopeExpense, scopePaymentByAccount } from "@/lib/branch-scope"
 
@@ -106,14 +106,17 @@ export async function GET(req: NextRequest) {
   const otherIncomeByCategory = Array.from(otherIncomeByCategoryMap.values()).sort((a, b) => b.amount - a.amount)
   const totalOtherIncome = otherIncomeByCategory.reduce((s, x) => s + x.amount, 0)
 
-  // Расходы выбираем расширенным окном: расход с recognitionMode=amortized мог быть
-  // оплачен сильно раньше окна отчёта, но раскладка может затрагивать текущий месяц.
-  const expensesFrom = new Date(dateFrom)
-  expensesFrom.setUTCMonth(expensesFrom.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
+  // Расходы выбираем расширенным окном в ОБЕ стороны: расход с single_period/amortized мог
+  // быть оплачен раньше месяца признания (аренда вперёд) ИЛИ позже (начисление раньше оплаты,
+  // напр. взносы за июль оплачены в августе). expenseAmountInWindow отбирает точные доли.
+  const { gte: expensesFrom, lte: expensesTo } = expenseFetchWindow(
+    dateFrom.getUTCFullYear(), dateFrom.getUTCMonth() + 1,
+    dateTo.getUTCFullYear(), dateTo.getUTCMonth() + 1,
+  )
   const expWhere: any = {
     tenantId,
     deletedAt: null,
-    date: { gte: expensesFrom, lte: dateTo },
+    date: { gte: expensesFrom, lte: expensesTo },
   }
   if (branchId) expWhere.branches = { some: { branchId } }
   // ADM-04: scope расходов (если не перекрыт явным branchId).

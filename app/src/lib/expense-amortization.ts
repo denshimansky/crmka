@@ -119,3 +119,31 @@ export function expenseAmountInWindow(
  *   `expense.date >= subMonths(dateFrom, AMORTIZATION_LOOKBACK_MONTHS)`.
  */
 export const AMORTIZATION_LOOKBACK_MONTHS = MAX_AMORTIZATION_MONTHS
+
+/**
+ * Границы выборки расходов из БД (по `expense.date` — дате платежа) для отчёта ОПИУ
+ * за окно месяцев `[fromY-fromM … toY-toM]`.
+ *
+ * КЛЮЧЕВОЙ момент: месяц признания (`amortizationStartDate`) может отличаться от даты
+ * платежа в ОБЕ стороны:
+ *   - платёж РАНЬШЕ признания — «аренда июня оплачена 25 мая»;
+ *   - платёж ПОЗЖЕ признания — «страховые взносы за июль оплачены в августе»
+ *     (начисление раньше оплаты — типичный кейс налогов/взносов).
+ * Поэтому окно по дате платежа расширяем на MAX_AMORTIZATION_MONTHS в ОБЕ стороны, а
+ * точный отбор долей внутри отчётного окна делает `expenseAmountInWindow`. Симметричное
+ * расширение lte безопасно: расходы, чьи доли не попали в окно, дадут 0 и отфильтруются.
+ *
+ * Использует Date.UTC с переполнением индекса месяца (JS нормализует год/месяц), поэтому
+ * не страдает от day-overflow, как ручной `setUTCMonth` по дате конца месяца.
+ */
+export function expenseFetchWindow(
+  fromYear: number,
+  fromMonth: number,
+  toYear: number,
+  toMonth: number,
+): { gte: Date; lte: Date } {
+  const gte = new Date(Date.UTC(fromYear, fromMonth - 1 - MAX_AMORTIZATION_MONTHS, 1))
+  // `, 0` → последний день предыдущего месяца, т.е. конец месяца (toMonth-1 + MAX).
+  const lte = new Date(Date.UTC(toYear, toMonth + MAX_AMORTIZATION_MONTHS, 0))
+  return { gte, lte }
+}

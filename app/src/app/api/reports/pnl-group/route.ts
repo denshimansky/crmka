@@ -3,7 +3,7 @@ import { db } from "@/lib/db"
 import { getReportContext, safeDivide, pct } from "@/lib/report-helpers"
 import {
   expenseAmountInWindow,
-  AMORTIZATION_LOOKBACK_MONTHS,
+  expenseFetchWindow,
 } from "@/lib/expense-amortization"
 
 /** 7.3. P&L на уровне группы */
@@ -71,12 +71,15 @@ export async function GET(req: NextRequest) {
     branchLessons.set(g.branchId, (branchLessons.get(g.branchId) || 0) + les)
   }
 
-  // Expenses per branch — расширяем окно выборки для учёта амортизированных расходов,
-  // оплаченных до начала отчётного периода.
-  const expensesFrom = new Date(dateFrom)
-  expensesFrom.setUTCMonth(expensesFrom.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
+  // Expenses per branch — окно выборки расширяем в ОБЕ стороны: расход мог быть оплачен
+  // раньше месяца признания (аренда вперёд) ИЛИ позже (начисление раньше оплаты, напр. взносы
+  // за июль оплачены в августе). expenseAmountInWindow отбирает точные доли внутри окна.
+  const { gte: expensesFrom, lte: expensesTo } = expenseFetchWindow(
+    dateFrom.getUTCFullYear(), dateFrom.getUTCMonth() + 1,
+    dateTo.getUTCFullYear(), dateTo.getUTCMonth() + 1,
+  )
   const expenses = await db.expense.findMany({
-    where: { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: dateTo } },
+    where: { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: expensesTo } },
     select: {
       amount: true,
       date: true,

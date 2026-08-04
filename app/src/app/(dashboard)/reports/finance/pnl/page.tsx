@@ -13,7 +13,7 @@ import { ReportExport } from "@/components/report-export"
 import { distributeFixedExpenses, type FixedExpenseItem } from "@/lib/expense-distribution"
 import {
   expenseAmountInWindow,
-  AMORTIZATION_LOOKBACK_MONTHS,
+  expenseFetchWindow,
 } from "@/lib/expense-amortization"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
@@ -129,11 +129,11 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const totalOtherIncome = otherIncomeByCategory.reduce((s, x) => s + x.amount, 0)
 
   // === РАСХОДЫ ===
-  // Расширяем окно: расходы с recognitionMode = single_period / amortized могли быть
-  // оплачены сильно раньше отчётного месяца, но раскладка попадает в текущий месяц ОПИУ.
-  const expensesFrom = new Date(monthStart)
-  expensesFrom.setUTCMonth(expensesFrom.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
-  const expWhere: any = { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: monthEnd } }
+  // Расширяем окно в ОБЕ стороны: расход с recognitionMode = single_period / amortized мог
+  // быть оплачен как раньше месяца признания (аренда вперёд), так и позже (начисление раньше
+  // оплаты — напр. взносы за июль оплачены в августе). expenseAmountInWindow отбирает доли.
+  const { gte: expensesFrom, lte: expensesTo } = expenseFetchWindow(fromYm.year, fromYm.month, toYm.year, toYm.month)
+  const expWhere: any = { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: expensesTo } }
   if (branchFilter) expWhere.branches = { some: { branchId: branchFilter } }
 
   const expenses = await db.expense.findMany({

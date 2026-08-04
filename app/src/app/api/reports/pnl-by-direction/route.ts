@@ -3,7 +3,7 @@ import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
 import {
   expenseAmountInWindow,
-  AMORTIZATION_LOOKBACK_MONTHS,
+  expenseFetchWindow,
 } from "@/lib/expense-amortization"
 
 /** FIN-15: P&L по направлениям */
@@ -64,14 +64,17 @@ export async function GET(req: NextRequest) {
   )
 
   // === Expenses ===
-  // Расширяем окно выборки на AMORTIZATION_LOOKBACK_MONTHS назад — расход с
-  // recognitionMode=amortized мог быть оплачен раньше окна, но его доли попадают сюда.
-  const expensesFrom = new Date(dateFrom)
-  expensesFrom.setUTCMonth(expensesFrom.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
+  // Окно выборки расширяем в ОБЕ стороны — расход с single_period/amortized мог быть оплачен
+  // раньше месяца признания (аренда вперёд) ИЛИ позже (начисление раньше оплаты, напр. взносы
+  // за июль оплачены в августе). expenseAmountInWindow отбирает точные доли внутри окна.
+  const { gte: expensesFrom, lte: expensesTo } = expenseFetchWindow(
+    dateFrom.getUTCFullYear(), dateFrom.getUTCMonth() + 1,
+    dateTo.getUTCFullYear(), dateTo.getUTCMonth() + 1,
+  )
   const expWhere: any = {
     tenantId,
     deletedAt: null,
-    date: { gte: expensesFrom, lte: dateTo },
+    date: { gte: expensesFrom, lte: expensesTo },
   }
   if (branchId) expWhere.branches = { some: { branchId } }
 

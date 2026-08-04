@@ -8,6 +8,7 @@ import assert from "node:assert/strict"
 import {
   expandExpenseToMonths,
   expenseAmountInWindow,
+  expenseFetchWindow,
   AMORTIZATION_LOOKBACK_MONTHS,
 } from "@/lib/expense-amortization"
 
@@ -198,5 +199,50 @@ describe("expenseAmountInWindow", () => {
 describe("AMORTIZATION_LOOKBACK_MONTHS", () => {
   it("равно 60 (соответствует UI-лимиту amortizationMonths)", () => {
     assert.equal(AMORTIZATION_LOOKBACK_MONTHS, 60)
+  })
+})
+
+describe("expenseFetchWindow (окно выборки расходов по дате платежа)", () => {
+  it("симметрично: ±60 месяцев от границ отчётного окна, по краям месяца", () => {
+    const { gte, lte } = expenseFetchWindow(2026, 7, 2026, 7)
+    assert.equal(gte.toISOString().slice(0, 10), "2021-07-01") // 2026-07 − 60 мес, начало месяца
+    assert.equal(lte.toISOString().slice(0, 10), "2031-07-31") // 2026-07 + 60 мес, конец месяца
+  })
+
+  it("включает платёж ПОЗЖЕ месяца признания (взносы за июль оплачены в августе)", () => {
+    // Регрессия: раньше окно расширялось только назад (lte = конец отчётного месяца),
+    // и августовский платёж, признанный в июле, не выбирался из БД → не попадал в ОПИУ.
+    const { gte, lte } = expenseFetchWindow(2026, 7, 2026, 7)
+    const payDate = new Date("2026-08-28T00:00:00.000Z")
+    assert.ok(payDate >= gte && payDate <= lte, "платёж 28.08 должен попадать в окно выборки за июль")
+  })
+
+  it("включает платёж РАНЬШЕ месяца признания (аренда июня оплачена 25 мая)", () => {
+    const { gte, lte } = expenseFetchWindow(2026, 6, 2026, 6)
+    const payDate = new Date("2026-05-25T00:00:00.000Z")
+    assert.ok(payDate >= gte && payDate <= lte)
+  })
+
+  it("не даёт day-overflow на конце месяца при добавлении 60 мес", () => {
+    // Февраль как to-месяц: +60 мес = снова февраль, конец месяца = 28/29, без утечки в март.
+    const { lte } = expenseFetchWindow(2026, 2, 2026, 2)
+    assert.equal(lte.toISOString().slice(0, 10), "2031-02-28")
+  })
+})
+
+describe("сценарий бага: расход признан раньше даты платежа (взносы за июль оплачены в августе)", () => {
+  it("выбирается из БД по окну И целиком попадает в июль ОПИУ, но не в август", () => {
+    const e = expense({
+      amount: 4092.1, date: "2026-08-28", mode: "single_period", start: "2026-07-01",
+    })
+    // 1) Дата платежа должна попадать в окно выборки за июль (иначе расход не прочитается).
+    const { gte, lte } = expenseFetchWindow(2026, 7, 2026, 7)
+    assert.ok(e.date >= gte && e.date <= lte, "расход должен быть выбран из БД для июльского ОПИУ")
+    // 2) В ОПИУ весь расход относится к июлю (месяцу признания).
+    assert.equal(expenseAmountInWindow(e, 2026, 7, 2026, 7), 4092.1)
+    // 3) И НЕ появляется в августе (месяце платежа) — это только ДДС.
+    assert.equal(expenseAmountInWindow(e, 2026, 8, 2026, 8), 0)
+    // 4) В диапазоне июль–декабрь — тоже ровно один раз, целиком (не «размазывается»).
+    assert.equal(expenseAmountInWindow(e, 2026, 7, 2026, 12), 4092.1)
   })
 })

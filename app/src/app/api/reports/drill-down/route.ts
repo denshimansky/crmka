@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import {
   expenseAmountInWindow,
-  AMORTIZATION_LOOKBACK_MONTHS,
+  expenseFetchWindow,
 } from "@/lib/expense-amortization"
 
 function formatDate(date: Date): string {
@@ -112,25 +112,29 @@ export async function GET(req: NextRequest) {
       })
     } else if (field === "expenses" || field === "expense-category") {
       // Детализация расходов с учётом периода признания (recognitionMode).
-      // Окно выборки расширяется на 60 месяцев — расход с amortized мог быть оплачен
-      // раньше, но его доля попадает в текущий месяц ОПИУ.
-      const lookback = new Date(monthStart)
-      lookback.setUTCMonth(lookback.getUTCMonth() - AMORTIZATION_LOOKBACK_MONTHS)
+      // Окно выборки расширяется на 60 месяцев в ОБЕ стороны — расход мог быть оплачен как
+      // раньше месяца признания (аренда вперёд), так и позже (начисление раньше оплаты, напр.
+      // взносы за июль оплачены в августе). expenseAmountInWindow отбирает доли внутри окна.
+      const { gte: expFrom, lte: expTo } = expenseFetchWindow(
+        fromYm.year, fromYm.month, toYm.year, toYm.month,
+      )
       const expWhere: any = {
         tenantId,
         deletedAt: null,
-        date: { gte: lookback, lte: monthEnd },
+        date: { gte: expFrom, lte: expTo },
       }
       if (categoryId) expWhere.categoryId = categoryId
       if (branchId) expWhere.branches = { some: { branchId } }
 
+      // Без DB-level take/orderBy: окно выборки расширено на ±60 мес (expenseFetchWindow),
+      // поэтому «date desc + take:500» на уровне БД отобрал бы 500 самых поздних по дате
+      // платежа записей (в т.ч. будущих относительно отчётного месяца), а их доли признания
+      // дают 0 — реальные строки периода вытеснились бы из cap. Фильтруем и режем в JS ниже.
       const expenses = await db.expense.findMany({
         where: expWhere,
         include: {
           category: { select: { name: true } },
         },
-        orderBy: { date: "desc" },
-        take: 500,
       })
 
       const RECOGNITION_LABELS: Record<string, string> = {
@@ -162,9 +166,11 @@ export async function GET(req: NextRequest) {
         })
       }
       detail.sort((a, b) => b.amountInPeriod - a.amountInPeriod)
+      // Cap на уже отфильтрованных (в окне ОПИУ) строках, а не на сырой выборке из БД.
+      const detailCapped = detail.slice(0, 500)
 
       columns = ["Дата платежа", "Категория", "Полная сумма", isRange ? "В периоде" : "В этом месяце", "Признание", "Комментарий"]
-      rows = detail.map(d => [
+      rows = detailCapped.map(d => [
         formatDate(d.date),
         d.category,
         d.amountTotal,

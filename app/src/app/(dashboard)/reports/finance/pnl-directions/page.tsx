@@ -17,6 +17,7 @@ import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { ReportExport } from "@/components/report-export"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
+import { expenseAmountInWindow, expenseFetchWindow } from "@/lib/expense-amortization"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " \u20BD"
@@ -92,10 +93,15 @@ export default async function PnlDirectionsPage({
   )
 
   // === Expenses ===
+  // Учитываем период признания (recognitionMode): расход может быть признан в этом месяце,
+  // но оплачен в другом (раньше — аренда вперёд; позже — взносы за июль оплачены в августе)
+  // или размазан по месяцам (amortized). Окно выборки расширяем в обе стороны, точную долю
+  // за месяц даёт expenseAmountInWindow. Иначе отчёт по направлениям расходился с общим P&L.
+  const { gte: expFrom, lte: expTo } = expenseFetchWindow(year, month, year, month)
   const expWhere: any = {
     tenantId,
     deletedAt: null,
-    date: { gte: monthStart, lte: monthEnd },
+    date: { gte: expFrom, lte: expTo },
     // «Не учитывать в финрезе» — исключаем из ОПИУ по направлениям.
     recognitionMode: { not: "not_in_pnl" },
   }
@@ -113,7 +119,8 @@ export default async function PnlDirectionsPage({
   const directExpensesByDir = new Map<string, number>()
 
   for (const e of expenses) {
-    const amount = Number(e.amount)
+    const amount = expenseAmountInWindow(e, year, month, year, month)
+    if (amount === 0) continue
     const isVariable = e.category.isVariable
     const linkedDirIds = e.branches
       .map((b) => b.directionId)
