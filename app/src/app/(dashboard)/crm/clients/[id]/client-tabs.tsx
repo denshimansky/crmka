@@ -61,6 +61,10 @@ interface Subscription {
   finalAmount: string
   balance: string
   chargedAmount: string
+  /** Скидки v3: выбранный пер-абонементный шаблон (scope=subscription). */
+  discountTemplateId?: string | null
+  /** Источник текущей скидки (none/type1/type2/legacy). */
+  discountSource?: string
   direction: { id: string; name: string }
   group: { id: string; name: string }
   ward: { id: string; firstName: string; lastName: string | null } | null
@@ -173,9 +177,11 @@ const MONTH_NAMES = [
 
 function EditSubscriptionDialog({
   subscription,
+  perSubDiscountMode,
   onSuccess,
 }: {
   subscription: Subscription
+  perSubDiscountMode: boolean
   onSuccess: () => void
 }) {
   const formatMoney = useMoneyFormat()
@@ -186,9 +192,26 @@ function EditSubscriptionDialog({
   const [lessonPrice, setLessonPrice] = useState(String(Number(subscription.lessonPrice)))
   const [totalLessons, setTotalLessons] = useState(String(subscription.totalLessons))
 
+  // Скидки v3: пер-абонементная скидка этого абонемента. Легаси — заморожена,
+  // поле скрыто. Список — только шаблоны scope=subscription (грузим в режиме).
+  const discountEditable = subscription.discountSource !== "legacy"
+  const [discountTemplates, setDiscountTemplates] = useState<DiscountTemplateOption[]>([])
+  const [discountTemplateId, setDiscountTemplateId] = useState(
+    subscription.discountTemplateId ?? "none",
+  )
+
+  useEffect(() => {
+    if (!open || !perSubDiscountMode || !discountEditable) return
+    fetch("/api/discount-templates?isActive=true&kind=permanent&scope=subscription")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setDiscountTemplates(Array.isArray(d) ? d : []))
+      .catch(() => { /* ignore */ })
+  }, [open, perSubDiscountMode, discountEditable])
+
   function reset() {
     setLessonPrice(String(Number(subscription.lessonPrice)))
     setTotalLessons(String(subscription.totalLessons))
+    setDiscountTemplateId(subscription.discountTemplateId ?? "none")
     setError(null)
   }
 
@@ -213,6 +236,14 @@ function EditSubscriptionDialog({
         body: JSON.stringify({
           lessonPrice: Number(lessonPrice),
           totalLessons: Number(totalLessons),
+          // Скидки v3: пер-абонементный шаблон шлём только в режиме, для не-легаси
+          // И только если он РЕАЛЬНО изменён — иначе правка одной цены не должна
+          // трогать «доживающую» скидку (сервер пойдёт по repriceSubscription).
+          ...(perSubDiscountMode &&
+          discountEditable &&
+          discountTemplateId !== (subscription.discountTemplateId ?? "none")
+            ? { discountTemplateId: discountTemplateId === "none" ? null : discountTemplateId }
+            : {}),
         }),
       })
 
@@ -232,6 +263,17 @@ function EditSubscriptionDialog({
   }
 
   const totalAmount = (Number(lessonPrice) || 0) * (Number(totalLessons) || 0)
+  // Скидки v3: предпросчёт стоимости со скидкой выбранного шаблона (percent от цены).
+  const discLabel = (t: DiscountTemplateOption) =>
+    t.valueType === "percent"
+      ? `${t.name} — ${t.value}%`
+      : `${t.name} — −${formatMoney(t.value)}/зан.`
+  const selTpl = discountTemplates.find((t) => t.id === discountTemplateId)
+  const priceNum = Number(lessonPrice) || 0
+  const discPerLesson = selTpl
+    ? Math.min(selTpl.valueType === "percent" ? (priceNum * selTpl.value) / 100 : selTpl.value, priceNum)
+    : 0
+  const discountedTotal = Math.max(0, priceNum - discPerLesson) * (Number(totalLessons) || 0)
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
@@ -286,12 +328,76 @@ function EditSubscriptionDialog({
             </div>
           </div>
 
+          {/* Скидки v3: пер-абонементный шаблон. Легаси — скрыто (заморожено). */}
+          {discountEditable && (
+            <div className="space-y-1.5">
+              <Label>Шаблон скидки на абонемент</Label>
+              {perSubDiscountMode ? (
+                <Select value={discountTemplateId} onValueChange={(v) => { if (v) setDiscountTemplateId(v) }}>
+                  <SelectTrigger className="w-full">
+                    {selTpl ? discLabel(selTpl) : "Не применять никакую"}
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Не применять никакую</SelectItem>
+                    {discountTemplates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{discLabel(t)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              {/* Скидки v3: «доживающая» клиентская скидка (без пер-абон. шаблона)
+                  показывается «Не применять» — поясняем, чтобы не путать. */}
+              {perSubDiscountMode &&
+                !subscription.discountTemplateId &&
+                (subscription.discountSource === "type1" ||
+                  subscription.discountSource === "type2") && (
+                  <p className="text-xs text-muted-foreground">
+                    На абонементе действует прежняя скидка (доживает до конца периода).
+                    Выберите шаблон, чтобы заменить её.
+                  </p>
+                )}
+              {!perSubDiscountMode && (
+                <>
+                  <div className="flex h-9 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
+                    Недоступно
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Включите режим «Шаблоны скидок на абонементы» в карточке клиента.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
           {totalAmount > 0 && (
-            <div className="rounded-md bg-muted/50 p-3 text-sm">
-              <div className="flex justify-between font-bold">
-                <span>Стоимость:</span>
-                <span>{formatMoney(totalAmount)}</span>
-              </div>
+            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
+              {perSubDiscountMode && discountEditable && selTpl && discPerLesson > 0 ? (
+                <>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Стоимость без скидки:</span>
+                    <span>{formatMoney(totalAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+                    <span>Скидка «{selTpl.name}»</span>
+                    <span>−{formatMoney(totalAmount - discountedTotal)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t border-border pt-1">
+                    <span>Итого:</span>
+                    <span>{formatMoney(discountedTotal)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-between font-bold">
+                  <span>Стоимость:</span>
+                  <span>{formatMoney(totalAmount)}</span>
+                </div>
+              )}
+              {(subscription.attendedLessons ?? 0) > 0 && (
+                <p className="text-xs text-muted-foreground pt-1">
+                  Уже отмеченные занятия сохранят своё списание — итоговая сумма может
+                  отличаться от расчётной.
+                </p>
+              )}
             </div>
           )}
 
@@ -790,7 +896,7 @@ function ExtendPackageDialog({
 
 // ===== Subscriptions Tab =====
 
-function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[] }) {
+function SubscriptionsTab({ clientId, wards, perSubDiscountMode }: { clientId: string; wards: Ward[]; perSubDiscountMode: boolean }) {
   const formatMoney = useMoneyFormat()
   const router = useRouter()
   const [subs, setSubs] = useState<Subscription[]>([])
@@ -816,7 +922,7 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">Абонементы ({subs.length})</CardTitle>
-          <AddSubscriptionDialog clientId={clientId} wards={wards} subscriptions={subs} onSuccess={handleSubUpdated} />
+          <AddSubscriptionDialog clientId={clientId} wards={wards} subscriptions={subs} perSubDiscountMode={perSubDiscountMode} onSuccess={handleSubUpdated} />
         </div>
       </CardHeader>
       <CardContent>
@@ -941,7 +1047,7 @@ function SubscriptionsTab({ clientId, wards }: { clientId: string; wards: Ward[]
                               onSuccess={handleSubUpdated}
                             />
                           )}
-                          <EditSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
+                          <EditSubscriptionDialog subscription={s} perSubDiscountMode={perSubDiscountMode} onSuccess={handleSubUpdated} />
                           {s.type === "package" && (
                             <ExtendPackageDialog subscription={s} onSuccess={handleSubUpdated} />
                           )}
@@ -1309,17 +1415,27 @@ interface PackageTemplateOption {
   validDays: number | null
 }
 
+// Скидки v3: пер-абонементный шаблон скидки (scope=subscription) для формы.
+interface DiscountTemplateOption {
+  id: string
+  name: string
+  valueType: "percent" | "fixed"
+  value: number
+}
+
 type SubscriptionTypeMode = "calendar" | "package"
 
 function AddSubscriptionDialog({
   clientId,
   wards,
   subscriptions,
+  perSubDiscountMode,
   onSuccess,
 }: {
   clientId: string
   wards: Ward[]
   subscriptions: Subscription[]
+  perSubDiscountMode: boolean
   onSuccess: () => void
 }) {
   const formatMoney = useMoneyFormat()
@@ -1364,16 +1480,25 @@ function AddSubscriptionDialog({
   // автоскидка «за второй абонемент».
   const [discountPreview, setDiscountPreview] = useState<DiscountPreview | null>(null)
 
+  // Скидки v3: пер-абонементная скидка — выбор шаблона (scope=subscription) или
+  // «Не применять». Доступно только клиенту в режиме perSubDiscountMode.
+  const [discountTemplates, setDiscountTemplates] = useState<DiscountTemplateOption[]>([])
+  const [discountTemplateId, setDiscountTemplateId] = useState("none")
+
   // Загрузка направлений, групп, типа абонемента и шаблонов при открытии
   useEffect(() => {
     if (!open) return
     async function load() {
       try {
-        const [dirRes, grpRes, orgRes, tplRes] = await Promise.all([
+        const [dirRes, grpRes, orgRes, tplRes, dtplRes] = await Promise.all([
           fetch("/api/directions"),
           fetch("/api/groups"),
           fetch("/api/organization"),
           fetch("/api/package-templates"),
+          // Пер-абонементные шаблоны грузим только в режиме (иначе поле недоступно).
+          perSubDiscountMode
+            ? fetch("/api/discount-templates?isActive=true&kind=permanent&scope=subscription")
+            : Promise.resolve(null),
         ])
         if (dirRes.ok) setDirections(await dirRes.json())
         if (grpRes.ok) setGroups(await grpRes.json())
@@ -1386,10 +1511,11 @@ function AddSubscriptionDialog({
           }
         }
         if (tplRes.ok) setPackageTemplates(await tplRes.json())
+        if (dtplRes && dtplRes.ok) setDiscountTemplates(await dtplRes.json())
       } catch { /* ignore */ }
     }
     load()
-  }, [open])
+  }, [open, perSubDiscountMode])
 
   // При выборе филиала — сбрасываем направление и группу.
   function handleBranchChange(id: string) {
@@ -1498,6 +1624,10 @@ function AddSubscriptionDialog({
       params.set("periodYear", periodYear)
       params.set("periodMonth", periodMonth)
     }
+    // Скидки v3: выбранный пер-абонементный шаблон учитываем в предпросчёте.
+    if (perSubDiscountMode && discountTemplateId !== "none") {
+      params.set("discountTemplateId", discountTemplateId)
+    }
     const ctrl = new AbortController()
     const timer = setTimeout(() => {
       fetch(`/api/subscriptions/discount-preview?${params.toString()}`, { signal: ctrl.signal })
@@ -1506,7 +1636,7 @@ function AddSubscriptionDialog({
         .catch(() => { /* abort/сеть — оставляем прежний предпросчёт */ })
     }, 250)
     return () => { clearTimeout(timer); ctrl.abort() }
-  }, [open, clientId, lessonPrice, totalLessons, periodYear, periodMonth, subscriptionType])
+  }, [open, clientId, lessonPrice, totalLessons, periodYear, periodMonth, subscriptionType, perSubDiscountMode, discountTemplateId])
 
   function reset() {
     setBranchId("")
@@ -1522,6 +1652,7 @@ function AddSubscriptionDialog({
     setFirstLessonDate(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`)
     setValidDays("")
     setDiscountPreview(null)
+    setDiscountTemplateId("none")
     setError(null)
   }
 
@@ -1544,6 +1675,10 @@ function AddSubscriptionDialog({
         wardId: wardId || undefined,
         lessonPrice: Number(lessonPrice),
         totalLessons: Number(totalLessons),
+        // Скидки v3: пер-абонементный шаблон — только в режиме (иначе игнорируется).
+        ...(perSubDiscountMode
+          ? { discountTemplateId: discountTemplateId === "none" ? null : discountTemplateId }
+          : {}),
       }
       if (subscriptionType === "package") {
         payload.startDate = startDate
@@ -1601,6 +1736,12 @@ function AddSubscriptionDialog({
     ? groups.filter(g => g.directionId === directionId && g.branchId === branchId)
     : []
   const totalAmount = (Number(lessonPrice) || 0) * (Number(totalLessons) || 0)
+  // Скидки v3: подпись пункта списка пер-абонементных шаблонов.
+  const discLabel = (t: DiscountTemplateOption) =>
+    t.valueType === "percent"
+      ? `${t.name} — ${t.value}%`
+      : `${t.name} — −${formatMoney(t.value)}/зан.`
+  const selDiscTpl = discountTemplates.find((t) => t.id === discountTemplateId)
 
   const selectedBranch = branchOptions.find(b => b.id === branchId)
   const selectedDirection = directions.find(d => d.id === directionId)
@@ -1838,6 +1979,33 @@ function AddSubscriptionDialog({
             </div>
           </div>
 
+          {/* Скидки v3: пер-абонементный шаблон. Активно только в режиме клиента. */}
+          <div className="space-y-1.5">
+            <Label>Шаблон скидки на абонемент</Label>
+            {perSubDiscountMode ? (
+              <Select value={discountTemplateId} onValueChange={(v) => { if (v) setDiscountTemplateId(v) }}>
+                <SelectTrigger className="w-full">
+                  {selDiscTpl ? discLabel(selDiscTpl) : "Не применять никакую"}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Не применять никакую</SelectItem>
+                  {discountTemplates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{discLabel(t)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <>
+                <div className="flex h-9 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
+                  Недоступно
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Включите режим «Шаблоны скидок на абонементы» в карточке клиента.
+                </p>
+              </>
+            )}
+          </div>
+
           {totalAmount > 0 && (
             <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
               {discountPreview?.hasDiscount ? (
@@ -1984,9 +2152,13 @@ function ScheduleTab({ clientId }: { clientId: string }) {
 export function ClientTabs({
   clientId,
   wards,
+  perSubDiscountMode,
 }: {
   clientId: string
   wards: Ward[]
+  // Скидки v3: клиент в режиме «Шаблоны скидок на абонементы» — форма абонемента
+  // показывает выбор пер-абонементного шаблона.
+  perSubDiscountMode: boolean
 }) {
   return (
     <Tabs defaultValue="wards">
@@ -2045,7 +2217,7 @@ export function ClientTabs({
       </TabsContent>
 
       <TabsContent value="subscriptions">
-        <SubscriptionsTab clientId={clientId} wards={wards} />
+        <SubscriptionsTab clientId={clientId} wards={wards} perSubDiscountMode={perSubDiscountMode} />
       </TabsContent>
 
       <TabsContent value="payments">

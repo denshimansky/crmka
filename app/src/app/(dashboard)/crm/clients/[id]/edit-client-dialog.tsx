@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select"
 import { Pencil } from "lucide-react"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
-import { NO_AUTO, shortTitle, type DiscountTemplateLite } from "../../_components/discount-label"
+import { NO_AUTO, PER_SUB, shortTitle, type DiscountTemplateLite } from "../../_components/discount-label"
 
 interface BranchOption {
   id: string
@@ -65,6 +65,8 @@ interface ClientData {
   // Скидки v2: выбор перенесён сюда из шапки карточки (там теперь информационно).
   discountTemplateId: string | null
   autoDiscountDisabled: boolean
+  // Скидки v3: режим «Шаблоны скидок на абонементы».
+  perSubDiscountMode: boolean
   discountTemplate: DiscountTemplateLite | null
   /** Действует ли на абонементах клиента автоскидка «за второй абонемент». */
   hasType1Discount?: boolean
@@ -90,10 +92,12 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   const [branchId, setBranchId] = useState(client.branchId || "")
   const [assignedTo, setAssignedTo] = useState(client.assignedTo || "")
   const [comment, setComment] = useState(client.comment || "")
-  // Скидка: sentinel-значение поля (templateId | "none" | NO_AUTO).
+  // Скидка: sentinel-значение поля (templateId | "none" | NO_AUTO | PER_SUB).
   const initialDiscountValue = client.autoDiscountDisabled
     ? NO_AUTO
-    : client.discountTemplateId ?? "none"
+    : client.perSubDiscountMode
+      ? PER_SUB
+      : client.discountTemplateId ?? "none"
   const [discountValue, setDiscountValue] = useState(initialDiscountValue)
   const [discountTemplates, setDiscountTemplates] = useState<TemplateOption[]>([])
 
@@ -167,10 +171,17 @@ export function EditClientDialog({ client }: { client: ClientData }) {
       // «тип 1 в текущем месяце»). Без этого гарда правка телефона запускала бы
       // recalc и могла случайно применить автоскидку за второй абонемент.
       if (discountValue !== initialDiscountValue) {
-        if (discountValue === NO_AUTO) {
+        if (discountValue === PER_SUB) {
+          // Скидки v3: режим «на абонемент» — эксклюзивно, без пересчёта живых.
+          body.perSubDiscountMode = true
+          body.discountTemplateId = null
+          body.autoDiscountDisabled = false
+        } else if (discountValue === NO_AUTO) {
+          body.perSubDiscountMode = false
           body.discountTemplateId = null
           body.autoDiscountDisabled = true
         } else {
+          body.perSubDiscountMode = false
           body.discountTemplateId = discountValue === "none" ? null : discountValue
           body.autoDiscountDisabled = false
         }
@@ -209,6 +220,8 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   let discountTriggerLabel: string
   if (discountValue === NO_AUTO) {
     discountTriggerLabel = "Отключить все скидки"
+  } else if (discountValue === PER_SUB) {
+    discountTriggerLabel = "Шаблоны скидок на абонементы"
   } else if (selectedTpl) {
     discountTriggerLabel = shortTitle(selectedTpl)
   } else if (discountValue !== "none" && client.discountTemplate) {
@@ -326,6 +339,9 @@ export function EditClientDialog({ client }: { client: ClientData }) {
               <SelectContent>
                 <SelectItem value="none">Применять автоматические скидки</SelectItem>
                 <SelectItem value={NO_AUTO}>Отключить все скидки</SelectItem>
+                {/* Скидки v3: режим пер-абонементных скидок. Включает выбор
+                    шаблона scope=subscription в форме абонемента. */}
+                <SelectItem value={PER_SUB}>Шаблоны скидок на абонементы</SelectItem>
                 {discountTemplates.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
                     {shortTitle(t)}

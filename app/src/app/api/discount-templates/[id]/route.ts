@@ -13,6 +13,8 @@ const updateSchema = z.object({
   valueType: z.enum(["percent", "fixed"]).optional(),
   value: z.number().min(0).optional(),
   isActive: z.boolean().optional(),
+  // Скидки v3: область применения ручного шаблона (client|subscription).
+  scope: z.enum(["client", "subscription"]).optional(),
   // Скидки v2: при включении тип-1 — применять уже к абонементам ТЕКУЩЕГО
   // месяца (для свежезалитой базы). По умолчанию — со следующего месяца.
   applyFromCurrentMonth: z.boolean().optional(),
@@ -68,6 +70,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       { status: 400 },
     )
   }
+  // Скидки v3: у системного тип-1 область (scope) не имеет смысла и в UI скрыта —
+  // игнорируем присланное значение, чтобы не переводить автоскидку в subscription.
+  if (isSystem) delete (data as Record<string, unknown>).scope
 
   // Скидки v2: включение тоггла типа 1 фиксирует activatedAt — скидка
   // действует на абонементы с периодом со СЛЕДУЮЩЕГО месяца после activatedAt.

@@ -493,6 +493,9 @@
 | money_ltv | Decimal(12,2) | да | LTV по деньгам: сумма всех оплат клиента (дефолт 0, вычисляемое) | — |
 | months_ltv | Int | да | LTV по месяцам: количество купленных абонементов = количество месяцев (дефолт 0, вычисляемое) | — |
 | comment | Text | нет | Комментарий | — |
+| discount_template_id | UUID | нет | FK → DiscountTemplate | **Скидки v2:** выбранный в карточке клиентский шаблон (тип 2, `scope=client`), действует на все абонементы. NULL = «Применять автоматические скидки» (тип 1). Взаимоисключающе с `auto_discount_disabled` и `per_sub_discount_mode` |
+| auto_discount_disabled | Boolean | да | **Скидки v2 (баг #50):** «Отключить все скидки» — ни тип 1, ни тип 2. Дефолт false | — |
+| per_sub_discount_mode | Boolean | да | **Скидки v3 (docs/discounts-v3.md):** режим «Шаблоны скидок на абонементы» — скидки только пер-абонементно (`Subscription.discount_template_id`), тип 1 и клиентский тип 2 не действуют (эксклюзивно). Смена режима не пересчитывает существующие абонементы. Дефолт false | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 | created_by | UUID | нет | FK → Employee | Кто создал |
@@ -568,6 +571,7 @@
 | final_amount | Decimal(12,2) | да | Итоговая сумма. **Скидки v2:** `charged_amount + остаток × эффективная_цена`, где остаток = `max(0, total_lessons − израсходовано)`; израсходовано = списывающие отметки + (для календарных) финальные несписывающие — Уваж. пропуск/Перерасчёт (см. `lib/subscriptions/consumed-lessons.ts`) | — |
 | balance | Decimal(12,2) | да | **Скидки v2:** долг «К оплате» = `final_amount − оплачено` (transfer_in со сторно − возвраты). Не уходит в минус (переплата возвращается на баланс родителя). Уменьшается и при уваж. пропуске (без списания). Пересчитывается только `repriceSubscription`/`recalcClientDiscounts`; формула `round(balance / lesson_price)` для остатка занятий **недействительна** | — |
 | charged_amount | Decimal(12,2) | да | **Ф2:** Накопительная сумма списаний по абонементу в ₽. Формула `round(charged_amount / lesson_price)` для числа отработанных **недействительна** при скидках — считать по отметкам `chargesSubscription=true` | — |
+| discount_template_id | UUID | нет | FK → DiscountTemplate | **Скидки v3 (docs/discounts-v3.md):** выбранный вручную для ЭТОГО абонемента шаблон `scope=subscription` (тип 2). Доступно клиенту в режиме `per_sub_discount_mode`; переносится при выписке. NULL — пер-абонементной скидки нет |
 | start_date | Date | да | Дата начала (может быть не 1 число) | — |
 | end_date | Date | нет | Дата окончания | — |
 | expires_at | Date | нет | **Для package:** дата сгорания пакета (`start_date + valid_days`). Cron `close-expired-packages` переводит в `closed` после истечения | — |
@@ -623,6 +627,7 @@
 | value | Decimal(12,2) | да | Величина скидки (% или руб.) | — |
 | is_stackable | Boolean | да | Можно суммировать с другими (дефолт false) | — |
 | is_active | Boolean | да | Активен (дефолт true) | — |
+| scope | DiscountTemplateScope | да | **Скидки v3 (docs/discounts-v3.md):** область ручного шаблона (тип 2): `client` — выбирается в карточке клиента, действует на все абонементы (как v2); `subscription` — выбирается по абонементу (`Subscription.discount_template_id`). Дефолт `client`. У системного тип-1/легаси значения не несёт | — |
 | created_at | DateTime | да | Дата создания | — |
 | updated_at | DateTime | да | Дата обновления | — |
 

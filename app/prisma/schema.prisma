@@ -376,6 +376,12 @@ model Client {
   // Разовые скидки-бонусы на баланс остаются доступны. Взаимоисключающе с
   // выбранным шаблоном скидки (discountTemplateId).
   autoDiscountDisabled    Boolean           @default(false) @map("auto_discount_disabled")
+  // Скидки v3 (docs/discounts-v3.md): режим «Шаблоны скидок на абонементы». true —
+  // клиент получает скидки ТОЛЬКО пер-абонементно (Subscription.discountTemplateId,
+  // шаблоны scope=subscription); тип 1 (за второй) и клиентский тип 2 НЕ действуют
+  // (эксклюзивно). Взаимоисключающе с discountTemplateId и autoDiscountDisabled.
+  // Смена режима не пересчитывает существующие абонементы (доживают).
+  perSubDiscountMode      Boolean           @default(false) @map("per_sub_discount_mode")
   createdBy               String?           @map("created_by") @db.Uuid
   createdAt               DateTime          @default(now()) @map("created_at")
   updatedAt               DateTime          @updatedAt @map("updated_at")
@@ -922,6 +928,12 @@ model Subscription {
   discountPerLesson      Decimal                    @default(0) @map("discount_per_lesson") @db.Decimal(12, 2)
   /// Скидки v2: источник текущей скидки (type1/type2/legacy/none).
   discountSource         SubscriptionDiscountSource @default(none) @map("discount_source")
+  /// Скидки v3 (docs/discounts-v3.md): выбранный ВРУЧНУЮ для ЭТОГО абонемента шаблон
+  /// скидки со scope=subscription (permanent, тип 2). NULL — пер-абонементная скидка
+  /// не выбрана. Доступно только когда у клиента perSubDiscountMode=true; красит
+  /// скидкой только этот абонемент (в отличие от client.discountTemplateId — на все)
+  /// и переносится при массовой/точечной выписке (previousSubscription).
+  discountTemplateId     String?                    @map("discount_template_id") @db.Uuid
   startDate              DateTime                   @map("start_date") @db.Date
   endDate                DateTime?                  @map("end_date") @db.Date
   expiresAt              DateTime?                  @map("expires_at") @db.Date
@@ -949,6 +961,7 @@ model Subscription {
   group               Group                      @relation(fields: [groupId], references: [id])
   packageTemplate     PackageTemplate?           @relation(fields: [packageTemplateId], references: [id])
   withdrawalReason    WithdrawalReason?          @relation(fields: [withdrawalReasonId], references: [id])
+  discountTemplate    DiscountTemplate?          @relation("SubscriptionDiscountTemplate", fields: [discountTemplateId], references: [id])
   payments            Payment[]
   discounts           Discount[]
   attendances         Attendance[]
@@ -1716,6 +1729,12 @@ enum DiscountValueType {
   fixed
 }
 
+// Скидки v3 (docs/discounts-v3.md): область применения ручного шаблона (тип 2).
+enum DiscountTemplateScope {
+  client
+  subscription
+}
+
 // Поведенческая категория шаблона. Определяет условие применения и круг абонов.
 // Скидки v2 (docs/discounts-v2.md): рабочие kind — second_subscription (тип 1,
 // системный, автоматический) и permanent (тип 2, ручной выбор в карточке).
@@ -2334,12 +2353,18 @@ model DiscountTemplate {
   /// Скидки v2: легаси-шаблон старой логики (старые системные linked и fixed со
   /// старой семантикой value). Деактивирован, в UI не предлагается, история жива.
   isLegacy    Boolean           @default(false) @map("is_legacy")
+  /// Скидки v3 (docs/discounts-v3.md): область применения ручного шаблона (тип 2).
+  /// client — выбирается в карточке клиента, красит все абонементы (как v2);
+  /// subscription — выбирается по абонементу (Subscription.discountTemplateId),
+  /// красит только выбранный. У системного тип-1 и легаси — client (признак скрыт).
+  scope       DiscountTemplateScope @default(client) @map("scope")
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
 
-  organization     Organization @relation(fields: [tenantId], references: [id])
-  appliedDiscounts Discount[]   @relation("DiscountByTemplate")
-  clientsAttached  Client[]     @relation("ClientDiscountTemplate")
+  organization          Organization   @relation(fields: [tenantId], references: [id])
+  appliedDiscounts      Discount[]     @relation("DiscountByTemplate")
+  clientsAttached       Client[]       @relation("ClientDiscountTemplate")
+  subscriptionsAttached Subscription[] @relation("SubscriptionDiscountTemplate")
 
   @@unique([tenantId, systemKey])
   @@index([tenantId])

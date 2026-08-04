@@ -9,6 +9,8 @@
 import { currencySymbol } from "@/lib/currency"
 
 export const NO_AUTO = "no-auto"
+// Скидки v3: sentinel режима «Шаблоны скидок на абонементы» в селекте карточки.
+export const PER_SUB = "per-sub"
 
 export interface DiscountTemplateLite {
   name: string
@@ -39,10 +41,13 @@ export function discountLabel(
     templateId?: string | null
     template?: DiscountTemplateLite | null
     hasType1Discount?: boolean
+    // Скидки v3: клиент в режиме «Шаблоны скидок на абонементы».
+    perSubDiscountMode?: boolean | null
   },
   currencySym = currencySymbol("RUB"),
 ): string {
   if (input.autoDiscountDisabled) return "Скидки отключены"
+  if (input.perSubDiscountMode) return "Скидки на абонементы"
   if (input.templateId && input.template) return shortTitle(input.template, currencySym)
   if (input.templateId) return "…" // шаблон выбран, но не передан серверу (редко)
   if (input.hasType1Discount) return "Скидка за второй абонемент (авто)"

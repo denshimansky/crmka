@@ -396,6 +396,7 @@ export async function ClientCardContent({
             <span title="Скидка">
               {discountLabel({
                 autoDiscountDisabled: client.autoDiscountDisabled,
+                perSubDiscountMode: client.perSubDiscountMode,
                 templateId: client.discountTemplateId,
                 template: client.discountTemplate
                   ? {
@@ -665,7 +666,7 @@ export async function ClientCardContent({
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         {/* Main content: tabs */}
         <div className="min-w-0">
-          <ClientTabs clientId={client.id} wards={wardsForClient} />
+          <ClientTabs clientId={client.id} wards={wardsForClient} perSubDiscountMode={client.perSubDiscountMode} />
         </div>
 
         {/* Sidebar */}
@@ -691,6 +692,7 @@ export async function ClientCardContent({
                     comment: client.comment,
                     discountTemplateId: client.discountTemplateId,
                     autoDiscountDisabled: client.autoDiscountDisabled,
+                    perSubDiscountMode: client.perSubDiscountMode,
                     discountTemplate: client.discountTemplate
                       ? {
                           name: client.discountTemplate.name,
