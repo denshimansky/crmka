@@ -38,14 +38,21 @@ describe("currency: formatMoney", () => {
   // к обычному (тот же формат, что во всех formatMoney приложения).
   const norm = (s: string) => s.replace(/\s/g, " ")
 
-  it("округляет до целого и ставит символ валюты организации", () => {
-    assert.equal(norm(formatMoney(1234.56, "KZT")), "1 235 ₸")
+  it("по умолчанию — копейки только когда есть, символ валюты организации", () => {
+    // Целое — без копеек.
     assert.equal(norm(formatMoney(1000, "RUB")), "1 000 ₽")
     assert.equal(norm(formatMoney(0, "UAH")), "0 ₴")
+    // Дробное — копейки показываются, лишние нули отсекаются (не «врём» округлением).
+    assert.equal(norm(formatMoney(4203.5, "RUB")), "4 203,5 ₽")
+    assert.equal(norm(formatMoney(1234.56, "KZT")), "1 234,56 ₸")
+    // Float-мусор гасится округлением до копеек.
+    assert.equal(norm(formatMoney(2827.499999, "RUB")), "2 827,5 ₽")
   })
 
-  it("decimals — копейки при необходимости", () => {
+  it("decimals — фиксированное число знаков", () => {
     assert.equal(norm(formatMoney(1234.5, "RUB", { decimals: 2 })), "1 234,50 ₽")
+    // decimals: 0 — принудительное округление до целого.
+    assert.equal(norm(formatMoney(1234.56, "RUB", { decimals: 0 })), "1 235 ₽")
   })
 
   it("без валюты — рубль (совместимость с текущими организациями)", () => {

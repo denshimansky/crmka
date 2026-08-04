@@ -48,25 +48,40 @@ export function currencySymbol(code?: string | null): string {
 }
 
 export interface FormatMoneyOptions {
-  /** Число знаков после запятой (по умолчанию 0 — округление до целого). */
+  /** Фиксированное число знаков после запятой. Если не задано — копейки
+   *  показываются только когда они есть (0..2 знака, лишние нули отсекаются). */
   decimals?: number
 }
 
 /**
  * Форматирует сумму с символом валюты организации: «1 234 ₽», «1 234 ₸».
- * Число форматируется в ru-RU (пробел-разделитель тысяч); опция decimals — для
- * мест, где нужны копейки (по умолчанию округляем до целого, как в большинстве
- * денежных виджетов).
+ * Число форматируется в ru-RU (пробел-разделитель тысяч).
+ *
+ * По умолчанию копейки показываются ТОЛЬКО когда они есть: «2 900 ₽», но
+ * «4 203,5 ₽» и «250,55 ₽». Так вывод не «врёт» округлением дробной цены
+ * (напр. 600,5 × 7 = 4203,5, а не 4204). Явная опция decimals фиксирует число
+ * знаков (напр. decimals: 2 — всегда копейки; decimals: 0 — округление до целого).
  */
 export function formatMoney(
   amount: number,
   currency?: string | null,
   opts?: FormatMoneyOptions,
 ): string {
-  const decimals = opts?.decimals ?? 0
-  const value = new Intl.NumberFormat("ru-RU", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(decimals === 0 ? Math.round(amount) : amount)
+  let value: string
+  if (opts?.decimals != null) {
+    const decimals = opts.decimals
+    value = new Intl.NumberFormat("ru-RU", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(decimals === 0 ? Math.round(amount) : amount)
+  } else {
+    // Округляем до копеек (гасим возможный float-мусор), затем показываем 0..2
+    // знака — минимально необходимое: целое остаётся целым, дробь не теряется.
+    const rounded = Math.round(amount * 100) / 100
+    value = new Intl.NumberFormat("ru-RU", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(rounded)
+  }
   return `${value} ${currencySymbol(currency)}`
 }
