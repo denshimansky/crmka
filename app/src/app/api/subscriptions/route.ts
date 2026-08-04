@@ -3,10 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { rateLimitTenant } from "@/lib/rate-limit"
-import {
-  recalcClientDiscounts,
-  setSubscriptionManualDiscount,
-} from "@/lib/discounts/recalc-client-discounts"
+import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
@@ -25,9 +22,6 @@ const createSchema = z.object({
   totalLessons: z.number().int().min(1, "Минимум 1 занятие"),
   wardId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   startDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
-  // Скидки v3: выбранная в форме ручная скидка (шаблон типа 2). «none»/пусто → без ручной.
-  discountTemplateId: z.any().transform(v =>
-    (typeof v === "string" && v.trim() && v.trim() !== "none") ? v.trim() : null),
   // Поля только для пакетного типа
   packageTemplateId: z.string().uuid().optional(),
   validDays: z.number().int().min(1).max(3650).optional(),
@@ -244,9 +238,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Абонемент создаётся по номиналу; ручную скидку (тип 2, если выбран шаблон)
-  // проставит setSubscriptionManualDiscount, автоматическую «за второй и следующие»
-  // (тип 1) — recalcClientDiscounts, оба после создания.
+  // Скидки v2: абонемент создаётся без скидки; шаблонные скидки (тип 1/тип 2)
+  // применит recalcClientDiscounts после создания. Ручной скидки больше нет.
   const totalAmount = data.lessonPrice * data.totalLessons
   const finalAmount = totalAmount
   const balance = finalAmount // Сколько ещё нужно оплатить
@@ -331,17 +324,9 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Скидки v3: сначала ручная скидка выбранного шаблона (тип 2) на этом
-    // абонементе, затем пересчёт клиента — тип 1 «за второй и следующие» ляжет на
-    // остальные абонементы месяца БЕЗ ручной скидки (кроме самого дорогого из них).
-    if (data.discountTemplateId) {
-      await setSubscriptionManualDiscount(tx, {
-        tenantId: session.user.tenantId,
-        subscriptionId: sub.id,
-        templateId: data.discountTemplateId,
-        createdBy: session.user.employeeId ?? null,
-      })
-    }
+    // Скидки v2: пересчёт скидок клиента — новый абонемент получает тип 2
+    // (если выбран в карточке), иначе срабатывает инвариант типа 1 по месяцу
+    // (скидка на все абонементы месяца, кроме самого дорогого).
     await recalcClientDiscounts(tx, {
       tenantId: session.user.tenantId,
       clientId: data.clientId,

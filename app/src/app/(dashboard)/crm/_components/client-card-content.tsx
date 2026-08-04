@@ -26,6 +26,7 @@ import {
   type ClientSegmentKey,
 } from "@/lib/segmentation"
 import { PortalAccountButton } from "./portal-account-button"
+import { discountLabel } from "./discount-label"
 import { EditableDateCell } from "./editable-cell"
 import { BonusDiscountDialog } from "./bonus-discount-dialog"
 import { QuickRenewSubscriptionDialog } from "./quick-renew-subscription-dialog"
@@ -90,6 +91,9 @@ export async function ClientCardContent({
       branch: true,
       channel: { select: { name: true } },
       assignee: { select: { firstName: true, lastName: true } },
+      discountTemplate: {
+        select: { id: true, name: true, kind: true, valueType: true, value: true },
+      },
     },
   })
 
@@ -386,6 +390,25 @@ export async function ClientCardContent({
             <span>{visiblePhone || "—"}</span>
             <span>·</span>
             <span>{client.email || "—"}</span>
+            <span>·</span>
+            {/* Скидка — информационно (эффективная, не название настройки).
+                Выбор перенесён в «Редактировать клиента». */}
+            <span title="Скидка">
+              {discountLabel({
+                autoDiscountDisabled: client.autoDiscountDisabled,
+                templateId: client.discountTemplateId,
+                template: client.discountTemplate
+                  ? {
+                      name: client.discountTemplate.name,
+                      valueType: client.discountTemplate.valueType,
+                      value: Number(client.discountTemplate.value),
+                    }
+                  : null,
+                hasType1Discount: activeSubscriptions.some(
+                  (s) => s.discountSource === "type1",
+                ),
+              }, currencySymbol(currency))}
+            </span>
           </div>
         </div>
         <div className="text-right">
@@ -666,6 +689,18 @@ export async function ClientCardContent({
                     branchId: client.branchId,
                     assignedTo: client.assignedTo,
                     comment: client.comment,
+                    discountTemplateId: client.discountTemplateId,
+                    autoDiscountDisabled: client.autoDiscountDisabled,
+                    discountTemplate: client.discountTemplate
+                      ? {
+                          name: client.discountTemplate.name,
+                          valueType: client.discountTemplate.valueType,
+                          value: Number(client.discountTemplate.value),
+                        }
+                      : null,
+                    hasType1Discount: activeSubscriptions.some(
+                      (s) => s.discountSource === "type1",
+                    ),
                   }}
                 />
               </div>

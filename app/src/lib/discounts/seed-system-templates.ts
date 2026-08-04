@@ -24,7 +24,7 @@ const SYSTEM_TEMPLATES: Array<{
 }> = [
   {
     systemKey: TYPE1_SYSTEM_KEY,
-    name: "Скидка за второй и следующие",
+    name: "Скидка за второй абонемент",
     kind: "second_subscription",
     type: "second_subscription",
     valueType: "fixed",

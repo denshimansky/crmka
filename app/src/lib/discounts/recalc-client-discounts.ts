@@ -357,7 +357,6 @@ export async function repriceSubscription(
       chargedAmount: true,
       discountPerLesson: true,
       discountSource: true,
-      discountTemplateId: true,
     },
   })
   // Только живые: пересчёт закрытого/отчисленного перетёр бы balance,
@@ -375,31 +374,12 @@ export async function repriceSubscription(
       attendanceType: { chargesSubscription: true },
     },
   })
-  // Ручная скидка (тип 2, пер-абонемент) привязана к шаблону: при смене цены
-  // percent-скидка следует за новой ценой (перерасчёт из шаблона), fixed —
-  // капится ценой. Тип 1 «за второй и следующие» пересчитает recalcClientDiscounts
-  // после этого; тут его perLesson лишь капим ценой (чтобы не уйти в минус).
-  let perLesson: Prisma.Decimal
-  if (sub.discountTemplateId) {
-    const tpl = await t.discountTemplate.findFirst({
-      where: { id: sub.discountTemplateId, tenantId: input.tenantId },
-      select: { valueType: true, value: true },
-    })
-    perLesson = tpl
-      ? perLessonByTemplate(
-          { valueType: tpl.valueType, value: new Prisma.Decimal(tpl.value) },
-          new Prisma.Decimal(sub.lessonPrice),
-        )
-      : Prisma.Decimal.min(
-          new Prisma.Decimal(sub.discountPerLesson),
-          new Prisma.Decimal(sub.lessonPrice),
-        )
-  } else {
-    perLesson = Prisma.Decimal.min(
-      new Prisma.Decimal(sub.discountPerLesson),
-      new Prisma.Decimal(sub.lessonPrice),
-    )
-  }
+  // Скидка за занятие зафиксирована в рублях — при смене цены не пересчитывается
+  // (только капится новой ценой).
+  const perLesson = Prisma.Decimal.min(
+    new Prisma.Decimal(sub.discountPerLesson),
+    new Prisma.Decimal(sub.lessonPrice),
+  )
   await recomputeMoney(t, {
     tenantId: input.tenantId,
     sub,
@@ -416,18 +396,39 @@ export async function recalcClientDiscounts(
   input: RecalcDiscountsInput,
 ): Promise<RecalcDiscountsResult> {
   const result: RecalcDiscountsResult = { changes: [] }
+  const newIds = new Set(input.newSubscriptionIds ?? [])
 
   const client = await t.client.findFirst({
     where: { id: input.clientId, tenantId: input.tenantId, deletedAt: null },
-    select: { id: true, autoDiscountDisabled: true },
+    select: { id: true, discountTemplateId: true, autoDiscountDisabled: true },
   })
   if (!client) return result
 
-  // Скидки v3: тип 2 (ручной, permanent) больше НЕ управляется здесь — он живёт
-  // пер-абонемент (subscription.discountTemplateId) и ставится при создании/
-  // редактировании/выписке (setSubscriptionManualDiscount). recalc трогает ТОЛЬКО
-  // тип 1 «за второй и следующие» и только среди абонементов БЕЗ ручной скидки.
-  //
+  // Тип 2: выбранный в карточке permanent-шаблон (не легаси). Грузим и
+  // выключенный: «выключение шаблона — выданные скидки доживают», поэтому
+  // выключенный, но выбранный шаблон блокирует любые изменения скидок клиента.
+  // Баг #50: при запрете автоскидок шаблон типа 2 игнорируем (даже если он
+  // по какой-то причине остался выбран) — клиент уходит в ветку снятия скидок ниже.
+  const t2Row =
+    client.discountTemplateId && !client.autoDiscountDisabled
+      ? await t.discountTemplate.findFirst({
+          where: {
+            id: client.discountTemplateId,
+            tenantId: input.tenantId,
+            kind: "permanent",
+            isLegacy: false,
+          },
+          select: { id: true, name: true, valueType: true, value: true, isActive: true },
+        })
+      : null
+  if (t2Row && !t2Row.isActive) {
+    // Шаблон типа 2 выключен организацией, но выбран у клиента: выданные
+    // скидки доживают, новые абонементы — без скидки, тип 1 не действует
+    // (эксклюзивность по выбору в карточке сохраняется).
+    return result
+  }
+  const t2 = t2Row
+
   // Тип 1: системный шаблон. Новые скидки выдаются, только если включён;
   // на месяц периода — начиная со СЛЕДУЮЩЕГО месяца после включения
   // (activatedAt). Выданные ранее скидки при выключенном шаблоне доживают.
@@ -450,17 +451,22 @@ export async function recalcClientDiscounts(
   const now = new Date()
   const currentMonth = monthIndex(now.getFullYear(), now.getMonth() + 1)
 
-  // Календарные абонементы текущего/будущих месяцев (живые + закрытые для состава).
-  // Пакетные тип 1 не касается; их ручная скидка — пер-абонемент, не здесь.
+  // Абонементы: календарные текущего/будущих месяцев (живые + закрытые для
+  // состава) и живые пакетные (только для типа 2). Прошедшие месяцы не трогаем.
   const subsRaw = await t.subscription.findMany({
     where: {
       tenantId: input.tenantId,
       clientId: input.clientId,
       deletedAt: null,
-      type: { not: "package" },
-      status: { in: ["pending", "active", "closed"] },
-      periodYear: { not: null },
-      periodMonth: { not: null },
+      OR: [
+        { type: "package", status: { in: ["pending", "active"] } },
+        {
+          type: { not: "package" },
+          status: { in: ["pending", "active", "closed"] },
+          periodYear: { not: null },
+          periodMonth: { not: null },
+        },
+      ],
     },
     select: {
       id: true,
@@ -478,7 +484,6 @@ export async function recalcClientDiscounts(
       chargedAmount: true,
       discountPerLesson: true,
       discountSource: true,
-      discountTemplateId: true,
       createdAt: true,
     },
   })
@@ -487,60 +492,65 @@ export async function recalcClientDiscounts(
 
   const calendarSubs = subsRaw.filter(
     (s) =>
+      s.type !== "package" &&
       s.periodYear != null &&
       s.periodMonth != null &&
       monthIndex(s.periodYear, s.periodMonth) >= currentMonth,
   )
-  if (calendarSubs.length === 0) return result
+  const packageSubs = subsRaw.filter((s) => s.type === "package")
 
-  // Кандидат на тип 1 = абонемент БЕЗ ручной скидки (нет выбранного шаблона) и не
-  // legacy. Ручные (type2 с discountTemplateId) и доживающие клиент-уровневые
-  // (source=type2 без шаблона) исключены: у них своя скидка, тип 1 не накладываем.
-  const isType1Eligible = (s: Row): boolean =>
-    s.discountTemplateId == null &&
-    s.discountSource !== "legacy" &&
-    s.discountSource !== "type2"
-
-  // «Отхожено» календарных (включая финальные несписывающие: Уваж. пропуск/
-  // Перерасчёт расходуют слот) и отдельно «списывающие» — разница даёт прощённые
-  // занятия, чей номинал вычитается из discountAmount в recomputeMoney.
-  const calIds = calendarSubs.map((s) => s.id)
+  // «Отхожено» по одному запросу на тип абонемента: календарные считают и
+  // финальные несписывающие отметки (Уваж. пропуск/Перерасчёт расходуют слот),
+  // пакетные — только списывающие (пропуск занятие пакета не сжигает).
   const attendedBySub = new Map<string, number>()
-  const chargingBySub = new Map<string, number>()
-  if (calIds.length > 0) {
-    const attRows = await t.attendance.groupBy({
+  for (const [ids, subType] of [
+    [calendarSubs.map((s) => s.id), "calendar"],
+    [packageSubs.map((s) => s.id), "package"],
+  ] as const) {
+    if (ids.length === 0) continue
+    const rows = await t.attendance.groupBy({
       by: ["subscriptionId"],
       where: {
         tenantId: input.tenantId,
-        subscriptionId: { in: calIds },
+        subscriptionId: { in: [...ids] },
         isPending: false,
-        attendanceType: consumedTypeWhereFor("calendar"),
+        attendanceType: consumedTypeWhereFor(subType),
       },
       _count: { _all: true },
     })
-    for (const r of attRows) attendedBySub.set(r.subscriptionId as string, r._count._all)
-    const chRows = await t.attendance.groupBy({
+    for (const r of rows) attendedBySub.set(r.subscriptionId as string, r._count._all)
+  }
+
+  // Списывающие отдельно: разница с израсходованными даёт «прощённые» занятия,
+  // чей номинал вычитается из discountAmount в recomputeMoney.
+  const allIds = [...calendarSubs, ...packageSubs].map((s) => s.id)
+  const chargingBySub = new Map<string, number>()
+  if (allIds.length > 0) {
+    const rows = await t.attendance.groupBy({
       by: ["subscriptionId"],
       where: {
         tenantId: input.tenantId,
-        subscriptionId: { in: calIds },
+        subscriptionId: { in: allIds },
         isPending: false,
         attendanceType: { chargesSubscription: true },
       },
       _count: { _all: true },
     })
-    for (const r of chRows) chargingBySub.set(r.subscriptionId as string, r._count._all)
+    for (const r of rows) chargingBySub.set(r.subscriptionId as string, r._count._all)
   }
 
-  /** Применить/снять ТИП-1-скидку на абонементе (только оставшиеся занятия). */
-  async function setType1(sub: Row, tpl: TemplateLite | null): Promise<void> {
+  /** Применить/снять скидку на абонементе (только оставшиеся занятия). */
+  async function setDiscount(
+    sub: Row,
+    target: { tpl: TemplateLite; source: "type1" | "type2" } | null,
+  ): Promise<void> {
     const attended = attendedBySub.get(sub.id) ?? 0
     const remaining = Math.max(0, sub.totalLessons - attended)
 
-    const newPerLesson = tpl
-      ? perLessonByTemplate(tpl, new Prisma.Decimal(sub.lessonPrice))
+    const newPerLesson = target
+      ? perLessonByTemplate(target.tpl, new Prisma.Decimal(sub.lessonPrice))
       : new Prisma.Decimal(0)
-    const newSource: "type1" | "none" = tpl ? "type1" : "none"
+    const newSource = target ? target.source : "none"
 
     const samePerLesson = newPerLesson.equals(new Prisma.Decimal(sub.discountPerLesson))
     if (newSource === sub.discountSource && samePerLesson) return
@@ -557,26 +567,26 @@ export async function recalcClientDiscounts(
       createdBy: input.createdBy,
     })
 
-    // История применений: активную тип-1-запись закрываем, новую создаём при выдаче.
-    // Ручные (permanent) записи не трогаем — recalc работает только над тип 1.
+    // История применений: активную запись закрываем, новую создаём при выдаче.
     await t.discount.updateMany({
       where: {
         tenantId: input.tenantId,
         subscriptionId: sub.id,
         isActive: true,
-        type: "second_subscription",
+        type: { in: ["second_subscription", "permanent"] },
+        templateId: { not: null },
       },
       data: { isActive: false, endDate: new Date() },
     })
-    if (tpl && newPerLesson.greaterThan(0)) {
+    if (target && newPerLesson.greaterThan(0)) {
       await t.discount.create({
         data: {
           tenantId: input.tenantId,
           subscriptionId: sub.id,
-          templateId: tpl.id,
-          type: "second_subscription",
-          valueType: tpl.valueType,
-          value: tpl.value,
+          templateId: target.tpl.id,
+          type: target.source === "type1" ? "second_subscription" : "permanent",
+          valueType: target.tpl.valueType,
+          value: target.tpl.value,
           calculatedAmount: newPerLesson.mul(remaining),
           perLessonValue: newPerLesson,
           lessonsRemaining: remaining,
@@ -590,8 +600,8 @@ export async function recalcClientDiscounts(
     const hadDiscount = new Prisma.Decimal(sub.discountPerLesson).greaterThan(0)
     result.changes.push({
       subscriptionId: sub.id,
-      action: tpl ? (hadDiscount ? "replaced" : "applied") : "removed",
-      source: "type1",
+      action: target ? (hadDiscount ? "replaced" : "applied") : "removed",
+      source: target ? target.source : sub.discountSource === "type2" ? "type2" : "type1",
       refundedToBalance: refunded.toNumber(),
     })
 
@@ -600,20 +610,48 @@ export async function recalcClientDiscounts(
     sub.discountSource = newSource as Row["discountSource"]
   }
 
-  // Клиент с явным запретом автоскидок («Без скидки» из старой карточки клиента):
-  // тип 1 не действует; уже выданные тип-1-скидки снимаем с оставшихся занятий.
-  // Ручные пер-абонементные скидки этот флаг не трогает.
+  // Баг #50: родитель с явным запретом автоскидок («Без скидки вручную»).
+  // Ни тип 1, ни тип 2 не действуют и не применяются к новым абонементам.
+  // Уже выданные скидки (тип 1/тип 2) снимаются с ОСТАВШИХСЯ занятий — прошлые
+  // списания остаются снимком. Легаси-скидки заморожены и не трогаются.
+  // Разовые скидки-бонусы на баланс — отдельный механизм, здесь не затрагиваются.
   if (client.autoDiscountDisabled) {
-    for (const sub of calendarSubs) {
-      if ((sub.status === "pending" || sub.status === "active") && sub.discountSource === "type1") {
-        await setType1(sub, null)
+    for (const sub of [...calendarSubs, ...packageSubs]) {
+      if (sub.status !== "pending" && sub.status !== "active") continue
+      if (sub.discountSource === "type1" || sub.discountSource === "type2") {
+        await setDiscount(sub, null)
       }
     }
     return result
   }
 
-  // Тип 1 «за второй и следующие»: инвариант по месяцам — среди КАНДИДАТОВ (без
-  // ручной скидки) скидку несут все, кроме самого дорогого.
+  if (t2) {
+    // Тип 2 эксклюзивен: тип 1 не действует. Получатели — только новые
+    // абонементы и замена уже выданных тип-1-скидок. Старые без скидки и
+    // legacy не трогаем.
+    const targets = [...calendarSubs, ...packageSubs].filter(
+      (s) =>
+        (s.status === "pending" || s.status === "active") &&
+        (newIds.has(s.id) || s.discountSource === "type1"),
+    )
+    for (const sub of targets) {
+      await setDiscount(sub, { tpl: t2, source: "type2" })
+    }
+    return result
+  }
+
+  // Тип 2 не выбран. Пакетные с тип-2-скидкой — снять, но только если клиент
+  // действительно снял выбор («Без скидки»); если шаблон удалён/легаси —
+  // скидки доживают.
+  if (client.discountTemplateId === null) {
+    for (const sub of packageSubs) {
+      if (sub.discountSource === "type2" && (sub.status === "pending" || sub.status === "active")) {
+        await setDiscount(sub, null)
+      }
+    }
+  }
+
+  // Тип 1: инвариант по месяцам.
   const byMonth = new Map<number, Row[]>()
   for (const s of calendarSubs) {
     const mi = monthIndex(s.periodYear!, s.periodMonth!)
@@ -622,15 +660,14 @@ export async function recalcClientDiscounts(
   }
 
   for (const [mi, monthSubs] of byMonth) {
-    // Состав месяца для тип-1: только КАНДИДАТЫ (без ручной скидки), живые или
-    // штатно закрытые состоявшиеся (есть отметки). Закрытый без отметок
+    // Состав месяца: живые + штатно закрытые СОСТОЯВШИЕСЯ (есть отметки).
+    // Закрытый без единой отметки (например, cron закрытия неоплаченных) —
     // аннулирован и состав не пополняет.
     const roster = monthSubs.filter(
       (s) =>
-        isType1Eligible(s) &&
-        (s.status === "pending" ||
-          s.status === "active" ||
-          (s.status === "closed" && (attendedBySub.get(s.id) ?? 0) > 0)),
+        s.status === "pending" ||
+        s.status === "active" ||
+        (s.status === "closed" && (attendedBySub.get(s.id) ?? 0) > 0),
     )
 
     // t1MinMonth = null, если шаблон выключен или ещё не включался.
@@ -664,157 +701,36 @@ export async function recalcClientDiscounts(
 
     for (const sub of monthSubs) {
       if (sub.status !== "pending" && sub.status !== "active") continue
-      if (!isType1Eligible(sub)) continue // ручная скидка / legacy — не трогаем
+      if (sub.discountSource === "legacy") continue
 
       const shouldHaveType1 = t1ActiveForMonth && roster.length > 1 && sub.id !== exemptId
+
       if (shouldHaveType1) {
-        // Уже выданную тип-1-скидку не пересчитываем (размер шаблона не трогает
-        // выданные — §11.4).
+        // Уже выданную тип-1-скидку не пересчитываем (изменение размера
+        // шаблона не трогает выданные).
         if (sub.discountSource === "type1") continue
-        await setType1(sub, t1!)
+        // source=type2 при снятом выборе («Без скидки») — заменяем на тип 1;
+        // если выбор ещё стоит (легаси/недоступный шаблон) — скидка доживает.
+        if (sub.discountSource === "type2" && client.discountTemplateId !== null) continue
+        await setDiscount(sub, { tpl: t1!, source: "type1" })
       } else {
-        // Снимаем выданный тип 1 ТОЛЬКО когда он действует для месяца, но
-        // инвариант нарушен (стал самым дорогим / остался один кандидат). Вне
-        // зоны действия / при выключенном шаблоне — доживает (§7 спеки).
+        // Снятие типа 2 — только когда клиент явно вернул «Без скидки».
+        if (sub.discountSource === "type2") {
+          if (client.discountTemplateId === null) await setDiscount(sub, null)
+          continue
+        }
+        // Выданные тип-1-скидки снимаем ТОЛЬКО когда тип 1 действует для
+        // месяца, но инвариант состава нарушен (стал самым дорогим / в месяце
+        // остался один абонемент). При выключенном шаблоне или вне зоны
+        // activatedAt выданные скидки доживают (§7 спеки).
         if (sub.discountSource === "type1" && t1ActiveForMonth) {
-          await setType1(sub, null)
+          await setDiscount(sub, null)
         }
       }
     }
   }
 
   return result
-}
-
-/**
- * Скидки v3: применить/снять РУЧНУЮ (пер-абонементную) скидку типа 2 на ОДНОМ
- * абонементе по выбранному шаблону (permanent). Вызывается при создании/
- * редактировании/выписке абонемента — не в recalcClientDiscounts (тот ведёт
- * только тип 1). templateId=null снимает ручную скидку (source→none); тип 1 при
- * этом наложит recalcClientDiscounts, если абонемент станет кандидатом.
- * Легаси и закрытые/отчисленные не трогает. discountTemplateId фиксируется всегда.
- * После вызова обычно нужен recalcClientDiscounts (состав кандидатов тип-1 мог
- * измениться). Прошлые списания — снимок; percent считается от текущей цены.
- */
-export async function setSubscriptionManualDiscount(
-  t: Tx,
-  input: {
-    tenantId: string
-    subscriptionId: string
-    templateId: string | null
-    createdBy?: string | null
-  },
-): Promise<void> {
-  const sub = await t.subscription.findFirst({
-    where: { id: input.subscriptionId, tenantId: input.tenantId, deletedAt: null },
-    select: {
-      id: true,
-      clientId: true,
-      wardId: true,
-      groupId: true,
-      directionId: true,
-      type: true,
-      status: true,
-      lessonPrice: true,
-      totalLessons: true,
-      totalAmount: true,
-      chargedAmount: true,
-      discountPerLesson: true,
-      discountSource: true,
-      discountTemplateId: true,
-    },
-  })
-  if (!sub || sub.discountSource === "legacy") return
-  if (sub.status !== "pending" && sub.status !== "active") return
-  // Ручной скидки нет и не просят ставить — не трогаем (тип 1/none оставит recalc).
-  if (input.templateId == null && sub.discountTemplateId == null) return
-
-  let tpl: TemplateLite | null = null
-  if (input.templateId) {
-    const row = await t.discountTemplate.findFirst({
-      where: { id: input.templateId, tenantId: input.tenantId, isLegacy: false, isActive: true },
-      select: { id: true, name: true, valueType: true, value: true },
-    })
-    if (row) {
-      tpl = {
-        id: row.id,
-        name: row.name,
-        valueType: row.valueType as "percent" | "fixed",
-        value: new Prisma.Decimal(row.value),
-      }
-    }
-  }
-
-  const newPerLesson = tpl
-    ? perLessonByTemplate(tpl, new Prisma.Decimal(sub.lessonPrice))
-    : new Prisma.Decimal(0)
-  const newSource: "type2" | "none" = tpl && newPerLesson.greaterThan(0) ? "type2" : "none"
-  const newTemplateId = tpl ? tpl.id : null
-
-  const attended = await countAttendedLessons(t, input.tenantId, sub.id, sub.type)
-  const charged = await t.attendance.count({
-    where: {
-      tenantId: input.tenantId,
-      subscriptionId: sub.id,
-      isPending: false,
-      attendanceType: { chargesSubscription: true },
-    },
-  })
-  const remaining = Math.max(0, sub.totalLessons - attended)
-
-  const sameMoney =
-    newSource === sub.discountSource &&
-    newPerLesson.equals(new Prisma.Decimal(sub.discountPerLesson))
-  if (sameMoney && newTemplateId === sub.discountTemplateId) return
-
-  // Деньги пересчитываем только когда меняется скидка на ОСТАВШИХСЯ занятиях;
-  // прошлые списания — снимок. Выбор шаблона (discountTemplateId) фиксируем всегда.
-  if (remaining > 0 && !sameMoney) {
-    await recomputeMoney(t, {
-      tenantId: input.tenantId,
-      sub,
-      attended,
-      consumedNoCharge: Math.max(0, attended - charged),
-      perLesson: newPerLesson,
-      source: newSource,
-      createdBy: input.createdBy,
-    })
-  }
-
-  // discountTemplateId recomputeMoney не трогает — проставляем отдельно.
-  await t.subscription.update({
-    where: { id: sub.id },
-    data: { discountTemplateId: newTemplateId },
-  })
-
-  // История применений: закрываем активные permanent-записи, создаём новую при выдаче.
-  await t.discount.updateMany({
-    where: {
-      tenantId: input.tenantId,
-      subscriptionId: sub.id,
-      isActive: true,
-      type: "permanent",
-    },
-    data: { isActive: false, endDate: new Date() },
-  })
-  if (tpl && newPerLesson.greaterThan(0) && remaining > 0) {
-    await t.discount.create({
-      data: {
-        tenantId: input.tenantId,
-        subscriptionId: sub.id,
-        templateId: tpl.id,
-        type: "permanent",
-        valueType: tpl.valueType,
-        value: tpl.value,
-        calculatedAmount: newPerLesson.mul(remaining),
-        perLessonValue: newPerLesson,
-        lessonsRemaining: remaining,
-        startDate: new Date(),
-        isActive: true,
-        createdBy: input.createdBy ?? null,
-      },
-    })
-  }
 }
 
 /**

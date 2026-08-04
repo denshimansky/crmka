@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
   })
 
   const sourceLabel: Record<string, string> = {
-    type1: "За второй и следующие (авто)",
+    type1: "За второй абонемент (авто)",
     type2: "Постоянная",
     legacy: "Старая логика",
   }

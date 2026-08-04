@@ -23,10 +23,7 @@
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { countLessonsForGroup } from "@/lib/schedule/count-lessons"
-import {
-  recalcClientDiscounts,
-  setSubscriptionManualDiscount,
-} from "@/lib/discounts/recalc-client-discounts"
+import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { directionPriceAt, toUtcDay } from "@/lib/subscriptions/direction-price"
@@ -60,8 +57,6 @@ export interface BulkRenewCandidate {
   totalLessons: number
   finalAmount: number
   hasSchedule: boolean
-  // Скидки v3: ручная скидка (шаблон типа 2) исходного абонемента — переносится.
-  discountTemplateId: string | null
 }
 
 export interface BulkRenewSkipped {
@@ -102,7 +97,6 @@ interface SourceRow {
   groupId: string
   group: { id: string; name: string; branchId: string; branch: { name: string } }
   startDate: Date
-  discountTemplateId: string | null
 }
 
 function fullClient(c: { firstName: string | null; lastName: string | null }): string {
@@ -253,7 +247,6 @@ async function loadSources(opts: BulkRenewInput): Promise<SourceRow[]> {
       groupId: true,
       group: { select: { id: true, name: true, branchId: true, branch: { select: { name: true } } } },
       startDate: true,
-      discountTemplateId: true,
       // Признак «было платное/зачётное посещение» (take:1 — только факт наличия).
       attendances: {
         where: { isPending: false, attendanceType: consumingAttendanceTypeWhere },
@@ -599,8 +592,6 @@ export async function previewBulkRenew(
       totalLessons: g.count,
       finalAmount: finalAmount.toNumber(),
       hasSchedule: g.hasSchedule,
-      // Переносим ручную скидку исходного абонемента (тип 2, если была выбрана).
-      discountTemplateId: s.discountTemplateId,
     })
   }
 
@@ -684,17 +675,6 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
         select: { id: true },
       })
       createdSubs.push({ subId: sub.id, clientId: c.clientId })
-      // Скидки v3: переносим ручную скидку (тип 2) исходного абонемента. Если её
-      // шаблон выключен — не применится (setSubscriptionManualDiscount проверяет
-      // isActive). Тип 1 «за второй и следующие» ляжет ниже общим пересчётом клиента.
-      if (c.discountTemplateId) {
-        await setSubscriptionManualDiscount(tx, {
-          tenantId: opts.tenantId,
-          subscriptionId: sub.id,
-          templateId: c.discountTemplateId,
-          createdBy: opts.createdBy ?? null,
-        })
-      }
       // ADM-04 + баг #79: денормализуем два последних РАЗНЫХ филиала абонементов
       // + счётчик. Чтение внутри tx видит апдейты прошлых итераций того же
       // клиента (два ребёнка → два абонемента), поэтому сдвиг чейнится верно.

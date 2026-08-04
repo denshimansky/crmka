@@ -60,10 +60,6 @@ interface Subscription {
   finalAmount: string
   balance: string
   chargedAmount: string
-  /** Скидки v3: выбранный вручную шаблон скидки (тип 2) этого абонемента. */
-  discountTemplateId?: string | null
-  /** Источник текущей скидки (none/type1/type2/legacy). */
-  discountSource?: string
   direction: { id: string; name: string }
   group: { id: string; name: string }
   ward: { id: string; firstName: string; lastName: string | null } | null
@@ -182,25 +178,9 @@ function EditSubscriptionDialog({
   const [lessonPrice, setLessonPrice] = useState(String(Number(subscription.lessonPrice)))
   const [totalLessons, setTotalLessons] = useState(String(subscription.totalLessons))
 
-  // Скидки v3: ручная скидка этого абонемента. Легаси — заморожена, поле скрыто.
-  const discountEditable = subscription.discountSource !== "legacy"
-  const [discountTemplates, setDiscountTemplates] = useState<DiscountTemplateOption[]>([])
-  const [discountTemplateId, setDiscountTemplateId] = useState(
-    subscription.discountTemplateId ?? "none",
-  )
-
-  useEffect(() => {
-    if (!open || !discountEditable) return
-    fetch("/api/discount-templates")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d) => setDiscountTemplates(d))
-      .catch(() => { /* ignore */ })
-  }, [open, discountEditable])
-
   function reset() {
     setLessonPrice(String(Number(subscription.lessonPrice)))
     setTotalLessons(String(subscription.totalLessons))
-    setDiscountTemplateId(subscription.discountTemplateId ?? "none")
     setError(null)
   }
 
@@ -225,9 +205,6 @@ function EditSubscriptionDialog({
         body: JSON.stringify({
           lessonPrice: Number(lessonPrice),
           totalLessons: Number(totalLessons),
-          ...(discountEditable
-            ? { discountTemplateId: discountTemplateId === "none" ? null : discountTemplateId }
-            : {}),
         }),
       })
 
@@ -247,20 +224,6 @@ function EditSubscriptionDialog({
   }
 
   const totalAmount = (Number(lessonPrice) || 0) * (Number(totalLessons) || 0)
-  // Скидки v3: только ручные активные шаблоны (permanent, не системная «за второй»).
-  const manualDiscountTemplates = discountTemplates.filter(
-    (t) => t.isActive && !t.systemKey && t.kind === "permanent",
-  )
-  const discLabel = (t: DiscountTemplateOption) =>
-    t.valueType === "percent"
-      ? `${t.name} — ${t.value}%`
-      : `${t.name} — −${formatMoney(t.value)}/зан.`
-  const selTpl = manualDiscountTemplates.find((t) => t.id === discountTemplateId)
-  const priceNum = Number(lessonPrice) || 0
-  const discPerLesson = selTpl
-    ? Math.min(selTpl.valueType === "percent" ? (priceNum * selTpl.value) / 100 : selTpl.value, priceNum)
-    : 0
-  const discountedTotal = Math.max(0, priceNum - discPerLesson) * (Number(totalLessons) || 0)
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
@@ -315,55 +278,12 @@ function EditSubscriptionDialog({
             </div>
           </div>
 
-          {discountEditable && manualDiscountTemplates.length > 0 && (
-            <div className="space-y-1.5">
-              <Label>Скидка</Label>
-              <Select
-                value={discountTemplateId}
-                onValueChange={(v) => { if (v) setDiscountTemplateId(v) }}
-              >
-                <SelectTrigger className="w-full">
-                  {selTpl ? discLabel(selTpl) : "Не применять никакую"}
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Не применять никакую</SelectItem>
-                  {manualDiscountTemplates.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{discLabel(t)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
           {totalAmount > 0 && (
-            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
-              {selTpl && discPerLesson > 0 ? (
-                <>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Стоимость без скидки:</span>
-                    <span>{formatMoney(totalAmount)}</span>
-                  </div>
-                  <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
-                    <span>Скидка «{selTpl.name}»</span>
-                    <span>−{formatMoney(totalAmount - discountedTotal)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold border-t border-border pt-1">
-                    <span>Итого:</span>
-                    <span>{formatMoney(discountedTotal)}</span>
-                  </div>
-                </>
-              ) : (
-                <div className="flex justify-between font-bold">
-                  <span>Стоимость:</span>
-                  <span>{formatMoney(totalAmount)}</span>
-                </div>
-              )}
-              {(subscription.attendedLessons ?? 0) > 0 && (
-                <p className="text-xs text-muted-foreground pt-1">
-                  Уже отмеченные занятия сохранят своё списание — итоговая сумма может
-                  отличаться от расчётной.
-                </p>
-              )}
+            <div className="rounded-md bg-muted/50 p-3 text-sm">
+              <div className="flex justify-between font-bold">
+                <span>Стоимость:</span>
+                <span>{formatMoney(totalAmount)}</span>
+              </div>
             </div>
           )}
 
@@ -1381,16 +1301,6 @@ interface PackageTemplateOption {
   validDays: number | null
 }
 
-interface DiscountTemplateOption {
-  id: string
-  name: string
-  kind: string
-  systemKey: string | null
-  valueType: "percent" | "fixed"
-  value: number
-  isActive: boolean
-}
-
 type SubscriptionTypeMode = "calendar" | "package"
 
 function AddSubscriptionDialog({
@@ -1446,21 +1356,16 @@ function AddSubscriptionDialog({
   // автоскидка «за второй абонемент».
   const [discountPreview, setDiscountPreview] = useState<DiscountPreview | null>(null)
 
-  // Скидки v3: ручная скидка ЭТОГО абонемента — выбор шаблона (или «Не применять»).
-  const [discountTemplates, setDiscountTemplates] = useState<DiscountTemplateOption[]>([])
-  const [discountTemplateId, setDiscountTemplateId] = useState("none")
-
   // Загрузка направлений, групп, типа абонемента и шаблонов при открытии
   useEffect(() => {
     if (!open) return
     async function load() {
       try {
-        const [dirRes, grpRes, orgRes, tplRes, dtplRes] = await Promise.all([
+        const [dirRes, grpRes, orgRes, tplRes] = await Promise.all([
           fetch("/api/directions"),
           fetch("/api/groups"),
           fetch("/api/organization"),
           fetch("/api/package-templates"),
-          fetch("/api/discount-templates"),
         ])
         if (dirRes.ok) setDirections(await dirRes.json())
         if (grpRes.ok) setGroups(await grpRes.json())
@@ -1473,7 +1378,6 @@ function AddSubscriptionDialog({
           }
         }
         if (tplRes.ok) setPackageTemplates(await tplRes.json())
-        if (dtplRes.ok) setDiscountTemplates(await dtplRes.json())
       } catch { /* ignore */ }
     }
     load()
@@ -1586,7 +1490,6 @@ function AddSubscriptionDialog({
       params.set("periodYear", periodYear)
       params.set("periodMonth", periodMonth)
     }
-    if (discountTemplateId !== "none") params.set("discountTemplateId", discountTemplateId)
     const ctrl = new AbortController()
     const timer = setTimeout(() => {
       fetch(`/api/subscriptions/discount-preview?${params.toString()}`, { signal: ctrl.signal })
@@ -1595,7 +1498,7 @@ function AddSubscriptionDialog({
         .catch(() => { /* abort/сеть — оставляем прежний предпросчёт */ })
     }, 250)
     return () => { clearTimeout(timer); ctrl.abort() }
-  }, [open, clientId, lessonPrice, totalLessons, periodYear, periodMonth, subscriptionType, discountTemplateId])
+  }, [open, clientId, lessonPrice, totalLessons, periodYear, periodMonth, subscriptionType])
 
   function reset() {
     setBranchId("")
@@ -1611,7 +1514,6 @@ function AddSubscriptionDialog({
     setFirstLessonDate(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`)
     setValidDays("")
     setDiscountPreview(null)
-    setDiscountTemplateId("none")
     setError(null)
   }
 
@@ -1634,7 +1536,6 @@ function AddSubscriptionDialog({
         wardId: wardId || undefined,
         lessonPrice: Number(lessonPrice),
         totalLessons: Number(totalLessons),
-        discountTemplateId: discountTemplateId === "none" ? null : discountTemplateId,
       }
       if (subscriptionType === "package") {
         payload.startDate = startDate
@@ -1692,15 +1593,6 @@ function AddSubscriptionDialog({
     ? groups.filter(g => g.directionId === directionId && g.branchId === branchId)
     : []
   const totalAmount = (Number(lessonPrice) || 0) * (Number(totalLessons) || 0)
-  // Скидки v3: в списке «Скидка» — только ручные активные шаблоны (permanent, не
-  // системная «за второй и следующие»).
-  const manualDiscountTemplates = discountTemplates.filter(
-    (t) => t.isActive && !t.systemKey && t.kind === "permanent",
-  )
-  const discLabel = (t: DiscountTemplateOption) =>
-    t.valueType === "percent"
-      ? `${t.name} — ${t.value}%`
-      : `${t.name} — −${formatMoney(t.value)}/зан.`
 
   const selectedBranch = branchOptions.find(b => b.id === branchId)
   const selectedDirection = directions.find(d => d.id === directionId)
@@ -1938,31 +1830,6 @@ function AddSubscriptionDialog({
             </div>
           </div>
 
-          {manualDiscountTemplates.length > 0 && (
-            <div className="space-y-1.5">
-              <Label>Скидка</Label>
-              <Select
-                value={discountTemplateId}
-                onValueChange={(v) => { if (v) setDiscountTemplateId(v) }}
-              >
-                <SelectTrigger className="w-full">
-                  {discountTemplateId === "none"
-                    ? "Не применять никакую"
-                    : (() => {
-                        const t = manualDiscountTemplates.find((x) => x.id === discountTemplateId)
-                        return t ? discLabel(t) : "Не применять никакую"
-                      })()}
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Не применять никакую</SelectItem>
-                  {manualDiscountTemplates.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{discLabel(t)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
           {totalAmount > 0 && (
             <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
               {discountPreview?.hasDiscount ? (
@@ -1975,7 +1842,7 @@ function AddSubscriptionDialog({
                     <div className="flex justify-between">
                       <span>
                         {discountPreview.source === "type1"
-                          ? "Скидка за второй и следующие"
+                          ? "Скидка за второй абонемент"
                           : `Скидка «${discountPreview.templateName}»`}
                       </span>
                       <span>−{formatMoney(discountPreview.discountAmount)}</span>
