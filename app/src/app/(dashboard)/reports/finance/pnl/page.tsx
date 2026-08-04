@@ -115,7 +115,6 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   // Расходы — расширенным окном (±60 мес по дате платежа): период признания
   // (recognitionMode) может отличаться от даты платежа в обе стороны.
   const { gte: expensesFrom, lte: expensesTo } = expenseFetchWindow(fromYm.year, fromYm.month, toYm.year, toYm.month)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const expWhere: any = { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: expensesTo } }
   if (branchFilter) expWhere.branches = { some: { branchId: branchFilter } }
   const expenses = await db.expense.findMany({
