@@ -252,6 +252,6 @@ export default async function SubscriptionsPage({
 function typeLabel(t: "permanent" | "one_time" | "linked" | "second_subscription"): string {
   if (t === "permanent") return "Постоянная"
   if (t === "one_time") return "Разовая"
-  if (t === "second_subscription") return "За 2-й абонемент"
+  if (t === "second_subscription") return "За второй и следующие"
   return "Связанная"
 }

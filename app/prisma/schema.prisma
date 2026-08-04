@@ -922,6 +922,12 @@ model Subscription {
   discountPerLesson      Decimal                    @default(0) @map("discount_per_lesson") @db.Decimal(12, 2)
   /// Скидки v2: источник текущей скидки (type1/type2/legacy/none).
   discountSource         SubscriptionDiscountSource @default(none) @map("discount_source")
+  /// Скидки v3 (пер-абонементные): выбранный ВРУЧНУЮ для ЭТОГО абонемента шаблон
+  /// скидки (тип 2, permanent). NULL — ручная скидка не выбрана. Заменяет
+  /// client.discountTemplateId, который красил скидку на ВСЕ абонементы клиента:
+  /// теперь скидка применяется только там, где выбрана в форме абонемента, и
+  /// переносится при массовой/точечной выписке (previousSubscription).
+  discountTemplateId     String?                    @map("discount_template_id") @db.Uuid
   startDate              DateTime                   @map("start_date") @db.Date
   endDate                DateTime?                  @map("end_date") @db.Date
   expiresAt              DateTime?                  @map("expires_at") @db.Date
@@ -949,6 +955,7 @@ model Subscription {
   group               Group                      @relation(fields: [groupId], references: [id])
   packageTemplate     PackageTemplate?           @relation(fields: [packageTemplateId], references: [id])
   withdrawalReason    WithdrawalReason?          @relation(fields: [withdrawalReasonId], references: [id])
+  discountTemplate    DiscountTemplate?          @relation("SubscriptionDiscountTemplate", fields: [discountTemplateId], references: [id])
   payments            Payment[]
   discounts           Discount[]
   attendances         Attendance[]
@@ -2337,9 +2344,10 @@ model DiscountTemplate {
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
 
-  organization     Organization @relation(fields: [tenantId], references: [id])
-  appliedDiscounts Discount[]   @relation("DiscountByTemplate")
-  clientsAttached  Client[]     @relation("ClientDiscountTemplate")
+  organization          Organization   @relation(fields: [tenantId], references: [id])
+  appliedDiscounts      Discount[]     @relation("DiscountByTemplate")
+  clientsAttached       Client[]       @relation("ClientDiscountTemplate")
+  subscriptionsAttached Subscription[] @relation("SubscriptionDiscountTemplate")
 
   @@unique([tenantId, systemKey])
   @@index([tenantId])
