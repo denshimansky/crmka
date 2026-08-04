@@ -55,11 +55,36 @@ type TimelineBalanceTxn = Prisma.ClientBalanceTransactionGetPayload<{
   }
 }>
 
-/** «MM.YYYY» абонемента или null, если период не заполнен. */
+/**
+ * Период абонемента для ленты: «MM.YYYY» (календарный) или «дата – дата» (пакет,
+ * старт – окончание). null, если данных нет. Для пакета нужны type/startDate/
+ * expiresAt (в подзапросах с урезанным select они отсутствуют → период не покажем).
+ */
 function periodLabel(
-  s: { periodMonth: number | null; periodYear: number | null } | null | undefined,
+  s:
+    | {
+        periodMonth: number | null
+        periodYear: number | null
+        type?: string | null
+        startDate?: Date | null
+        endDate?: Date | null
+        expiresAt?: Date | null
+      }
+    | null
+    | undefined,
 ): string | null {
-  if (!s?.periodMonth || !s?.periodYear) return null
+  if (!s) return null
+  if (s.type === "package") {
+    const fmt = (d: Date) => d.toLocaleDateString("ru-RU")
+    const start = s.startDate ? fmt(s.startDate) : null
+    const end = s.endDate ?? s.expiresAt
+    const endStr = end ? fmt(end) : null
+    if (start && endStr) return `${start} – ${endStr}`
+    if (start) return `с ${start}`
+    if (endStr) return `до ${endStr}`
+    return null
+  }
+  if (!s.periodMonth || !s.periodYear) return null
   return `${String(s.periodMonth).padStart(2, "0")}.${s.periodYear}`
 }
 

@@ -53,6 +53,7 @@ interface Subscription {
   type?: string
   periodYear: number | null
   periodMonth: number | null
+  startDate?: string | null
   expiresAt?: string | null
   lessonPrice: string
   totalLessons: number
@@ -142,13 +143,20 @@ const METHOD_LABELS: Record<string, string> = {
 function formatSubPeriod(s: {
   periodMonth: number | null
   periodYear: number | null
+  startDate?: string | null
   expiresAt?: string | null
   type?: string
 }): string {
   if (s.type === "package") {
-    return s.expiresAt
-      ? `Пакет до ${new Date(s.expiresAt).toLocaleDateString("ru-RU")}`
-      : "Пакет"
+    // Пакет: показываем явный период старт – окончание, чтобы у партнёров не было
+    // вопросов, почему занятия покрываются именно в этих датах.
+    const fmt = (iso: string) => new Date(iso).toLocaleDateString("ru-RU")
+    const start = s.startDate ? fmt(s.startDate) : null
+    const end = s.expiresAt ? fmt(s.expiresAt) : null
+    if (start && end) return `${start} – ${end}`
+    if (start) return `с ${start}`
+    if (end) return `до ${end}`
+    return "Пакет"
   }
   if (s.periodMonth != null && s.periodYear != null) {
     return `${MONTH_NAMES[s.periodMonth]} ${s.periodYear}`
