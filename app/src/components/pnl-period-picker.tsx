@@ -45,7 +45,8 @@ function PnlPeriodPickerInner() {
 
   const onFrom = (v: string) => {
     if (!v) return
-    // Начало позже конца — подтягиваем конец к началу.
+    // Разрешаем выбрать «с» позже «по»: подтягиваем «по» к выбранному месяцу
+    // (его же), дальше пользователь при желании расширит «по» вручную.
     navigate(v, v > to ? v : to)
   }
   const onTo = (v: string) => {
@@ -62,7 +63,6 @@ function PnlPeriodPickerInner() {
       <input
         type="month"
         value={from}
-        max={to}
         onChange={(e) => onFrom(e.target.value)}
         className={inputCls}
         aria-label="Период с"

@@ -6,15 +6,19 @@ import { db } from "@/lib/db"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ArrowLeft, TrendingUp, TrendingDown, DollarSign, SplitSquareVertical } from "lucide-react"
+import { ArrowLeft, SplitSquareVertical } from "lucide-react"
 import Link from "next/link"
 import { DrilldownAmount } from "@/components/drilldown-amount"
 import { ReportExport } from "@/components/report-export"
-import { distributeFixedExpenses, type FixedExpenseItem } from "@/lib/expense-distribution"
+import { expenseFetchWindow } from "@/lib/expense-amortization"
 import {
-  expenseAmountInWindow,
-  expenseFetchWindow,
-} from "@/lib/expense-amortization"
+  computePnlView,
+  enumerateMonths,
+  monthKey,
+  monthKeyOfDate,
+  type PnlRawData,
+  type PnlView,
+} from "@/lib/pnl-view"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { getOrgUiSettings } from "@/lib/role-names"
@@ -28,8 +32,6 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const params = await searchParams
   // Период отчёта — произвольный диапазон месяцев from/to (YYYY-MM). Обратная
   // совместимость: одиночный месяц year/month (старые ссылки, дашборд, drill-down).
-  // Амортизация/раскладка расходов работают по месяцам, поэтому период — тоже
-  // помесячный (не по дням). from > to — меняем местами.
   const single = getMonthFromParams(params)
   const parseYm = (v: string | string[] | undefined, fy: number, fm: number) => {
     if (typeof v === "string" && /^\d{4}-\d{2}$/.test(v)) {
@@ -48,8 +50,6 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const isRange = fromYm.year !== toYm.year || fromYm.month !== toYm.month
   const fromKey = `${fromYm.year}-${String(fromYm.month).padStart(2, "0")}`
   const toKey = `${toYm.year}-${String(toYm.month).padStart(2, "0")}`
-  // monthStart/monthEnd теперь охватывают весь период (начало from-месяца — конец
-  // to-месяца); остальной код считает по этому диапазону без изменений.
   const monthStart = new Date(Date.UTC(fromYm.year, fromYm.month - 1, 1))
   const monthEnd = new Date(Date.UTC(toYm.year, toYm.month, 0))
   const branchFilter = typeof params.branch === "string" ? params.branch : undefined
@@ -61,7 +61,8 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     orderBy: { name: "asc" },
   })
 
-  // === ВЫРУЧКА: списания с абонементов (chargedAmount) ===
+  // === Сырые строки за весь период (агрегируем помесячно в памяти) ===
+  // Выручка: списания с абонементов (chargeAmount) по дате занятия.
   const attendances = await db.attendance.findMany({
     where: {
       tenantId,
@@ -75,32 +76,28 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       chargeAmount: true,
       lesson: {
         select: {
-          group: {
-            select: {
-              directionId: true,
-              direction: { select: { name: true } },
-            },
-          },
+          date: true,
+          group: { select: { directionId: true, direction: { select: { name: true } } } },
         },
       },
     },
   })
-  const revenue = attendances.reduce((s, a) => s + Number(a.chargeAmount), 0)
 
-  // Выручка по направлениям (для распределения постоянных расходов)
-  const revenueByDirection: Record<string, { name: string; revenue: number }> = {}
-  for (const a of attendances) {
-    const dirId = a.lesson.group.directionId
-    const dirName = a.lesson.group.direction.name
-    if (!revenueByDirection[dirId]) {
-      revenueByDirection[dirId] = { name: dirName, revenue: 0 }
-    }
-    revenueByDirection[dirId].revenue += Number(a.chargeAmount)
-  }
+  // ЗП инструкторов (начислено из посещений) по дате занятия.
+  const salaryAttendances = await db.attendance.findMany({
+    where: {
+      tenantId,
+      lesson: {
+        date: { gte: monthStart, lte: monthEnd },
+        ...(branchFilter ? { group: { branchId: branchFilter } } : {}),
+      },
+      instructorPayEnabled: true,
+    },
+    select: { instructorPayAmount: true, lesson: { select: { date: true } } },
+  })
 
-  // === ПРОЧИЕ ДОХОДЫ ВНЕ АБОНЕМЕНТОВ ===
-  // Payment без subscriptionId, с incomeCategoryId. По дате платежа, refund исключаем.
-  // Прочие доходы не привязаны к филиалу — показываем только в общем P&L (без фильтра).
+  // Прочие доходы вне абонементов (Payment без subscriptionId, с incomeCategoryId).
+  // Не привязаны к филиалу — показываем только в общем P&L.
   const otherIncomePayments = branchFilter
     ? []
     : await db.payment.findMany({
@@ -112,185 +109,95 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
           type: { in: ["incoming", "transfer_in"] },
           date: { gte: monthStart, lte: monthEnd },
         },
-        select: {
-          amount: true,
-          incomeCategoryId: true,
-          incomeCategory: { select: { id: true, name: true } },
-        },
+        select: { amount: true, date: true, incomeCategory: { select: { id: true, name: true } } },
       })
-  const otherIncomeMap = new Map<string, { id: string; name: string; amount: number }>()
-  for (const p of otherIncomePayments) {
-    if (!p.incomeCategory) continue
-    const prev = otherIncomeMap.get(p.incomeCategory.id) || { id: p.incomeCategory.id, name: p.incomeCategory.name, amount: 0 }
-    prev.amount += Number(p.amount)
-    otherIncomeMap.set(p.incomeCategory.id, prev)
-  }
-  const otherIncomeByCategory = Array.from(otherIncomeMap.values()).sort((a, b) => b.amount - a.amount)
-  const totalOtherIncome = otherIncomeByCategory.reduce((s, x) => s + x.amount, 0)
 
-  // === РАСХОДЫ ===
-  // Расширяем окно в ОБЕ стороны: расход с recognitionMode = single_period / amortized мог
-  // быть оплачен как раньше месяца признания (аренда вперёд), так и позже (начисление раньше
-  // оплаты — напр. взносы за июль оплачены в августе). expenseAmountInWindow отбирает доли.
+  // Расходы — расширенным окном (±60 мес по дате платежа): период признания
+  // (recognitionMode) может отличаться от даты платежа в обе стороны.
   const { gte: expensesFrom, lte: expensesTo } = expenseFetchWindow(fromYm.year, fromYm.month, toYm.year, toYm.month)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const expWhere: any = { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: expensesTo } }
   if (branchFilter) expWhere.branches = { some: { branchId: branchFilter } }
-
   const expenses = await db.expense.findMany({
     where: expWhere,
     include: {
       category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
-      // Option B: direct attribution — если у расхода указано направление,
-      // относим всю сумму к нему без пропорционального распределения.
       branches: { select: { directionId: true } },
     },
   })
 
-  // Для каждого расхода — сумма, попавшая в текущий месяц с учётом раскладки.
-  const expenseSlices = expenses
-    .map((e) => ({
+  // Имена всех направлений (для тех, у кого только прямые расходы, без выручки).
+  const directions = await db.direction.findMany({
+    where: { tenantId },
+    select: { id: true, name: true },
+  })
+
+  // === Сборка PnlRawData ===
+  const raw: PnlRawData = {
+    attendances: attendances.map((a) => ({
+      chargeAmount: Number(a.chargeAmount),
+      ymKey: monthKeyOfDate(a.lesson.date),
+      directionId: a.lesson.group.directionId,
+      directionName: a.lesson.group.direction.name,
+    })),
+    salary: salaryAttendances.map((s) => ({
+      amount: Number(s.instructorPayAmount),
+      ymKey: monthKeyOfDate(s.lesson.date),
+    })),
+    otherIncome: otherIncomePayments.flatMap((p) =>
+      p.incomeCategory
+        ? [{ amount: Number(p.amount), ymKey: monthKeyOfDate(p.date), categoryId: p.incomeCategory.id, categoryName: p.incomeCategory.name }]
+        : [],
+    ),
+    expenses: expenses.map((e) => ({
+      amount: e.amount,
+      date: e.date,
+      recognitionMode: e.recognitionMode,
+      amortizationMonths: e.amortizationMonths,
+      amortizationStartDate: e.amortizationStartDate,
       categoryId: e.category.id,
       categoryName: e.category.name,
       isSalary: e.category.isSalary,
       isVariable: e.category.isVariable,
-      amount: expenseAmountInWindow(e, fromYm.year, fromYm.month, toYm.year, toYm.month),
       directDirectionId: e.branches.find((b) => b.directionId)?.directionId ?? null,
-    }))
-    .filter((s) => s.amount > 0)
-
-  const totalExpenses = expenseSlices.reduce((s, x) => s + x.amount, 0)
-
-  // Расходы по категориям (с categoryId для drill-down)
-  const expenseByCategory = new Map<string, { categoryId: string; amount: number; isSalary: boolean; isVariable: boolean }>()
-  for (const s of expenseSlices) {
-    const prev = expenseByCategory.get(s.categoryName) || { categoryId: s.categoryId, amount: 0, isSalary: s.isSalary, isVariable: s.isVariable }
-    prev.amount += s.amount
-    expenseByCategory.set(s.categoryName, prev)
+    })),
+    directionNameById: new Map(directions.map((d) => [d.id, d.name])),
   }
 
-  // === ЗП (начислено из посещений) ===
-  const salaryAttendances = await db.attendance.findMany({
-    where: {
-      tenantId,
-      lesson: {
-        date: { gte: monthStart, lte: monthEnd },
-        ...(branchFilter ? { group: { branchId: branchFilter } } : {}),
-      },
-      instructorPayEnabled: true,
-    },
-    select: { instructorPayAmount: true },
-  })
-  const totalSalaryAccrued = salaryAttendances.reduce((s, a) => s + Number(a.instructorPayAmount), 0)
+  const fromKeyNum = monthKey(fromYm.year, fromYm.month)
+  const toKeyNum = monthKey(toYm.year, toYm.month)
+  const total = computePnlView(fromKeyNum, toKeyNum, raw)
+  const months = enumerateMonths(fromYm.year, fromYm.month, toYm.year, toYm.month)
 
-  // === РАСЧЁТЫ ===
-  const variableExpenses = expenseSlices.filter(s => s.isVariable).reduce((sum, s) => sum + s.amount, 0)
-  const fixedExpenses = totalExpenses - variableExpenses
-  const totalVariableCosts = variableExpenses + totalSalaryAccrued
-  // Маржа считается только от основной выручки (списания за занятия).
-  const margin = revenue - totalVariableCosts
-  const totalIncome = revenue + totalOtherIncome
-  const netProfit = totalIncome - totalExpenses - totalSalaryAccrued
-  const profitability = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0
-
-  // === FIN-16 + Option B: распределение постоянных расходов ===
-  // Постоянные с явным directionId → к этому направлению напрямую.
-  // Остальные → пропорционально выручке.
-  const fixedSlices = expenseSlices.filter((s) => !s.isVariable)
-  const directFixedSlices = fixedSlices.filter((s) => s.directDirectionId)
-  const undirectedFixedSlices = fixedSlices.filter((s) => !s.directDirectionId)
-
-  const fixedExpenseItems: FixedExpenseItem[] = undirectedFixedSlices.reduce<FixedExpenseItem[]>((acc, s) => {
-    const existing = acc.find(x => x.id === s.categoryId)
-    if (existing) {
-      existing.amount += s.amount
-    } else {
-      acc.push({ id: s.categoryId, category: s.categoryName, amount: s.amount })
-    }
-    return acc
-  }, [])
-
-  const revenueMap: Record<string, number> = {}
-  for (const [dirId, info] of Object.entries(revenueByDirection)) {
-    revenueMap[dirId] = info.revenue
+  // Колонки декомпозиции: «Весь период» + карточка на каждый месяц (только для диапазона).
+  type PnlColumn = { key: string; title: string; view: PnlView; drill: { month: string; from: string; to: string } }
+  const periodColumn: PnlColumn = {
+    key: "total",
+    title: isRange ? "Весь период" : "",
+    view: total,
+    drill: { month: fromKey, from: fromKey, to: toKey },
   }
-  const distribution = distributeFixedExpenses(fixedExpenseItems, revenueMap)
-
-  // Прямые расходы по направлениям (с разбивкой по статьям для тултипа).
-  const directFixedByDirection: Record<string, { items: { category: string; amount: number }[]; total: number; directionName: string }> = {}
-  for (const s of directFixedSlices) {
-    const dirId = s.directDirectionId!
-    const dirName = revenueByDirection[dirId]?.name
-    if (!directFixedByDirection[dirId]) {
-      directFixedByDirection[dirId] = { items: [], total: 0, directionName: dirName ?? dirId }
-    }
-    directFixedByDirection[dirId].items.push({ category: s.categoryName, amount: s.amount })
-    directFixedByDirection[dirId].total += s.amount
-  }
-
-  // Имена направлений, которые есть только в direct-расходах (без выручки) —
-  // подтянем их из БД.
-  const missingDirIds = Object.keys(directFixedByDirection).filter(
-    (dirId) => !revenueByDirection[dirId],
-  )
-  if (missingDirIds.length > 0) {
-    const extraDirs = await db.direction.findMany({
-      where: { id: { in: missingDirIds }, tenantId },
-      select: { id: true, name: true },
-    })
-    for (const d of extraDirs) {
-      if (directFixedByDirection[d.id]) {
-        directFixedByDirection[d.id].directionName = d.name
-      }
-    }
-  }
-
-  const directionIdSet = new Set<string>([
-    ...Object.keys(revenueByDirection),
-    ...Object.keys(directFixedByDirection),
-  ])
-
-  const directionEntries = Array.from(directionIdSet)
-    .map((dirId) => {
-      const revenueInfo = revenueByDirection[dirId]
-      const directInfo = directFixedByDirection[dirId]
-      const dirRevenue = revenueInfo?.revenue ?? 0
-      const distributedFixedShare = distribution.totalByKey[dirId] ?? 0
-      const directFixed = directInfo?.total ?? 0
-      return {
-        directionId: dirId,
-        name: revenueInfo?.name ?? directInfo?.directionName ?? dirId,
-        revenue: dirRevenue,
-        revenueShare: revenue > 0 ? Math.round((dirRevenue / revenue) * 1000) / 10 : 0,
-        distributedFixed: distributedFixedShare + directFixed,
-        directFixedItems: directInfo?.items ?? [],
-      }
-    })
-    .sort((a, b) => b.revenue - a.revenue)
-
-  // === % распределения финреза (встроено из бывшего отдельного отчёта) ===
-  // Доля каждой статьи (ЗП + расходы по категориям) в выручке. В отличие от
-  // старого отдельного отчёта, ЗП и расходы здесь уже учитывают выбранный филиал.
-  const distributionArticles = [
-    { category: "ЗП инструкторов", amount: totalSalaryAccrued },
-    ...Array.from(expenseByCategory.entries()).map(([name, v]) => ({ category: name, amount: v.amount })),
-  ]
-    .filter((a) => a.amount > 0)
-    .sort((a, b) => b.amount - a.amount)
-    .map((a) => ({
-      ...a,
-      percentOfRevenue: revenue > 0 ? Math.round((a.amount / revenue) * 1000) / 10 : 0,
-    }))
+  const monthColumns: PnlColumn[] = isRange
+    ? months.map((mm) => {
+        const mk = `${mm.year}-${String(mm.month).padStart(2, "0")}`
+        return {
+          key: mk,
+          title: mm.label,
+          view: computePnlView(mm.key, mm.key, raw),
+          drill: { month: mk, from: mk, to: mk },
+        }
+      })
+    : []
+  const pnlColumns: PnlColumn[] = [periodColumn, ...monthColumns]
 
   const fmtMonthYear = (y: number, m: number) =>
     new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
   const monthName = isRange
     ? `${fmtMonthYear(fromYm.year, fromYm.month)} — ${fmtMonthYear(toYm.year, toYm.month)}`
     : fmtMonthYear(fromYm.year, fromYm.month)
-
-  // Ключ периода для экспорта/drill-down: один месяц или диапазон.
   const periodKey = isRange ? `${fromKey}_${toKey}` : fromKey
 
-  // Строки P&L. drillField + drillCategoryId/drillIncomeCategoryId → drill-down.
+  // Строки P&L из числового вида. drillField → drill-down (categoryId/incomeCategoryId).
   type PnlRow = {
     label: string
     amount: number
@@ -300,68 +207,45 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     drillCategoryId?: string
     drillIncomeCategoryId?: string
   }
-  const pnlRows: PnlRow[] = [
-    { label: "Выручка (отработанные занятия)", amount: revenue, bold: true, color: "text-green-700", drillField: "revenue" },
-    { label: "", amount: 0, bold: false, color: "" }, // separator
-    { label: "Переменные расходы:", amount: totalVariableCosts, bold: true, color: "text-red-700" },
-    { label: "  ЗП инструкторов (начислено)", amount: totalSalaryAccrued, bold: false, color: "text-red-600", drillField: "salary" },
-    ...Array.from(expenseByCategory.entries())
-      .filter(([, v]) => v.isVariable)
-      .sort((a, b) => b[1].amount - a[1].amount)
-      .map(([name, v]) => ({
-        label: `  ${name}`,
-        amount: v.amount,
-        bold: false,
-        color: "text-red-600",
-        drillField: "expense-category",
-        drillCategoryId: v.categoryId,
-      })),
-    { label: "", amount: 0, bold: false, color: "" },
-    { label: "Маржа (Выручка − Переменные)", amount: margin, bold: true, color: margin >= 0 ? "text-green-700" : "text-red-700" },
-    { label: "", amount: 0, bold: false, color: "" },
-    { label: "Постоянные расходы:", amount: fixedExpenses, bold: true, color: "text-orange-700", drillField: "expenses" },
-    ...Array.from(expenseByCategory.entries())
-      .filter(([, v]) => !v.isVariable)
-      .sort((a, b) => b[1].amount - a[1].amount)
-      .map(([name, v]) => ({
-        label: `  ${name}`,
-        amount: v.amount,
-        bold: false,
-        color: "text-orange-600",
-        drillField: "expense-category",
-        drillCategoryId: v.categoryId,
-      })),
-    // Прочие доходы — отдельным блоком после расходов, перед чистой прибылью.
-    ...(otherIncomeByCategory.length > 0
-      ? [
-          { label: "", amount: 0, bold: false, color: "" } as PnlRow,
-          { label: "Прочие доходы:", amount: totalOtherIncome, bold: true, color: "text-green-700", drillField: "other-income" } as PnlRow,
-          ...otherIncomeByCategory.map((c) => ({
-            label: `  ${c.name}`,
-            amount: c.amount,
-            bold: false,
-            color: "text-green-600",
-            drillField: "other-income-category",
-            drillIncomeCategoryId: c.id,
-          } as PnlRow)),
-        ]
-      : []),
-    { label: "", amount: 0, bold: false, color: "" },
-    { label: "Чистая прибыль", amount: netProfit, bold: true, color: netProfit >= 0 ? "text-green-700" : "text-red-700" },
-    { label: "Рентабельность", amount: profitability, bold: true, color: profitability >= 0 ? "text-green-700" : "text-red-700" },
-  ]
-
-  // Данные для экспорта
-  const exportRows = pnlRows
-    .filter((r) => r.label !== "")
-    .map((r) => ({
-      label: r.label,
-      amount: r.label === "Рентабельность" ? `${r.amount.toFixed(1)}%` : Math.round(r.amount),
-    }))
+  function buildPnlRows(v: PnlView): PnlRow[] {
+    return [
+      { label: "Выручка (отработанные занятия)", amount: v.revenue, bold: true, color: "text-green-700", drillField: "revenue" },
+      { label: "", amount: 0, bold: false, color: "" },
+      { label: "Переменные расходы:", amount: v.totalVariableCosts, bold: true, color: "text-red-700" },
+      { label: "  ЗП инструкторов (начислено)", amount: v.totalSalaryAccrued, bold: false, color: "text-red-600", drillField: "salary" },
+      ...v.expenseCategories
+        .filter((c) => c.isVariable)
+        .sort((a, b) => b.amount - a.amount)
+        .map((c) => ({ label: `  ${c.name}`, amount: c.amount, bold: false, color: "text-red-600", drillField: "expense-category", drillCategoryId: c.categoryId })),
+      { label: "", amount: 0, bold: false, color: "" },
+      { label: "Маржа (Выручка − Переменные)", amount: v.margin, bold: true, color: v.margin >= 0 ? "text-green-700" : "text-red-700" },
+      { label: "", amount: 0, bold: false, color: "" },
+      { label: "Постоянные расходы:", amount: v.fixedExpenses, bold: true, color: "text-orange-700", drillField: "expenses" },
+      ...v.expenseCategories
+        .filter((c) => !c.isVariable)
+        .sort((a, b) => b.amount - a.amount)
+        .map((c) => ({ label: `  ${c.name}`, amount: c.amount, bold: false, color: "text-orange-600", drillField: "expense-category", drillCategoryId: c.categoryId })),
+      ...(v.otherIncomeByCategory.length > 0
+        ? [
+            { label: "", amount: 0, bold: false, color: "" } as PnlRow,
+            { label: "Прочие доходы:", amount: v.totalOtherIncome, bold: true, color: "text-green-700", drillField: "other-income" } as PnlRow,
+            ...v.otherIncomeByCategory.map((c) => ({ label: `  ${c.name}`, amount: c.amount, bold: false, color: "text-green-600", drillField: "other-income-category", drillIncomeCategoryId: c.id } as PnlRow)),
+          ]
+        : []),
+      { label: "", amount: 0, bold: false, color: "" },
+      { label: "Чистая прибыль", amount: v.netProfit, bold: true, color: v.netProfit >= 0 ? "text-green-700" : "text-red-700" },
+      { label: "Рентабельность", amount: v.profitability, bold: true, color: v.profitability >= 0 ? "text-green-700" : "text-red-700" },
+    ]
+  }
 
   const activeBranchName = branchFilter
-    ? allBranches.find(b => b.id === branchFilter)?.name ?? "—"
+    ? allBranches.find((b) => b.id === branchFilter)?.name ?? "—"
     : "Все филиалы"
+
+  // Экспорт — по всему периоду (колонка «Весь период»).
+  const exportRows = buildPnlRows(total)
+    .filter((r) => r.label !== "")
+    .map((r) => ({ label: r.label, amount: r.label === "Рентабельность" ? `${r.amount.toFixed(1)}%` : Math.round(r.amount) }))
 
   function branchHref(bId: string | undefined): string {
     const sp = new URLSearchParams()
@@ -370,6 +254,148 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     if (bId) sp.set("branch", bId)
     return `?${sp.toString()}`
   }
+
+  // ── Рендер одной колонки «Отчёт P&L» ──
+  function renderPnlTable(col: PnlColumn) {
+    const rows = buildPnlRows(col.view)
+    return (
+      <Table className="w-auto">
+        <TableBody>
+          {rows.map((row, i) => {
+            if (row.label === "") return <TableRow key={i}><TableCell colSpan={2} className="h-2 p-0" /></TableRow>
+            if (row.label === "Рентабельность") {
+              return (
+                <TableRow key={i} className={row.bold ? "font-bold" : ""}>
+                  <TableCell className={row.color}>{row.label}</TableCell>
+                  <TableCell className={`text-right ${row.color}`}>{row.amount.toFixed(1)}%</TableCell>
+                </TableRow>
+              )
+            }
+            return (
+              <TableRow key={i} className={row.bold ? "font-bold" : ""}>
+                <TableCell className={row.color}>{row.label}</TableCell>
+                <TableCell className={`text-right ${row.color}`}>
+                  {row.drillField ? (
+                    <DrilldownAmount
+                      amount={formatMoney(row.amount)}
+                      report="pnl"
+                      field={row.drillField}
+                      month={col.drill.month}
+                      title={`Детализация: ${row.label.trim()}${branchFilter ? ` — ${activeBranchName}` : ""}`}
+                      className={row.color}
+                      extraParams={{
+                        categoryId: row.drillCategoryId,
+                        incomeCategoryId: row.drillIncomeCategoryId,
+                        branchId: branchFilter,
+                        from: col.drill.from,
+                        to: col.drill.to,
+                      }}
+                    />
+                  ) : (
+                    formatMoney(row.amount)
+                  )}
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    )
+  }
+
+  // ── Рендер одной колонки «% распределения финреза» ──
+  function renderDistributionTable(v: PnlView) {
+    return (
+      <Table className="w-auto">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Статья</TableHead>
+            <TableHead className="text-right">Сумма</TableHead>
+            <TableHead className="text-right">% от выручки</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {v.distributionArticles.map((a) => (
+            <TableRow key={a.category}>
+              <TableCell className="font-medium">{a.category}</TableCell>
+              <TableCell className="text-right">{formatMoney(a.amount)}</TableCell>
+              <TableCell className="text-right text-muted-foreground">{a.percentOfRevenue}%</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    )
+  }
+
+  // ── Рендер одной колонки «Распределение постоянных расходов по направлениям» ──
+  function renderDirectionsTable(v: PnlView) {
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Направление</TableHead>
+            <TableHead className="text-right">Выручка</TableHead>
+            <TableHead className="text-right">Доля</TableHead>
+            <TableHead className="text-right">Пост. (распред.)</TableHead>
+            <TableHead className="text-right">P&L напр.</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {v.directionEntries.map((dir) => {
+            const dirNetProfit = dir.revenue - dir.distributedFixed
+            return (
+              <TableRow key={dir.directionId}>
+                <TableCell className="font-medium">{dir.name}</TableCell>
+                <TableCell className="text-right text-green-700">{formatMoney(dir.revenue)}</TableCell>
+                <TableCell className="text-right">{dir.revenueShare}%</TableCell>
+                <TableCell className="text-right text-orange-600">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger className="cursor-help underline decoration-dotted underline-offset-4">
+                        {formatMoney(dir.distributedFixed)}
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <div className="space-y-1 text-xs">
+                          {dir.directFixedItems.map((item, idx) => (
+                            <div key={`direct-${idx}`} className="flex justify-between gap-4">
+                              <span>{item.category} <Badge variant="outline" className="ml-1 h-4 px-1 text-[10px]">прямой</Badge></span>
+                              <span>{formatMoney(item.amount)}</span>
+                            </div>
+                          ))}
+                          {(v.distributionByKey[dir.directionId] ?? []).map((item, idx) => (
+                            <div key={`dist-${idx}`} className="flex justify-between gap-4">
+                              <span>{item.category}</span>
+                              <span>{formatMoney(item.distributedAmount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </TableCell>
+                <TableCell className={`text-right font-medium ${dirNetProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
+                  {formatMoney(dirNetProfit)}
+                </TableCell>
+              </TableRow>
+            )
+          })}
+          <TableRow className="font-bold border-t-2">
+            <TableCell>Итого</TableCell>
+            <TableCell className="text-right text-green-700">{formatMoney(v.revenue)}</TableCell>
+            <TableCell className="text-right">100%</TableCell>
+            <TableCell className="text-right text-orange-600">{formatMoney(v.fixedExpenses)}</TableCell>
+            <TableCell className={`text-right ${v.revenue - v.fixedExpenses >= 0 ? "text-green-700" : "text-red-700"}`}>
+              {formatMoney(v.revenue - v.fixedExpenses)}
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    )
+  }
+
+  // Обёртка секции: одна карточка (один месяц) или горизонтальный ряд карточек
+  // [Весь период | Месяц 1 | Месяц 2 | …] со скроллом при диапазоне.
+  const sectionRow = "flex gap-4 overflow-x-auto pb-2"
 
   return (
     <div className="space-y-6">
@@ -404,224 +430,117 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
         <Badge variant="outline">{activeBranchName}</Badge>
       </div>
 
-      {/* Табы по филиалам — показываем, если филиалов больше одного. */}
+      {/* Табы по филиалам */}
       {allBranches.length > 1 && (
         <div className="flex flex-wrap items-center gap-2 border-b pb-2">
           <Link href={branchHref(undefined)}>
-            <Badge variant={!branchFilter ? "default" : "outline"} className="cursor-pointer">
-              Все филиалы
-            </Badge>
+            <Badge variant={!branchFilter ? "default" : "outline"} className="cursor-pointer">Все филиалы</Badge>
           </Link>
-          {allBranches.map(b => (
+          {allBranches.map((b) => (
             <Link key={b.id} href={branchHref(b.id)}>
-              <Badge variant={branchFilter === b.id ? "default" : "outline"} className="cursor-pointer">
-                {b.name}
-              </Badge>
+              <Badge variant={branchFilter === b.id ? "default" : "outline"} className="cursor-pointer">{b.name}</Badge>
             </Link>
           ))}
           {branchFilter && (
-            <span className="text-xs text-muted-foreground ml-2">
-              Прочие доходы показываются только в общем P&L
-            </span>
+            <span className="text-xs text-muted-foreground ml-2">Прочие доходы показываются только в общем P&L</span>
           )}
         </div>
       )}
 
+      {/* KPI за весь период */}
       <div className="grid gap-4 sm:grid-cols-4">
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Выручка</p>
-            <p className="text-2xl font-bold text-green-600">{formatMoney(revenue)}</p>
+            <p className="text-2xl font-bold text-green-600">{formatMoney(total.revenue)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Маржа</p>
-            <p className={`text-2xl font-bold ${margin >= 0 ? "text-green-600" : "text-red-600"}`}>{formatMoney(margin)}</p>
+            <p className={`text-2xl font-bold ${total.margin >= 0 ? "text-green-600" : "text-red-600"}`}>{formatMoney(total.margin)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Чистая прибыль</p>
-            <p className={`text-2xl font-bold ${netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>{formatMoney(netProfit)}</p>
+            <p className={`text-2xl font-bold ${total.netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>{formatMoney(total.netProfit)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Рентабельность</p>
-            <p className={`text-2xl font-bold ${profitability >= 0 ? "text-green-600" : "text-red-600"}`}>
-              {profitability.toFixed(1)}%
-            </p>
+            <p className={`text-2xl font-bold ${total.profitability >= 0 ? "text-green-600" : "text-red-600"}`}>{total.profitability.toFixed(1)}%</p>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="w-fit max-w-full">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Отчёт P&L</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table className="w-auto">
-            <TableBody>
-              {pnlRows.map((row, i) => {
-                if (row.label === "") return <TableRow key={i}><TableCell colSpan={2} className="h-2 p-0" /></TableRow>
-                if (row.label === "Рентабельность") {
-                  return (
-                    <TableRow key={i} className={row.bold ? "font-bold" : ""}>
-                      <TableCell className={row.color}>{row.label}</TableCell>
-                      <TableCell className={`text-right ${row.color}`}>{row.amount.toFixed(1)}%</TableCell>
-                    </TableRow>
-                  )
-                }
-                return (
-                  <TableRow key={i} className={row.bold ? "font-bold" : ""}>
-                    <TableCell className={row.color}>{row.label}</TableCell>
-                    <TableCell className={`text-right ${row.color}`}>
-                      {row.drillField ? (
-                        <DrilldownAmount
-                          amount={formatMoney(row.amount)}
-                          report="pnl"
-                          field={row.drillField}
-                          month={fromKey}
-                          title={`Детализация: ${row.label.trim()}${branchFilter ? ` — ${activeBranchName}` : ""}`}
-                          className={row.color}
-                          extraParams={{
-                            categoryId: row.drillCategoryId,
-                            incomeCategoryId: row.drillIncomeCategoryId,
-                            branchId: branchFilter,
-                            // Диапазон периода: drill-down считает по нему (from/to
-                            // переопределяют одиночный month).
-                            from: fromKey,
-                            to: toKey,
-                          }}
-                        />
-                      ) : (
-                        formatMoney(row.amount)
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      {/* Отчёт P&L: карточка за период + карточки по месяцам */}
+      <div>
+        {isRange && <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Отчёт P&L по месяцам</h2>}
+        <div className={sectionRow}>
+          {pnlColumns.map((col) => (
+            <Card key={col.key} className="shrink-0">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">{col.title || "Отчёт P&L"}</CardTitle>
+              </CardHeader>
+              <CardContent>{renderPnlTable(col)}</CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
 
-      {/* % распределения финреза — встроено из бывшего отдельного отчёта */}
-      {distributionArticles.length > 0 && (
-        <Card className="w-fit max-w-full">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">% распределения финреза</CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">Доля каждой статьи расходов и ЗП в выручке</p>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table className="w-auto">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Статья</TableHead>
-                  <TableHead className="text-right">Сумма</TableHead>
-                  <TableHead className="text-right">% от выручки</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {distributionArticles.map((a) => (
-                  <TableRow key={a.category}>
-                    <TableCell className="font-medium">{a.category}</TableCell>
-                    <TableCell className="text-right">{formatMoney(a.amount)}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">{a.percentOfRevenue}%</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+      {/* % распределения финреза */}
+      {pnlColumns.some((c) => c.view.distributionArticles.length > 0) && (
+        <div>
+          {isRange && <h2 className="mb-2 text-sm font-semibold text-muted-foreground">% распределения финреза по месяцам</h2>}
+          <div className={sectionRow}>
+            {pnlColumns
+              .filter((c) => c.view.distributionArticles.length > 0)
+              .map((col) => (
+                <Card key={col.key} className="shrink-0">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{col.title || "% распределения финреза"}</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">Доля каждой статьи расходов и ЗП в выручке</p>
+                  </CardHeader>
+                  <CardContent className="p-0 pb-4">{renderDistributionTable(col.view)}</CardContent>
+                </Card>
+              ))}
+          </div>
+        </div>
       )}
 
       {/* FIN-16: Распределение постоянных расходов по направлениям */}
-      {directionEntries.length > 0 && fixedExpenses > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <SplitSquareVertical className="size-4 text-orange-600" />
-              <CardTitle className="text-base">Распределение постоянных расходов по направлениям</CardTitle>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Badge variant="outline" className="text-xs">авто</Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="max-w-xs">Расходы с указанным направлением относятся к нему напрямую. Остальные постоянные распределяются пропорционально выручке направлений.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Расходы с прямым указанием направления — целиком к нему. Остальные: доля = выручка направления / общая выручка.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Направление</TableHead>
-                  <TableHead className="text-right">Выручка</TableHead>
-                  <TableHead className="text-right">Доля</TableHead>
-                  <TableHead className="text-right">Пост. расходы (распред.)</TableHead>
-                  <TableHead className="text-right">P&L направления</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {directionEntries.map((dir) => {
-                  const dirNetProfit = dir.revenue - dir.distributedFixed
-                  return (
-                    <TableRow key={dir.directionId}>
-                      <TableCell className="font-medium">{dir.name}</TableCell>
-                      <TableCell className="text-right text-green-700">{formatMoney(dir.revenue)}</TableCell>
-                      <TableCell className="text-right">{dir.revenueShare}%</TableCell>
-                      <TableCell className="text-right text-orange-600">
+      {pnlColumns.some((c) => c.view.directionEntries.length > 0 && c.view.fixedExpenses > 0) && (
+        <div>
+          {isRange && <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Распределение постоянных расходов по направлениям — по месяцам</h2>}
+          <div className={sectionRow}>
+            {pnlColumns
+              .filter((c) => c.view.directionEntries.length > 0 && c.view.fixedExpenses > 0)
+              .map((col) => (
+                <Card key={col.key} className="shrink-0">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2">
+                      <SplitSquareVertical className="size-4 text-orange-600" />
+                      <CardTitle className="text-base">{col.title || "Распределение постоянных расходов по направлениям"}</CardTitle>
+                      {!isRange && (
                         <TooltipProvider>
                           <Tooltip>
-                            <TooltipTrigger className="cursor-help underline decoration-dotted underline-offset-4">
-                              {formatMoney(dir.distributedFixed)}
-                            </TooltipTrigger>
+                            <TooltipTrigger><Badge variant="outline" className="text-xs">авто</Badge></TooltipTrigger>
                             <TooltipContent>
-                              <div className="space-y-1 text-xs">
-                                {dir.directFixedItems.map((item, idx) => (
-                                  <div key={`direct-${idx}`} className="flex justify-between gap-4">
-                                    <span>{item.category} <Badge variant="outline" className="ml-1 h-4 px-1 text-[10px]">прямой</Badge></span>
-                                    <span>{formatMoney(item.amount)}</span>
-                                  </div>
-                                ))}
-                                {(distribution.byKey[dir.directionId] ?? []).map((item, idx) => (
-                                  <div key={`dist-${idx}`} className="flex justify-between gap-4">
-                                    <span>{item.category}</span>
-                                    <span>{formatMoney(item.distributedAmount)}</span>
-                                  </div>
-                                ))}
-                              </div>
+                              <p className="max-w-xs">Расходы с указанным направлением относятся к нему напрямую. Остальные постоянные распределяются пропорционально выручке направлений.</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
-                      </TableCell>
-                      <TableCell className={`text-right font-medium ${dirNetProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
-                        {formatMoney(dirNetProfit)}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-                <TableRow className="font-bold border-t-2">
-                  <TableCell>Итого</TableCell>
-                  <TableCell className="text-right text-green-700">{formatMoney(revenue)}</TableCell>
-                  <TableCell className="text-right">100%</TableCell>
-                  <TableCell className="text-right text-orange-600">{formatMoney(fixedExpenses)}</TableCell>
-                  <TableCell className={`text-right ${revenue - fixedExpenses >= 0 ? "text-green-700" : "text-red-700"}`}>
-                    {formatMoney(revenue - fixedExpenses)}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Прямые — целиком к направлению; остальные — пропорционально выручке.</p>
+                  </CardHeader>
+                  <CardContent>{renderDirectionsTable(col.view)}</CardContent>
+                </Card>
+              ))}
+          </div>
+        </div>
       )}
     </div>
   )
