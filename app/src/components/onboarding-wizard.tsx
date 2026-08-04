@@ -801,6 +801,7 @@ export function OnboardingWizard({ orgName, orgInn }: OnboardingWizardProps) {
                 <SalaryRatesDialog
                   employeeId={salaryDialogFor.id}
                   employeeName={salaryDialogFor.name}
+                  role="instructor"
                   directions={directions.map((d) => ({ id: d.id, name: d.name }))}
                   open
                   onOpenChange={handleSalaryDialogChange}

@@ -137,6 +137,7 @@ export default async function StaffPage() {
                             <SalaryRatesDialog
                               employeeId={emp.id}
                               employeeName={fullName || emp.login}
+                              role={emp.role}
                               directions={directions}
                               monthlySalary={emp.monthlySalary ? Number(emp.monthlySalary) : null}
                               defaultDirectionId={emp.defaultDirectionId}

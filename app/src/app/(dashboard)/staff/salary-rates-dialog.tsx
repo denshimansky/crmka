@@ -78,6 +78,9 @@ interface Props {
   employeeId: string
   employeeName: string
   directions: DirectionOption[]
+  // Роль сотрудника: сдельные ставки нужны только инструкторам; у остальных
+  // ролей в модалке только оклад. Не передан → сдельная часть скрыта.
+  role?: string
   // Текущий оклад сотрудника (Employee.monthlySalary / defaultDirectionId).
   // Оклад редактируется здесь же, чтобы вся настройка ЗП была в одном месте.
   monthlySalary?: number | null
@@ -92,6 +95,7 @@ export function SalaryRatesDialog({
   employeeId,
   employeeName,
   directions,
+  role,
   monthlySalary = null,
   defaultDirectionId = null,
   open: openProp,
@@ -101,6 +105,8 @@ export function SalaryRatesDialog({
 }: Props) {
   const router = useRouter()
   const sym = useCurrencySymbol()
+  // Сдельные ставки — только для инструкторов.
+  const showPieceRates = role === "instructor"
   const [openInternal, setOpenInternal] = useState(false)
   const isControlled = openProp !== undefined
   const open = isControlled ? openProp! : openInternal
@@ -265,7 +271,9 @@ export function SalaryRatesDialog({
         <DialogHeader>
           <DialogTitle>Ставки ЗП — {employeeName}</DialogTitle>
           <DialogDescription>
-            Оклад — фиксированная месячная сумма. Сдельные ставки начисляются по факту посещений: ставка по умолчанию + исключения по направлениям. Сотрудник может иметь и оклад, и сдельные ставки одновременно.
+            {showPieceRates
+              ? "Оклад — фиксированная месячная сумма. Сдельные ставки начисляются по факту посещений: ставка по умолчанию + исключения по направлениям. Инструктор может иметь и оклад, и сдельные ставки одновременно."
+              : "Оклад — фиксированная месячная сумма. Сдельные ставки задаются только у инструкторов."}
           </DialogDescription>
         </DialogHeader>
 
@@ -357,36 +365,42 @@ export function SalaryRatesDialog({
                   </div>
                 </div>
 
-                <div className="pt-1 text-sm font-medium">Сдельные ставки</div>
+                {/* Сдельные ставки — только у инструкторов; у остальных ролей
+                    в модалке только оклад. */}
+                {showPieceRates && (
+                  <>
+                    <div className="pt-1 text-sm font-medium">Сдельные ставки</div>
 
-                <RateBlock
-                  title="Ставка по умолчанию"
-                  rate={defaultRate}
-                  onEdit={openEdit}
-                  onDelete={handleDelete}
-                />
+                    <RateBlock
+                      title="Ставка по умолчанию"
+                      rate={defaultRate}
+                      onEdit={openEdit}
+                      onDelete={handleDelete}
+                    />
 
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">Исключения по направлениям</div>
-                  {exceptionRates.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">Нет исключений.</div>
-                  ) : (
-                    exceptionRates.map((r) => (
-                      <RateBlock
-                        key={r.id}
-                        title={r.direction?.name || "—"}
-                        rate={r}
-                        onEdit={openEdit}
-                        onDelete={handleDelete}
-                      />
-                    ))
-                  )}
-                </div>
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium">Исключения по направлениям</div>
+                      {exceptionRates.length === 0 ? (
+                        <div className="text-xs text-muted-foreground">Нет исключений.</div>
+                      ) : (
+                        exceptionRates.map((r) => (
+                          <RateBlock
+                            key={r.id}
+                            title={r.direction?.name || "—"}
+                            rate={r}
+                            onEdit={openEdit}
+                            onDelete={handleDelete}
+                          />
+                        ))
+                      )}
+                    </div>
 
-                <Button variant="outline" size="sm" onClick={openNew}>
-                  <Plus className="mr-1 size-3" />
-                  {defaultRate ? "Добавить исключение" : "Добавить ставку"}
-                </Button>
+                    <Button variant="outline" size="sm" onClick={openNew}>
+                      <Plus className="mr-1 size-3" />
+                      {defaultRate ? "Добавить исключение" : "Добавить ставку"}
+                    </Button>
+                  </>
+                )}
 
                 <DialogFooter>
                   <Button onClick={() => setOpen(false)}>Готово</Button>
