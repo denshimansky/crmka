@@ -9,10 +9,13 @@ import { isEmailTaken, EMAIL_TAKEN_MSG, uniqueViolationMessage } from "@/lib/emp
 const updateSchema = z.object({
   firstName: z.string().min(1, "Имя обязательно").optional(),
   lastName: z.string().min(1, "Фамилия обязательна").optional(),
-  middleName: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
-  email: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).pipe(z.string().email("Некорректный email").nullable()),
-  phone: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
-  birthDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null),
+  // PATCH — частичное обновление: отсутствующий ключ НЕ трогает поле. `.optional()`
+  // важен, иначе z.any() превращает undefined в null и минимальный PATCH (напр.
+  // только оклад из модалки «Ставки ЗП») затёр бы отчество/почту/телефон/др.
+  middleName: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).optional(),
+  email: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).pipe(z.string().email("Некорректный email").nullable()).optional(),
+  phone: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).optional(),
+  birthDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).optional(),
   role: z.enum(["manager", "admin", "instructor", "readonly"]).optional(),
   password: z.string().min(6, "Пароль минимум 6 символов").optional().or(z.literal("")).transform(v => v || undefined),
   branchIds: z.array(z.string().uuid()).optional(),

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Dialog,
@@ -77,6 +78,10 @@ interface Props {
   employeeId: string
   employeeName: string
   directions: DirectionOption[]
+  // Текущий оклад сотрудника (Employee.monthlySalary / defaultDirectionId).
+  // Оклад редактируется здесь же, чтобы вся настройка ЗП была в одном месте.
+  monthlySalary?: number | null
+  defaultDirectionId?: string | null
   open?: boolean
   onOpenChange?: (open: boolean) => void
   hideTrigger?: boolean
@@ -87,12 +92,15 @@ export function SalaryRatesDialog({
   employeeId,
   employeeName,
   directions,
+  monthlySalary = null,
+  defaultDirectionId = null,
   open: openProp,
   onOpenChange,
   hideTrigger,
   refreshOnSuccess = true,
 }: Props) {
   const router = useRouter()
+  const sym = useCurrencySymbol()
   const [openInternal, setOpenInternal] = useState(false)
   const isControlled = openProp !== undefined
   const open = isControlled ? openProp! : openInternal
@@ -108,6 +116,53 @@ export function SalaryRatesDialog({
   const [editDirectionId, setEditDirectionId] = useState<string>("")
   const [form, setForm] = useState<RateFormValue>(emptyRate())
   const [saving, setSaving] = useState(false)
+
+  // --- Оклад (фиксированная месячная ставка, хранится на Employee) ---
+  const [oklad, setOklad] = useState(monthlySalary != null ? String(monthlySalary) : "")
+  const [okladDir, setOkladDir] = useState(defaultDirectionId ?? "")
+  const [okladSaving, setOkladSaving] = useState(false)
+  const [okladSaved, setOkladSaved] = useState(false)
+  const [okladError, setOkladError] = useState<string | null>(null)
+
+  // Пересинхронизируем поля оклада с актуальными пропсами при открытии диалога.
+  useEffect(() => {
+    if (!open) return
+    setOklad(monthlySalary != null ? String(monthlySalary) : "")
+    setOkladDir(defaultDirectionId ?? "")
+    setOkladSaved(false)
+    setOkladError(null)
+  }, [open, monthlySalary, defaultDirectionId])
+
+  const okladDirty =
+    (oklad.trim() === "" ? null : Number(oklad)) !== (monthlySalary ?? null) ||
+    (okladDir || null) !== (defaultDirectionId ?? null)
+
+  async function saveOklad() {
+    setOkladSaving(true)
+    setOkladError(null)
+    setOkladSaved(false)
+    try {
+      const res = await fetch(`/api/employees/${employeeId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          monthlySalary: oklad.trim() === "" ? null : Number(oklad),
+          defaultDirectionId: okladDir || null,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setOkladError(data.error || "Не удалось сохранить оклад")
+        return
+      }
+      setOkladSaved(true)
+      if (refreshOnSuccess) router.refresh()
+    } catch {
+      setOkladError("Ошибка сети")
+    } finally {
+      setOkladSaving(false)
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -210,7 +265,7 @@ export function SalaryRatesDialog({
         <DialogHeader>
           <DialogTitle>Ставки ЗП — {employeeName}</DialogTitle>
           <DialogDescription>
-            Ставка по умолчанию применяется ко всем направлениям. Исключения — отдельные ставки по конкретным направлениям.
+            Оклад — фиксированная месячная сумма. Сдельные ставки начисляются по факту посещений: ставка по умолчанию + исключения по направлениям. Сотрудник может иметь и оклад, и сдельные ставки одновременно.
           </DialogDescription>
         </DialogHeader>
 
@@ -253,6 +308,57 @@ export function SalaryRatesDialog({
               <div className="text-sm text-muted-foreground">Загрузка...</div>
             ) : (
               <>
+                {/* Оклад — фиксированная месячная ставка (для админов и других
+                    ролей, а также для педагогов, совмещающих оклад со сделкой). */}
+                <div className="space-y-2 rounded-md border p-3">
+                  <div className="text-sm font-medium">Оклад</div>
+                  <p className="text-xs text-muted-foreground">
+                    Фиксированный месячный оклад. Подтягивается в «Документ выплаты ЗП (оклады)»
+                    по кнопке «Заполнить». Оставьте пустым, если оклада нет.
+                  </p>
+                  {okladError && (
+                    <div className="rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">{okladError}</div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Месячный оклад, {sym}</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={oklad}
+                        onChange={(e) => { setOklad(e.target.value); setOkladSaved(false) }}
+                        placeholder="Нет оклада"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Основное направление</Label>
+                      <select
+                        value={okladDir}
+                        onChange={(e) => { setOkladDir(e.target.value); setOkladSaved(false) }}
+                        className="h-9 w-full rounded border bg-background px-3 text-sm"
+                      >
+                        <option value="">Не выбрано</option>
+                        {directions.map((d) => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Основное направление — для разнесения оклада по направлениям в ОПИУ.
+                    Не выбрано — оклад распределяется по всем направлениям пропорционально выручке.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={saveOklad} disabled={okladSaving || !okladDirty}>
+                      {okladSaving ? "Сохранение..." : "Сохранить оклад"}
+                    </Button>
+                    {okladSaved && <span className="text-xs text-green-600">Сохранено</span>}
+                  </div>
+                </div>
+
+                <div className="pt-1 text-sm font-medium">Сдельные ставки</div>
+
                 <RateBlock
                   title="Ставка по умолчанию"
                   rate={defaultRate}

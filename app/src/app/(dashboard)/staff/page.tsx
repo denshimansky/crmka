@@ -132,22 +132,21 @@ export default async function StaffPage() {
                       {canEdit && (
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            {emp.role === "instructor" && (
-                              <SalaryRatesDialog
-                                employeeId={emp.id}
-                                employeeName={fullName || emp.login}
-                                directions={directions}
-                              />
-                            )}
+                            {/* Ставки ЗП (оклад + сдельные ставки) — для всех
+                                сотрудников: окладник, сдельщик или совместитель. */}
+                            <SalaryRatesDialog
+                              employeeId={emp.id}
+                              employeeName={fullName || emp.login}
+                              directions={directions}
+                              monthlySalary={emp.monthlySalary ? Number(emp.monthlySalary) : null}
+                              defaultDirectionId={emp.defaultDirectionId}
+                            />
                             <EditEmployeeDialog
                               employee={{
                                 ...emp,
                                 birthDate: emp.birthDate?.toISOString() || null,
-                                monthlySalary: emp.monthlySalary ? Number(emp.monthlySalary) : null,
-                                defaultDirectionId: emp.defaultDirectionId,
                               }}
                               branches={branches}
-                              directions={directions}
                             />
                           </div>
                         </TableCell>

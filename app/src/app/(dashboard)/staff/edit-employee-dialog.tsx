@@ -16,16 +16,10 @@ import {
 } from "@/components/ui/select"
 import { Pencil, Archive, ArchiveRestore } from "lucide-react"
 import { useRoleNames } from "@/components/role-names-provider"
-import { useCurrencySymbol } from "@/components/currency-provider"
 
 const ASSIGNABLE_ROLES = ["manager", "admin", "instructor", "readonly"] as const
 
 interface Branch {
-  id: string
-  name: string
-}
-
-interface Direction {
   id: string
   name: string
 }
@@ -41,8 +35,6 @@ interface Employee {
   birthDate: string | null
   role: string
   isActive: boolean
-  monthlySalary: number | null
-  defaultDirectionId: string | null
   employeeBranches: { branch: Branch }[]
 }
 
@@ -52,11 +44,9 @@ interface Employee {
 export function EditEmployeeDialog({
   employee,
   branches,
-  directions,
 }: {
   employee: Employee
   branches: Branch[]
-  directions: Direction[]
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -65,7 +55,6 @@ export function EditEmployeeDialog({
   const [error, setError] = useState<string | null>(null)
 
   const roleNames = useRoleNames()
-  const sym = useCurrencySymbol()
   const roleOptions = ASSIGNABLE_ROLES.map((value) => ({ value, label: roleNames[value] }))
 
   const [lastName, setLastName] = useState(employee.lastName)
@@ -79,10 +68,6 @@ export function EditEmployeeDialog({
   const [selectedBranches, setSelectedBranches] = useState<string[]>(
     employee.employeeBranches.map((eb) => eb.branch.id)
   )
-  const [monthlySalary, setMonthlySalary] = useState(
-    employee.monthlySalary !== null ? String(employee.monthlySalary) : ""
-  )
-  const [defaultDirectionId, setDefaultDirectionId] = useState(employee.defaultDirectionId ?? "")
 
   function toggleBranch(branchId: string) {
     setSelectedBranches((prev) =>
@@ -123,8 +108,6 @@ export function EditEmployeeDialog({
           role: employee.role === "owner" ? undefined : role,
           password: password || undefined,
           branchIds: selectedBranches,
-          monthlySalary: monthlySalary.trim() === "" ? null : Number(monthlySalary),
-          defaultDirectionId: defaultDirectionId || null,
         }),
       })
 
@@ -261,50 +244,10 @@ export function EditEmployeeDialog({
               </div>
             )}
 
-            <fieldset className="space-y-3 rounded-md border p-3">
-              <legend className="px-1 text-sm font-medium">Оклад (для не-преподавателей)</legend>
-              <p className="text-xs text-muted-foreground">
-                Для администраторов и других ролей с фиксированной ставкой. На странице
-                «Документ выплат» эта сумма подтянется автоматически по кнопке «Заполнить».
-                Преподаватели начисляются по факту посещений и оклад здесь обычно не нужен.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label>Месячный оклад, {sym}</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={monthlySalary}
-                    onChange={(e) => setMonthlySalary(e.target.value)}
-                    placeholder="Нет оклада"
-                  />
-                </div>
-                <div>
-                  <Label>Основное направление</Label>
-                  <Select value={defaultDirectionId || "__none__"} onValueChange={(v) => {
-                    if (v === null || v === "__none__") setDefaultDirectionId("")
-                    else setDefaultDirectionId(v)
-                  }}>
-                    <SelectTrigger className="w-full">
-                      {defaultDirectionId
-                        ? directions.find(d => d.id === defaultDirectionId)?.name ?? "Не выбрано"
-                        : "Не выбрано"}
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Не выбрано</SelectItem>
-                      {directions.map(d => (
-                        <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Основное направление используется при разнесении оклада по направлениям в ОПИУ.
-                Если не выбрано — оклад распределяется по всем направлениям пропорционально выручке.
-              </p>
-            </fieldset>
+            <p className="text-xs text-muted-foreground">
+              Оклад и сдельные ставки настраиваются отдельной кнопкой «Ставки ЗП»
+              (кошелёк) в списке сотрудников.
+            </p>
 
             <div>
               <Label>Новый пароль (оставьте пустым, чтобы не менять)</Label>
