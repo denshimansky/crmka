@@ -162,13 +162,14 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
                 <TableHead>Направление</TableHead>
                 <TableHead className="text-right">Начислено</TableHead>
                 <TableHead className="text-right">до 15-го (аванс)</TableHead>
+                <TableHead className="text-right">Зарплата</TableHead>
                 <TableHead className="text-right">Выплачено</TableHead>
                 <TableHead className="text-right">Остаток</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.byDirection.length === 0 && data.adjustments.net === 0 && (
-                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Нет начислений за период</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Нет начислений за период</TableCell></TableRow>
               )}
               {data.byDirection.map((d) => {
                 const key = d.directionId ?? "__no_direction__"
@@ -186,12 +187,13 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
                       </TableCell>
                       <TableCell className="text-right">{fmt(d.accrued)}</TableCell>
                       <TableCell className="text-right text-muted-foreground">{fmt(d.accruedFirstHalf)}</TableCell>
+                      <TableCell className="text-right font-medium">{fmt(d.accrued - d.accruedFirstHalf)}</TableCell>
                       <TableCell className="text-right text-purple-600">{d.paid > 0 ? fmt(d.paid) : "—"}</TableCell>
                       <TableCell className={`text-right font-medium ${d.remaining > 0 ? "text-orange-600" : ""}`}>{fmt(d.remaining)}</TableCell>
                     </TableRow>
                     {isOpen && dirLessons.map((l) => (
                       <TableRow key={l.lessonId} className="bg-muted/30 text-sm">
-                        <TableCell className="pl-9 text-muted-foreground" colSpan={4}>
+                        <TableCell className="pl-9 text-muted-foreground" colSpan={5}>
                           {new Date(l.date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", timeZone: "UTC" })} · {l.groupName} · {l.typeName} · {l.studentsCharged} уч.
                         </TableCell>
                         <TableCell className="text-right">{fmt(l.amount)}</TableCell>
@@ -205,6 +207,7 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
                   <TableCell className="font-medium">Премии − штрафы <span className="text-xs text-muted-foreground">(без направления)</span></TableCell>
                   <TableCell className="text-right">{fmt(data.adjustments.net)}</TableCell>
                   <TableCell className="text-right text-muted-foreground">—</TableCell>
+                  <TableCell className="text-right font-medium">{fmt(data.adjustments.net)}</TableCell>
                   <TableCell className="text-right text-purple-600">{data.adjustments.paidNoDirection > 0 ? fmt(data.adjustments.paidNoDirection) : "—"}</TableCell>
                   <TableCell className={`text-right font-medium ${data.adjustments.remaining > 0 ? "text-orange-600" : ""}`}>{fmt(data.adjustments.remaining)}</TableCell>
                 </TableRow>
@@ -213,6 +216,7 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
                 <TableCell>Итого</TableCell>
                 <TableCell className="text-right">{fmt(data.totals.accrued)}</TableCell>
                 <TableCell className="text-right text-muted-foreground">{fmt(data.totals.accruedFirstHalf)}</TableCell>
+                <TableCell className="text-right">{fmt(data.totals.accrued - data.totals.accruedFirstHalf)}</TableCell>
                 <TableCell className="text-right text-purple-600">{data.totals.paid > 0 ? fmt(data.totals.paid) : "—"}</TableCell>
                 <TableCell className="text-right">{fmt(data.totals.remaining)}</TableCell>
               </TableRow>
