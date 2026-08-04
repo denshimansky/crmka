@@ -396,6 +396,7 @@ export async function ClientCardContent({
             <span title="Скидка">
               {discountLabel({
                 autoDiscountDisabled: client.autoDiscountDisabled,
+                perSubDiscountMode: client.perSubDiscountMode,
                 templateId: client.discountTemplateId,
                 template: client.discountTemplate
                   ? {
@@ -691,6 +692,7 @@ export async function ClientCardContent({
                     comment: client.comment,
                     discountTemplateId: client.discountTemplateId,
                     autoDiscountDisabled: client.autoDiscountDisabled,
+                    perSubDiscountMode: client.perSubDiscountMode,
                     discountTemplate: client.discountTemplate
                       ? {
                           name: client.discountTemplate.name,
