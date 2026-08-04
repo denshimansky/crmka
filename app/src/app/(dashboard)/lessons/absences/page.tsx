@@ -2,7 +2,7 @@ import { PageHelp } from "@/components/page-help"
 import { getSession } from "@/lib/session"
 import { branchScopeFromSession, scopeBranch, scopeRoom, scopeEmployee } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
-import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
+import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate, buildCoverageResolver } from "@/lib/subscriptions/roster-filter"
 import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeft, AlertTriangle } from "lucide-react"
@@ -354,6 +354,19 @@ export default async function LessonsAbsencesPage({
     isPending: boolean
   }
 
+  // Гейт покрытия (правило 14.07, как в карточке занятия и сетке): непокрытого
+  // зачисленного ребёнка НЕ показываем «неотмеченным» — иначе его можно отметить «Был»
+  // и уйдёт разовое списание с баланса. Уже отмеченные (в т.ч. pending-разовые) — видны.
+  let covFrom = dateFrom
+  let covTo = effectiveTo
+  for (const l of pastLessons) {
+    const d = l.rescheduledFromDate ?? l.date
+    if (d < covFrom) covFrom = d
+    if (d > covTo) covTo = d
+  }
+  const coverageDirectionIds = Array.from(new Set(pastLessons.map((l) => l.group.directionId)))
+  const coverage = await buildCoverageResolver(db, tenantId, coverageDirectionIds, covFrom, covTo)
+
   const unmarkedEntries: UnmarkedEntry[] = []
   for (const lesson of pastLessons) {
     const groupEnrollments = enrollmentsByGroup.get(lesson.groupId) || []
@@ -361,12 +374,15 @@ export default async function LessonsAbsencesPage({
     for (const a of lesson.attendances) {
       attendedMap.set(`${a.clientId}|${a.wardId || ""}`, { isPending: a.isPending })
     }
+    const lessonRosterDate = effectiveRosterDate(lesson)
     for (const e of groupEnrollments) {
       // Граница состава — по исходной дате при переносе (см. effectiveRosterDate).
-      if (!isEnrolledOnLesson(e, effectiveRosterDate(lesson))) continue
+      if (!isEnrolledOnLesson(e, lessonRosterDate)) continue
       const key = `${e.clientId}|${e.wardId || ""}`
       const att = attendedMap.get(key)
       if (att && !att.isPending) continue // отметка есть и не заглушка
+      // Плановую (без реальной отметки) строку показываем только при покрытии.
+      if (!att && !coverage.isCoveredOn(e.clientId, e.wardId, lesson.group.directionId, lessonRosterDate)) continue
       unmarkedEntries.push({
         lessonDate: lesson.date,
         lessonId: lesson.id,

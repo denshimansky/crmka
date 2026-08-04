@@ -242,3 +242,59 @@ export async function coverageKeysOnDate(
   }
   return keys
 }
+
+/**
+ * Резолвер покрытия для МНОГО занятий/дат сразу (сетка посещений, реестр
+ * «Неотмеченные», отчёты план/факт). Батч-загружает покрывающие абонементы по всем
+ * направлениям диапазона [from..to] и остаток пакетов ОДНИМ groupBy, затем даёт
+ * синхронную проверку isCoveredOn(clientId, wardId, directionId, date).
+ *
+ * Матч по НАПРАВЛЕНИЮ (не по группе): перевод между группами одного направления не
+ * теряет покрытие (см. коммент выше про coverageSubscriptionsWhere). Использует ТОТ ЖЕ
+ * предикат subscriptionCoversDate, что и карточка занятия, — чтобы все дата-зависимые
+ * выборки состава были консистентны и непокрытый ребёнок не показывался/не отмечался.
+ *
+ * excludeLessonId НЕ применяется: резолвер обслуживает плановые (без отметки) ячейки,
+ * где сам урок не в счёте израсходованного; уже отмеченные показываются отдельно.
+ */
+export interface CoverageResolver {
+  isCoveredOn(clientId: string, wardId: string | null, directionId: string, date: Date): boolean
+}
+
+export async function buildCoverageResolver(
+  db: DB,
+  tenantId: string,
+  directionIds: string[],
+  from: Date,
+  to: Date,
+): Promise<CoverageResolver> {
+  if (directionIds.length === 0) return { isCoveredOn: () => false }
+
+  const subs = await db.subscription.findMany({
+    where: coverageSubscriptionsWhere({ tenantId, directionIds, from, to }),
+    select: { ...coverageSubscriptionSelect, directionId: true },
+  })
+  const consumed = await consumedPackageLessonsMap(
+    db,
+    tenantId,
+    subs.filter((s) => s.type === "package").map((s) => s.id),
+  )
+  // Ключ: clientId:wardId:directionId → покрывающие абонементы ребёнка по направлению.
+  const byKey = new Map<string, typeof subs>()
+  for (const s of subs) {
+    const k = `${coverageKey(s.clientId, s.wardId)}:${s.directionId}`
+    const arr = byKey.get(k)
+    if (arr) arr.push(s)
+    else byKey.set(k, [s])
+  }
+
+  return {
+    isCoveredOn(clientId, wardId, directionId, date) {
+      const arr = byKey.get(`${coverageKey(clientId, wardId)}:${directionId}`)
+      if (!arr) return false
+      return arr.some((s) =>
+        subscriptionCoversDate(s, date, s.type === "package" ? consumed.get(s.id) ?? 0 : 0),
+      )
+    },
+  }
+}

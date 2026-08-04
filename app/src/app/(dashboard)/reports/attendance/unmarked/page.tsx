@@ -4,7 +4,7 @@ import { getMonthFromParams } from "@/lib/month-params"
 import { getSession } from "@/lib/session"
 import { getRoleNames } from "@/lib/role-names"
 import { db } from "@/lib/db"
-import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
+import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate, buildCoverageResolver } from "@/lib/subscriptions/roster-filter"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -81,6 +81,7 @@ export default async function UnmarkedReportPage({
         select: {
           id: true,
           name: true,
+          directionId: true,
           branch: { select: { name: true } },
           direction: { select: { name: true } },
         },
@@ -130,6 +131,23 @@ export default async function UnmarkedReportPage({
     enrollmentsByGroup.set(e.groupId, list)
   }
 
+  // Гейт покрытия (правило 14.07): непокрытый зачисленный ребёнок не «неотмеченный» —
+  // в гейтованной карточке занятия его нет, отчёт не должен его считать пропуском.
+  let covFrom = monthStart
+  let covTo: Date = monthEnd < now ? monthEnd : now
+  for (const l of lessons) {
+    const d = l.rescheduledFromDate ?? l.date
+    if (d < covFrom) covFrom = d
+    if (d > covTo) covTo = d
+  }
+  const coverage = await buildCoverageResolver(
+    db,
+    tenantId,
+    [...new Set(lessons.map((l) => l.group.directionId))],
+    covFrom,
+    covTo,
+  )
+
   // Имена подопечных для pending-разовых (у Attendance нет relation на Ward)
   const pendingWardIds = [
     ...new Set(
@@ -160,6 +178,7 @@ export default async function UnmarkedReportPage({
 
     const relevantEnrollments = groupEnrollments.filter((e) => {
       if (!isEnrolledOnLesson(e, rosterDate)) return false
+      if (!coverage.isCoveredOn(e.clientId, e.wardId, lesson.group.directionId, rosterDate)) return false
       if (e.selectedDays && Array.isArray(e.selectedDays)) {
         return (e.selectedDays as number[]).includes(dayOfWeek)
       }

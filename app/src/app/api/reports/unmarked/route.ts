@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate } from "@/lib/subscriptions/roster-filter"
+import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate, buildCoverageResolver } from "@/lib/subscriptions/roster-filter"
 import { getReportContext } from "@/lib/report-helpers"
 
 /** ATT-09. Неотмеченные дети — занятия с пропущенной отметкой посещений */
@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
           id: true,
           name: true,
           branchId: true,
+          directionId: true,
           branch: { select: { name: true } },
           direction: { select: { name: true } },
         },
@@ -89,6 +90,24 @@ export async function GET(req: NextRequest) {
     enrollmentsByGroup.set(e.groupId, list)
   }
 
+  // Гейт покрытия (правило 14.07): непокрытый зачисленный ребёнок НЕ считается
+  // «неотмеченным» — его в составе занятия (карточке) нет. Иначе отчёт завышал бы
+  // «неотмеченных» и расходился с гейтованной карточкой занятия.
+  let covFrom = dateFrom
+  let covTo: Date = dateTo < now ? dateTo : now
+  for (const l of lessons) {
+    const d = l.rescheduledFromDate ?? l.date
+    if (d < covFrom) covFrom = d
+    if (d > covTo) covTo = d
+  }
+  const coverage = await buildCoverageResolver(
+    db,
+    tenantId,
+    [...new Set(lessons.map((l) => l.group.directionId))],
+    covFrom,
+    covTo,
+  )
+
   interface UnmarkedRow {
     lessonId: string
     lessonDate: string
@@ -123,6 +142,7 @@ export async function GET(req: NextRequest) {
     // - if selectedDays is set, lesson day must match
     const relevantEnrollments = groupEnrollments.filter((e) => {
       if (!isEnrolledOnLesson(e, rosterDate)) return false
+      if (!coverage.isCoveredOn(e.clientId, e.wardId, lesson.group.directionId, rosterDate)) return false
       if (e.selectedDays && Array.isArray(e.selectedDays)) {
         return (e.selectedDays as number[]).includes(dayOfWeek)
       }
