@@ -106,6 +106,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
           deletedAt: null,
           subscriptionId: null,
           incomeCategoryId: { not: null },
+          notInPnl: false, // «Не учитывать в ОПИУ» (баг #105)
           type: { in: ["incoming", "transfer_in"] },
           date: { gte: monthStart, lte: monthEnd },
         },

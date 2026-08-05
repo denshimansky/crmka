@@ -40,6 +40,8 @@ const updateSchema = z.object({
     .optional(),
   date: z.string().min(1).optional(),
   accountId: z.string().uuid().optional(),
+  // «Не учитывать в ОПИУ» — применяется только к прочему доходу (баг #105).
+  notInPnl: z.boolean().optional(),
   comment: z.any().transform(v =>
     v === undefined
       ? undefined
@@ -193,6 +195,11 @@ export async function PATCH(
         ...(data.date !== undefined && { date: newDate }),
         ...(data.accountId !== undefined && { accountId: data.accountId }),
         ...(data.comment !== undefined && { comment: data.comment }),
+        // Флаг ОПИУ применяем только к прочему доходу (у оплаты клиента он
+        // бессмыслен — в ОПИУ она и так не попадает).
+        ...(data.notInPnl !== undefined && existing.incomeCategoryId != null && {
+          notInPnl: data.notInPnl,
+        }),
       },
       include: {
         client: { select: { id: true, firstName: true, lastName: true } },
@@ -236,6 +243,9 @@ export async function PATCH(
       }),
       ...(data.comment !== undefined && {
         comment: { old: existing.comment, new: data.comment },
+      }),
+      ...(data.notInPnl !== undefined && existing.incomeCategoryId != null && {
+        notInPnl: { old: existing.notInPnl, new: data.notInPnl },
       }),
     },
     req,
