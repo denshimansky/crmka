@@ -74,6 +74,21 @@ export function PayByDirectionDialog({
         amount: String(Math.round(preset * 100) / 100),
       })
     }
+    // #2: в режиме «Выплатить остатки» ограничиваем суммарный пресет общим остатком
+    // сотрудника (как в пакетном документе new/page.tsx). Иначе депремирование (net<0)
+    // или переплата по направлению не вычитаются построчным max(0,·), и дефолтная
+    // «Итого к выплате» завышается — молчаливая переплата. Каскад: направления
+    // (по убыванию начисления), затем «Премии − штрафы».
+    if (mode === "remainder") {
+      let budget = Math.max(0, data.totals.remaining)
+      for (const r of dirRows) {
+        const give = Math.round(Math.min(r.preset, Math.max(0, budget)) * 100) / 100
+        r.preset = give
+        r.amount = String(give)
+        r.checked = give > 0
+        budget = Math.round((budget - give) * 100) / 100
+      }
+    }
     return dirRows
   }
 

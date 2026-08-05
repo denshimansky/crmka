@@ -7,6 +7,8 @@
 // строку «Премии−штрафы» (paidNoDirection). Окладник добавляется строкой по
 // defaultDirection: accrued = оклад, accruedFirstHalf = половина оклада.
 
+import { allocateSalaryPayments, NO_DIR } from "./allocate-payments"
+
 export interface AttendanceInput {
   lessonId: string
   date: Date
@@ -25,6 +27,9 @@ export interface AdjustmentInput {
 export interface PaymentItemInput {
   directionId: string | null
   amount: number
+  // Имя направления выплаты — нужно, чтобы показать осиротевшие выплаты (по
+  // направлению без начислений в периоде) отдельной строкой с названием.
+  directionName?: string | null
 }
 
 export interface SalariedInput {
@@ -75,7 +80,6 @@ export interface InstructorSalaryDetail {
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
-const NO_DIR = "__no_direction__"
 
 export function buildInstructorSalaryDetail(params: {
   attendances: AttendanceInput[]
@@ -117,19 +121,28 @@ export function buildInstructorSalaryDetail(params: {
     else paidByDir.set(it.directionId, (paidByDir.get(it.directionId) || 0) + it.amount)
   }
 
-  // Выплаты без направления (directionId=null) относим СНАЧАЛА к null-направленческой
-  // строке начислений — это оклад окладника без defaultDirection (или занятия без
-  // направления). Остаток сверх её начислений уходит в блок «Премии−штрафы»
-  // (adjustments.paidNoDirection). Раньше null-строка всегда была paid=0, из-за чего
-  // аванс окладника уходил в невидимый (при net=0) блок adjustments: «Остаток» строки
-  // и пресет модалки «Выплатить остатки/аванс» игнорировали уже выплаченное (баг).
-  const nullAccrued = byDir.get(NO_DIR)?.accrued ?? 0
-  const okladNullPaid = Math.min(paidNoDirection, nullAccrued)
-  const adjPaidNoDirection = paidNoDirection - okladNullPaid
+  // Аллокация выплат по строкам начислений (общий helper — та же логика в
+  // api/salary-payments/accruals): прямые по направлению; выплаты без направления
+  // гасят строку оклада (по defaultDirectionId, в т.ч. null) и прочие null-начисления;
+  // излишек → «Премии−штрафы»; осиротевшие направленческие выплаты (нет начисления
+  // в периоде) выносятся отдельными строками, чтобы сходился остаток.
+  const alloc = allocateSalaryPayments({
+    accruals: Array.from(byDir.values()).map((a) => ({ directionId: a.directionId, accrued: a.accrued })),
+    paidByDir,
+    paidNoDirection,
+    okladDirectionId: salaried && salaried.monthlySalary > 0 ? salaried.defaultDirectionId : undefined,
+  })
+  const adjPaidNoDirection = alloc.adjPaidNoDirection
+
+  // Имена направлений выплат (для осиротевших строк) — из paymentItems.
+  const dirNameById = new Map<string, string>()
+  for (const it of paymentItems) {
+    if (it.directionId && it.directionName) dirNameById.set(it.directionId, it.directionName)
+  }
 
   const byDirection: DirectionDetail[] = Array.from(byDir.values())
-    .map((a) => {
-      const paid = a.directionId == null ? okladNullPaid : (paidByDir.get(a.directionId) || 0)
+    .map((a): DirectionDetail => {
+      const paid = alloc.paidByRow.get(a.directionId ?? NO_DIR) || 0
       return {
         directionId: a.directionId,
         directionName: a.directionName,
@@ -140,6 +153,19 @@ export function buildInstructorSalaryDetail(params: {
         lessonCount: a.lessons.size,
       }
     })
+    // #3: осиротевшие направленческие выплаты (нет начисления в периоде) —
+    // отдельной строкой (accrued=0, remaining=−paid), чтобы Σ остатков сходилась.
+    .concat(
+      alloc.orphans.map((o): DirectionDetail => ({
+        directionId: o.directionId,
+        directionName: dirNameById.get(o.directionId) ?? "Направление вне периода",
+        accrued: 0,
+        accruedFirstHalf: 0,
+        paid: r2(o.paid),
+        remaining: r2(-o.paid),
+        lessonCount: 0,
+      })),
+    )
     .sort((x, y) => y.accrued - x.accrued)
 
   // --- Корректировки ---
@@ -185,7 +211,7 @@ export function buildInstructorSalaryDetail(params: {
       bonuses: r2(bonuses),
       penalties: r2(penalties),
       net: r2(net),
-      // Только выплаты без направления СВЕРХ оклада null-строки — то, что относится
+      // Выплаты без направления сверх оклада/null-начислений — то, что относится
       // к премиям (оклад уже поглотил свою часть в byDirection выше).
       paidNoDirection: r2(adjPaidNoDirection),
       remaining: r2(net - adjPaidNoDirection),

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requirePermission } from "@/lib/api-permissions"
+import { allocateSalaryPayments, NO_DIR } from "@/lib/salary/allocate-payments"
 
 /**
  * GET /api/salary-payments/accruals?periodYear&periodMonth&upTo&kind
@@ -28,18 +29,16 @@ import { requirePermission } from "@/lib/api-permissions"
  *   3. Корректировки → суммируются как `bonus` / `penalty` без направления.
  *   4. `alreadyPaid` → `SalaryPaymentItem.amount` за тот же период.
  *
- * Неттинг для повторных выплат за период (аванс → остаток): по каждому
- * направлению отдаётся `paid` (строки выплат этого направления) и
- * `remaining = amount − paid`. Выплаты без направления сначала гасят
- * null-направленческое начисление (оклад окладника без defaultDirection), а их
- * остаток идёт в премии−штрафы (`adjPaid`, `adjRemaining = bonuses − penalties −
- * adjPaid`) — та же семантика, что у карточки инструктора
- * (lib/salary/instructor-detail.ts), чтобы разбивка остатка в двух местах CRM
- * совпадала (иначе строка оклада «Без направления» игнорировала бы аванс).
- * Отрицательные
- * компоненты (штраф больше премии, переплата по направлению, выплата «мимо»
- * направления) построчным неттингом не ловятся — поэтому клиент обязан
- * ограничивать сумму автозаполнения общим остатком сотрудника `remaining`.
+ * Неттинг для повторных выплат за период (аванс → остаток) — общим helper
+ * `allocateSalaryPayments` (та же логика, что у карточки инструктора,
+ * lib/salary/instructor-detail.ts, чтобы разбивка остатка в двух местах CRM
+ * совпадала): прямые выплаты по направлению гасят своё начисление; выплаты без
+ * направления гасят строку оклада (по defaultDirectionId, в т.ч. без направления)
+ * и прочие null-начисления, излишек → премии−штрафы (`adjPaid`, `adjRemaining =
+ * bonuses − penalties − adjPaid`); выплата по направлению без начислений в периоде
+ * («мимо») выносится отдельной строкой (amount=0, remaining=−paid). Отрицательный
+ * `adjRemaining` (штраф больше премии) построчно не ловится — поэтому клиент
+ * обязан ограничивать сумму автозаполнения общим остатком сотрудника `remaining`.
  */
 export async function GET(req: NextRequest) {
   const guard = await requirePermission("finance.salary")
@@ -107,7 +106,7 @@ export async function GET(req: NextRequest) {
         tenantId,
         salaryPayment: { periodYear, periodMonth },
       },
-      select: { employeeId: true, amount: true, directionId: true },
+      select: { employeeId: true, amount: true, directionId: true, direction: { select: { name: true } } },
     }),
   ])
 
@@ -186,11 +185,19 @@ export async function GET(req: NextRequest) {
   }
 
   const paidByEmp = new Map<string, number>()
-  const paidByEmpDir = new Map<string, number>() // `${employeeId}:${directionId ?? "null"}`
+  const paidByDirByEmp = new Map<string, Map<string, number>>() // empId → (dirId → сумма), НЕнулевые
+  const paidNoDirByEmp = new Map<string, number>()               // empId → выплаты без направления
+  const dirNameById = new Map<string, string>()                  // directionId → имя (для осиротевших)
   for (const it of paymentItems) {
     paidByEmp.set(it.employeeId, (paidByEmp.get(it.employeeId) || 0) + Number(it.amount))
-    const key = `${it.employeeId}:${it.directionId ?? "null"}`
-    paidByEmpDir.set(key, (paidByEmpDir.get(key) || 0) + Number(it.amount))
+    if (it.directionId == null) {
+      paidNoDirByEmp.set(it.employeeId, (paidNoDirByEmp.get(it.employeeId) || 0) + Number(it.amount))
+    } else {
+      let m = paidByDirByEmp.get(it.employeeId)
+      if (!m) { m = new Map(); paidByDirByEmp.set(it.employeeId, m) }
+      m.set(it.directionId, (m.get(it.directionId) || 0) + Number(it.amount))
+      if (it.direction?.name) dirNameById.set(it.directionId, it.direction.name)
+    }
   }
 
   // === Сборка результата ===
@@ -206,37 +213,42 @@ export async function GET(req: NextRequest) {
       const alreadyPaid = paidByEmp.get(emp.id) || 0
       const remaining = accrued + bonuses - penalties - alreadyPaid
 
-      // Выплаты без направления (directionId=null) относим СНАЧАЛА к null-направленческому
-      // начислению (оклад окладника без defaultDirection), остаток — в премии−штрафы.
-      // Та же логика, что в buildInstructorSalaryDetail (карточка инструктора), чтобы
-      // разбивка остатка в двух местах CRM совпадала: иначе строка «Без направления»
-      // показывала бы весь оклад/остаток, игнорируя уже выплаченный аванс.
-      const adjPaidRaw = paidByEmpDir.get(`${emp.id}:null`) || 0
-      const nullAccrued = accruedRows
-        .filter((d) => d.directionId === null)
-        .reduce((s, d) => s + d.amount, 0)
-      const okladNullPaid = Math.min(adjPaidRaw, nullAccrued)
-      const adjPaid = adjPaidRaw - okladNullPaid
+      // Аллокация выплат по строкам (общий helper — та же логика, что в
+      // buildInstructorSalaryDetail): выплаты без направления гасят строку оклада
+      // (по defaultDirectionId, в т.ч. null) и прочие null-начисления, излишек —
+      // в премии−штрафы; осиротевшие направленческие выплаты — отдельными строками.
+      // okladDirectionId только когда оклад реально в выборке (kind != piece).
+      const isSalaried = emp.monthlySalary != null && Number(emp.monthlySalary) > 0
+      const alloc = allocateSalaryPayments({
+        accruals: accruedRows.map((d) => ({ directionId: d.directionId, accrued: d.amount })),
+        paidByDir: paidByDirByEmp.get(emp.id) || new Map<string, number>(),
+        paidNoDirection: paidNoDirByEmp.get(emp.id) || 0,
+        okladDirectionId: isSalaried && kind !== "piece" ? (emp.defaultDirectionId ?? null) : undefined,
+      })
+      const adjPaid = alloc.adjPaidNoDirection
       const adjNet = bonuses - penalties
 
-      // Разносим okladNullPaid по null-строкам начислений (обычно одна — оклад).
-      let nullBudget = okladNullPaid
-      const byDirection = accruedRows.map((d) => {
-        let paid: number
-        if (d.directionId === null) {
-          paid = Math.min(nullBudget, d.amount)
-          nullBudget = r2(nullBudget - paid)
-        } else {
-          paid = paidByEmpDir.get(`${emp.id}:${d.directionId}`) || 0
-        }
-        return {
-          directionId: d.directionId,
-          directionName: d.directionName,
-          amount: r2(d.amount),
-          paid: r2(paid),
-          remaining: r2(d.amount - paid),
-        }
-      })
+      const byDirection = accruedRows
+        .map((d) => {
+          const paid = alloc.paidByRow.get(d.directionId ?? NO_DIR) || 0
+          return {
+            directionId: d.directionId,
+            directionName: d.directionName,
+            amount: r2(d.amount),
+            paid: r2(paid),
+            remaining: r2(d.amount - paid),
+          }
+        })
+        // Осиротевшие направленческие выплаты (нет начисления в периоде) — отдельно.
+        .concat(
+          alloc.orphans.map((o) => ({
+            directionId: o.directionId,
+            directionName: dirNameById.get(o.directionId) ?? "Направление вне периода",
+            amount: 0,
+            paid: r2(o.paid),
+            remaining: r2(-o.paid),
+          })),
+        )
 
       return {
         employeeId: emp.id,

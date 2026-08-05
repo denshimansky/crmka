@@ -105,4 +105,44 @@ describe("buildInstructorSalaryDetail", () => {
     assert.equal(res.totals.paid, 8400)
     assert.equal(res.totals.remaining, 0)               // 7400 + 1000 − 8400
   })
+
+  it("окладник С направлением: выплата без направления гасит строку оклада d1 (#1)", () => {
+    const res = buildInstructorSalaryDetail({
+      attendances: [],
+      adjustments: [],
+      paymentItems: [{ directionId: null, amount: 3520 }],
+      salaried: { monthlySalary: 7400, defaultDirectionId: "d1", defaultDirectionName: "Танцы" },
+    })
+    const d1 = res.byDirection.find((d) => d.directionId === "d1")!
+    assert.equal(d1.accrued, 7400)
+    assert.equal(d1.paid, 3520)        // раньше 0 → пресет «Выплатить остатки» переплачивал
+    assert.equal(d1.remaining, 3880)
+    assert.equal(res.adjustments.paidNoDirection, 0)
+    assert.equal(res.totals.remaining, 3880)
+  })
+
+  it("осиротевшая выплата по направлению без начислений — отдельная строка, инвариант сходится (#3)", () => {
+    const res = buildInstructorSalaryDetail({
+      attendances: [att("l1", 5, "d1", "Рисование", 1000)],
+      adjustments: [],
+      paymentItems: [
+        { directionId: "d1", amount: 500 },
+        { directionId: "d2", amount: 300, directionName: "Английский" }, // у d2 нет начислений
+      ],
+      salaried: null,
+    })
+    const d1 = res.byDirection.find((d) => d.directionId === "d1")!
+    assert.equal(d1.paid, 500)
+    assert.equal(d1.remaining, 500)
+    const orphan = res.byDirection.find((d) => d.directionId === "d2")!
+    assert.equal(orphan.accrued, 0)
+    assert.equal(orphan.paid, 300)
+    assert.equal(orphan.remaining, -300)
+    assert.equal(orphan.directionName, "Английский")
+    // Инвариант: Σ остаток по строкам + остаток премий == общий остаток.
+    const sumRows =
+      res.byDirection.reduce((s, d) => s + d.remaining, 0) + res.adjustments.remaining
+    assert.equal(sumRows, res.totals.remaining)
+    assert.equal(res.totals.remaining, 200) // 1000 − (500 + 300)
+  })
 })
