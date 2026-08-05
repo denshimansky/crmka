@@ -82,6 +82,9 @@ export function AddPaymentDialog({
   const [accountId, setAccountId] = useState("")
   const [comment, setComment] = useState("")
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  // «Не учитывать в ОПИУ» — только для прочего дохода (обычная оплата в финрез
+  // не попадает: выручка = отработанные занятия, не платежи). Баг #105.
+  const [notInPnl, setNotInPnl] = useState(false)
 
   function reset() {
     setIsOtherIncome(false)
@@ -92,6 +95,7 @@ export function AddPaymentDialog({
     setAccountId("")
     setComment("")
     setDate(new Date().toISOString().slice(0, 10))
+    setNotInPnl(false)
     setError(null)
   }
 
@@ -122,6 +126,7 @@ export function AddPaymentDialog({
           method,
           date,
           comment: comment || undefined,
+          notInPnl: isOtherIncome ? notInPnl : undefined,
         }),
       })
 
@@ -172,6 +177,7 @@ export function AddPaymentDialog({
                 checked={isOtherIncome}
                 onCheckedChange={(v) => {
                   setIsOtherIncome(v === true)
+                  setNotInPnl(false) // сбрасываем флаг ОПИУ при переключении режима
                   if (v === true) {
                     setClientId("")
                   } else {
@@ -302,6 +308,22 @@ export function AddPaymentDialog({
               placeholder="Необязательно"
             />
           </div>
+
+          {isOtherIncome && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={notInPnl}
+                onCheckedChange={(v) => setNotInPnl(v === true)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium">Не учитывать в ОПИУ</span>
+                <span className="block text-xs text-muted-foreground">
+                  Доход не попадёт в финрез (ОПИУ), но останется в кассе/ДДС.
+                </span>
+              </span>
+            </label>
+          )}
 
           <DialogFooter>
             <Button type="submit" disabled={loading}>

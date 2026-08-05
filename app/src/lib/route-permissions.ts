@@ -34,6 +34,10 @@ const PATH_PERMISSIONS: Array<{ prefix: string; permission: PermissionKey }> = [
   { prefix: "/reports/attendance", permission: "reports.schedule" },
   { prefix: "/reports/finance", permission: "reports.finance" },
   { prefix: "/reports/salary", permission: "reports.salary" },
+  // «Личные кабинеты» (/reports/portal-accounts) специально НЕ прописан здесь:
+  // он наследует общий /reports → reports.marketing (как остальные отчёты), иначе
+  // при гейте по clients.view он был бы недоступен из индекса /reports у роли
+  // «администратор» (у неё нет report-прав, но есть clients.view).
   // Индекс /reports (точное совпадение) обрабатывается в layout — доступен при
   // ЛЮБОМ из report-прав. Этот фоллбэк ловит только будущие подмаршруты /reports/*.
   { prefix: "/reports", permission: "reports.marketing" },

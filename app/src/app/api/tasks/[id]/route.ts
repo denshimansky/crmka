@@ -51,7 +51,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // Редактирование содержания задачи (заголовок/срок/исполнитель) — только у
   // управленцев; инструктор меняет лишь статус своей задачи.
   if (canManageAll) {
-    if (body.title) updateData.title = body.title
+    if (body.title) {
+      if (typeof body.title !== "string" || body.title.length > 60) {
+        return NextResponse.json({ error: "Заголовок — не более 60 символов" }, { status: 400 })
+      }
+      updateData.title = body.title
+    }
     if (body.dueDate) updateData.dueDate = new Date(body.dueDate)
     if (body.assignedTo) updateData.assignedTo = body.assignedTo
   }

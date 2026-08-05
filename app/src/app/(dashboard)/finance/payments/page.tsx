@@ -263,6 +263,8 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
                                   date: p.date.toISOString(),
                                   accountId: p.account.id,
                                   comment: p.comment,
+                                  isOtherIncome: p.incomeCategoryId != null,
+                                  notInPnl: p.notInPnl,
                                 }}
                                 accounts={accountOptions}
                               />

@@ -19,6 +19,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Pencil } from "lucide-react"
 
 interface AccountOption {
@@ -34,6 +35,10 @@ interface PaymentInput {
   date: string
   accountId: string
   comment: string | null
+  /** Прочий доход (без клиента, с категорией) — только он попадает в ОПИУ. */
+  isOtherIncome: boolean
+  /** «Не учитывать в ОПИУ» — редактируется только у прочего дохода (баг #105). */
+  notInPnl: boolean
 }
 
 const METHOD_OPTIONS = [
@@ -67,6 +72,7 @@ export function EditPaymentDialog({
   const [accountId, setAccountId] = useState(payment.accountId)
   const [date, setDate] = useState(payment.date.slice(0, 10))
   const [comment, setComment] = useState(payment.comment ?? "")
+  const [notInPnl, setNotInPnl] = useState(payment.notInPnl)
 
   function reset() {
     setAmount(String(payment.amount))
@@ -74,6 +80,7 @@ export function EditPaymentDialog({
     setAccountId(payment.accountId)
     setDate(payment.date.slice(0, 10))
     setComment(payment.comment ?? "")
+    setNotInPnl(payment.notInPnl)
     setError(null)
   }
 
@@ -97,6 +104,7 @@ export function EditPaymentDialog({
           accountId,
           date,
           comment: comment.trim() || null,
+          ...(payment.isOtherIncome && { notInPnl }),
         }),
       })
 
@@ -207,6 +215,22 @@ export function EditPaymentDialog({
               placeholder="Необязательно"
             />
           </div>
+
+          {payment.isOtherIncome && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={notInPnl}
+                onCheckedChange={(v) => setNotInPnl(v === true)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium">Не учитывать в ОПИУ</span>
+                <span className="block text-xs text-muted-foreground">
+                  Доход не попадёт в финрез (ОПИУ), но останется в кассе/ДДС.
+                </span>
+              </span>
+            </label>
+          )}
 
           <DialogFooter>
             <Button type="submit" disabled={loading}>

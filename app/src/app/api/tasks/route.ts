@@ -7,7 +7,7 @@ import { taskVisibilityWhere } from "@/lib/tasks/task-visibility"
 import { branchScopeFromSession } from "@/lib/branch-scope"
 
 const createSchema = z.object({
-  title: z.string().min(1, "Введите заголовок"),
+  title: z.string().min(1, "Введите заголовок").max(60, "Заголовок — не более 60 символов"),
   description: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   assignedTo: z.string().uuid("Выберите исполнителя"),
   dueDate: z.string().min(1, "Укажите дату"),

@@ -28,6 +28,8 @@ const createSchema = z.object({
   }),
   date: z.string().min(1, "Укажите дату"),
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  // «Не учитывать в ОПИУ» — имеет смысл только для прочего дохода (баг #105).
+  notInPnl: z.boolean().optional().default(false),
 })
 
 export async function GET(req: NextRequest) {
@@ -169,6 +171,9 @@ export async function POST(req: NextRequest) {
         date: new Date(data.date),
         comment: data.comment,
         isFirstPayment,
+        // Флаг применим только к прочему доходу — у обычной оплаты клиента он
+        // бессмыслен (в ОПИУ она и так не попадает), поэтому насильно false.
+        notInPnl: data.incomeCategoryId ? data.notInPnl : false,
         createdBy: session.user.employeeId,
       },
       include: {

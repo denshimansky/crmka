@@ -1020,6 +1020,9 @@ model Payment {
   date             DateTime      @db.Date
   comment          String?
   isFirstPayment   Boolean       @default(false) @map("is_first_payment")
+  // Прочий доход, помеченный «Не учитывать в ОПИУ»: не попадает в финрез (P&L),
+  // но остаётся в кассе/ДДС. Зеркалит ExpenseRecognitionMode.not_in_pnl (баг #105).
+  notInPnl         Boolean       @default(false) @map("not_in_pnl")
   onlinePaymentId  String?       @map("online_payment_id")
   createdBy        String?       @map("created_by") @db.Uuid
   createdAt        DateTime      @default(now()) @map("created_at")

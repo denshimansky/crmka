@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
@@ -53,8 +54,16 @@ export function AddTaskDialog({ employees, clients }: { employees: EmployeeOptio
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
           <div className="space-y-1.5">
-            <Label>Заголовок *</Label>
-            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Что нужно сделать?" />
+            <div className="flex items-center justify-between">
+              <Label>Заголовок *</Label>
+              <span className="text-xs text-muted-foreground">{title.length}/60</span>
+            </div>
+            <Input
+              value={title}
+              onChange={e => setTitle(e.target.value.slice(0, 60))}
+              maxLength={60}
+              placeholder="Что нужно сделать?"
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Исполнитель *</Label>
@@ -94,7 +103,7 @@ export function AddTaskDialog({ employees, clients }: { employees: EmployeeOptio
           </div>
           <div className="space-y-1.5">
             <Label>Описание</Label>
-            <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Необязательно" />
+            <Textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Необязательно" rows={3} />
           </div>
           <DialogFooter><Button type="submit" disabled={loading}>{loading ? "Создание..." : "Создать"}</Button></DialogFooter>
         </form>
