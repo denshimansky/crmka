@@ -206,13 +206,6 @@ export default async function LessonCardPage({
     .map((t) => applyAttendanceOverride(t, typeOverrideMap.get(t.id)))
     .filter((t) => !t.isDisabledForTenant)
 
-  // Get absence reasons
-  const absenceReasons = await db.absenceReason.findMany({
-    where: { tenantId, isActive: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true },
-  })
-
   // Get salary rate — use substitute instructor rate if present
   const effectiveInstructorId = lesson.substituteInstructorId || lesson.instructorId
   const salaryRate = await db.salaryRate.findFirst({
@@ -830,7 +823,6 @@ export default async function LessonCardPage({
         trialStudents={trialStudents}
         attendanceTypes={attendanceTypesData}
         salaryRate={salaryRateData}
-        absenceReasons={absenceReasons}
         instructorName={instructorName}
         substituteInstructorId={lesson.substituteInstructorId}
         substituteInstructorName={substituteInstructorName}

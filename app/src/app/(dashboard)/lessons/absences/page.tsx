@@ -60,6 +60,9 @@ export interface AbsenceDetail {
   subscriptionId: string | null
   balance: number | null
   comment: string | null // свободный текст из lesson_student_notes (развязан от отметки)
+  // Причина пропуска (справочник AbsenceReason) — как в карточке занятия. Редактируется
+  // у строк с отметкой (вкладка «Не был»); на «Неотмеченных» отметки ещё нет.
+  absenceReasonId: string | null
 }
 
 export interface AbsenceGroupRow {
@@ -187,6 +190,14 @@ export default async function LessonsAbsencesPage({
     })
     .map((t) => ({ id: t.id, name: t.name, code: t.code }))
 
+  // Справочник причин пропусков — для колонки «Причина» (перенесена из карточки
+  // занятия). Роль «только чтение» причину не меняет, но список нужен для отображения.
+  const absenceReasons = await db.absenceReason.findMany({
+    where: { tenantId, isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true },
+  })
+
   // Общие условия по группе для всех запросов
   const groupWhere: Prisma.GroupWhereInput = {}
   if (branchId) groupWhere.branchId = branchId
@@ -223,6 +234,7 @@ export default async function LessonsAbsencesPage({
       wardId: true,
       subscriptionId: true,
       attendanceTypeId: true,
+      absenceReasonId: true,
       lesson: {
         select: {
           id: true,
@@ -525,6 +537,7 @@ export default async function LessonsAbsencesPage({
         subscriptionId: a.subscriptionId,
         balance,
         comment: noteMap.get(noteKey(a.lesson.id, a.clientId, a.wardId)) ?? null,
+        absenceReasonId: a.absenceReasonId,
       }
       const existing = groupsMap.get(key)
       if (existing) {
@@ -561,6 +574,8 @@ export default async function LessonsAbsencesPage({
         subscriptionId: null,
         balance,
         comment: noteMap.get(noteKey(e.lessonId, e.clientId, e.wardId)) ?? null,
+        // Отметки ещё нет — причину привязать не к чему.
+        absenceReasonId: null,
       }
       const existing = groupsMap.get(key)
       if (existing) {
@@ -640,6 +655,7 @@ export default async function LessonsAbsencesPage({
         instructorId={instructorId ?? ""}
         filterOptions={filterOptions}
         attendanceTypes={editableTypes}
+        absenceReasons={absenceReasons}
         canEdit={canEdit}
       />
 

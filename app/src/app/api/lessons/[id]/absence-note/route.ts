@@ -17,7 +17,7 @@ import {
 const noteSchema = z.object({
   clientId: z.string().uuid("Некорректный ID клиента"),
   wardId: z.any().transform((v) => (typeof v === "string" && v.trim() ? v.trim() : null)),
-  comment: z.string().max(1000).nullable().optional(),
+  comment: z.string().max(60, "Комментарий не длиннее 60 символов").nullable().optional(),
 })
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

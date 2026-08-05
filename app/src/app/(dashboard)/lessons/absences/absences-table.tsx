@@ -27,6 +27,9 @@ import type { AbsenceGroupRow, AbsenceDetail, EditableAttendanceType } from "./p
 const ALL_VALUE = "__all__"
 // Сентинел «Не отмечен» в выпадашке «Вид дня» (Radix Select не принимает "").
 const UNMARKED_VALUE = "__unmarked__"
+// Сентинел «Без причины» в выпадашке «Причина» — позволяет сбросить причину в null
+// (реестр — единственное место редактирования после переноса из карточки занятия).
+const NO_REASON_VALUE = "__no_reason__"
 
 interface FilterOption {
   id: string
@@ -43,6 +46,7 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   count: 110,
   date: 120,
   dayKind: 170,
+  reason: 150,
   balance: 120,
   comment: 240,
 }
@@ -66,6 +70,8 @@ interface AbsencesViewProps {
   }
   // Типы для инлайн-смены «Вида дня». Пусто для роли «только чтение».
   attendanceTypes: EditableAttendanceType[]
+  // Справочник причин пропусков для колонки «Причина» (перенесена из карточки занятия).
+  absenceReasons: { id: string; name: string }[]
   canEdit: boolean
 }
 
@@ -96,6 +102,7 @@ export function AbsencesView({
   instructorId,
   filterOptions,
   attendanceTypes,
+  absenceReasons,
   canEdit,
 }: AbsencesViewProps) {
   const roleNames = useRoleNames()
@@ -188,6 +195,40 @@ export function AbsencesView({
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         setEditError(data?.error || "Не удалось сохранить комментарий")
+        return
+      }
+      router.refresh()
+    } catch {
+      setEditError("Сеть недоступна. Повторите попытку.")
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  // Сохранить «Причину» пропуска (справочник AbsenceReason) на отметке. Пишется
+  // тем же PATCH-эндпоинтом, что и в бывшей колонке карточки занятия. Доступна
+  // только у строк с существующей отметкой (attendanceId != null).
+  async function saveReason(
+    rowKey: string,
+    d: AbsenceDetail,
+    reasonId: string | null,
+  ) {
+    if (!d.attendanceId) return
+    if (reasonId === (d.absenceReasonId ?? null)) return // без изменений
+    setEditError(null)
+    setSavingKey(rowKey)
+    try {
+      const res = await fetch(`/api/lessons/${d.lessonId}/attendance`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          attendanceId: d.attendanceId,
+          absenceReasonId: reasonId,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setEditError(data?.error || "Не удалось сохранить причину")
         return
       }
       router.refresh()
@@ -407,6 +448,9 @@ export function AbsencesView({
                 <ResizableHead id="dayKind" width={widthOf("dayKind")} onResizeStart={startResize}>
                   Вид дня
                 </ResizableHead>
+                <ResizableHead id="reason" width={widthOf("reason")} onResizeStart={startResize}>
+                  Причина
+                </ResizableHead>
                 <ResizableHead id="balance" width={widthOf("balance")} onResizeStart={startResize} className="text-right">
                   Баланс
                 </ResizableHead>
@@ -488,6 +532,45 @@ export function AbsencesView({
                         <span className="text-muted-foreground">{d.attendanceTypeName || "—"}</span>
                       )}
                     </TableCell>
+                    <TableCell>
+                      {/* «Причина» — как в бывшей колонке карточки занятия: выпадашка
+                          справочника для строк с отметкой (вкладка «Не был»). На
+                          «Неотмеченных» отметки нет → «—». Роль readonly видит текст. */}
+                      {canEdit && d.attendanceId && absenceReasons.length > 0 ? (
+                        <div className="flex items-center gap-1.5">
+                          <Select
+                            value={d.absenceReasonId ?? ""}
+                            onValueChange={(v) => {
+                              if (saving) return
+                              const next = v === NO_REASON_VALUE ? null : v
+                              if (next === (d.absenceReasonId ?? null)) return
+                              saveReason(rowKey, d, next)
+                            }}
+                          >
+                            <SelectTrigger className="h-8 w-[150px] text-xs" disabled={saving}>
+                              {d.absenceReasonId
+                                ? absenceReasons.find((r) => r.id === d.absenceReasonId)?.name || "—"
+                                : <span className="text-muted-foreground">Причина</span>}
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NO_REASON_VALUE}>
+                                <span className="text-muted-foreground">Без причины</span>
+                              </SelectItem>
+                              {absenceReasons.map((r) => (
+                                <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {saving && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+                        </div>
+                      ) : d.absenceReasonId ? (
+                        <span className="text-xs">
+                          {absenceReasons.find((r) => r.id === d.absenceReasonId)?.name || "—"}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {d.balance !== null ? formatMoney(d.balance) : ""}
                     </TableCell>
@@ -500,6 +583,7 @@ export function AbsencesView({
                           type="text"
                           defaultValue={d.comment ?? ""}
                           placeholder="Комментарий…"
+                          maxLength={60}
                           disabled={saving}
                           className="h-8 w-[220px]"
                           onBlur={(e) => saveComment(rowKey, group, d, e.target.value)}
