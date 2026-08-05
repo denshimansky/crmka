@@ -1,7 +1,7 @@
 import { PageHelp } from "@/components/page-help"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Filter, TrendingDown, Calendar, CreditCard, Wallet } from "lucide-react"
+import { Filter, TrendingDown, Calendar, CreditCard, Wallet, KeyRound } from "lucide-react"
 import Link from "next/link"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
@@ -127,6 +127,14 @@ const reportGroups: ReportGroup[] = [
       { name: "Средняя ЗП инструкторов", href: "/reports/salary/avg-salary", description: "Средняя стоимость часа = ЗП / часы", source: "attendance" },
       { name: "Прогноз сдельной оплаты", href: "/reports/salary/salary-forecast", description: "Прогноз ЗП сдельных инструкторов по ставкам и расписанию", source: "attendance" },
       { name: "Расчёты с инструкторами", href: "/reports/salary/salary-instructors", description: "Начислено, премии, штрафы, выплачено и остаток", source: "attendance" },
+    ],
+  },
+  {
+    title: "Клиенты и доступы",
+    icon: KeyRound,
+    color: "text-teal-600",
+    reports: [
+      { name: "Личные кабинеты", href: "/reports/portal-accounts", description: "Кому выдан доступ в ЛК: логин, дата выдачи пароля, последний вход и статус", source: "clients" },
     ],
   },
 ]

@@ -24,13 +24,16 @@ import {
 import { Trash2 } from "lucide-react"
 import Link from "next/link"
 
-interface TaskRow {
+export interface TaskRow {
   id: string
   title: string
+  description: string | null
   type: string
   autoTrigger: string | null
   status: string
   dueDate: string
+  completedAt: string | null
+  completedByName: string | null
   assigneeName: string
   clientId: string | null
   clientName: string | null
@@ -38,6 +41,16 @@ interface TaskRow {
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -53,21 +66,33 @@ const TRIGGER_LABELS: Record<string, string> = {
   missed_makeup: "Отработка",
 }
 
+function typeLabel(t: TaskRow): string {
+  if (t.type === "auto") return TRIGGER_LABELS[t.autoTrigger || ""] || "Авто"
+  return "Ручная"
+}
+
 export function TaskList({
   tasks,
   canDelete = true,
   canViewClients = true,
+  showCompletedColumns = false,
+  emptyLabel = "Нет задач",
 }: {
   tasks: TaskRow[]
   /** Удаление задач — только у управленческих ролей (инструктор не удаляет). */
   canDelete?: boolean
   /** Ссылка на карточку клиента — только у тех, кто видит клиентов (не инструктор). */
   canViewClients?: boolean
+  /** Показывать колонки «Дата выполнения» и «Кто выполнил» (вкладка «Выполненные»). */
+  showCompletedColumns?: boolean
+  /** Текст, когда список пуст (зависит от активной вкладки). */
+  emptyLabel?: string
 }) {
   const router = useRouter()
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [confirmTitle, setConfirmTitle] = useState<string>("")
   const [deleting, setDeleting] = useState(false)
+  const [detail, setDetail] = useState<TaskRow | null>(null)
 
   async function toggleComplete(id: string, currentStatus: string) {
     const newStatus = currentStatus === "completed" ? "pending" : "completed"
@@ -97,7 +122,7 @@ export function TaskList({
   }
 
   if (tasks.length === 0) {
-    return <p className="py-8 text-center text-muted-foreground">Нет задач</p>
+    return <p className="py-8 text-center text-muted-foreground">{emptyLabel}</p>
   }
 
   return (
@@ -110,14 +135,27 @@ export function TaskList({
             <TableHead>Тип</TableHead>
             <TableHead>Клиент</TableHead>
             <TableHead>Исполнитель</TableHead>
-            <TableHead>Дата</TableHead>
+            <TableHead>Срок</TableHead>
+            {showCompletedColumns && <TableHead>Дата выполнения</TableHead>}
+            {showCompletedColumns && <TableHead>Кто выполнил</TableHead>}
             <TableHead className="w-10"></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {tasks.map((t) => (
-            <TableRow key={t.id} className={t.status === "completed" ? "opacity-50" : ""}>
-              <TableCell>
+            <TableRow
+              key={t.id}
+              onClick={() => setDetail(t)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  setDetail(t)
+                }
+              }}
+              tabIndex={0}
+              className={`cursor-pointer ${t.status === "completed" ? "opacity-50" : ""}`}
+            >
+              <TableCell onClick={(e) => e.stopPropagation()}>
                 <Checkbox
                   checked={t.status === "completed"}
                   onCheckedChange={() => toggleComplete(t.id, t.status)}
@@ -129,7 +167,7 @@ export function TaskList({
               <TableCell>
                 {t.type === "auto" ? (
                   <Badge variant="secondary" className="text-xs">
-                    {TRIGGER_LABELS[t.autoTrigger || ""] || "Авто"}
+                    {typeLabel(t)}
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="text-xs">Ручная</Badge>
@@ -138,7 +176,11 @@ export function TaskList({
               <TableCell>
                 {t.clientId && t.clientName ? (
                   canViewClients ? (
-                    <Link href={`/crm/clients/${t.clientId}`} className="text-primary hover:underline">
+                    <Link
+                      href={`/crm/clients/${t.clientId}`}
+                      className="text-primary hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {t.clientName}
                     </Link>
                   ) : (
@@ -148,7 +190,15 @@ export function TaskList({
               </TableCell>
               <TableCell className="text-muted-foreground">{t.assigneeName}</TableCell>
               <TableCell className="text-muted-foreground">{formatDate(t.dueDate)}</TableCell>
-              <TableCell>
+              {showCompletedColumns && (
+                <TableCell className="text-muted-foreground">
+                  {t.completedAt ? formatDateTime(t.completedAt) : "—"}
+                </TableCell>
+              )}
+              {showCompletedColumns && (
+                <TableCell className="text-muted-foreground">{t.completedByName || "—"}</TableCell>
+              )}
+              <TableCell onClick={(e) => e.stopPropagation()}>
                 {canDelete && (
                   <Button
                     variant="ghost"
@@ -165,6 +215,70 @@ export function TaskList({
           ))}
         </TableBody>
       </Table>
+
+      {/* Просмотр задачи (описание и детали) */}
+      <Dialog open={!!detail} onOpenChange={(o) => { if (!o) setDetail(null) }}>
+        <DialogContent className="sm:max-w-lg">
+          {detail && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="break-words">{detail.title}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Описание</p>
+                  <p className="whitespace-pre-wrap break-words">
+                    {detail.description || <span className="text-muted-foreground">Без описания</span>}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Тип</p>
+                    <p>{typeLabel(detail)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Срок</p>
+                    <p>{new Date(detail.dueDate).toLocaleDateString("ru-RU")}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Исполнитель</p>
+                    <p>{detail.assigneeName}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Клиент</p>
+                    <p>
+                      {detail.clientId && detail.clientName ? (
+                        canViewClients ? (
+                          <Link href={`/crm/clients/${detail.clientId}`} className="text-primary hover:underline">
+                            {detail.clientName}
+                          </Link>
+                        ) : (
+                          detail.clientName
+                        )
+                      ) : "—"}
+                    </p>
+                  </div>
+                  {detail.status === "completed" && (
+                    <>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Дата выполнения</p>
+                        <p>{detail.completedAt ? formatDateTime(detail.completedAt) : "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Кто выполнил</p>
+                        <p>{detail.completedByName || "—"}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" type="button" onClick={() => setDetail(null)}>Закрыть</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!confirmId}

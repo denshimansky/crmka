@@ -1,10 +1,8 @@
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
-import { Card, CardContent } from "@/components/ui/card"
-import { CheckCircle2, Clock, AlertTriangle } from "lucide-react"
 import { AddTaskDialog } from "./add-task-dialog"
 import { GenerateTasksButton } from "./generate-tasks-button"
-import { TaskList } from "./task-list"
+import { TasksBoard } from "./tasks-board"
 import { PageHelp } from "@/components/page-help"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
 import { taskVisibilityWhere } from "@/lib/tasks/task-visibility"
@@ -26,7 +24,10 @@ export default async function TasksPage() {
   const canManageTasks = hasPermission(role, "clients.edit", orgPerms)
   const canViewClients = hasPermission(role, "clients.view", orgPerms)
 
-  const today = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()))
+  // Сегодняшняя дата в календаре сервера как «YYYY-MM-DD» — граница «сегодня/просрочено».
+  // dueDate на строках задач сериализуется так же, сравнение строковое (см. tasks-board).
+  const now = new Date()
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
 
   // Автоочистка: выполненные задачи старше 2 месяцев — soft-delete.
   // Lazy cleanup при заходе на страницу задач (cron не настроен).
@@ -47,35 +48,62 @@ export default async function TasksPage() {
   // ADM-04: админ с привязкой к филиалу видит только задачи своих филиалов
   // (тот же scope, что на дашборде) — согласовано с task-visibility.
   const scope = branchScopeFromSession(session.user.allowedBranchIds)
-  const tasks = await db.task.findMany({
-    where: {
-      tenantId,
-      deletedAt: null,
-      ...taskVisibilityWhere(role, employeeId, scope),
-    },
-    include: {
-      assignee: { select: { id: true, firstName: true, lastName: true } },
-      client: { select: { id: true, firstName: true, lastName: true } },
-    },
-    orderBy: [{ status: "asc" }, { dueDate: "asc" }],
-    take: 200,
-  })
+  const visibilityWhere = {
+    tenantId,
+    deletedAt: null,
+    ...taskVisibilityWhere(role, employeeId, scope),
+  }
 
-  const pendingTasks = tasks.filter(t => t.status === "pending")
-  const completedTasks = tasks.filter(t => t.status === "completed")
-  const todayTasks = pendingTasks.filter(t => {
-    const d = new Date(t.dueDate)
-    return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()
-  })
-  const overdueTasks = pendingTasks.filter(t => new Date(t.dueDate) < today)
+  // Активные и выполненные грузим РАЗДЕЛЬНО: при общем take:200 c orderBy status
+  // бэклог невыполненных мог полностью вытеснить выполненные, и новая вкладка
+  // «Выполненные» показывала пусто. Теперь у каждой выборки свои 200. Активные —
+  // по сроку (просроченные/сегодня всегда впереди), выполненные — по дате
+  // выполнения (свежие сверху). cancelled ни в одну вкладку не входит — не грузим.
+  const [pendingTasks, completedTasks] = await Promise.all([
+    db.task.findMany({
+      where: { ...visibilityWhere, status: "pending" },
+      include: {
+        assignee: { select: { id: true, firstName: true, lastName: true } },
+        client: { select: { id: true, firstName: true, lastName: true } },
+      },
+      orderBy: { dueDate: "asc" },
+      take: 200,
+    }),
+    db.task.findMany({
+      where: { ...visibilityWhere, status: "completed" },
+      include: {
+        assignee: { select: { id: true, firstName: true, lastName: true } },
+        client: { select: { id: true, firstName: true, lastName: true } },
+      },
+      orderBy: { completedAt: "desc" },
+      take: 200,
+    }),
+  ])
+  const tasks = [...pendingTasks, ...completedTasks]
+
+  // Имя выполнившего задачу: у Task.completedBy нет relation — резолвим отдельным
+  // запросом по собранным id (сотрудник мог быть уволен — deletedAt не фильтруем).
+  const completerIds = [...new Set(tasks.map(t => t.completedBy).filter((x): x is string => !!x))]
+  const completers = completerIds.length
+    ? await db.employee.findMany({
+        where: { tenantId, id: { in: completerIds } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : []
+  const completerName = new Map(
+    completers.map(e => [e.id, [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени"]),
+  )
 
   const taskRows = tasks.map(t => ({
     id: t.id,
     title: t.title,
+    description: t.description,
     type: t.type,
     autoTrigger: t.autoTrigger,
     status: t.status,
     dueDate: t.dueDate.toISOString().slice(0, 10),
+    completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+    completedByName: t.completedBy ? (completerName.get(t.completedBy) ?? null) : null,
     assigneeName: [t.assignee.lastName, t.assignee.firstName].filter(Boolean).join(" ") || "Без имени",
     clientId: t.clientId,
     clientName: t.client ? ([t.client.lastName, t.client.firstName].filter(Boolean).join(" ") || "Без имени") : null,
@@ -100,12 +128,6 @@ export default async function TasksPage() {
       })
     : []
 
-  const summary = [
-    { title: "На сегодня", value: todayTasks.length, icon: Clock, color: "text-blue-600", bg: "bg-blue-50" },
-    { title: "Просрочено", value: overdueTasks.length, icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
-    { title: "Выполнено", value: completedTasks.length, icon: CheckCircle2, color: "text-green-600", bg: "bg-green-50" },
-  ]
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -124,25 +146,12 @@ export default async function TasksPage() {
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        {summary.map((s) => (
-          <Card key={s.title}>
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className={`flex size-10 items-center justify-center rounded-lg ${s.bg}`}>
-                <s.icon className={`size-5 ${s.color}`} />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{s.title}</p>
-                <p className="text-2xl font-bold">{s.value}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="rounded-md border">
-        <TaskList tasks={taskRows} canDelete={canManageTasks} canViewClients={canViewClients} />
-      </div>
+      <TasksBoard
+        tasks={taskRows}
+        today={todayStr}
+        canDelete={canManageTasks}
+        canViewClients={canViewClients}
+      />
     </div>
   )
 }
