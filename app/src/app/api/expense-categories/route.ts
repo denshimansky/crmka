@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { OKLAD_EXPENSE_CATEGORY_NAME } from "@/lib/salary/oklad-category"
 
 // GET /api/expense-categories — системные (tenantId = null) + кастомные категории тенанта.
 // По умолчанию возвращаем только активные (для форм создания расхода). Странице
@@ -19,7 +20,10 @@ export async function GET(request: NextRequest) {
   const categories = await db.expenseCategory.findMany({
     where: {
       OR: [{ tenantId: null }, { tenantId }],
-      ...(includeInactive ? {} : { isActive: true }),
+      // Формы создания расхода (активные категории) не показывают системную
+      // «Зарплата окладников» — это категория-твин (авто при выплате оклада), ручной
+      // ввод задвоил бы ОПИУ. Настройкам (includeInactive=true) её видно (read-only).
+      ...(includeInactive ? {} : { isActive: true, NOT: { name: OKLAD_EXPENSE_CATEGORY_NAME, tenantId: null } }),
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   })
