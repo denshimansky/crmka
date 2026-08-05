@@ -130,54 +130,85 @@ export async function GET(req: NextRequest) {
       // поэтому «date desc + take:500» на уровне БД отобрал бы 500 самых поздних по дате
       // платежа записей (в т.ч. будущих относительно отчётного месяца), а их доли признания
       // дают 0 — реальные строки периода вытеснились бы из cap. Фильтруем и режем в JS ниже.
+      // salaryPayment/branches — для персонализации статьи «Зарплата окладников» (твины).
       const expenses = await db.expense.findMany({
         where: expWhere,
         include: {
           category: { select: { name: true } },
+          salaryPayment: { select: { employee: { select: { firstName: true, lastName: true } } } },
+          branches: { select: { direction: { select: { name: true } } } },
         },
       })
 
-      const RECOGNITION_LABELS: Record<string, string> = {
-        by_payment_date: "По дате платежа",
-        single_period: "В одном месяце",
-        amortized: "Раскладка по месяцам",
-      }
+      // Статья «Зарплата окладников» — расходы-твины (salaryPaymentId, связаны с
+      // выплатой → сотрудником). Детализируем ПО СОТРУДНИКАМ (кому сколько), а не
+      // безымянными строками расхода. Признак — drill в КОНКРЕТНУЮ категорию
+      // (categoryId задан) и вся выборка состоит из твинов с сотрудником. Для «Итого
+      // расходы» (field=expenses, без categoryId) режим не включаем даже у мелкой орг.
+      const okladTwins = expenses.filter((e) => e.salaryPaymentId && e.salaryPayment?.employee)
+      const isOkladCategory = !!categoryId && okladTwins.length > 0 && okladTwins.length === expenses.length
 
-      // Для каждого расхода — сколько попало в окно ОПИУ.
-      type DetailRow = {
-        date: Date
-        category: string
-        amountTotal: number
-        amountInPeriod: number
-        comment: string
-        mode: string
-      }
-      const detail: DetailRow[] = []
-      for (const e of expenses) {
-        const inPeriod = expenseAmountInWindow(e, fromYm.year, fromYm.month, toYm.year, toYm.month)
-        if (inPeriod === 0) continue
-        detail.push({
-          date: e.date,
-          category: e.category.name,
-          amountTotal: Number(e.amount),
-          amountInPeriod: inPeriod,
-          comment: e.comment ?? "",
-          mode: RECOGNITION_LABELS[e.recognitionMode] ?? e.recognitionMode,
-        })
-      }
-      detail.sort((a, b) => b.amountInPeriod - a.amountInPeriod)
-      // Cap на уже отфильтрованных (в окне ОПИУ) строках, а не на сырой выборке из БД.
-      const detailCapped = detail.slice(0, 500)
+      if (isOkladCategory) {
+        type EmpRow = { employee: string; direction: string; amountInPeriod: number }
+        const byEmp = new Map<string, EmpRow>()
+        for (const e of expenses) {
+          const inPeriod = expenseAmountInWindow(e, fromYm.year, fromYm.month, toYm.year, toYm.month)
+          if (inPeriod === 0) continue
+          const emp = e.salaryPayment!.employee!
+          const name = [emp.lastName, emp.firstName].filter(Boolean).join(" ").trim() || "—"
+          const dir = e.branches[0]?.direction?.name ?? "Без направления"
+          const key = `${name}__${dir}`
+          const prev = byEmp.get(key) || { employee: name, direction: dir, amountInPeriod: 0 }
+          prev.amountInPeriod += inPeriod
+          byEmp.set(key, prev)
+        }
+        columns = ["Сотрудник", "Направление", isRange ? "В периоде" : "В этом месяце"]
+        rows = Array.from(byEmp.values())
+          .sort((a, b) => b.amountInPeriod - a.amountInPeriod)
+          .map((r) => [r.employee, r.direction, Math.round(r.amountInPeriod * 100) / 100])
+      } else {
+        const RECOGNITION_LABELS: Record<string, string> = {
+          by_payment_date: "По дате платежа",
+          single_period: "В одном месяце",
+          amortized: "Раскладка по месяцам",
+        }
 
-      columns = ["Дата платежа", "Категория", "Полная сумма", isRange ? "В периоде" : "В этом месяце", "Признание", "Комментарий"]
-      rows = detailCapped.map(d => [
-        formatDate(d.date),
-        d.category,
-        d.amountTotal,
-        d.amountInPeriod,
-        d.mode,
-        d.comment || "—",
-      ])
+        // Для каждого расхода — сколько попало в окно ОПИУ.
+        type DetailRow = {
+          date: Date
+          category: string
+          amountTotal: number
+          amountInPeriod: number
+          comment: string
+          mode: string
+        }
+        const detail: DetailRow[] = []
+        for (const e of expenses) {
+          const inPeriod = expenseAmountInWindow(e, fromYm.year, fromYm.month, toYm.year, toYm.month)
+          if (inPeriod === 0) continue
+          detail.push({
+            date: e.date,
+            category: e.category.name,
+            amountTotal: Number(e.amount),
+            amountInPeriod: inPeriod,
+            comment: e.comment ?? "",
+            mode: RECOGNITION_LABELS[e.recognitionMode] ?? e.recognitionMode,
+          })
+        }
+        detail.sort((a, b) => b.amountInPeriod - a.amountInPeriod)
+        // Cap на уже отфильтрованных (в окне ОПИУ) строках, а не на сырой выборке из БД.
+        const detailCapped = detail.slice(0, 500)
+
+        columns = ["Дата платежа", "Категория", "Полная сумма", isRange ? "В периоде" : "В этом месяце", "Признание", "Комментарий"]
+        rows = detailCapped.map(d => [
+          formatDate(d.date),
+          d.category,
+          d.amountTotal,
+          d.amountInPeriod,
+          d.mode,
+          d.comment || "—",
+        ])
+      }
     } else if (field === "other-income" || field === "other-income-category") {
       // Прочие доходы (Payment без subscriptionId, с incomeCategoryId).
       const payWhere: any = {

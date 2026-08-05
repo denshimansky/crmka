@@ -14,6 +14,7 @@ import { PageHelp } from "@/components/page-help"
 import { ExpensesTable } from "./expenses-table"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { getOrgUiSettings } from "@/lib/role-names"
+import { OKLAD_EXPENSE_CATEGORY_NAME } from "@/lib/salary/oklad-category"
 
 export default async function ExpensesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
@@ -61,11 +62,14 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     { title: "Повторяющиеся", value: String(recurringCount), icon: Repeat, color: "text-blue-600", bg: "bg-blue-50" },
   ]
 
-  // Данные для диалогов
+  // Данные для диалогов. Системную «Зарплата окладников» скрываем из ручного ввода:
+  // это категория-твин (заполняется автоматически при выплате оклада), ручной расход
+  // в неё задвоил бы оклад в ОПИУ.
   const categories = await db.expenseCategory.findMany({
     where: {
       OR: [{ tenantId: null }, { tenantId }],
       isActive: true,
+      NOT: { name: OKLAD_EXPENSE_CATEGORY_NAME, tenantId: null },
     },
     select: { id: true, name: true, isVariable: true },
     orderBy: { sortOrder: "asc" },

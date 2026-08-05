@@ -6,7 +6,7 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { z } from "zod"
 import { logAudit } from "@/lib/audit"
 import { requirePermission } from "@/lib/api-permissions"
-import { buildOkladTwinExpenses } from "@/lib/salary/oklad-twin"
+import { syncOkladTwinsForEmployeePeriod } from "@/lib/salary/sync-oklad-twin"
 import { getOkladCategoryId } from "@/lib/salary/oklad-category"
 import { getBranchScope } from "@/lib/session"
 import { scopeEmployee } from "@/lib/branch-scope"
@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
   const payments = await db.salaryPayment.findMany({
     where,
     include: {
-      employee: { select: { id: true, firstName: true, lastName: true, role: true } },
+      employee: { select: { id: true, firstName: true, lastName: true, role: true, monthlySalary: true } },
       account: { select: { id: true, name: true } },
       items: {
         include: {
@@ -107,7 +107,6 @@ export async function GET(req: NextRequest) {
           direction: { select: { id: true, name: true } },
         },
       },
-      _count: { select: { opiuExpenses: true } },
     },
     orderBy: { date: "desc" },
   })
@@ -115,11 +114,13 @@ export async function GET(req: NextRequest) {
   // Обогащаем ответ плоскими полями для ConductedPaymentsList (employeeName/accountName/
   // isOklad/date как YYYY-MM-DD), сохраняя исходную структуру (employee/account/items) —
   // существующие вызовы GET (напр. будущие отчёты) не ломаются, форма ответа (массив) та же.
+  // isOklad — по признаку окладника (monthlySalary>0), а НЕ по наличию твина: в per-period
+  // модели твин висит на одной выплате периода, иначе аванс окладника ушёл бы на «Сдельную».
   let enriched = payments.map((p) => ({
     ...p,
     employeeName: [p.employee?.lastName, p.employee?.firstName].filter(Boolean).join(" ").trim() || p.employee?.id || "",
     accountName: p.account?.name ?? "",
-    isOklad: p._count.opiuExpenses > 0,
+    isOklad: Number(p.employee?.monthlySalary ?? 0) > 0,
     date: p.date.toISOString().slice(0, 10),
   }))
 
@@ -165,7 +166,7 @@ export async function POST(req: NextRequest) {
     const directionIds = Array.from(new Set(data.items.map(i => i.directionId).filter((v): v is string => !!v)))
 
     const [employees, accounts, directions] = await Promise.all([
-      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true, monthlySalary: true } }),
+      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true, monthlySalary: true, defaultDirectionId: true } }),
       accountIds.length > 0
         ? db.financialAccount.findMany({ where: { id: { in: accountIds }, tenantId }, select: { id: true } })
         : Promise.resolve([] as Array<{ id: string }>),
@@ -185,21 +186,36 @@ export async function POST(req: NextRequest) {
 
     const totalAmount = data.items.reduce((s, it) => s + it.amount, 0)
 
-    // Твин-расход оклада создаём ТОЛЬКО для реальных окладников (monthlySalary>0),
-    // а не по одному kind: сделочная выплата, ошибочно отправленная с kind=salary,
-    // иначе стала бы «Зарплата окладников» и задвоила сделку в ОПИУ (та начисляется
-    // отдельно из посещений). UI это не допускает (вкладка/автозаполнение скоуплены),
-    // но эндпоинт — источник истины.
-    const okladEmpIds = new Set(
-      employees.filter((e) => Number(e.monthlySalary) > 0).map((e) => e.id),
-    )
+    // Оклад-твин создаём для реального окладника (monthlySalary>0) НЕЗАВИСИМО от kind:
+    // раньше твин требовал kind='salary', но основной диалог выплаты («Выплатить
+    // остатки» из карточки) kind не шлёт → оклад не попадал в ОПИУ. Твин считается по
+    // потолку «оклад + премии − штрафы» за период (см. syncOkladTwinsForEmployeePeriod):
+    // сделочная часть выплаты совмещающего отсекается потолком и не задваивается.
+    const empById = new Map(employees.map((e) => [e.id, e]))
+    const anyOkladnik = employees.some((e) => Number(e.monthlySalary) > 0)
     // Категорию оклад-расхода резолвим ДО money-транзакции (гонку партиал-UNIQUE
     // безопасно перехватить только вне tx — см. getOkladCategoryId).
-    const willCreateTwins = data.kind === "salary" && data.items.some((it) => okladEmpIds.has(it.employeeId))
-    const okladCategoryId = willCreateTwins ? await getOkladCategoryId() : null
+    const okladCategoryId = anyOkladnik ? await getOkladCategoryId() : null
 
     const payment = await db.$transaction(async (tx) => {
       let p: { id: string } | null = null
+
+      // Премии/штрафы за период создаём ПЕРВЫМИ — их netAdjustment входит в потолок
+      // оклад-твина (пересинк ниже). Период-уровневые: аннулирование выплаты их не трогает.
+      if (data.adjustments.length > 0) {
+        await tx.salaryAdjustment.createMany({
+          data: data.adjustments.map((a) => ({
+            tenantId,
+            employeeId: a.employeeId,
+            type: a.type,
+            amount: a.amount,
+            periodYear: data.periodYear,
+            periodMonth: data.periodMonth,
+            comment: a.comment,
+            createdBy: employeeId,
+          })),
+        })
+      }
 
       // Выплата (может отсутствовать, если проводят только премию/штраф).
       if (data.items.length > 0) {
@@ -243,45 +259,6 @@ export async function POST(req: NextRequest) {
               comment: it.comment ?? null,
             })),
           })
-
-          // Оклад-выплата → твин-расход(ы) для ОПИУ (accountId=NULL, ДДС их игнорирует).
-          // Только для окладников — см. okladEmpIds выше.
-          if (data.kind === "salary" && okladEmpIds.has(empId) && okladCategoryId) {
-            const twins = buildOkladTwinExpenses({
-              tenantId,
-              categoryId: okladCategoryId,
-              salaryPaymentId: created.id,
-              date: new Date(data.date),
-              recognitionMode: data.recognitionMode,
-              amortizationStartDate: data.amortizationStartDate ? new Date(data.amortizationStartDate) : null,
-              amortizationMonths: data.amortizationMonths ?? null,
-              createdBy: employeeId ?? null,
-              items: empItems.map((it) => ({ directionId: it.directionId ?? null, amount: it.amount })),
-            })
-            for (const t of twins) {
-              const exp = await tx.expense.create({
-                data: {
-                  tenantId: t.tenantId,
-                  categoryId: t.categoryId,
-                  accountId: null,
-                  amount: t.amount,
-                  date: t.date,
-                  recognitionMode: t.recognitionMode,
-                  amortizationStartDate: t.amortizationStartDate,
-                  amortizationMonths: t.amortizationMonths,
-                  isVariable: false,
-                  salaryPaymentId: t.salaryPaymentId,
-                  createdBy: t.createdBy,
-                },
-                select: { id: true },
-              })
-              if (t.directionId) {
-                await tx.expenseBranch.create({
-                  data: { tenantId, expenseId: exp.id, branchId: null, directionId: t.directionId },
-                })
-              }
-            }
-          }
         }
 
         // Списываем суммы со счетов (агрегируем по счёту, чтобы не дёргать update N раз).
@@ -294,22 +271,27 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Премии/штрафы за период (атомарно с выплатой). Это период-уровневые
-      // начисления, НЕ привязанные к конкретной выплате: аннулирование выплаты их
-      // не трогает (штраф-депремирование дисциплинарный и не должен «возвращаться»).
-      if (data.adjustments.length > 0) {
-        await tx.salaryAdjustment.createMany({
-          data: data.adjustments.map((a) => ({
+      // Оклад-твин(ы) — ПОСЛЕ создания всех выплат И премий/штрафов периода (чтобы
+      // сумма выплат и netAdjustment были полными). Пересинк per-period для каждого
+      // затронутого окладника (из выплат ИЛИ премий/штрафов); accountId=NULL → только ОПИУ.
+      if (okladCategoryId) {
+        const okladnikToResync = new Set(
+          [...data.items.map((i) => i.employeeId), ...data.adjustments.map((a) => a.employeeId)]
+            .filter((id) => Number(empById.get(id)?.monthlySalary ?? 0) > 0),
+        )
+        for (const empId of okladnikToResync) {
+          const emp = empById.get(empId)!
+          await syncOkladTwinsForEmployeePeriod(tx, {
             tenantId,
-            employeeId: a.employeeId,
-            type: a.type,
-            amount: a.amount,
+            employeeId: empId,
+            monthlySalary: Number(emp.monthlySalary),
+            defaultDirectionId: emp.defaultDirectionId ?? null,
             periodYear: data.periodYear,
             periodMonth: data.periodMonth,
-            comment: a.comment,
-            createdBy: employeeId,
-          })),
-        })
+            okladCategoryId,
+            createdBy: employeeId ?? null,
+          })
+        }
       }
 
       return p
@@ -352,9 +334,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
 
-  // Твин только для реального окладника (monthlySalary>0). Категорию резолвим до tx.
-  const legacyWillTwin = data.kind === "salary" && Number(employee.monthlySalary) > 0
-  const legacyOkladCategoryId = legacyWillTwin ? await getOkladCategoryId() : null
+  // Твин только для реального окладника (monthlySalary>0), kind-независимо. Категорию
+  // резолвим до tx (гонку партиал-UNIQUE ловим только вне tx — см. getOkladCategoryId).
+  const legacyIsOkladnik = Number(employee.monthlySalary) > 0
+  const legacyOkladCategoryId = legacyIsOkladnik ? await getOkladCategoryId() : null
 
   const payment = await db.$transaction(async (tx) => {
     const p = await tx.salaryPayment.create({
@@ -391,31 +374,19 @@ export async function POST(req: NextRequest) {
     })
 
     // Оклад-выплата → твин-расход для ОПИУ (accountId=NULL). Направление — из карточки
-    // сотрудника (простой диалог направление не передаёт). Твин только для реального
-    // окладника (monthlySalary>0) — иначе сделочная выплата с kind=salary задвоила бы
-    // сделку в ОПИУ.
-    if (legacyWillTwin && legacyOkladCategoryId) {
-      const exp = await tx.expense.create({
-        data: {
-          tenantId,
-          categoryId: legacyOkladCategoryId,
-          accountId: null,
-          amount: data.amount,
-          date: new Date(data.date),
-          recognitionMode: data.recognitionMode,
-          amortizationStartDate: data.amortizationStartDate ? new Date(data.amortizationStartDate) : null,
-          amortizationMonths: data.amortizationMonths ?? null,
-          isVariable: false,
-          salaryPaymentId: p.id,
-          createdBy: employeeId ?? null,
-        },
-        select: { id: true },
+    // сотрудника. Пересинк per-period: потолок «оклад + премии − штрафы» отсекает
+    // сделочную часть совмещающего (см. syncOkladTwinsForEmployeePeriod).
+    if (legacyIsOkladnik && legacyOkladCategoryId) {
+      await syncOkladTwinsForEmployeePeriod(tx, {
+        tenantId,
+        employeeId: data.employeeId,
+        monthlySalary: Number(employee.monthlySalary),
+        defaultDirectionId: employee.defaultDirectionId ?? null,
+        periodYear: data.periodYear,
+        periodMonth: data.periodMonth,
+        okladCategoryId: legacyOkladCategoryId,
+        createdBy: employeeId ?? null,
       })
-      if (employee.defaultDirectionId) {
-        await tx.expenseBranch.create({
-          data: { tenantId, expenseId: exp.id, branchId: null, directionId: employee.defaultDirectionId },
-        })
-      }
     }
 
     await tx.financialAccount.update({

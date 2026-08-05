@@ -5,7 +5,7 @@ import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { z } from "zod"
-import { buildOkladTwinExpenses } from "@/lib/salary/oklad-twin"
+import { syncOkladTwinsForEmployeePeriod } from "@/lib/salary/sync-oklad-twin"
 import { getOkladCategoryId } from "@/lib/salary/oklad-category"
 
 // Правка выплаты: заменяет строки выплаты целиком (по направлениям/счетам), чтобы
@@ -43,7 +43,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const payment = await db.salaryPayment.findFirst({
     where: { id, tenantId },
     select: {
-      id: true, accountId: true, amount: true, periodYear: true, periodMonth: true,
+      id: true, employeeId: true, accountId: true, amount: true, periodYear: true, periodMonth: true,
+      employee: { select: { monthlySalary: true, defaultDirectionId: true } },
       items: { select: { accountId: true, amount: true } },
     },
   })
@@ -52,6 +53,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (await isPeriodLocked(tenantId, new Date(Date.UTC(payment.periodYear, payment.periodMonth - 1, 1)), g.role)) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
+
+  // Окладнику после удаления пересобираем твин по ОСТАВШИМСЯ выплатам периода
+  // (если удалили выплату, державшую потолок — сосед должен подхватить). Категорию
+  // резолвим ДО money-tx.
+  const isOkladnik = Number(payment.employee?.monthlySalary ?? 0) > 0
+  const okladCategoryId = isOkladnik ? await getOkladCategoryId() : null
 
   await db.$transaction(async (tx) => {
     // Вернуть деньги на счета по ФАКТИЧЕСКИМ позициям (выплата может быть разнесена
@@ -67,6 +74,20 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     // Премии/штрафы (SalaryAdjustment) — период-уровневые, аннулом НЕ трогаются.
     // Явно удаляем шапку выплаты.
     await tx.salaryPayment.delete({ where: { id: payment.id } })
+
+    // Пересобрать оклад-твин по оставшимся выплатам периода (0 выплат → 0 твинов).
+    if (isOkladnik && okladCategoryId) {
+      await syncOkladTwinsForEmployeePeriod(tx, {
+        tenantId,
+        employeeId: payment.employeeId,
+        monthlySalary: Number(payment.employee?.monthlySalary ?? 0),
+        defaultDirectionId: payment.employee?.defaultDirectionId ?? null,
+        periodYear: payment.periodYear,
+        periodMonth: payment.periodMonth,
+        okladCategoryId,
+        createdBy: actor ?? null,
+      })
+    }
   })
 
   logAudit({
@@ -92,7 +113,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     where: { id, tenantId },
     select: {
       id: true, employeeId: true, accountId: true, amount: true, periodYear: true, periodMonth: true,
-      opiuExpenses: { select: { id: true } },
+      employee: { select: { monthlySalary: true, defaultDirectionId: true } },
       items: { select: { accountId: true, amount: true } },
     },
   })
@@ -114,10 +135,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (accounts.length !== accountIds.length) return NextResponse.json({ error: "Один или несколько счетов не найдены" }, { status: 404 })
   if (directions.length !== directionIds.length) return NextResponse.json({ error: "Одно или несколько направлений не найдены" }, { status: 404 })
 
-  // Была ли выплата оклад-типа (есть твин) — тогда пересоздаём твин. Категорию
-  // резолвим ДО money-транзакции.
-  const isSalary = payment.opiuExpenses.length > 0
-  const okladCategoryId = isSalary ? await getOkladCategoryId() : null
+  // Пересчитываем оклад-твин по факту окладника (monthlySalary>0), а не по наличию
+  // прежнего твина — иначе правка выплаты окладника, заведённой без твина (через
+  // карточку/сделочную вкладку), его бы не создала. Категорию резолвим ДО money-tx.
+  const isOkladnik = Number(payment.employee?.monthlySalary ?? 0) > 0
+  const okladCategoryId = isOkladnik ? await getOkladCategoryId() : null
   const newAmount = data.items.reduce((s, it) => s + it.amount, 0)
 
   await db.$transaction(async (tx) => {
@@ -154,30 +176,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })),
     })
 
-    // Пересоздать твин(ы) по направлениям (только если выплата оклад-типа).
-    await tx.expense.deleteMany({ where: { salaryPaymentId: payment.id } })
-    if (isSalary && okladCategoryId) {
-      const twins = buildOkladTwinExpenses({
-        tenantId, categoryId: okladCategoryId, salaryPaymentId: payment.id, date: new Date(data.date),
-        recognitionMode: data.recognitionMode,
-        amortizationStartDate: data.amortizationStartDate ? new Date(data.amortizationStartDate) : null,
-        amortizationMonths: data.amortizationMonths ?? null,
+    // Пересобрать оклад-твин по потолку «оклад + премии − штрафы» за период. Окладнику
+    // — per-period ресинк (сам сносит прежние твины периода и создаёт один); не
+    // окладнику — просто снести возможный устаревший твин этой выплаты.
+    if (isOkladnik && okladCategoryId) {
+      await syncOkladTwinsForEmployeePeriod(tx, {
+        tenantId,
+        employeeId: payment.employeeId,
+        monthlySalary: Number(payment.employee?.monthlySalary ?? 0),
+        defaultDirectionId: payment.employee?.defaultDirectionId ?? null,
+        periodYear: payment.periodYear,
+        periodMonth: payment.periodMonth,
+        okladCategoryId,
         createdBy: actor ?? null,
-        items: data.items.map((it) => ({ directionId: it.directionId ?? null, amount: it.amount })),
       })
-      for (const t of twins) {
-        const exp = await tx.expense.create({
-          data: {
-            tenantId, categoryId: t.categoryId, accountId: null, amount: t.amount, date: t.date,
-            recognitionMode: t.recognitionMode, amortizationStartDate: t.amortizationStartDate, amortizationMonths: t.amortizationMonths,
-            isVariable: false, salaryPaymentId: t.salaryPaymentId, createdBy: t.createdBy,
-          },
-          select: { id: true },
-        })
-        if (t.directionId) {
-          await tx.expenseBranch.create({ data: { tenantId, expenseId: exp.id, branchId: null, directionId: t.directionId } })
-        }
-      }
+    } else {
+      await tx.expense.deleteMany({ where: { salaryPaymentId: payment.id } })
     }
   })
 
