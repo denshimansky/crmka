@@ -70,7 +70,7 @@ export async function GET(
     }),
     db.salaryPaymentItem.findMany({
       where: { tenantId, employeeId, salaryPayment: { periodYear, periodMonth } },
-      select: { directionId: true, amount: true },
+      select: { directionId: true, amount: true, direction: { select: { name: true } } },
     }),
     db.financialAccount.findMany({
       where: { tenantId, deletedAt: null },
@@ -93,7 +93,11 @@ export async function GET(
   const detail = buildInstructorSalaryDetail({
     attendances: attInput,
     adjustments: adjustments.map((a) => ({ type: a.type as "bonus" | "penalty", amount: Number(a.amount) })),
-    paymentItems: paymentItems.map((p) => ({ directionId: p.directionId, amount: Number(p.amount) })),
+    paymentItems: paymentItems.map((p) => ({
+      directionId: p.directionId,
+      amount: Number(p.amount),
+      directionName: p.direction?.name ?? null,
+    })),
     salaried: employee.monthlySalary && Number(employee.monthlySalary) > 0
       ? {
           monthlySalary: Number(employee.monthlySalary),

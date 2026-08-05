@@ -28,11 +28,6 @@ import { CheckCircle2, Loader2, Users, UserCheck, X } from "lucide-react"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { useRoleNames } from "@/components/role-names-provider"
 
-interface AbsenceReasonData {
-  id: string
-  name: string
-}
-
 interface MakeupResolvedInfo {
   attendanceId: string
   /** lessonId занятия, на котором отработка была проведена — клик ведёт сюда. */
@@ -254,7 +249,6 @@ interface AttendanceTableProps {
   trialStudents?: TrialStudentData[]
   attendanceTypes: AttendanceTypeData[]
   salaryRate: SalaryRateData | null
-  absenceReasons?: AbsenceReasonData[]
   instructorName?: string
   substituteInstructorId?: string | null
   substituteInstructorName?: string | null
@@ -283,7 +277,6 @@ export function AttendanceTable({
   trialStudents: initialTrialStudents = [],
   attendanceTypes,
   salaryRate,
-  absenceReasons = [],
   instructorName,
   substituteInstructorId: initSubstituteId,
   substituteInstructorName: initSubstituteName,
@@ -611,41 +604,6 @@ export function AttendanceTable({
     return type ? type.paysInstructor : true
   }
 
-  // Save absence reason
-  async function saveAbsenceReason(student: StudentData, absenceReasonId: string | null) {
-    if (!student.attendance) return
-    try {
-      await fetch(`/api/lessons/${lessonId}/attendance`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          attendanceId: student.attendance.id,
-          absenceReasonId,
-        }),
-      })
-      // Update local state
-      const updateFn = (prev: StudentData[]) =>
-        prev.map((s) =>
-          s.enrollmentId === student.enrollmentId && s.attendance
-            ? { ...s, attendance: { ...s.attendance, absenceReasonId } }
-            : s
-        )
-      if (student.isMakeup) {
-        setMakeupStudents(updateFn)
-      } else {
-        setStudents(updateFn)
-      }
-    } catch {
-      // silently fail
-    }
-  }
-
-  // Check if attendance type is "absent" (no charge, no instructor pay)
-  function isAbsentType(attendanceTypeId: string): boolean {
-    const type = attendanceTypes.find((t) => t.id === attendanceTypeId)
-    return !!type && !type.chargesSubscription && !type.paysInstructor
-  }
-
   // Summary calculations — include makeup students
   const markedStudents = allStudents.filter((s) => s.attendance)
   const unmarkedStudents = allStudents.filter((s) => !s.attendance)
@@ -816,9 +774,6 @@ export function AttendanceTable({
               </SelectContent>
             </Select>
           )}
-        </TableCell>
-        <TableCell>
-          <span className="text-muted-foreground">{"—"}</span>
         </TableCell>
         <TableCell className="text-right">
           <span className="text-muted-foreground">{"—"}</span>
@@ -1035,35 +990,6 @@ export function AttendanceTable({
             </Select>
           )}
         </TableCell>
-        <TableCell>
-          {student.attendance &&
-           isAbsentType(student.attendance.attendanceTypeId) &&
-           absenceReasons.length > 0 ? (
-            <Select
-              value={student.attendance.absenceReasonId || ""}
-              onValueChange={(val) =>
-                saveAbsenceReason(student, val || null)
-              }
-            >
-              <SelectTrigger className="w-full text-xs">
-                {student.attendance.absenceReasonId
-                  ? absenceReasons.find(
-                      (r) => r.id === student.attendance?.absenceReasonId
-                    )?.name || "\u2014"
-                  : <span className="text-muted-foreground">Причина</span>}
-              </SelectTrigger>
-              <SelectContent>
-                {absenceReasons.map((r) => (
-                  <SelectItem key={r.id} value={r.id}>
-                    {r.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <span className="text-muted-foreground">{"\u2014"}</span>
-          )}
-        </TableCell>
         <TableCell className="text-right">
           {student.attendance
             ? formatMoney(student.attendance.chargeAmount)
@@ -1225,7 +1151,6 @@ export function AttendanceTable({
                   <TableRow>
                     <TableHead className="w-[200px]">Ученик</TableHead>
                     <TableHead className="w-[180px]">Тип дня</TableHead>
-                    <TableHead className="w-[150px]">Причина</TableHead>
                     <TableHead className="w-[120px] text-right">Списание</TableHead>
                     <TableHead className="w-[120px] text-right">ЗП инструктора</TableHead>
                     <TableHead className="w-[80px] text-center">Оплата инструктору</TableHead>

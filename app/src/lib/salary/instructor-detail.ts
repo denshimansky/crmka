@@ -7,6 +7,8 @@
 // строку «Премии−штрафы» (paidNoDirection). Окладник добавляется строкой по
 // defaultDirection: accrued = оклад, accruedFirstHalf = половина оклада.
 
+import { allocateSalaryPayments, NO_DIR } from "./allocate-payments"
+
 export interface AttendanceInput {
   lessonId: string
   date: Date
@@ -25,6 +27,9 @@ export interface AdjustmentInput {
 export interface PaymentItemInput {
   directionId: string | null
   amount: number
+  // Имя направления выплаты — нужно, чтобы показать осиротевшие выплаты (по
+  // направлению без начислений в периоде) отдельной строкой с названием.
+  directionName?: string | null
 }
 
 export interface SalariedInput {
@@ -75,7 +80,6 @@ export interface InstructorSalaryDetail {
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
-const NO_DIR = "__no_direction__"
 
 export function buildInstructorSalaryDetail(params: {
   attendances: AttendanceInput[]
@@ -109,6 +113,11 @@ export function buildInstructorSalaryDetail(params: {
     acc.accruedFirstHalf += salaried.monthlySalary / 2
   }
 
+  // --- Корректировки (нужны до аллокации: премии гасятся выплатой раньше оклада) ---
+  const bonuses = adjustments.filter((a) => a.type === "bonus").reduce((s, a) => s + a.amount, 0)
+  const penalties = adjustments.filter((a) => a.type === "penalty").reduce((s, a) => s + a.amount, 0)
+  const net = bonuses - penalties
+
   // --- Выплаты: per-direction и без направления ---
   const paidByDir = new Map<string, number>()
   let paidNoDirection = 0
@@ -117,11 +126,29 @@ export function buildInstructorSalaryDetail(params: {
     else paidByDir.set(it.directionId, (paidByDir.get(it.directionId) || 0) + it.amount)
   }
 
+  // Аллокация выплат по строкам начислений (общий helper — та же логика в
+  // api/salary-payments/accruals): прямые по направлению; выплаты без направления
+  // гасят строку оклада (по defaultDirectionId, в т.ч. null) и прочие null-начисления;
+  // излишек → «Премии−штрафы»; осиротевшие направленческие выплаты (нет начисления
+  // в периоде) выносятся отдельными строками, чтобы сходился остаток.
+  const alloc = allocateSalaryPayments({
+    accruals: Array.from(byDir.values()).map((a) => ({ directionId: a.directionId, accrued: a.accrued })),
+    paidByDir,
+    paidNoDirection,
+    okladDirectionId: salaried && salaried.monthlySalary > 0 ? salaried.defaultDirectionId : undefined,
+    netAdjustment: net,
+  })
+  const adjPaidNoDirection = alloc.adjPaidNoDirection
+
+  // Имена направлений выплат (для осиротевших строк) — из paymentItems.
+  const dirNameById = new Map<string, string>()
+  for (const it of paymentItems) {
+    if (it.directionId && it.directionName) dirNameById.set(it.directionId, it.directionName)
+  }
+
   const byDirection: DirectionDetail[] = Array.from(byDir.values())
-    .map((a) => {
-      // null-направление (оклад без defaultDirection) в byDirection всегда paid=0:
-      // выплаты без направления учитываются в блоке adjustments.paidNoDirection.
-      const paid = a.directionId == null ? 0 : (paidByDir.get(a.directionId) || 0)
+    .map((a): DirectionDetail => {
+      const paid = alloc.paidByRow.get(a.directionId ?? NO_DIR) || 0
       return {
         directionId: a.directionId,
         directionName: a.directionName,
@@ -132,12 +159,20 @@ export function buildInstructorSalaryDetail(params: {
         lessonCount: a.lessons.size,
       }
     })
+    // #3: осиротевшие направленческие выплаты (нет начисления в периоде) —
+    // отдельной строкой (accrued=0, remaining=−paid), чтобы Σ остатков сходилась.
+    .concat(
+      alloc.orphans.map((o): DirectionDetail => ({
+        directionId: o.directionId,
+        directionName: dirNameById.get(o.directionId) ?? "Направление вне периода",
+        accrued: 0,
+        accruedFirstHalf: 0,
+        paid: r2(o.paid),
+        remaining: r2(-o.paid),
+        lessonCount: 0,
+      })),
+    )
     .sort((x, y) => y.accrued - x.accrued)
-
-  // --- Корректировки ---
-  const bonuses = adjustments.filter((a) => a.type === "bonus").reduce((s, a) => s + a.amount, 0)
-  const penalties = adjustments.filter((a) => a.type === "penalty").reduce((s, a) => s + a.amount, 0)
-  const net = bonuses - penalties
 
   // --- Занятия (per-lesson) ---
   type L = { lessonId: string; date: Date; groupName: string; directionId: string | null; directionName: string; typeName: string; studentsCharged: number; amount: number }
@@ -177,8 +212,10 @@ export function buildInstructorSalaryDetail(params: {
       bonuses: r2(bonuses),
       penalties: r2(penalties),
       net: r2(net),
-      paidNoDirection: r2(paidNoDirection),
-      remaining: r2(net - paidNoDirection),
+      // Выплаты без направления сверх оклада/null-начислений — то, что относится
+      // к премиям (оклад уже поглотил свою часть в byDirection выше).
+      paidNoDirection: r2(adjPaidNoDirection),
+      remaining: r2(net - adjPaidNoDirection),
     },
     lessons,
     totals: {

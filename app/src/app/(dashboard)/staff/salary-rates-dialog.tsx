@@ -321,8 +321,8 @@ export function SalaryRatesDialog({
                 <div className="space-y-2 rounded-md border p-3">
                   <div className="text-sm font-medium">Оклад</div>
                   <p className="text-xs text-muted-foreground">
-                    Фиксированный месячный оклад. Подтягивается в «Документ выплаты ЗП (оклады)»
-                    по кнопке «Заполнить». Оставьте пустым, если оклада нет.
+                    Фиксированный месячный оклад. Попадает в «Начислено» на странице
+                    «Зарплата» → вкладка «Оклады». Оставьте пустым, если оклада нет.
                   </p>
                   {okladError && (
                     <div className="rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">{okladError}</div>

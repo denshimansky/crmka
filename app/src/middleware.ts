@@ -38,6 +38,13 @@ export default withAuth(
       return NextResponse.next({ request: { headers: requestHeaders } })
     }
 
+    // Страница «Документ выплаты ЗП» (/salary/payments/new) временно отключена:
+    // блокируем прямой заход по URL (UI-кнопка «Документ выплат» на /salary тоже
+    // убрана). Чтобы вернуть страницу — удалить этот редирект и вернуть кнопку.
+    if (pathname === "/salary/payments/new") {
+      return NextResponse.redirect(new URL("/salary", req.url))
+    }
+
     // Проверяем billingStatus из JWT-токена
     const billingStatus = token.billingStatus as string | undefined
 

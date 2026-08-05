@@ -8,8 +8,6 @@ import { Banknote, TrendingUp, TrendingDown, Users, ChevronRight } from "lucide-
 import Link from "next/link"
 import { PaySalaryDialog } from "./pay-salary-dialog"
 import { SalaryCorrections } from "./salary-corrections"
-import { Button } from "@/components/ui/button"
-import { FileText } from "lucide-react"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { PageHelp } from "@/components/page-help"
@@ -205,12 +203,6 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
           />
         </div>
         <div className="flex items-center gap-2">
-          <Link href={`/salary/payments/new?year=${year}&month=${month}&kind=${activeTab === "salary" ? "salary" : "piece"}`}>
-            <Button variant="outline">
-              <FileText className="mr-2 size-4" />
-              Документ выплат
-            </Button>
-          </Link>
           <PaySalaryDialog
             employees={displayRows.map(r => ({ id: r.id, name: r.name, remaining: r.remaining }))}
             accounts={accounts}

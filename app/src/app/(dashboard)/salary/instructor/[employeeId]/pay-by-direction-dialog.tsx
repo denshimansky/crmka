@@ -10,6 +10,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { Banknote } from "lucide-react"
 import { useCurrencySymbol } from "@/components/currency-provider"
+import { capPresetsToBudget } from "@/lib/salary/allocate-payments"
 import type { InstructorDetailData } from "./instructor-detail-client"
 
 const NO_DIR = "__no_direction__"
@@ -47,7 +48,13 @@ export function PayByDirectionDialog({
 
   // Пересобираем строки при открытии — пресет по режиму.
   function buildRows(): Row[] {
-    const dirRows: Row[] = data.byDirection.map((d) => {
+    // Осиротевшие строки (accrued=0, remaining<0 — переплата по направлению без
+    // начислений в периоде) в модалку выплаты не выносим: платить по ним нечего,
+    // а галочка/сумма создавали бы аффорданс новой переплаты. Пакетный документ
+    // такие строки тоже пропускает (new/page.tsx). На инвариант карточки не влияет.
+    const dirRows: Row[] = data.byDirection
+      .filter((d) => !(d.accrued === 0 && d.remaining < 0))
+      .map((d) => {
       const preset = mode === "advance"
         ? Math.max(0, d.accruedFirstHalf - d.paid)
         : Math.max(0, d.remaining)
@@ -72,6 +79,19 @@ export function PayByDirectionDialog({
         preset: Math.round(preset * 100) / 100,
         checked: preset > 0,
         amount: String(Math.round(preset * 100) / 100),
+      })
+    }
+    // #2: в режиме «Выплатить остатки» ограничиваем суммарный пресет общим остатком
+    // сотрудника (как в пакетном документе new/page.tsx). Иначе депремирование (net<0)
+    // или переплата по направлению не вычитаются построчным max(0,·), и дефолтная
+    // «Итого к выплате» завышается — молчаливая переплата. Каскад: направления
+    // (по убыванию начисления), затем «Премии − штрафы».
+    if (mode === "remainder") {
+      const capped = capPresetsToBudget(dirRows.map((r) => r.preset), data.totals.remaining)
+      dirRows.forEach((r, i) => {
+        r.preset = capped[i]
+        r.amount = String(capped[i])
+        r.checked = capped[i] > 0
       })
     }
     return dirRows

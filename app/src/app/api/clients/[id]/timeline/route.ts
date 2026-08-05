@@ -331,6 +331,21 @@ export async function GET(
     }
   }
 
+  // Свободные комментарии оператора к занятиям (lesson_student_notes) — вводятся в
+  // реестре «Пропуски» и встраиваются в событие «посещение» истории. Ключ —
+  // (занятие, подопечный) для этого клиента (wardId || "" — как и прочие ключи).
+  const attLessonIds = Array.from(new Set(attendances.map((a) => a.lessonId)))
+  const lessonNotes = attLessonIds.length > 0
+    ? await db.lessonStudentNote.findMany({
+        where: { tenantId, clientId, lessonId: { in: attLessonIds } },
+        select: { lessonId: true, wardId: true, comment: true },
+      })
+    : []
+  const lessonNoteMap = new Map<string, string>()
+  for (const n of lessonNotes) {
+    lessonNoteMap.set(`${n.lessonId}|${n.wardId || ""}`, n.comment)
+  }
+
   const events: TimelineEvent[] = []
 
   // --- Коммуникации
@@ -678,6 +693,8 @@ export async function GET(
     const directionName = a.lesson.group?.direction?.name
     // На карточке ребёнка (ward-режим) имя подопечного избыточно.
     const attWardName = !wardId && a.wardId ? wardNameById.get(a.wardId) || null : null
+    // Свободный комментарий из реестра «Пропуски» — встраиваем в запись посещения.
+    const attNote = lessonNoteMap.get(`${a.lessonId}|${a.wardId || ""}`) ?? null
     events.push({
       id: `att-${a.id}`,
       kind: ATT_CODE_KIND[code] || "attendance_other",
@@ -688,6 +705,7 @@ export async function GET(
         groupName ? `группа: ${groupName}` : null,
         attWardName ? `подопечный: ${attWardName}` : null,
         a.absenceReason ? `причина: ${a.absenceReason.name}` : null,
+        attNote ? `комментарий: ${attNote}` : null,
       ]
         .filter(Boolean)
         .join(" · "),
