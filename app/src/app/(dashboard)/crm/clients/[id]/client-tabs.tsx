@@ -1068,11 +1068,20 @@ function SubscriptionsTab({ clientId, wards, perSubDiscountMode }: { clientId: s
 
 // ===== Payments Tab =====
 
-function PaymentsTab({ clientId }: { clientId: string }) {
+interface BalanceTxnRow {
+  id: string
+  type: string
+  label: string
+  amount: number
+  date: string
+  detail: string
+}
+
+function BalanceOperationsTab({ clientId }: { clientId: string }) {
   const formatMoney = useMoneyFormat()
   const router = useRouter()
-  const [payments, setPayments] = useState<Payment[]>([])
-  const [loadingPayments, setLoadingPayments] = useState(true)
+  const [txns, setTxns] = useState<BalanceTxnRow[]>([])
+  const [loadingTxns, setLoadingTxns] = useState(true)
   const [showRefund, setShowRefund] = useState(false)
   const [refundLoading, setRefundLoading] = useState(false)
   const [refundError, setRefundError] = useState<string | null>(null)
@@ -1095,15 +1104,15 @@ function PaymentsTab({ clientId }: { clientId: string }) {
     { value: "sbp_qr", label: "СБП" },
   ]
 
-  const loadPayments = useCallback(async () => {
+  const loadTxns = useCallback(async () => {
     try {
-      const res = await fetch(`/api/payments?clientId=${clientId}`)
-      if (res.ok) setPayments(await res.json())
+      const res = await fetch(`/api/clients/${clientId}/balance-transactions`)
+      if (res.ok) setTxns(await res.json())
     } catch { /* ignore */ }
-    finally { setLoadingPayments(false) }
+    finally { setLoadingTxns(false) }
   }, [clientId])
 
-  useEffect(() => { loadPayments() }, [loadPayments])
+  useEffect(() => { loadTxns() }, [loadTxns])
 
   async function openRefundDialog() {
     setShowRefund(true)
@@ -1168,7 +1177,7 @@ function PaymentsTab({ clientId }: { clientId: string }) {
         return
       }
       setShowRefund(false)
-      loadPayments()
+      loadTxns()
       router.refresh()
     } catch {
       setRefundError("Ошибка сети")
@@ -1186,7 +1195,7 @@ function PaymentsTab({ clientId }: { clientId: string }) {
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Списания с баланса ({payments.length})</CardTitle>
+          <CardTitle className="text-base">Операции с балансом ({txns.length})</CardTitle>
           <Button variant="outline" size="sm" onClick={openRefundDialog}>
             <Undo2 className="mr-1 size-3.5" />
             Возврат
@@ -1194,67 +1203,41 @@ function PaymentsTab({ clientId }: { clientId: string }) {
         </div>
       </CardHeader>
       <CardContent>
-        {loadingPayments ? (
+        {loadingTxns ? (
           <p className="text-sm text-muted-foreground py-4 text-center">Загрузка...</p>
-        ) : payments.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">Нет списаний с баланса</p>
+        ) : txns.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">Нет операций с балансом</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Дата</TableHead>
-                <TableHead>Назначение</TableHead>
+                <TableHead>Операция</TableHead>
                 <TableHead className="text-right">Сумма</TableHead>
-                <TableHead>Способ</TableHead>
-                <TableHead>Счёт</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {payments.map((p) => {
-                const amt = Number(p.amount)
-                const isRefund = p.type === "refund" || amt < 0
-                const isTransfer = p.type === "transfer_in"
-                // Виртуальные проводки (списание с баланса, перенос между
-                // абонементами) не двигают деньги по кассам — способ и счёт
-                // у них фиктивные, не показываем.
-                const isVirtual =
-                  isTransfer ||
-                  (isRefund && amt < 0 && !!p.comment?.startsWith("Перенос"))
-                const subInfo = p.subscription
-                  ? `${p.subscription.direction.name} (${String(p.subscription.periodMonth).padStart(2, "0")}.${p.subscription.periodYear})`
-                  : p.comment || "—"
+              {txns.map((t) => {
+                // amount &gt;= 0 — приход на баланс (зелёный «+»), &lt; 0 — списание (красный «−»).
+                const credit = t.amount >= 0
                 return (
-                  <TableRow key={p.id} className={isRefund ? "bg-red-50/50 dark:bg-red-950/10" : isTransfer ? "bg-blue-50/50 dark:bg-blue-950/10" : undefined}>
-                    <TableCell className="text-muted-foreground">{formatDate(p.date)}</TableCell>
+                  <TableRow key={t.id} className={credit ? undefined : "bg-red-50/40 dark:bg-red-950/10"}>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(t.date)}</TableCell>
                     <TableCell>
-                      {subInfo}
-                      {isRefund && !isTransfer && amt < 0 && p.comment?.startsWith("Перенос") ? (
-                        <Badge variant="outline" className="ml-2 text-[10px] px-1.5 py-0 border-blue-300 text-blue-700 dark:text-blue-400">Перенос</Badge>
-                      ) : isRefund ? (
-                        <Badge variant="destructive" className="ml-2 text-[10px] px-1.5 py-0">Возврат</Badge>
-                      ) : null}
-                      {isTransfer && (
-                        <Badge variant="outline" className="ml-2 text-[10px] px-1.5 py-0 border-blue-300 text-blue-700 dark:text-blue-400">Перенос</Badge>
-                      )}
+                      <div className="font-medium">{t.label}</div>
+                      {t.detail && <div className="text-xs text-muted-foreground">{t.detail}</div>}
                     </TableCell>
-                    <TableCell className={`text-right font-medium ${isRefund ? "text-red-600" : isTransfer ? "text-blue-600" : "text-green-600"}`}>
-                      {isRefund ? `−${formatMoney(Math.abs(amt))}` : formatMoney(amt)}
-                    </TableCell>
-                    <TableCell>
-                      {isVirtual ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <Badge variant="outline">{METHOD_LABELS[p.method] || p.method}</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {isVirtual ? "—" : p.account.name}
+                    <TableCell className={`whitespace-nowrap text-right font-medium ${credit ? "text-green-600" : "text-red-600"}`}>
+                      {credit ? "+" : "−"}{formatMoney(Math.abs(t.amount))}
                     </TableCell>
                   </TableRow>
                 )
               })}
             </TableBody>
           </Table>
+        )}
+        {txns.length === 300 && (
+          <p className="pt-3 text-center text-xs text-muted-foreground">Показаны последние 300 операций</p>
         )}
       </CardContent>
 
@@ -2186,7 +2169,7 @@ export function ClientTabs({
         <TabsList variant="line">
           <TabsTrigger value="wards">Подопечные</TabsTrigger>
           <TabsTrigger value="subscriptions">Абонементы</TabsTrigger>
-          <TabsTrigger value="payments">Списания с баланса</TabsTrigger>
+          <TabsTrigger value="payments">Операции с балансом</TabsTrigger>
           <TabsTrigger value="schedule">Расписание</TabsTrigger>
           <TabsTrigger value="attendance">Посещения</TabsTrigger>
           <TabsTrigger value="communications">Коммуникации</TabsTrigger>
@@ -2238,7 +2221,7 @@ export function ClientTabs({
       </TabsContent>
 
       <TabsContent value="payments">
-        <PaymentsTab clientId={clientId} />
+        <BalanceOperationsTab clientId={clientId} />
       </TabsContent>
 
       <TabsContent value="schedule">
