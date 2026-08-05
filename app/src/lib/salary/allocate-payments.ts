@@ -6,11 +6,13 @@
 // Правила:
 //  1. Прямые выплаты по направлению (directionId != null) гасят начисление
 //     своего направления.
-//  2. Выплаты без направления (directionId == null) гасят СНАЧАЛА строку оклада
-//     (по okladDirectionId — направлению оклада окладника, в т.ч. null), затем
-//     каскадом прочие null-направленческие начисления; излишек → «Премии−штрафы»
-//     (adjPaidNoDirection). Так аванс окладника уменьшает остаток строки оклада,
-//     где бы она ни была (с направлением или без), а не «теряется».
+//  2. Выплаты без направления (directionId == null) гасят СНАЧАЛА уже выплаченные
+//     премии (ёмкость = max(0, netAdjustment)) — премию окладника платят именно
+//     строкой без направления, и её нельзя засчитывать в оклад; затем строку оклада
+//     (по okladDirectionId — направлению оклада, в т.ч. null) и каскадом прочие
+//     null-начисления; излишек → «Премии−штрафы» (adjPaidNoDirection). Так аванс
+//     окладника уменьшает остаток строки оклада (с направлением или без), а
+//     выплаченная премия — остаток премий, а не «теряется» и не задваивается.
 //  3. Направленческие выплаты по направлению БЕЗ начислений в периоде (осиротевшие
 //     — например, занятие удалено/перенесено после выплаты) не привязываются ни к
 //     одной строке начислений — возвращаются отдельно (orphans), чтобы вызывающий
@@ -35,6 +37,13 @@ export interface AllocInput {
    * (выплаты без направления всё равно каскадят в null-начисления, если они есть).
    */
   okladDirectionId?: string | null
+  /**
+   * Чистая корректировка периода (премии − штрафы). Выплаты без направления сперва
+   * гасят выплаченные премии (max(0, netAdjustment)) и лишь остаток идёт на оклад —
+   * иначе премия окладника с направлением ошибочно засчиталась бы в оклад. По
+   * умолчанию 0 (тогда всё поведение — как поглощение оклад-строкой).
+   */
+  netAdjustment?: number
 }
 
 export interface AllocResult {
@@ -47,7 +56,7 @@ export interface AllocResult {
 }
 
 export function allocateSalaryPayments(input: AllocInput): AllocResult {
-  const { accruals, paidByDir, paidNoDirection, okladDirectionId } = input
+  const { accruals, paidByDir, paidNoDirection, okladDirectionId, netAdjustment = 0 } = input
 
   const accrualKeys = new Set(accruals.map((a) => rowKeyOf(a.directionId)))
   const paidByRow = new Map<string, number>()
@@ -58,8 +67,11 @@ export function allocateSalaryPayments(input: AllocInput): AllocResult {
     paidByRow.set(rowKeyOf(a.directionId), direct)
   }
 
-  // 2. Выплаты без направления: оклад-строка первой, затем прочие null-строки.
+  // 2. Выплаты без направления: сперва гасят выплаченные премии (max(0, net)),
+  //    затем оклад-строку и прочие null-строки; излишек → премии−штрафы.
   let budget = paidNoDirection
+  const bonusAbsorbed = Math.min(budget, Math.max(0, netAdjustment))
+  budget = r2(budget - bonusAbsorbed)
   const order: string[] = []
   if (okladDirectionId !== undefined) {
     const k = rowKeyOf(okladDirectionId)
@@ -79,7 +91,8 @@ export function allocateSalaryPayments(input: AllocInput): AllocResult {
     paidByRow.set(k, r2((paidByRow.get(k) || 0) + absorb))
     budget = r2(budget - absorb)
   }
-  const adjPaidNoDirection = r2(budget)
+  // Премии, погашенные выплатой без направления, + не поглощённый окладом излишек.
+  const adjPaidNoDirection = r2(bonusAbsorbed + budget)
 
   // 3. Осиротевшие направленческие выплаты (нет строки начисления в периоде).
   const orphans: { directionId: string; paid: number }[] = []
@@ -88,4 +101,20 @@ export function allocateSalaryPayments(input: AllocInput): AllocResult {
   }
 
   return { paidByRow, orphans, adjPaidNoDirection }
+}
+
+/**
+ * Каскадное ограничение пресетов выплаты общим бюджетом (остатком сотрудника).
+ * По порядку строк: даём min(пресет, оставшийся бюджет), бюджет уменьшаем. Нужно,
+ * чтобы «Итого к выплате» в модалке/документе не превышало реальный остаток —
+ * иначе депремирование (net<0) или переплата по направлению построчным max(0,·)
+ * не вычитались бы. Возвращает пресеты той же длины/порядка.
+ */
+export function capPresetsToBudget(presets: number[], budget: number): number[] {
+  let b = Math.max(0, budget)
+  return presets.map((p) => {
+    const give = r2(Math.min(Math.max(0, p), Math.max(0, b)))
+    b = r2(b - give)
+    return give
+  })
 }

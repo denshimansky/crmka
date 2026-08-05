@@ -106,7 +106,7 @@ describe("buildInstructorSalaryDetail", () => {
     assert.equal(res.totals.remaining, 0)               // 7400 + 1000 − 8400
   })
 
-  it("окладник С направлением: выплата без направления гасит строку оклада d1 (#1)", () => {
+  it("окладник С направлением: legacy-выплата без направления (net=0) гасит строку оклада d1 (#1)", () => {
     const res = buildInstructorSalaryDetail({
       attendances: [],
       adjustments: [],
@@ -119,6 +119,21 @@ describe("buildInstructorSalaryDetail", () => {
     assert.equal(d1.remaining, 3880)
     assert.equal(res.adjustments.paidNoDirection, 0)
     assert.equal(res.totals.remaining, 3880)
+  })
+
+  it("окладник С направлением + выплаченная премия: премия НЕ засчитывается в оклад (регрессия #2)", () => {
+    const res = buildInstructorSalaryDetail({
+      attendances: [],
+      adjustments: [{ type: "bonus", amount: 2000 }],
+      paymentItems: [{ directionId: null, amount: 2000 }], // выплаченная премия
+      salaried: { monthlySalary: 10000, defaultDirectionId: "d1", defaultDirectionName: "Танцы" },
+    })
+    const d1 = res.byDirection.find((d) => d.directionId === "d1")!
+    assert.equal(d1.paid, 0)           // оклад не тронут (раньше показывал 2000)
+    assert.equal(d1.remaining, 10000)
+    assert.equal(res.adjustments.paidNoDirection, 2000) // премия зачтена в премии−штрафы
+    assert.equal(res.adjustments.remaining, 0)          // 2000 − 2000
+    assert.equal(res.totals.remaining, 10000)
   })
 
   it("осиротевшая выплата по направлению без начислений — отдельная строка, инвариант сходится (#3)", () => {

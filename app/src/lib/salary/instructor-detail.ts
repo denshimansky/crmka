@@ -113,6 +113,11 @@ export function buildInstructorSalaryDetail(params: {
     acc.accruedFirstHalf += salaried.monthlySalary / 2
   }
 
+  // --- Корректировки (нужны до аллокации: премии гасятся выплатой раньше оклада) ---
+  const bonuses = adjustments.filter((a) => a.type === "bonus").reduce((s, a) => s + a.amount, 0)
+  const penalties = adjustments.filter((a) => a.type === "penalty").reduce((s, a) => s + a.amount, 0)
+  const net = bonuses - penalties
+
   // --- Выплаты: per-direction и без направления ---
   const paidByDir = new Map<string, number>()
   let paidNoDirection = 0
@@ -131,6 +136,7 @@ export function buildInstructorSalaryDetail(params: {
     paidByDir,
     paidNoDirection,
     okladDirectionId: salaried && salaried.monthlySalary > 0 ? salaried.defaultDirectionId : undefined,
+    netAdjustment: net,
   })
   const adjPaidNoDirection = alloc.adjPaidNoDirection
 
@@ -167,11 +173,6 @@ export function buildInstructorSalaryDetail(params: {
       })),
     )
     .sort((x, y) => y.accrued - x.accrued)
-
-  // --- Корректировки ---
-  const bonuses = adjustments.filter((a) => a.type === "bonus").reduce((s, a) => s + a.amount, 0)
-  const penalties = adjustments.filter((a) => a.type === "penalty").reduce((s, a) => s + a.amount, 0)
-  const net = bonuses - penalties
 
   // --- Занятия (per-lesson) ---
   type L = { lessonId: string; date: Date; groupName: string; directionId: string | null; directionName: string; typeName: string; studentsCharged: number; amount: number }

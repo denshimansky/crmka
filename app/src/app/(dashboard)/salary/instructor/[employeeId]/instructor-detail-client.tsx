@@ -168,7 +168,7 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.byDirection.length === 0 && data.adjustments.net === 0 && (
+              {data.byDirection.length === 0 && data.adjustments.net === 0 && data.adjustments.paidNoDirection === 0 && (
                 <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Нет начислений за период</TableCell></TableRow>
               )}
               {data.byDirection.map((d) => {
@@ -202,7 +202,7 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
                   </Fragment>
                 )
               })}
-              {data.adjustments.net !== 0 && (
+              {(data.adjustments.net !== 0 || data.adjustments.paidNoDirection !== 0 || data.adjustments.remaining !== 0) && (
                 <TableRow>
                   <TableCell className="font-medium">Премии − штрафы <span className="text-xs text-muted-foreground">(без направления)</span></TableCell>
                   <TableCell className="text-right">{fmt(data.adjustments.net)}</TableCell>

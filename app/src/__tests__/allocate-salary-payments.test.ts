@@ -1,6 +1,6 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
-import { allocateSalaryPayments, NO_DIR } from "../lib/salary/allocate-payments"
+import { allocateSalaryPayments, capPresetsToBudget, NO_DIR } from "../lib/salary/allocate-payments"
 
 describe("allocateSalaryPayments", () => {
   it("окладник без направления: аванс без направления гасит null-строку", () => {
@@ -84,5 +84,36 @@ describe("allocateSalaryPayments", () => {
     assert.equal(res.paidByRow.get("d1"), 5000)   // оклад поглотил свои 5000
     assert.equal(res.paidByRow.get(NO_DIR), 500)  // остаток 500 каскадом в null-строку
     assert.equal(res.adjPaidNoDirection, 0)
+  })
+
+  it("окладник d1 + ВЫПЛАЧЕННАЯ премия: премия гасит adjustments, не оклад (регрессия #2)", () => {
+    const res = allocateSalaryPayments({
+      accruals: [{ directionId: "d1", accrued: 10000 }],
+      paidByDir: new Map(),
+      paidNoDirection: 2000,      // выплаченная премия (item directionId=null)
+      okladDirectionId: "d1",
+      netAdjustment: 2000,        // начислена премия 2000
+    })
+    assert.equal(res.paidByRow.get("d1"), 0)     // оклад НЕ тронут (был бы 2000 без фикса)
+    assert.equal(res.adjPaidNoDirection, 2000)   // премия зачтена в премии−штрафы
+  })
+
+  it("премия гасится раньше оклада, излишек — на оклад (net>0, выплата больше премии)", () => {
+    const res = allocateSalaryPayments({
+      accruals: [{ directionId: null, accrued: 7400 }],
+      paidByDir: new Map(),
+      paidNoDirection: 4520,      // 1000 премия + 3520 аванс оклада
+      okladDirectionId: null,
+      netAdjustment: 1000,
+    })
+    assert.equal(res.paidByRow.get(NO_DIR), 3520) // на оклад пошло 4520 − 1000
+    assert.equal(res.adjPaidNoDirection, 1000)    // премия
+  })
+
+  it("capPresetsToBudget: каскадное ограничение общим бюджетом", () => {
+    assert.deepEqual(capPresetsToBudget([7400, 0], 5400), [5400, 0])       // депремирование
+    assert.deepEqual(capPresetsToBudget([3000, 2000], 4000), [3000, 1000]) // второй урезан
+    assert.deepEqual(capPresetsToBudget([1000, 500], 5000), [1000, 500])   // бюджет с запасом
+    assert.deepEqual(capPresetsToBudget([1000], -100), [0])                // отрицательный бюджет
   })
 })

@@ -224,6 +224,7 @@ export async function GET(req: NextRequest) {
         paidByDir: paidByDirByEmp.get(emp.id) || new Map<string, number>(),
         paidNoDirection: paidNoDirByEmp.get(emp.id) || 0,
         okladDirectionId: isSalaried && kind !== "piece" ? (emp.defaultDirectionId ?? null) : undefined,
+        netAdjustment: bonuses - penalties,
       })
       const adjPaid = alloc.adjPaidNoDirection
       const adjNet = bonuses - penalties
