@@ -30,10 +30,13 @@ import { requirePermission } from "@/lib/api-permissions"
  *
  * Неттинг для повторных выплат за период (аванс → остаток): по каждому
  * направлению отдаётся `paid` (строки выплат этого направления) и
- * `remaining = amount − paid`. Выплаты без направления целиком относятся к
- * премиям−штрафам (`adjPaid`, `adjRemaining = bonuses − penalties − adjPaid`) —
- * та же семантика, что у карточки инструктора (lib/salary/instructor-detail.ts),
- * чтобы разбивка остатка в двух местах CRM совпадала. Отрицательные
+ * `remaining = amount − paid`. Выплаты без направления сначала гасят
+ * null-направленческое начисление (оклад окладника без defaultDirection), а их
+ * остаток идёт в премии−штрафы (`adjPaid`, `adjRemaining = bonuses − penalties −
+ * adjPaid`) — та же семантика, что у карточки инструктора
+ * (lib/salary/instructor-detail.ts), чтобы разбивка остатка в двух местах CRM
+ * совпадала (иначе строка оклада «Без направления» игнорировала бы аванс).
+ * Отрицательные
  * компоненты (штраф больше премии, переплата по направлению, выплата «мимо»
  * направления) построчным неттингом не ловятся — поэтому клиент обязан
  * ограничивать сумму автозаполнения общим остатком сотрудника `remaining`.
@@ -203,16 +206,29 @@ export async function GET(req: NextRequest) {
       const alreadyPaid = paidByEmp.get(emp.id) || 0
       const remaining = accrued + bonuses - penalties - alreadyPaid
 
-      // Выплаты без направления целиком идут в счёт премий−штрафов; начисление
-      // «Без направления» (окладник без defaultDirection) ими не гасится —
-      // как в buildInstructorSalaryDetail (карточка инструктора).
-      const adjPaid = paidByEmpDir.get(`${emp.id}:null`) || 0
+      // Выплаты без направления (directionId=null) относим СНАЧАЛА к null-направленческому
+      // начислению (оклад окладника без defaultDirection), остаток — в премии−штрафы.
+      // Та же логика, что в buildInstructorSalaryDetail (карточка инструктора), чтобы
+      // разбивка остатка в двух местах CRM совпадала: иначе строка «Без направления»
+      // показывала бы весь оклад/остаток, игнорируя уже выплаченный аванс.
+      const adjPaidRaw = paidByEmpDir.get(`${emp.id}:null`) || 0
+      const nullAccrued = accruedRows
+        .filter((d) => d.directionId === null)
+        .reduce((s, d) => s + d.amount, 0)
+      const okladNullPaid = Math.min(adjPaidRaw, nullAccrued)
+      const adjPaid = adjPaidRaw - okladNullPaid
       const adjNet = bonuses - penalties
 
+      // Разносим okladNullPaid по null-строкам начислений (обычно одна — оклад).
+      let nullBudget = okladNullPaid
       const byDirection = accruedRows.map((d) => {
-        const paid = d.directionId === null
-          ? 0
-          : paidByEmpDir.get(`${emp.id}:${d.directionId}`) || 0
+        let paid: number
+        if (d.directionId === null) {
+          paid = Math.min(nullBudget, d.amount)
+          nullBudget = r2(nullBudget - paid)
+        } else {
+          paid = paidByEmpDir.get(`${emp.id}:${d.directionId}`) || 0
+        }
         return {
           directionId: d.directionId,
           directionName: d.directionName,

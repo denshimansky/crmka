@@ -68,4 +68,41 @@ describe("buildInstructorSalaryDetail", () => {
     assert.equal(d.accruedFirstHalf, 20000)
     assert.equal(res.totals.accrued, 40000)
   })
+
+  it("окладник без направления: аванс без направления уменьшает остаток строки «Без направления»", () => {
+    // Регрессия: аванс окладника (directionId=null) раньше уходил в невидимый (при net=0)
+    // блок adjustments, а строка «Без направления» и пресет модалки показывали весь оклад.
+    const res = buildInstructorSalaryDetail({
+      attendances: [],
+      adjustments: [],
+      paymentItems: [{ directionId: null, amount: 3520 }], // выплаченный аванс
+      salaried: { monthlySalary: 7400, defaultDirectionId: null, defaultDirectionName: "Без направления" },
+    })
+    const nd = res.byDirection.find((d) => d.directionId === null)!
+    assert.equal(nd.accrued, 7400)
+    assert.equal(nd.paid, 3520)          // раньше было 0
+    assert.equal(nd.remaining, 3880)     // раньше было 7400
+    // Аванс оклада не должен оседать в «Премии−штрафы».
+    assert.equal(res.adjustments.paidNoDirection, 0)
+    assert.equal(res.adjustments.remaining, 0)
+    assert.equal(res.totals.paid, 3520)
+    assert.equal(res.totals.remaining, 3880)
+  })
+
+  it("окладник без направления + премия: оклад поглощает свою часть, излишек — в «Премии−штрафы»", () => {
+    // Полностью выплачено: аванс+остаток оклада (7400) + премия (1000) = 8400 без направления.
+    const res = buildInstructorSalaryDetail({
+      attendances: [],
+      adjustments: [{ type: "bonus", amount: 1000 }],
+      paymentItems: [{ directionId: null, amount: 8400 }],
+      salaried: { monthlySalary: 7400, defaultDirectionId: null, defaultDirectionName: "Без направления" },
+    })
+    const nd = res.byDirection.find((d) => d.directionId === null)!
+    assert.equal(nd.paid, 7400)          // оклад берёт min(8400, 7400)
+    assert.equal(nd.remaining, 0)
+    assert.equal(res.adjustments.paidNoDirection, 1000) // излишек сверх оклада
+    assert.equal(res.adjustments.remaining, 0)          // премия 1000 − 1000
+    assert.equal(res.totals.paid, 8400)
+    assert.equal(res.totals.remaining, 0)               // 7400 + 1000 − 8400
+  })
 })

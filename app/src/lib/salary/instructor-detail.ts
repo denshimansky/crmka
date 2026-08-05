@@ -117,11 +117,19 @@ export function buildInstructorSalaryDetail(params: {
     else paidByDir.set(it.directionId, (paidByDir.get(it.directionId) || 0) + it.amount)
   }
 
+  // Выплаты без направления (directionId=null) относим СНАЧАЛА к null-направленческой
+  // строке начислений — это оклад окладника без defaultDirection (или занятия без
+  // направления). Остаток сверх её начислений уходит в блок «Премии−штрафы»
+  // (adjustments.paidNoDirection). Раньше null-строка всегда была paid=0, из-за чего
+  // аванс окладника уходил в невидимый (при net=0) блок adjustments: «Остаток» строки
+  // и пресет модалки «Выплатить остатки/аванс» игнорировали уже выплаченное (баг).
+  const nullAccrued = byDir.get(NO_DIR)?.accrued ?? 0
+  const okladNullPaid = Math.min(paidNoDirection, nullAccrued)
+  const adjPaidNoDirection = paidNoDirection - okladNullPaid
+
   const byDirection: DirectionDetail[] = Array.from(byDir.values())
     .map((a) => {
-      // null-направление (оклад без defaultDirection) в byDirection всегда paid=0:
-      // выплаты без направления учитываются в блоке adjustments.paidNoDirection.
-      const paid = a.directionId == null ? 0 : (paidByDir.get(a.directionId) || 0)
+      const paid = a.directionId == null ? okladNullPaid : (paidByDir.get(a.directionId) || 0)
       return {
         directionId: a.directionId,
         directionName: a.directionName,
@@ -177,8 +185,10 @@ export function buildInstructorSalaryDetail(params: {
       bonuses: r2(bonuses),
       penalties: r2(penalties),
       net: r2(net),
-      paidNoDirection: r2(paidNoDirection),
-      remaining: r2(net - paidNoDirection),
+      // Только выплаты без направления СВЕРХ оклада null-строки — то, что относится
+      // к премиям (оклад уже поглотил свою часть в byDirection выше).
+      paidNoDirection: r2(adjPaidNoDirection),
+      remaining: r2(net - adjPaidNoDirection),
     },
     lessons,
     totals: {
