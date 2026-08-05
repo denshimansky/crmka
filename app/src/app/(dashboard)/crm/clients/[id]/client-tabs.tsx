@@ -1466,6 +1466,10 @@ function AddSubscriptionDialog({
   const [periodMonth, setPeriodMonth] = useState(String(new Date().getMonth() + 1))
   const [lessonPrice, setLessonPrice] = useState("")
   const [totalLessons, setTotalLessons] = useState("")
+  // Календарь: авто-подсчёт занятий действительно дал результат (>0). Только тогда
+  // поле «Занятий» блокируется. Если запрос расписания не удался или занятий 0 —
+  // поле остаётся редактируемым, чтобы оператор не оказался заперт (баг #103).
+  const [autoCounted, setAutoCounted] = useState(false)
   // Календарь: дата первого занятия (по умолчанию — 1-е число месяца). От неё
   // считаем кол-во занятий и шлём как startDate — чтобы ребёнок с поздним стартом
   // вставал в группу с этой даты, а не с 1-го числа (баг #8).
@@ -1558,6 +1562,7 @@ function AddSubscriptionDialog({
   // (отмену дней, effectiveFrom шаблонов, удаление занятий; баг #71) и поздний
   // старт ребёнка (баг #8): за прошлые занятия месяца он не платит.
   useEffect(() => {
+    setAutoCounted(false)
     if (subscriptionType !== "calendar") return
     if (!groupId || !periodYear || !periodMonth) return
     const year = Number(periodYear)
@@ -1581,6 +1586,9 @@ function AddSubscriptionDialog({
         }).length
         if (cancelled.cancelled) return
         setTotalLessons(String(count || 1))
+        // Блокируем поле только когда подсчёт реально дал занятия. При 0 (расписание
+        // ещё не сгенерировано / поздний старт) поле остаётся редактируемым.
+        setAutoCounted(count > 0)
       } catch { /* ignore */ }
     })()
     return () => { cancelled.cancelled = true }
@@ -1970,12 +1978,21 @@ function AddSubscriptionDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Занятий</Label>
+              {/* Календарный (и fixed, который форма показывает как календарный):
+                  число занятий считается автоматически по расписанию группы —
+                  редактировать вручную нельзя (баг #103). Пакетный — редактируемо. */}
               <Input
                 type="number"
                 min="1"
                 value={totalLessons}
                 onChange={e => setTotalLessons(e.target.value)}
+                disabled={subscriptionType === "calendar" && autoCounted}
               />
+              {subscriptionType === "calendar" && autoCounted && (
+                <p className="text-xs text-muted-foreground">
+                  Считается автоматически по расписанию группы
+                </p>
+              )}
             </div>
           </div>
 

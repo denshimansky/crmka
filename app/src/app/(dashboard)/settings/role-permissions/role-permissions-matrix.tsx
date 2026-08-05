@@ -133,26 +133,32 @@ export function RolePermissionsMatrix({ isOwner, roleDisplayNames }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-y-2">
-        <div className="flex items-center gap-2">
-          {dirty && (
-            <Badge variant="secondary" className="text-xs">
-              Есть несохранённые изменения
-            </Badge>
-          )}
-          {success && (
-            <Badge className="bg-green-100 text-green-800 text-xs">
-              Сохранено
-            </Badge>
-          )}
-          {error && (
-            <Badge variant="destructive" className="text-xs">
-              {error}
-            </Badge>
-          )}
-        </div>
+      {/* Матрица длинная. В общий layout sticky не встаёт: <main> имеет
+          overflow-x-hidden и становится clip-ancestor'ом, а скроллится документ
+          (см. sticky-h-scroll.tsx). Поэтому тулбар и матрицу кладём в контейнер со
+          своей вертикальной прокруткой — тулбар с кнопками «По умолчанию»/«Сохранить»
+          закреплён (sticky) у его верха и всегда виден при прокрутке (баг #104).
+          Показываем тулбар только владельцу — у остальных ролей кнопок нет. */}
+      <div className="max-h-[calc(100dvh_-_15rem)] space-y-4 overflow-y-auto">
         {isOwner && (
+          <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-y-2 border-b bg-background py-3 pl-1 pr-3">
+            <div className="flex items-center gap-2">
+            {dirty && (
+              <Badge variant="secondary" className="text-xs">
+                Есть несохранённые изменения
+              </Badge>
+            )}
+            {success && (
+              <Badge className="bg-green-100 text-green-800 text-xs">
+                Сохранено
+              </Badge>
+            )}
+            {error && (
+              <Badge variant="destructive" className="text-xs">
+                {error}
+              </Badge>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -176,8 +182,8 @@ export function RolePermissionsMatrix({ isOwner, roleDisplayNames }: Props) {
               Сохранить
             </Button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Matrix */}
       <Card>
@@ -254,6 +260,7 @@ export function RolePermissionsMatrix({ isOwner, roleDisplayNames }: Props) {
           </StickyHScroll>
         </CardContent>
       </Card>
+      </div>
 
       {!isOwner && (
         <p className="text-sm text-muted-foreground text-center">
