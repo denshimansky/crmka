@@ -280,6 +280,39 @@ export default async function SchedulePage({
   for (const s of scheduledMakeupRows) addExtra(s.scheduledMakeupLessonId, s.clientId, s.wardId)
   for (const m of markedMakeupRows) addExtra(m.lessonId, m.clientId, m.wardId)
 
+  // Пакетный тип: заполняемость по-занятийно. Ученик с пакетом-с-ВЫБОРОМ считается
+  // только на выбранных занятиях; легаси/календарные (без строк выбора) остаются в
+  // постоянном счёте группы (покрывают все занятия окна). Дисплей, не биллинг.
+  const orgTypeRow = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionType: true },
+  })
+  const isPackageOrg = orgTypeRow?.subscriptionType === "package"
+  const selByLesson = new Map<string, Set<string>>() // lessonId → ключи учеников с выбором
+  const selectingByGroup = new Map<string, Set<string>>() // groupId → ключи учеников с выбором
+  if (isPackageOrg && lessonIds.length > 0) {
+    const selRows = await db.subscriptionLesson.findMany({
+      where: {
+        tenantId,
+        lessonId: { in: lessonIds },
+        subscription: { type: "package", status: { in: ["active", "pending"] }, deletedAt: null },
+      },
+      select: {
+        lessonId: true,
+        subscription: { select: { groupId: true, clientId: true, wardId: true } },
+      },
+    })
+    for (const r of selRows) {
+      const key = `${r.subscription.clientId}:${r.subscription.wardId || ""}`
+      let s = selByLesson.get(r.lessonId)
+      if (!s) { s = new Set(); selByLesson.set(r.lessonId, s) }
+      s.add(key)
+      let g = selectingByGroup.get(r.subscription.groupId)
+      if (!g) { g = new Set(); selectingByGroup.set(r.subscription.groupId, g) }
+      g.add(key)
+    }
+  }
+
   // Индивидуальные пробные (без группы) — отображаются в общем расписании.
   // ADM-04: инструктор видит только своё (instructorId=me); админ — в своих
   // филиалах (через scopeTrialLesson).
@@ -408,9 +441,16 @@ export default async function SchedulePage({
         direction: { id: l.group.direction.id, name: l.group.direction.name },
         _count: {
           // «На занятие записано» = постоянные ученики группы + пробные + отработки.
-          // Дедуплицировано по (clientId, wardId) выше — баг #50.
+          // Дедуплицировано по (clientId, wardId) выше — баг #50. Для package-тенанта
+          // ученики с пакетом-с-выбором вычитаются из постоянного счёта группы и
+          // добавляются только на выбранных занятиях (по-занятийная заполняемость).
           enrollments:
-            l.group._count.enrollments +
+            (isPackageOrg
+              ? Math.max(
+                  0,
+                  l.group._count.enrollments - (selectingByGroup.get(l.groupId)?.size ?? 0),
+                ) + (selByLesson.get(l.id)?.size ?? 0)
+              : l.group._count.enrollments) +
             (extraAttendeesByLesson.get(l.id)?.size ?? 0),
         },
       },

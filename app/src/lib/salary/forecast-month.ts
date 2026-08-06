@@ -93,6 +93,7 @@ export async function computeSalaryForecastBreakdown(
       status: { in: ["scheduled", "completed"] },
     },
     select: {
+      id: true,
       date: true,
       groupId: true,
       instructorId: true,
@@ -112,7 +113,7 @@ export async function computeSalaryForecastBreakdown(
     ...new Set(lessons.map((l) => l.substituteInstructorId || l.instructorId)),
   ]
 
-  const [oklads, groupRates, personalRates, enrollGroups] = await Promise.all([
+  const [oklads, groupRates, personalRates, enrollGroups, orgTypeRow] = await Promise.all([
     db.employee.findMany({
       where: { tenantId, deletedAt: null, monthlySalary: { not: null } },
       select: { id: true, monthlySalary: true },
@@ -137,6 +138,10 @@ export async function computeSalaryForecastBreakdown(
       where: { tenantId, groupId: { in: groupIds }, isActive: true, deletedAt: null },
       _count: { _all: true },
     }),
+    db.organization.findUnique({
+      where: { id: tenantId },
+      select: { subscriptionType: true },
+    }),
   ])
 
   const okladMap = new Map(oklads.map((e) => [e.id, Number(e.monthlySalary)]))
@@ -149,6 +154,35 @@ export async function computeSalaryForecastBreakdown(
     else personalDefault.set(r.employeeId, v)
   }
   const enrollCount = new Map(enrollGroups.map((g) => [g.groupId, g._count._all]))
+
+  // Пакетный тип: число учеников на занятие для схем per_student/floating берём
+  // по-занятийно (кто выбрал ИМЕННО это занятие) + легаси/календарные (без строк
+  // выбора) как постоянный счёт группы. Иначе прогноз завышается на невыбранных.
+  const isPackageOrg = orgTypeRow?.subscriptionType === "package"
+  const selByLesson = new Map<string, Set<string>>()
+  const selectingByGroup = new Map<string, Set<string>>()
+  if (isPackageOrg) {
+    const selRows = await db.subscriptionLesson.findMany({
+      where: {
+        tenantId,
+        lessonId: { in: lessons.map((l) => l.id) },
+        subscription: { type: "package", status: { in: ["active", "pending"] }, deletedAt: null },
+      },
+      select: {
+        lessonId: true,
+        subscription: { select: { groupId: true, clientId: true, wardId: true } },
+      },
+    })
+    for (const r of selRows) {
+      const key = `${r.subscription.clientId}:${r.subscription.wardId || ""}`
+      let s = selByLesson.get(r.lessonId)
+      if (!s) { s = new Set(); selByLesson.set(r.lessonId, s) }
+      s.add(key)
+      let g = selectingByGroup.get(r.subscription.groupId)
+      if (!g) { g = new Set(); selectingByGroup.set(r.subscription.groupId, g) }
+      g.add(key)
+    }
+  }
 
   function resolveRate(
     groupId: string,
@@ -204,7 +238,10 @@ export async function computeSalaryForecastBreakdown(
 
     const rate = resolveRate(l.groupId, effId, l.group.directionId, new Date(l.date))
     if (!rate) continue
-    const students = enrollCount.get(l.groupId) || 0
+    const students = isPackageOrg
+      ? Math.max(0, (enrollCount.get(l.groupId) || 0) - (selectingByGroup.get(l.groupId)?.size ?? 0)) +
+        (selByLesson.get(l.id)?.size ?? 0)
+      : enrollCount.get(l.groupId) || 0
     a.forecast += lessonPay(rate, students)
     a.studentsCount += students
     a.schemeCount.set(rate.scheme, (a.schemeCount.get(rate.scheme) || 0) + 1)
