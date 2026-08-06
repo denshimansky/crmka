@@ -69,3 +69,109 @@ export function packageSelectionGate(
   if (!sel.hasSelection.has(subscriptionId)) return true
   return sel.byLesson.get(subscriptionId)?.has(lessonId) ?? false
 }
+
+// ── Валидация выбора при создании/правке пакета ──────────────────────────────
+
+/** Полночь UTC (сравнение окна по дням — Lesson.date хранится как @db.Date). */
+function dayFloor(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+}
+
+export interface ValidateSelectionInput {
+  tenantId: string
+  groupId: string
+  clientId: string
+  wardId: string | null
+  /** Вместимость занятия (Group.maxStudents). */
+  maxStudents: number
+  /** Сколько занятий должно быть выбрано (= totalLessons пакета). */
+  totalLessons: number
+  /** Окно действия пакета [startDate .. expiresAt]. */
+  windowStart: Date
+  windowEnd: Date | null
+  /** Массив выбранных занятий (обязателен и непуст для этой проверки). */
+  selectedLessonIds: string[]
+  /** Исключить из проверок кросс-пакета/вместимости (для swap существующего). */
+  excludeSubscriptionId?: string
+}
+
+export type ValidateSelectionResult =
+  | { ok: true; lessonIds: string[] }
+  | { ok: false; error: string; status: number }
+
+/**
+ * Read-only проверка набора выбранных занятий пакета. Возвращает валидированный
+ * список либо ошибку с HTTP-статусом. Вызывать в ОБОИХ путях создания (и в swap).
+ * Инвариант №3: членство/кросс-пакет резолвятся через (clientId, wardId).
+ *
+ * Гонка вместимости (TOCTOU) закрыта частично — окончательный барьер (advisory-lock)
+ * — задача hardening; для малых центров конкуренция на одно занятие практически нулевая.
+ */
+export async function validateSelectedLessons(
+  db: DB,
+  input: ValidateSelectionInput,
+): Promise<ValidateSelectionResult> {
+  const {
+    tenantId, groupId, clientId, wardId, maxStudents, totalLessons,
+    windowStart, windowEnd, selectedLessonIds: ids, excludeSubscriptionId,
+  } = input
+  const err = (error: string, status: number): ValidateSelectionResult => ({ ok: false, error, status })
+
+  if (new Set(ids).size !== ids.length) return err("Одно занятие выбрано несколько раз", 400)
+  if (ids.length !== totalLessons) {
+    return err(`Нужно выбрать ровно ${totalLessons} занятий (выбрано ${ids.length})`, 400)
+  }
+
+  const lessons = await db.lesson.findMany({
+    where: { tenantId, groupId, id: { in: ids }, status: { in: ["scheduled", "completed"] } },
+    select: { id: true, date: true, rescheduledFromDate: true },
+  })
+  if (lessons.length !== ids.length) {
+    return err("Некоторые занятия не найдены, отменены или не принадлежат этой группе", 400)
+  }
+
+  // Окно по дате состава (исходная дата при переносе). Прошлые занятия разрешены
+  // (поддержан back-dated старт — enrolledAt задним числом): нижняя граница = startDate.
+  const wStart = dayFloor(windowStart).getTime()
+  const wEnd = windowEnd ? dayFloor(windowEnd).getTime() : null
+  for (const l of lessons) {
+    const d = dayFloor(l.rescheduledFromDate ?? l.date).getTime()
+    if (d < wStart || (wEnd !== null && d > wEnd)) {
+      return err("Выбранное занятие вне срока действия пакета", 400)
+    }
+  }
+
+  // Кросс-пакет (F-22): занятие уже входит в ДРУГОЙ живой пакет того же подопечного.
+  const clash = await db.subscriptionLesson.findFirst({
+    where: {
+      tenantId,
+      lessonId: { in: ids },
+      subscription: {
+        clientId, wardId, groupId,
+        type: "package", status: { in: ["pending", "active"] }, deletedAt: null,
+        ...(excludeSubscriptionId ? { id: { not: excludeSubscriptionId } } : {}),
+      },
+    },
+    select: { lessonId: true },
+  })
+  if (clash) return err("Занятие уже входит в другой пакет подопечного", 409)
+
+  // Вместимость (D-12): на каждом выбранном занятии число живых пакет-выборов < maxStudents.
+  const counts = await db.subscriptionLesson.groupBy({
+    by: ["lessonId"],
+    where: {
+      tenantId,
+      lessonId: { in: ids },
+      subscription: {
+        type: "package", status: { in: ["pending", "active"] }, deletedAt: null,
+        ...(excludeSubscriptionId ? { id: { not: excludeSubscriptionId } } : {}),
+      },
+    },
+    _count: { _all: true },
+  })
+  if (counts.some((c) => c._count._all >= maxStudents)) {
+    return err("На одном из выбранных занятий нет свободных мест", 409)
+  }
+
+  return { ok: true, lessonIds: ids }
+}
