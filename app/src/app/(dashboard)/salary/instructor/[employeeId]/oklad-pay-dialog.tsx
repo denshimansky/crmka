@@ -12,6 +12,7 @@ import { Banknote } from "lucide-react"
 import { useCurrencySymbol } from "@/components/currency-provider"
 import { OpiuRecognitionFieldset, type OpiuRecognitionState } from "@/components/opiu-recognition-fieldset"
 import { resolveRecognition, type RecognitionPayload } from "@/lib/expense-recognition"
+import { applyPenaltyToItems } from "@/lib/salary/kind-split"
 import type { InstructorDetailData } from "./instructor-detail-client"
 
 // Тело окладной формы выплаты: сумма + «Как провести в ОПИУ» + корректировки
@@ -52,8 +53,9 @@ export function OkladPayBody({
   const amountNum = Number(amount) || 0
   const bonusNum = Number(bonus) || 0
   const penaltyNum = Number(penalty) || 0
-  // Итого = оклад-выплата + премия (выплачивается сейчас). Депремирование не выплачивается.
-  const total = amountNum + bonusNum
+  // К выплате = оклад + премия − штраф. Депремирование ВЫЧИТАЕТСЯ из суммы выплаты
+  // (не создаёт мнимую переплату), при этом штраф отдельно пишется за период.
+  const total = Math.max(0, Math.round((amountNum + bonusNum - penaltyNum) * 100) / 100)
 
   async function handleSubmit() {
     setError(null)
@@ -66,10 +68,13 @@ export function OkladPayBody({
     let recognition: RecognitionPayload
     try { recognition = resolveRecognition(opiu) } catch (err) { setError(err instanceof Error ? err.message : "Ошибка признания"); return }
 
-    // Оклад и премия — позициями БЕЗ направления (directionId=null).
-    const items: { employeeId: string; accountId: string; directionId: string | null; amount: number }[] = []
-    if (amountNum > 0) items.push({ employeeId: data.employee.id, accountId, directionId: null, amount: amountNum })
-    if (bonusNum > 0) items.push({ employeeId: data.employee.id, accountId, directionId: null, amount: bonusNum })
+    // Оклад и премия — позициями БЕЗ направления (directionId=null); штраф
+    // вычитается из позиций (applyPenaltyToItems) — фактически выплачивается net.
+    const gross: { directionId: string | null; amount: number }[] = []
+    if (amountNum > 0) gross.push({ directionId: null, amount: amountNum })
+    if (bonusNum > 0) gross.push({ directionId: null, amount: bonusNum })
+    const items = applyPenaltyToItems(gross, penaltyNum, null)
+      .map((it) => ({ employeeId: data.employee.id, accountId, directionId: it.directionId, amount: it.amount }))
 
     const adjustments: { employeeId: string; directionId: string | null; type: "bonus" | "penalty"; amount: number; comment: string }[] = []
     if (bonusNum > 0) adjustments.push({ employeeId: data.employee.id, directionId: null, type: "bonus", amount: bonusNum, comment: adjComment.trim() })
@@ -155,9 +160,9 @@ export function OkladPayBody({
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          Премия выплачивается в этой выплате и записывается за период (оклад).
-          Депремирование не выплачивается — только уменьшает «Осталось»
-          {penaltyNum > 0 ? ` на ${fmt(penaltyNum)}` : ""}.
+          Премия прибавляется к выплате, депремирование — вычитается: к выплате =
+          оклад + премия − штраф{penaltyNum > 0 ? ` (штраф ${fmt(penaltyNum)})` : ""}.
+          Штраф отдельно фиксируется в колонке «Штрафы».
         </p>
       </div>
 

@@ -1,6 +1,37 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
-import { splitEmployeeByKind, kindOfDirection } from "../lib/salary/kind-split"
+import { splitEmployeeByKind, kindOfDirection, applyPenaltyToItems } from "../lib/salary/kind-split"
+
+describe("applyPenaltyToItems (штраф вычитается из выплаты)", () => {
+  it("оклад: штраф уменьшает единственную позицию", () => {
+    const out = applyPenaltyToItems([{ directionId: null, amount: 12437 }], 1200, null)
+    assert.deepEqual(out, [{ directionId: null, amount: 11237 }])
+  })
+  it("нет штрафа — позиции без изменений", () => {
+    const out = applyPenaltyToItems([{ directionId: "d1", amount: 500 }], 0, "d1")
+    assert.deepEqual(out, [{ directionId: "d1", amount: 500 }])
+  })
+  it("штраф больше суммы — позиция обнуляется (выплаты нет)", () => {
+    const out = applyPenaltyToItems([{ directionId: null, amount: 800 }], 1200, null)
+    assert.deepEqual(out, [])
+  })
+  it("сделка: штраф сперва по своему направлению, потом каскад", () => {
+    const out = applyPenaltyToItems(
+      [{ directionId: "d1", amount: 300 }, { directionId: "d2", amount: 1000 }],
+      500, "d2",
+    )
+    // 500 штрафа: d2 (1000) → 500; d1 не тронут.
+    assert.deepEqual(out, [{ directionId: "d2", amount: 500 }, { directionId: "d1", amount: 300 }])
+  })
+  it("сделка: штраф больше направления — добивает каскадом", () => {
+    const out = applyPenaltyToItems(
+      [{ directionId: "d1", amount: 300 }, { directionId: "d2", amount: 400 }],
+      500, "d2",
+    )
+    // d2 (400) обнулён, остаток 100 снят с d1 (300→200).
+    assert.deepEqual(out, [{ directionId: "d1", amount: 200 }])
+  })
+})
 
 describe("kindOfDirection", () => {
   it("у окладника: без направления → оклад, направление → сделка", () => {

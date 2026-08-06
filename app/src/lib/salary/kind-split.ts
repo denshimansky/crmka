@@ -92,3 +92,39 @@ export function splitEmployeeByKind(input: {
   }
   return { piece, salary }
 }
+
+export interface PayItem {
+  directionId: string | null
+  amount: number
+}
+
+/**
+ * Депремирование (штраф) вычитается из суммы выплаты: «К выплате = начислено +
+ * премии − штраф». Уменьшаем позиции выплаты на сумму штрафа — сначала по
+ * направлению штрафа (`penaltyDirId`), затем каскадом по остальным. Итоговая сумма
+ * позиций = max(0, Σ − штраф). Так факт выплаты соответствует, и «Осталось» не уходит
+ * в мнимую переплату. Штраф при этом отдельно пишется в SalaryAdjustment (колонка
+ * «Штрафы»); двойного вычета нет — «Осталось» = начислено + премии − штраф − выплачено.
+ */
+export function applyPenaltyToItems(items: PayItem[], penalty: number, penaltyDirId: string | null): PayItem[] {
+  let rem = Math.max(0, penalty)
+  if (rem <= 0) return items.map((it) => ({ ...it }))
+  const key = (d: string | null) => d ?? "__null__"
+  // Порядок вычета: сначала позиции направления штрафа, затем остальные.
+  const order = items
+    .map((it, i) => ({ it, i }))
+    .sort((a, b) => {
+      const am = key(a.it.directionId) === key(penaltyDirId) ? 0 : 1
+      const bm = key(b.it.directionId) === key(penaltyDirId) ? 0 : 1
+      return am - bm || a.i - b.i
+    })
+  const out: PayItem[] = []
+  for (const { it } of order) {
+    if (rem <= 0) { out.push({ ...it }); continue }
+    const cut = Math.min(it.amount, rem)
+    rem = r2(rem - cut)
+    const left = r2(it.amount - cut)
+    if (left > 0) out.push({ directionId: it.directionId, amount: left })
+  }
+  return out
+}

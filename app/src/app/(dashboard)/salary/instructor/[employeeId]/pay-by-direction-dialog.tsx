@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { Banknote } from "lucide-react"
 import { useCurrencySymbol } from "@/components/currency-provider"
 import { capPresetsToBudget } from "@/lib/salary/allocate-payments"
+import { applyPenaltyToItems } from "@/lib/salary/kind-split"
 import type { InstructorDetailData } from "./instructor-detail-client"
 
 const NO_DIR = "__no_direction__"
@@ -119,21 +120,22 @@ export function PiecePayBody({
   )
   const bonusNum = Number(bonus) || 0
   const penaltyNum = Number(penalty) || 0
-  // Итого к выплате = выбранные направления + премия (выплачивается сейчас).
-  // Депремирование в выплату НЕ входит — это удержание (уменьшает «Осталось»).
-  const total = rowsTotal + bonusNum
+  // К выплате = выбранные направления + премия − штраф. Депремирование ВЫЧИТАЕТСЯ из
+  // суммы выплаты (не создаёт мнимую переплату), при этом штраф пишется за период.
+  const total = Math.max(0, Math.round((rowsTotal + bonusNum - penaltyNum) * 100) / 100)
   const overpay = rows.some((r) => r.checked && (Number(r.amount) || 0) > r.remaining + 0.001)
 
   async function handleSubmit() {
     setError(null)
-    const items: { employeeId: string; accountId: string; directionId: string | null; amount: number }[] = rows
-      .filter((r) => r.checked && Number(r.amount) > 0)
-      .map((r) => ({ employeeId: data.employee.id, accountId, directionId: r.directionId, amount: Number(r.amount) }))
     const premiumDir = premiumDirectionId || null
-    // Премия выплачивается сейчас → строка выплаты по направлению премии (сделка).
-    if (bonusNum > 0) {
-      items.push({ employeeId: data.employee.id, accountId, directionId: premiumDir, amount: bonusNum })
-    }
+    // Позиции выплаты: выбранные направления + премия по направлению премии; затем
+    // из них вычитается штраф (applyPenaltyToItems, сперва по направлению штрафа).
+    const gross: { directionId: string | null; amount: number }[] = rows
+      .filter((r) => r.checked && Number(r.amount) > 0)
+      .map((r) => ({ directionId: r.directionId, amount: Number(r.amount) }))
+    if (bonusNum > 0) gross.push({ directionId: premiumDir, amount: bonusNum })
+    const items = applyPenaltyToItems(gross, penaltyNum, premiumDir)
+      .map((it) => ({ employeeId: data.employee.id, accountId, directionId: it.directionId, amount: it.amount }))
     // Премия/штраф записываются как SalaryAdjustment за период (атомарно с выплатой),
     // с directionId — так они относятся к сделке и попадают в нужное направление.
     const adjustments: { employeeId: string; directionId: string | null; type: "bonus" | "penalty"; amount: number }[] = []
@@ -236,9 +238,9 @@ export function PiecePayBody({
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          Премия выплачивается в этой выплате и записывается за период. Депремирование
-          не выплачивается — только уменьшает «Осталось» сотрудника
-          {penaltyNum > 0 ? ` на ${fmt(penaltyNum)}` : ""}.
+          Премия прибавляется к выплате, депремирование — вычитается: к выплате =
+          начислено + премия − штраф{penaltyNum > 0 ? ` (штраф ${fmt(penaltyNum)})` : ""}.
+          Штраф отдельно фиксируется в колонке «Штрафы».
         </p>
       </div>
 
