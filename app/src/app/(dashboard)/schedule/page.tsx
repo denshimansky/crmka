@@ -238,6 +238,9 @@ export default async function SchedulePage({
               tenantId,
               lessonId: { in: lessonIds },
               status: { in: ["scheduled", "attended"] },
+              // Пробные выведенной из воронки заявки (soft-deleted) на занятии не
+              // показываем — иначе «удалили заявку, а пробное висит» (баг #108-подобн.).
+              NOT: { application: { deletedAt: { not: null } } },
             },
             select: { lessonId: true, clientId: true, wardId: true },
           }),
@@ -335,6 +338,8 @@ export default async function SchedulePage({
       status: "scheduled",
       groupId: null,
       lessonId: null,
+      // Пробные выведенной из воронки заявки (soft-deleted) не показываем.
+      NOT: { application: { deletedAt: { not: null } } },
       ...(wardIdFilter ? { wardId: wardIdFilter } : {}),
       ...(session.user.role === "instructor"
         ? { instructorId: session.user.employeeId }

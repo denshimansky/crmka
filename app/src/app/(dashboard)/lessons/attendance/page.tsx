@@ -504,6 +504,9 @@ export default async function LessonsAttendancePage({
           tenantId,
           lessonId: { in: lessonIds },
           status: { in: ["scheduled", "attended", "no_show"] },
+          // Пробные выведенной из воронки заявки (soft-deleted) не показываем —
+          // как в /schedule и карточке занятия (иначе «заявку удалили, а пробное висит»).
+          NOT: { application: { deletedAt: { not: null } } },
         },
         select: {
           id: true,

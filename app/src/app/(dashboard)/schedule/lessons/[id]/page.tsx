@@ -314,6 +314,9 @@ export default async function LessonCardPage({
       tenantId,
       lessonId: id,
       status: { in: ["scheduled", "attended", "no_show"] },
+      // Пробное выведенной из воронки заявки (soft-deleted) не показываем в составе
+      // занятия — иначе ребёнок «удалённой» заявки продолжает висеть пробником.
+      NOT: { application: { deletedAt: { not: null } } },
     },
     select: {
       id: true,

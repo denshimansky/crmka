@@ -129,6 +129,37 @@ export async function createTrialLessonForClient(
       }
     }
 
+    // Ребёнок уже в этой группе (место в составе ИЛИ живой абонемент) — пробное не
+    // назначаем: иначе он окажется на занятии дважды (как ученик и как пробник).
+    // Обычную воронку «пробное → покупка» это не ломает — там ни зачисления, ни
+    // абонемента ещё нет. Зачисление проверяем отдельно от абонемента: перевод
+    // между группами создаёт активное GroupEnrollment в новой группе, но НЕ
+    // переносит Subscription.groupId (покрытие состава — по направлению), поэтому
+    // проверки только по subscription.groupId переведённого ученика не хватило бы.
+    const [enrollmentInGroup, subInGroup] = await Promise.all([
+      db.groupEnrollment.findFirst({
+        where: { tenantId, wardId: input.wardId, groupId: input.groupId, isActive: true, deletedAt: null },
+        select: { id: true },
+      }),
+      db.subscription.findFirst({
+        where: {
+          tenantId,
+          wardId: input.wardId,
+          groupId: input.groupId,
+          status: { in: ["active", "pending"] },
+          deletedAt: null,
+        },
+        select: { id: true },
+      }),
+    ])
+    if (enrollmentInGroup || subInGroup) {
+      return {
+        ok: false,
+        error: "У ребёнка уже есть место/абонемент в этой группе — пробное не нужно.",
+        status: 409,
+      }
+    }
+
     const lesson = await db.lesson.findFirst({
       where: { tenantId, groupId: input.groupId, date, status: { not: "cancelled" } },
     })
@@ -142,6 +173,27 @@ export async function createTrialLessonForClient(
     lessonId = lesson.id
     effectiveDirectionId = group.directionId
     trialInstructorId = lesson.substituteInstructorId || lesson.instructorId
+
+    // И на самом занятии ребёнок не должен быть уже отмечен как ученик (не-пробная,
+    // не-плейсхолдер отметка): напр. отчислённый с проставленным «Был» — иначе
+    // он снова задвоится в составе занятия.
+    const attendedThisLesson = await db.attendance.findFirst({
+      where: {
+        tenantId,
+        wardId: input.wardId,
+        lessonId: lesson.id,
+        isTrial: false,
+        isPending: false,
+      },
+      select: { id: true },
+    })
+    if (attendedThisLesson) {
+      return {
+        ok: false,
+        error: "Ребёнок уже отмечен на этом занятии как ученик — пробное не нужно.",
+        status: 409,
+      }
+    }
   } else {
     if (!input.directionId) {
       return { ok: false, error: "Для индивидуального пробного нужно направление", status: 400 }
