@@ -10,7 +10,11 @@ import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { packageLessonPrice } from "@/lib/subscriptions/package-price"
 import { directionPriceAt, toUtcDay } from "@/lib/subscriptions/direction-price"
-import { validateSelectedLessons } from "@/lib/subscriptions/subscription-lessons"
+import {
+  validateSelectedLessons,
+  lockAndVerifySelection,
+  SelectionConflictError,
+} from "@/lib/subscriptions/subscription-lessons"
 
 const moveSchema = z.object({
   applicationId: z.string().uuid().optional(),
@@ -302,7 +306,9 @@ export async function POST(
   const totalAmount = lessonPrice.mul(totalLessons)
   const finalAmount = totalAmount
 
-  const result = await db.$transaction(async (tx) => {
+  let result
+  try {
+   result = await db.$transaction(async (tx) => {
     const subscription = await tx.subscription.create({
       data: {
         tenantId,
@@ -327,8 +333,18 @@ export async function POST(
       },
     })
 
-    // Выбор занятий пакета — в той же транзакции (атомарно с созданием абонемента).
+    // Выбор занятий пакета — в той же транзакции. Под advisory-локом перепроверяем
+    // кросс-пакет+вместимость (гонка oversell, #4).
     if (orgType === "package" && data.selectedLessonIds && data.selectedLessonIds.length > 0) {
+      await lockAndVerifySelection(tx, {
+        tenantId,
+        groupId: data.groupId,
+        clientId: ward.clientId,
+        wardId: ward.id,
+        maxStudents: group.maxStudents,
+        lessonIds: data.selectedLessonIds,
+        excludeSubscriptionId: subscription.id,
+      })
       await tx.subscriptionLesson.createMany({
         data: data.selectedLessonIds.map((lessonId) => ({
           tenantId,
@@ -431,7 +447,13 @@ export async function POST(
     // Свежие суммы: пересчёт скидок мог изменить finalAmount/balance.
     const freshSub = await tx.subscription.findFirst({ where: { id: subscription.id } })
     return { subscription: freshSub ?? subscription }
-  })
+   })
+  } catch (e) {
+    if (e instanceof SelectionConflictError) {
+      return NextResponse.json({ error: e.message }, { status: e.status })
+    }
+    throw e
+  }
 
   if (session.user.employeeId) {
     // entityType=Application: переход этапа заявки — его читает лента истории

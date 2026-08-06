@@ -3,7 +3,11 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
-import { validateSelectedLessons } from "@/lib/subscriptions/subscription-lessons"
+import {
+  validateSelectedLessons,
+  lockAndVerifySelection,
+  SelectionConflictError,
+} from "@/lib/subscriptions/subscription-lessons"
 import { isPeriodLocked } from "@/lib/period-check"
 
 // Правка набора выбранных занятий существующего пакета (swap, фаза 6b).
@@ -151,23 +155,40 @@ export async function PATCH(
     }
   }
 
-  await db.$transaction(async (tx) => {
-    if (removed.length > 0) {
-      await tx.subscriptionLesson.deleteMany({
-        where: { tenantId, subscriptionId: id, lessonId: { in: removed } },
+  try {
+    await db.$transaction(async (tx) => {
+      // Под advisory-локом перепроверяем кросс-пакет+вместимость (гонка oversell, #4).
+      await lockAndVerifySelection(tx, {
+        tenantId,
+        groupId: sub.groupId,
+        clientId: sub.clientId,
+        wardId: sub.wardId,
+        maxStudents: group?.maxStudents ?? 15,
+        lessonIds: parsed.data.selectedLessonIds,
+        excludeSubscriptionId: id,
       })
+      if (removed.length > 0) {
+        await tx.subscriptionLesson.deleteMany({
+          where: { tenantId, subscriptionId: id, lessonId: { in: removed } },
+        })
+      }
+      if (added.length > 0) {
+        await tx.subscriptionLesson.createMany({
+          data: added.map((lessonId) => ({
+            tenantId,
+            subscriptionId: id,
+            lessonId,
+            createdBy: employeeId ?? null,
+          })),
+        })
+      }
+    })
+  } catch (e) {
+    if (e instanceof SelectionConflictError) {
+      return NextResponse.json({ error: e.message }, { status: e.status })
     }
-    if (added.length > 0) {
-      await tx.subscriptionLesson.createMany({
-        data: added.map((lessonId) => ({
-          tenantId,
-          subscriptionId: id,
-          lessonId,
-          createdBy: employeeId ?? null,
-        })),
-      })
-    }
-  })
+    throw e
+  }
 
   return NextResponse.json({ ok: true, changed: removed.length + added.length })
 }

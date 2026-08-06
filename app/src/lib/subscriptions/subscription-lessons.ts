@@ -142,11 +142,43 @@ export async function validateSelectedLessons(
     }
   }
 
-  // Кросс-пакет (F-22): занятие уже входит в ДРУГОЙ живой пакет того же подопечного.
+  // Кросс-пакет + вместимость — read-only пре-чек (быстрый 4xx без транзакции).
+  // Авторитетно перепроверяется под advisory-локом внутри транзакции создания/swap
+  // (lockAndVerifySelection) — тем же критерием, но атомарно против гонки oversell (#4).
+  const conflict = await checkCrossPackageAndCapacity(db, {
+    tenantId, groupId, clientId, wardId, maxStudents, lessonIds: ids, excludeSubscriptionId,
+  })
+  if (conflict) return err(conflict.message, conflict.status)
+
+  return { ok: true, lessonIds: ids }
+}
+
+// ── Кросс-пакет + вместимость (общий критерий) ───────────────────────────────
+
+interface CrossCapacityInput {
+  tenantId: string
+  groupId: string
+  clientId: string
+  wardId: string | null
+  maxStudents: number
+  lessonIds: string[]
+  excludeSubscriptionId?: string
+}
+
+/**
+ * Кросс-пакет (F-22: занятие уже в другом живом пакете подопечного) + вместимость
+ * (D-12: < maxStudents живых пакет-выборов на занятие). Возвращает конфликт или null.
+ * Единый критерий для пре-чека и для проверки под advisory-локом.
+ */
+async function checkCrossPackageAndCapacity(
+  db: DB,
+  input: CrossCapacityInput,
+): Promise<{ message: string; status: number } | null> {
+  const { tenantId, groupId, clientId, wardId, maxStudents, lessonIds, excludeSubscriptionId } = input
   const clash = await db.subscriptionLesson.findFirst({
     where: {
       tenantId,
-      lessonId: { in: ids },
+      lessonId: { in: lessonIds },
       subscription: {
         clientId, wardId, groupId,
         type: "package", status: { in: ["pending", "active"] }, deletedAt: null,
@@ -155,14 +187,13 @@ export async function validateSelectedLessons(
     },
     select: { lessonId: true },
   })
-  if (clash) return err("Занятие уже входит в другой пакет подопечного", 409)
+  if (clash) return { message: "Занятие уже входит в другой пакет подопечного", status: 409 }
 
-  // Вместимость (D-12): на каждом выбранном занятии число живых пакет-выборов < maxStudents.
   const counts = await db.subscriptionLesson.groupBy({
     by: ["lessonId"],
     where: {
       tenantId,
-      lessonId: { in: ids },
+      lessonId: { in: lessonIds },
       subscription: {
         type: "package", status: { in: ["pending", "active"] }, deletedAt: null,
         ...(excludeSubscriptionId ? { id: { not: excludeSubscriptionId } } : {}),
@@ -171,10 +202,37 @@ export async function validateSelectedLessons(
     _count: { _all: true },
   })
   if (counts.some((c) => c._count._all >= maxStudents)) {
-    return err("На одном из выбранных занятий нет свободных мест", 409)
+    return { message: "На одном из выбранных занятий нет свободных мест", status: 409 }
   }
+  return null
+}
 
-  return { ok: true, lessonIds: ids }
+// ── Advisory-лок + авторитетная перепроверка (против гонки oversell, #4) ──────
+
+/** Конфликт выбора (кросс-пакет/вместимость), пойманный под advisory-локом в транзакции. */
+export class SelectionConflictError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "SelectionConflictError"
+    this.status = status
+  }
+}
+
+/**
+ * ВНУТРИ транзакции: берёт advisory-локи на выбранные занятия (в детерминированном
+ * порядке — против дедлоков) и ПОВТОРНО проверяет кросс-пакет+вместимость под локом.
+ * Локи держатся до конца транзакции, поэтому «посчитал→вставил» атомарно на занятие:
+ * две конкурентные выписки/swap на одно почти-полное занятие сериализуются (нет
+ * перепродажи). Бросает SelectionConflictError — вызывающий ловит вокруг $transaction,
+ * мапит в 4xx (транзакция откатывается). Вызывать ТОЛЬКО с TransactionClient.
+ */
+export async function lockAndVerifySelection(tx: DB, input: CrossCapacityInput): Promise<void> {
+  for (const lessonId of [...input.lessonIds].sort()) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lessonId}))`
+  }
+  const conflict = await checkCrossPackageAndCapacity(tx, input)
+  if (conflict) throw new SelectionConflictError(conflict.message, conflict.status)
 }
 
 // ── Блокировка отметки вне плана (решение владельца №1) ──────────────────────

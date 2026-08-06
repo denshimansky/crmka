@@ -9,7 +9,11 @@ import {
 } from "@/lib/discounts/recalc-client-discounts"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
-import { validateSelectedLessons } from "@/lib/subscriptions/subscription-lessons"
+import {
+  validateSelectedLessons,
+  lockAndVerifySelection,
+  SelectionConflictError,
+} from "@/lib/subscriptions/subscription-lessons"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
@@ -288,7 +292,9 @@ export async function POST(req: NextRequest) {
     if (!v.ok) return NextResponse.json({ error: v.error }, { status: v.status })
   }
 
-  const subscription = await db.$transaction(async (tx) => {
+  let subscription
+  try {
+   subscription = await db.$transaction(async (tx) => {
     const sub = await tx.subscription.create({
       data: {
         tenantId: session.user.tenantId,
@@ -319,7 +325,17 @@ export async function POST(req: NextRequest) {
     })
 
     // Выбор занятий пакета — в той же транзакции (атомарно с созданием абонемента).
+    // Под advisory-локом перепроверяем кросс-пакет+вместимость (гонка oversell, #4).
     if (selectedLessonIds.length > 0) {
+      await lockAndVerifySelection(tx, {
+        tenantId: session.user.tenantId,
+        groupId: data.groupId,
+        clientId: data.clientId,
+        wardId: data.wardId ?? null,
+        maxStudents: group.maxStudents,
+        lessonIds: selectedLessonIds,
+        excludeSubscriptionId: sub.id,
+      })
       await tx.subscriptionLesson.createMany({
         data: selectedLessonIds.map((lessonId) => ({
           tenantId: session.user.tenantId,
@@ -399,7 +415,13 @@ export async function POST(req: NextRequest) {
       },
     })
     return fresh ?? sub
-  })
+   })
+  } catch (e) {
+    if (e instanceof SelectionConflictError) {
+      return NextResponse.json({ error: e.message }, { status: e.status })
+    }
+    throw e
+  }
 
   return NextResponse.json(subscription, { status: 201 })
 }
