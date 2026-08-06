@@ -15,11 +15,6 @@ function formatDate(date: Date | null): string {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
-// Авто-префикс заметки об отчислении, который добавляет PATCH /api/subscriptions/[id]:
-// «Отчисление абонемента «<направление>»[ (<MM.YYYY>)]. <комментарий>». Снимаем его,
-// чтобы показать в отчёте только сам комментарий пользователя (баг #108).
-const WITHDRAWAL_NOTE_PREFIX = /^Отчисление абонемента «[^»]*»(?: \([^)]*\))?\.\s*/
-
 export default async function ChurnDetailsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
@@ -115,16 +110,16 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
   function withdrawalComment(clientId: string, directionName: string, period: string | null): string {
     const notes = notesByClient.get(clientId)
     if (!notes || notes.length === 0) return "—"
-    // У клиента могло быть несколько отчислений (в т.ч. по одному направлению в
-    // разные периоды). Ищем заметку по направлению И периоду; иначе — по одному
-    // направлению; иначе — самую свежую (заметки отсортированы по убыванию даты).
-    const wantDir = directionName && directionName !== "—" ? `«${directionName}»` : null
-    const wantPeriod = period ? `(${period})` : null
-    const match =
-      notes.find((c) => (!wantDir || c.includes(wantDir)) && (!wantPeriod || c.includes(wantPeriod))) ??
-      (wantDir ? notes.find((c) => c.includes(wantDir)) : undefined) ??
-      notes[0]
-    return match.replace(WITHDRAWAL_NOTE_PREFIX, "").trim() || "—"
+    // Сопоставляем заметку с показанным абонементом по ТОЧНОМУ авто-префиксу,
+    // который пишет PATCH /api/subscriptions/[id] (направление + период). Точное
+    // совпадение исключает подстановку чужого комментария (напр. у
+    // бескомментарийного отчисления по другому направлению того же клиента) и
+    // корректно отрезает префикс даже с «ёлочками» в названии направления. Если
+    // направление/период поменяли после отчисления и совпадения нет — «—».
+    const prefix = `Отчисление абонемента «${directionName}»${period ? ` (${period})` : ""}. `
+    const note = notes.find((c) => c.startsWith(prefix))
+    if (!note) return "—"
+    return note.slice(prefix.length).trim() || "—"
   }
 
   const rows = churnedClients
