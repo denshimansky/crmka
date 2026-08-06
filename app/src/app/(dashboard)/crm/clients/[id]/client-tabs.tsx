@@ -38,6 +38,7 @@ import type { DiscountPreview } from "@/lib/discounts/preview-discount"
 import { packageLessonPrice } from "@/lib/subscriptions/package-price"
 import { directionPriceAt, type DirectionPriceVersionInput } from "@/lib/subscriptions/direction-price"
 import { PackageLessonPicker } from "@/app/(dashboard)/crm/_components/package-lesson-picker"
+import { EditPackageLessonsDialog } from "@/app/(dashboard)/crm/_components/edit-package-lessons-dialog"
 
 interface Ward {
   id: string
@@ -1051,6 +1052,9 @@ function SubscriptionsTab({ clientId, wards, perSubDiscountMode }: { clientId: s
                           <EditSubscriptionDialog subscription={s} perSubDiscountMode={perSubDiscountMode} onSuccess={handleSubUpdated} />
                           {s.type === "package" && (
                             <ExtendPackageDialog subscription={s} onSuccess={handleSubUpdated} />
+                          )}
+                          {s.type === "package" && (
+                            <EditPackageLessonsDialog subscriptionId={s.id} onSuccess={handleSubUpdated} />
                           )}
                           <WithdrawSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                         </div>

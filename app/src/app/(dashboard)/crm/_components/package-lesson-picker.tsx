@@ -78,6 +78,9 @@ export function PackageLessonPicker({
   // Подрезаем выбор до доступных занятий, когда список меняется (сузилось окно/сменилась
   // группа) — иначе payload разойдётся с окном. onChange зовём только при отличии.
   useEffect(() => {
+    // Не подрезаем, пока занятия ещё не загружены (lessons=[]): иначе в режиме правки
+    // (value уже заполнен из GET) выбор обнулился бы ДО загрузки списка занятий.
+    if (lessons.length === 0) return
     const ids = new Set(lessons.map((l) => l.id))
     const pruned = value.filter((id) => ids.has(id))
     if (pruned.length !== value.length) onChange(pruned)
