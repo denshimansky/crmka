@@ -6,6 +6,8 @@ import {
   expenseAmountInWindow,
   expenseFetchWindow,
 } from "@/lib/expense-amortization"
+import { branchShare } from "@/lib/pnl-allocation"
+import { fetchCellRevenue } from "@/lib/pnl-cell-revenue"
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -118,13 +120,15 @@ export async function GET(req: NextRequest) {
       const { gte: expFrom, lte: expTo } = expenseFetchWindow(
         fromYm.year, fromYm.month, toYm.year, toYm.month,
       )
+      // Расходы тянем по всей сети (без some:{branchId}): в срезе филиала показываем
+      // ДОЛЮ расхода на филиал (∝ выручке), иначе общие/оклад-твин расходы выпали бы, а
+      // мультифилиальные задвоились. Доля считается ядром аллокации ниже (amountFor).
       const expWhere: any = {
         tenantId,
         deletedAt: null,
         date: { gte: expFrom, lte: expTo },
       }
       if (categoryId) expWhere.categoryId = categoryId
-      if (branchId) expWhere.branches = { some: { branchId } }
 
       // Без DB-level take/orderBy: окно выборки расширено на ±60 мес (expenseFetchWindow),
       // поэтому «date desc + take:500» на уровне БД отобрал бы 500 самых поздних по дате
@@ -136,9 +140,19 @@ export async function GET(req: NextRequest) {
         include: {
           category: { select: { name: true } },
           salaryPayment: { select: { employee: { select: { firstName: true, lastName: true } } } },
-          branches: { select: { direction: { select: { name: true } } } },
+          branches: { select: { branchId: true, directionId: true, direction: { select: { name: true } } } },
         },
       })
+
+      // Доля расхода в окне ОПИУ с учётом среза филиала: без филиала — полная доля
+      // признания; с филиалом — сумма долей ячеек этого филиала (∝ выручке сети).
+      const cellRev = branchId ? await fetchCellRevenue(tenantId, monthStart, monthEnd) : null
+      const amountFor = (e: (typeof expenses)[number]): number => {
+        const inPeriod = expenseAmountInWindow(e, fromYm.year, fromYm.month, toYm.year, toYm.month)
+        if (inPeriod <= 0) return 0
+        if (!branchId || !cellRev) return inPeriod
+        return branchShare(inPeriod, e.branches.map((b) => ({ branchId: b.branchId, directionId: b.directionId })), cellRev, branchId)
+      }
 
       // Статья «Зарплата окладников» — расходы-твины (salaryPaymentId, связаны с
       // выплатой → сотрудником). Детализируем ПО СОТРУДНИКАМ (кому сколько), а не
@@ -152,7 +166,7 @@ export async function GET(req: NextRequest) {
         type EmpRow = { employee: string; direction: string; amountInPeriod: number }
         const byEmp = new Map<string, EmpRow>()
         for (const e of expenses) {
-          const inPeriod = expenseAmountInWindow(e, fromYm.year, fromYm.month, toYm.year, toYm.month)
+          const inPeriod = amountFor(e)
           if (inPeriod === 0) continue
           const emp = e.salaryPayment!.employee!
           const name = [emp.lastName, emp.firstName].filter(Boolean).join(" ").trim() || "—"
@@ -184,7 +198,7 @@ export async function GET(req: NextRequest) {
         }
         const detail: DetailRow[] = []
         for (const e of expenses) {
-          const inPeriod = expenseAmountInWindow(e, fromYm.year, fromYm.month, toYm.year, toYm.month)
+          const inPeriod = amountFor(e)
           if (inPeriod === 0) continue
           detail.push({
             date: e.date,
@@ -236,15 +250,22 @@ export async function GET(req: NextRequest) {
         take: 500,
       })
 
+      // В срезе филиала прочий доход разносится ∝ выручке (как в P&L) — показываем долю.
+      const cellRev = branchId ? await fetchCellRevenue(tenantId, monthStart, monthEnd) : null
+      const shareOf = (amount: number): number =>
+        !branchId || !cellRev ? amount : branchShare(amount, [], cellRev, branchId)
+
       columns = ["Дата", "Категория", "Счёт", "Способ", "Комментарий", "Сумма"]
-      rows = payments.map(p => [
-        formatDate(p.date),
-        p.incomeCategory?.name ?? "—",
-        p.account.name,
-        METHOD_LABELS[p.method] ?? p.method,
-        p.comment ?? "—",
-        Number(p.amount),
-      ])
+      rows = payments
+        .map(p => [
+          formatDate(p.date),
+          p.incomeCategory?.name ?? "—",
+          p.account.name,
+          METHOD_LABELS[p.method] ?? p.method,
+          p.comment ?? "—",
+          shareOf(Number(p.amount)),
+        ] as (string | number)[])
+        .filter(r => !branchId || Number(r[5]) !== 0)
     } else if (field === "salary") {
       // Детализация ЗП — инструкторы по факту посещений + позиции выплат окладников.
       const attWhere: any = {

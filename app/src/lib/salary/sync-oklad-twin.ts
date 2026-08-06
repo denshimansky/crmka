@@ -29,6 +29,9 @@ export async function syncOkladTwinsForEmployeePeriod(
     employeeId: string
     monthlySalary: number
     defaultDirectionId: string | null
+    // Филиалы, на которые распространяется оклад (Employee.okladBranchIds). Пусто →
+    // оклад-твин без привязки к филиалу (общий) → в ОПИУ разносится по всей сети ∝ выручке.
+    okladBranchIds: string[]
     periodYear: number
     periodMonth: number
     okladCategoryId: string
@@ -124,7 +127,21 @@ export async function syncOkladTwinsForEmployeePeriod(
     },
     select: { id: true },
   })
-  if (twin.directionId) {
+  // Привязка твина к филиалам/направлению (семантика 1:1 с формой расхода):
+  //  • выбраны филиалы → строка на каждый филиал (branchId, directionId оклада) →
+  //    оклад разносится на выбранные филиалы ∝ выручке (внутри — по направлению);
+  //  • филиалы не выбраны, но есть направление → одна строка (branchId=null, directionId);
+  //  • ни филиалов, ни направления → без строки (общий расход ∝ всей сети).
+  if (input.okladBranchIds.length > 0) {
+    await tx.expenseBranch.createMany({
+      data: input.okladBranchIds.map((branchId) => ({
+        tenantId: input.tenantId,
+        expenseId: exp.id,
+        branchId,
+        directionId: twin.directionId,
+      })),
+    })
+  } else if (twin.directionId) {
     await tx.expenseBranch.create({
       data: { tenantId: input.tenantId, expenseId: exp.id, branchId: null, directionId: twin.directionId },
     })

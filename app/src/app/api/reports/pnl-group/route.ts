@@ -5,6 +5,7 @@ import {
   expenseAmountInWindow,
   expenseFetchWindow,
 } from "@/lib/expense-amortization"
+import { buildCellRevenue, resolveTargets, distribute, NO_BRANCH_ID } from "@/lib/pnl-allocation"
 
 /** 7.3. P&L на уровне группы */
 export async function GET(req: NextRequest) {
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
       chargeAmount: true,
       instructorPayAmount: true,
       instructorPayEnabled: true,
-      lesson: { select: { id: true, groupId: true, durationMinutes: true } },
+      lesson: { select: { id: true, groupId: true, durationMinutes: true, group: { select: { branchId: true, directionId: true } } } },
     },
   })
 
@@ -60,6 +61,11 @@ export async function GET(req: NextRequest) {
     if (!groupLessons.has(gId)) groupLessons.set(gId, new Set())
     groupLessons.get(gId)!.add(a.lesson.id)
   }
+
+  // Веса аллокации расходов по ячейкам (филиал, направление) — по всей сети.
+  const cellRevenue = buildCellRevenue(
+    attendances.map((a) => ({ branchId: a.lesson.group.branchId, directionId: a.lesson.group.directionId, amount: Number(a.chargeAmount) })),
+  )
 
   // Branch-level totals for proportional allocation
   const branchRevenue = new Map<string, number>()
@@ -87,7 +93,7 @@ export async function GET(req: NextRequest) {
       amortizationMonths: true,
       amortizationStartDate: true,
       isVariable: true,
-      branches: { select: { branchId: true } },
+      branches: { select: { branchId: true, directionId: true } },
     },
   })
 
@@ -96,20 +102,23 @@ export async function GET(req: NextRequest) {
   const toY = dateTo.getUTCFullYear()
   const toM = dateTo.getUTCMonth() + 1
 
+  // Расход раскладывается по филиалам ∝ выручке (единое ядро): общий (без филиала) и
+  // оклад-твин (branchId=null) распределяются по всей сети — раньше молча выпадали;
+  // мультифилиальный делится между филиалами, а не задваивается в каждом.
   const branchVariableExp = new Map<string, number>()
   const branchFixedExp = new Map<string, number>()
   for (const e of expenses) {
     const amt = expenseAmountInWindow(e, fromY, fromM, toY, toM)
     if (amt === 0) continue
-    for (const eb of e.branches) {
-      if (eb.branchId) {
-        if (e.isVariable) {
-          branchVariableExp.set(eb.branchId, (branchVariableExp.get(eb.branchId) || 0) + amt)
-        } else {
-          branchFixedExp.set(eb.branchId, (branchFixedExp.get(eb.branchId) || 0) + amt)
-        }
-      }
-    }
+    const target = e.isVariable ? branchVariableExp : branchFixedExp
+    distribute(
+      amt,
+      resolveTargets(e.branches.map((b) => ({ branchId: b.branchId, directionId: b.directionId })), cellRevenue),
+      (b, _d, part) => {
+        if (b === NO_BRANCH_ID) return // нет выручки в сети → некуда отнести
+        target.set(b, (target.get(b) || 0) + part)
+      },
+    )
   }
 
   const data = groups.map((g) => {

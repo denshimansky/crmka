@@ -139,8 +139,10 @@ export default async function StaffPage() {
                               employeeName={fullName || emp.login}
                               role={emp.role}
                               directions={directions}
+                              branches={branches}
                               monthlySalary={emp.monthlySalary ? Number(emp.monthlySalary) : null}
                               defaultDirectionId={emp.defaultDirectionId}
+                              okladBranchIds={Array.isArray(emp.okladBranchIds) ? (emp.okladBranchIds as string[]) : null}
                             />
                             <EditEmployeeDialog
                               employee={{

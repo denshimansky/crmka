@@ -2,11 +2,24 @@
 // страница один раз вытягивает сырые строки за весь период, затем считает вид за весь
 // период И за каждый месяц одним и тем же кодом (декомпозиция карточек по месяцам).
 //
-// Инвариант (покрыт тестом): для аддитивных величин (выручка, расходы, ЗП, прочие доходы)
-// сумма помесячных видов равна виду за весь период. Производные доли (рентабельность,
-// распределение постоянных) считаются в каждом окне отдельно и НЕ обязаны складываться.
+// Branch-aware: без branchFilter считает по всей сети (общий вид). С branchFilter —
+// СРЕЗ филиала: выручка/ЗП берутся только по этому филиалу, а каждый расход и прочий
+// доход разносится по филиалам ПРОПОРЦИОНАЛЬНО выручке (единое ядро lib/pnl-allocation),
+// в срез попадает доля выбранного филиала. Общие расходы (без филиала), оклад-твины
+// (branchId=null) и мультифилиальные расходы больше не выпадают/не задваиваются.
+//
+// Инвариант (покрыт тестом): для аддитивных величин (выручка, расходы, ЗП, прочие
+// доходы) сумма помесячных видов == вид за весь период, и Σ срезов филиалов == общий
+// вид. При branchFilter=undefined суммы идентичны прежним (аллокация не сужает).
 
-import { distributeFixedExpenses, type FixedExpenseItem } from "./expense-distribution"
+import {
+  buildCellRevenue,
+  allRevenueCells,
+  resolveTargets,
+  distribute,
+  NO_DIRECTION_ID,
+  type AllocLink,
+} from "./pnl-allocation"
 import { expenseAmountInWindow, type ExpenseLike } from "./expense-amortization"
 
 /** Ключ месяца: year*12 + (month-1). Удобно сравнивать диапазоны. */
@@ -22,12 +35,14 @@ export function monthKeyOfDate(d: Date): number {
 export interface PnlAttendanceRow {
   chargeAmount: number
   ymKey: number
+  branchId: string
   directionId: string
   directionName: string
 }
 export interface PnlSalaryRow {
   amount: number
   ymKey: number
+  branchId: string
 }
 export interface PnlIncomeRow {
   amount: number
@@ -40,8 +55,8 @@ export interface PnlExpenseRow extends ExpenseLike {
   categoryName: string
   isSalary: boolean
   isVariable: boolean
-  /** directionId, если расход отнесён к направлению напрямую (Option B). */
-  directDirectionId: string | null
+  /** Связи расхода с (филиал, направление) — для аллокации по ячейкам. */
+  links: AllocLink[]
 }
 
 export interface PnlExpenseCategory {
@@ -90,49 +105,113 @@ export interface PnlRawData {
   directionNameById: Map<string, string>
 }
 
-/** Считает P&L за окно [fromKey..toKey] (включительно) из заранее вытянутых строк. */
-export function computePnlView(fromKey: number, toKey: number, raw: PnlRawData): PnlView {
-  const inWindow = (k: number) => k >= fromKey && k <= toKey
+function pct(part: number, whole: number): number {
+  return whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0
+}
 
-  // === Выручка + по направлениям ===
+/**
+ * Считает P&L за окно [fromKey..toKey] (включительно) из заранее вытянутых строк.
+ * `branchFilter` — срез по филиалу (id) или undefined (вся сеть).
+ */
+export function computePnlView(
+  fromKey: number,
+  toKey: number,
+  raw: PnlRawData,
+  branchFilter?: string,
+): PnlView {
+  const inWindow = (k: number) => k >= fromKey && k <= toKey
+  const match = (b: string) => !branchFilter || b === branchFilter
+  const [fY, fM] = keyToYm(fromKey)
+  const [tY, tM] = keyToYm(toKey)
+
+  // Веса аллокации — выручка ячеек (филиал, направление) по ВСЕЙ сети (не суженная
+  // филиалом): доля филиала считается относительно всей сети/всех целевых филиалов.
+  const cellRevenue = buildCellRevenue(
+    raw.attendances
+      .filter((a) => inWindow(a.ymKey))
+      .map((a) => ({ branchId: a.branchId, directionId: a.directionId, amount: a.chargeAmount })),
+  )
+
+  // === Выручка + по направлениям (в срезе — только выбранный филиал) ===
   let revenue = 0
   const revenueByDirection: Record<string, { name: string; revenue: number }> = {}
   for (const a of raw.attendances) {
-    if (!inWindow(a.ymKey)) continue
+    if (!inWindow(a.ymKey) || !match(a.branchId)) continue
     revenue += a.chargeAmount
     const d = revenueByDirection[a.directionId] || { name: a.directionName, revenue: 0 }
     d.revenue += a.chargeAmount
     revenueByDirection[a.directionId] = d
   }
 
-  // === Прочие доходы ===
+  // === ЗП (начислено из посещений; в срезе — только выбранный филиал) ===
+  let totalSalaryAccrued = 0
+  for (const s of raw.salary) if (inWindow(s.ymKey) && match(s.branchId)) totalSalaryAccrued += s.amount
+
+  // === Прочие доходы (в срезе — доля ∝ выручке филиала, как общий расход) ===
   const otherIncomeMap = new Map<string, { id: string; name: string; amount: number }>()
   for (const p of raw.otherIncome) {
     if (!inWindow(p.ymKey)) continue
+    let attributed = p.amount
+    if (branchFilter) {
+      attributed = 0
+      distribute(p.amount, allRevenueCells(cellRevenue), (b, _d, part) => {
+        if (match(b)) attributed += part
+      })
+    }
+    if (attributed === 0) continue
     const prev = otherIncomeMap.get(p.categoryId) || { id: p.categoryId, name: p.categoryName, amount: 0 }
-    prev.amount += p.amount
+    prev.amount += attributed
     otherIncomeMap.set(p.categoryId, prev)
   }
   const otherIncomeByCategory = Array.from(otherIncomeMap.values()).sort((a, b) => b.amount - a.amount)
   const totalOtherIncome = otherIncomeByCategory.reduce((s, x) => s + x.amount, 0)
 
-  // === ЗП (начислено из посещений) ===
-  let totalSalaryAccrued = 0
-  for (const s of raw.salary) if (inWindow(s.ymKey)) totalSalaryAccrued += s.amount
-
-  // === Расходы: доля каждого в окне (с учётом периода признания) ===
-  const [fY, fM] = keyToYm(fromKey)
-  const [tY, tM] = keyToYm(toKey)
-  const expenseSlices = raw.expenses
-    .map((e) => ({
+  // === Расходы: доля в окне признания + аллокация на филиал/направления ===
+  interface Slice {
+    categoryId: string
+    categoryName: string
+    isSalary: boolean
+    isVariable: boolean
+    /** Сумма, отнесённая к текущему срезу (или полная в общем виде). */
+    amount: number
+    /** Есть ли прямая привязка к направлению (для бейджа «прямой»). */
+    isDirect: boolean
+    /** directionId → сумма внутри среза (для таблицы «по направлениям»). */
+    byDirection: Map<string, number>
+  }
+  const expenseSlices: Slice[] = []
+  for (const e of raw.expenses) {
+    const windowed = expenseAmountInWindow(e, fY, fM, tY, tM)
+    if (windowed <= 0) continue
+    const targets = resolveTargets(e.links, cellRevenue)
+    const byDirection = new Map<string, number>()
+    let amount = 0
+    // В общем виде сумма категории = полная доля в окне (без потери точности на
+    // округлениях распределения); раскладка по направлениям всё равно нужна для
+    // таблицы «по направлениям». В срезе — только доли ячеек своего филиала.
+    if (branchFilter) {
+      distribute(windowed, targets, (b, d, part) => {
+        if (!match(b)) return
+        amount += part
+        byDirection.set(d, (byDirection.get(d) ?? 0) + part)
+      })
+      if (amount === 0) continue
+    } else {
+      amount = windowed
+      distribute(windowed, targets, (_b, d, part) => {
+        byDirection.set(d, (byDirection.get(d) ?? 0) + part)
+      })
+    }
+    expenseSlices.push({
       categoryId: e.categoryId,
       categoryName: e.categoryName,
       isSalary: e.isSalary,
       isVariable: e.isVariable,
-      amount: expenseAmountInWindow(e, fY, fM, tY, tM),
-      directDirectionId: e.directDirectionId,
-    }))
-    .filter((s) => s.amount > 0)
+      amount,
+      isDirect: e.links.some((l) => l.directionId),
+      byDirection,
+    })
+  }
 
   const totalExpenses = expenseSlices.reduce((s, x) => s + x.amount, 0)
 
@@ -156,47 +235,54 @@ export function computePnlView(fromKey: number, toKey: number, raw: PnlRawData):
   const profitability = totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0
 
   // === Распределение постоянных расходов по направлениям ===
+  // Прямые (привязка к направлению) → отдельным списком с бейджем; остальные —
+  // распределённые ∝ выручке. Обе величины уже посчитаны в byDirection аллокацией.
   const fixedSlices = expenseSlices.filter((s) => !s.isVariable)
-  const directFixedSlices = fixedSlices.filter((s) => s.directDirectionId)
-  const undirectedFixedSlices = fixedSlices.filter((s) => !s.directDirectionId)
-
-  const fixedExpenseItems: FixedExpenseItem[] = undirectedFixedSlices.reduce<FixedExpenseItem[]>((acc, s) => {
-    const existing = acc.find((x) => x.id === s.categoryId)
-    if (existing) existing.amount += s.amount
-    else acc.push({ id: s.categoryId, category: s.categoryName, amount: s.amount })
-    return acc
-  }, [])
-
-  const revenueMap: Record<string, number> = {}
-  for (const [dirId, info] of Object.entries(revenueByDirection)) revenueMap[dirId] = info.revenue
-  const distribution = distributeFixedExpenses(fixedExpenseItems, revenueMap)
-
   const directFixedByDirection: Record<string, { items: { category: string; amount: number }[]; total: number }> = {}
-  for (const s of directFixedSlices) {
-    const dirId = s.directDirectionId!
-    if (!directFixedByDirection[dirId]) directFixedByDirection[dirId] = { items: [], total: 0 }
-    directFixedByDirection[dirId].items.push({ category: s.categoryName, amount: s.amount })
-    directFixedByDirection[dirId].total += s.amount
+  const distributionByDirCat: Record<string, Map<string, number>> = {}
+  for (const s of fixedSlices) {
+    for (const [dirId, amt] of s.byDirection) {
+      if (amt === 0) continue
+      if (s.isDirect) {
+        const g = (directFixedByDirection[dirId] ??= { items: [], total: 0 })
+        g.items.push({ category: s.categoryName, amount: amt })
+        g.total += amt
+      } else {
+        const m = (distributionByDirCat[dirId] ??= new Map())
+        m.set(s.categoryName, (m.get(s.categoryName) ?? 0) + amt)
+      }
+    }
   }
+
+  const distributionByKey: Record<string, { category: string; distributedAmount: number }[]> = {}
+  const distributedTotalByDir: Record<string, number> = {}
+  for (const [dirId, catMap] of Object.entries(distributionByDirCat)) {
+    distributionByKey[dirId] = Array.from(catMap, ([category, distributedAmount]) => ({ category, distributedAmount }))
+    distributedTotalByDir[dirId] = Array.from(catMap.values()).reduce((s, x) => s + x, 0)
+  }
+
+  const dirName = (dirId: string): string =>
+    revenueByDirection[dirId]?.name
+    ?? raw.directionNameById.get(dirId)
+    ?? (dirId === NO_DIRECTION_ID ? "Без направления" : dirId)
 
   const directionIdSet = new Set<string>([
     ...Object.keys(revenueByDirection),
     ...Object.keys(directFixedByDirection),
+    ...Object.keys(distributionByDirCat),
   ])
   const directionEntries: PnlDirectionEntry[] = Array.from(directionIdSet)
     .map((dirId) => {
-      const revenueInfo = revenueByDirection[dirId]
-      const directInfo = directFixedByDirection[dirId]
-      const dirRevenue = revenueInfo?.revenue ?? 0
-      const distributedFixedShare = distribution.totalByKey[dirId] ?? 0
-      const directFixed = directInfo?.total ?? 0
+      const dirRevenue = revenueByDirection[dirId]?.revenue ?? 0
+      const distributedFixedShare = distributedTotalByDir[dirId] ?? 0
+      const directFixed = directFixedByDirection[dirId]?.total ?? 0
       return {
         directionId: dirId,
-        name: revenueInfo?.name ?? raw.directionNameById.get(dirId) ?? dirId,
+        name: dirName(dirId),
         revenue: dirRevenue,
-        revenueShare: revenue > 0 ? Math.round((dirRevenue / revenue) * 1000) / 10 : 0,
+        revenueShare: pct(dirRevenue, revenue),
         distributedFixed: distributedFixedShare + directFixed,
-        directFixedItems: directInfo?.items ?? [],
+        directFixedItems: directFixedByDirection[dirId]?.items ?? [],
       }
     })
     .sort((a, b) => b.revenue - a.revenue)
@@ -208,7 +294,7 @@ export function computePnlView(fromKey: number, toKey: number, raw: PnlRawData):
   ]
     .filter((a) => a.amount > 0)
     .sort((a, b) => b.amount - a.amount)
-    .map((a) => ({ ...a, percentOfRevenue: revenue > 0 ? Math.round((a.amount / revenue) * 1000) / 10 : 0 }))
+    .map((a) => ({ ...a, percentOfRevenue: pct(a.amount, revenue) }))
 
   return {
     revenue,
@@ -226,7 +312,7 @@ export function computePnlView(fromKey: number, toKey: number, raw: PnlRawData):
     profitability,
     distributionArticles,
     directionEntries,
-    distributionByKey: distribution.byKey,
+    distributionByKey,
   }
 }
 

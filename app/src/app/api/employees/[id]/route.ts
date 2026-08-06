@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
+import { Prisma } from "@prisma/client"
 import { isEmailTaken, EMAIL_TAKEN_MSG, uniqueViolationMessage } from "@/lib/employee-identity"
 
 const updateSchema = z.object({
@@ -30,6 +31,9 @@ const updateSchema = z.object({
     if (v === null || v === undefined || v === "") return null
     return typeof v === "string" ? v : null
   }).optional(),
+  // Филиалы, на которые распространяется оклад (разнесение оклад-твина в ОПИУ).
+  // Пусто → по всем ∝ выручке.
+  okladBranchIds: z.array(z.string().uuid()).nullable().optional(),
 })
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -119,6 +123,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(data.isActive !== undefined && { isActive: data.isActive }),
         ...(data.monthlySalary !== undefined && { monthlySalary: data.monthlySalary }),
         ...(data.defaultDirectionId !== undefined && { defaultDirectionId: data.defaultDirectionId }),
+        ...(data.okladBranchIds !== undefined && {
+          okladBranchIds: data.okladBranchIds && data.okladBranchIds.length > 0 ? data.okladBranchIds : Prisma.DbNull,
+        }),
       },
       include: {
         employeeBranches: { include: { branch: { select: { id: true, name: true } } } },

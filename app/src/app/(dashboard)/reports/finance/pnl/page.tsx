@@ -64,14 +64,15 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   })
 
   // === Сырые строки за весь период (агрегируем помесячно в памяти) ===
+  // Всегда тянем по всей сети (без branch-фильтра): срез филиала считается аллокацией
+  // в computePnlView (доля расхода/прочего дохода ∝ выручке филиала). Фильтровать сырьё
+  // по филиалу нельзя — иначе общие/оклад-твин расходы выпадут, а мультифилиальные
+  // задвоятся между табами.
   // Выручка: списания с абонементов (chargeAmount) по дате занятия.
   const attendances = await db.attendance.findMany({
     where: {
       tenantId,
-      lesson: {
-        date: { gte: monthStart, lte: monthEnd },
-        ...(branchFilter ? { group: { branchId: branchFilter } } : {}),
-      },
+      lesson: { date: { gte: monthStart, lte: monthEnd } },
       attendanceType: { countsAsRevenue: true },
     },
     select: {
@@ -89,10 +90,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   const salaryAttendances = await db.attendance.findMany({
     where: {
       tenantId,
-      lesson: {
-        date: { gte: monthStart, lte: monthEnd },
-        ...(branchFilter ? { group: { branchId: branchFilter } } : {}),
-      },
+      lesson: { date: { gte: monthStart, lte: monthEnd } },
       instructorPayEnabled: true,
     },
     select: {
@@ -102,29 +100,26 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
   })
 
   // Прочие доходы вне абонементов (Payment без subscriptionId, с incomeCategoryId).
-  // Не привязаны к филиалу — показываем только в общем P&L.
-  const otherIncomePayments = branchFilter
-    ? []
-    : await db.payment.findMany({
-        where: {
-          tenantId,
-          deletedAt: null,
-          subscriptionId: null,
-          incomeCategoryId: { not: null },
-          notInPnl: false, // «Не учитывать в ОПИУ» (баг #105)
-          type: { in: ["incoming", "transfer_in"] },
-          date: { gte: monthStart, lte: monthEnd },
-        },
-        select: { amount: true, date: true, incomeCategory: { select: { id: true, name: true } } },
-      })
+  // В срезе филиала разносятся ∝ выручке (как общий расход) — тянем всегда.
+  const otherIncomePayments = await db.payment.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      subscriptionId: null,
+      incomeCategoryId: { not: null },
+      notInPnl: false, // «Не учитывать в ОПИУ» (баг #105)
+      type: { in: ["incoming", "transfer_in"] },
+      date: { gte: monthStart, lte: monthEnd },
+    },
+    select: { amount: true, date: true, incomeCategory: { select: { id: true, name: true } } },
+  })
 
   // Расходы — расширенным окном (±60 мес по дате платежа): период признания
-  // (recognitionMode) может отличаться от даты платежа в обе стороны.
+  // (recognitionMode) может отличаться от даты платежа в обе стороны. Тянем по всей
+  // сети — аллокация по филиалам делается в computePnlView.
   const { gte: expensesFrom, lte: expensesTo } = expenseFetchWindow(fromYm.year, fromYm.month, toYm.year, toYm.month)
-  const expWhere: any = { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: expensesTo } }
-  if (branchFilter) expWhere.branches = { some: { branchId: branchFilter } }
   const expenses = await db.expense.findMany({
-    where: expWhere,
+    where: { tenantId, deletedAt: null, date: { gte: expensesFrom, lte: expensesTo } },
     include: {
       category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
       branches: { select: { branchId: true, directionId: true } },
@@ -142,12 +137,14 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     attendances: attendances.map((a) => ({
       chargeAmount: Number(a.chargeAmount),
       ymKey: monthKeyOfDate(a.lesson.date),
+      branchId: a.lesson.group.branchId,
       directionId: a.lesson.group.directionId,
       directionName: a.lesson.group.direction.name,
     })),
     salary: salaryAttendances.map((s) => ({
       amount: Number(s.instructorPayAmount),
       ymKey: monthKeyOfDate(s.lesson.date),
+      branchId: s.lesson.group.branchId,
     })),
     otherIncome: otherIncomePayments.flatMap((p) =>
       p.incomeCategory
@@ -164,15 +161,15 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       categoryName: e.category.name,
       isSalary: e.category.isSalary,
       isVariable: e.category.isVariable,
-      directDirectionId: e.branches.find((b) => b.directionId)?.directionId ?? null,
+      links: e.branches.map((b) => ({ branchId: b.branchId, directionId: b.directionId })),
     })),
     directionNameById: new Map(directions.map((d) => [d.id, d.name])),
   }
 
   // === Сырьё для «Финрез Декомпозиции» (Филиал → Направление → Статья) ===
-  // Тот же набор занятий/ЗП/расходов, что и основной P&L (гарантия reconcile). При
-  // активном табе филиала связи расхода фильтруем по нему — расход целиком остаётся
-  // внутри видимого филиала (как и в основном P&L для этого таба).
+  // Тот же набор занятий/ЗП/расходов, что и основной P&L (гарантия reconcile). Дерево
+  // считаем по всей сети; для среза филиала берём узел выбранного филиала (sliceDecomp) —
+  // так расход остаётся разнесённым ∝ выручке, а филиал показывает свою долю.
   const branchNameById = new Map(allBranches.map((b) => [b.id, b.name]))
   const decompRaw: PnlDecompRawData = {
     revenue: attendances.map((a) => ({
@@ -197,17 +194,24 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       amortizationMonths: e.amortizationMonths,
       amortizationStartDate: e.amortizationStartDate,
       categoryName: e.category.name,
-      links: e.branches
-        .filter((b) => !branchFilter || b.branchId === branchFilter)
-        .map((b) => ({ branchId: b.branchId, directionId: b.directionId })),
+      links: e.branches.map((b) => ({ branchId: b.branchId, directionId: b.directionId })),
     })),
     branchNameById,
     directionNameById: new Map(directions.map((d) => [d.id, d.name])),
   }
 
+  // Срез дерева декомпозиции на выбранный филиал (или всё дерево в общем виде).
+  function sliceDecomp(v: DecompView): DecompView {
+    if (!branchFilter) return v
+    const branches = v.branches.filter((b) => b.branchId === branchFilter)
+    const income = Math.round(branches.reduce((s, b) => s + b.income, 0) * 100) / 100
+    const expense = Math.round(branches.reduce((s, b) => s + b.expense, 0) * 100) / 100
+    return { branches, totals: { income, expense, profit: Math.round((income - expense) * 100) / 100 } }
+  }
+
   const fromKeyNum = monthKey(fromYm.year, fromYm.month)
   const toKeyNum = monthKey(toYm.year, toYm.month)
-  const total = computePnlView(fromKeyNum, toKeyNum, raw)
+  const total = computePnlView(fromKeyNum, toKeyNum, raw, branchFilter)
   const months = enumerateMonths(fromYm.year, fromYm.month, toYm.year, toYm.month)
 
   // Колонки декомпозиции: «Весь период» + карточка на каждый месяц (только для диапазона).
@@ -216,7 +220,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     key: "total",
     title: isRange ? "Весь период" : "",
     view: total,
-    decomp: computePnlDecomposition(fromKeyNum, toKeyNum, decompRaw),
+    decomp: sliceDecomp(computePnlDecomposition(fromKeyNum, toKeyNum, decompRaw)),
     drill: { month: fromKey, from: fromKey, to: toKey },
   }
   const monthColumns: PnlColumn[] = isRange
@@ -225,8 +229,8 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
         return {
           key: mk,
           title: mm.label,
-          view: computePnlView(mm.key, mm.key, raw),
-          decomp: computePnlDecomposition(mm.key, mm.key, decompRaw),
+          view: computePnlView(mm.key, mm.key, raw, branchFilter),
+          decomp: sliceDecomp(computePnlDecomposition(mm.key, mm.key, decompRaw)),
           drill: { month: mk, from: mk, to: mk },
         }
       })
@@ -477,7 +481,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
             </Link>
           ))}
           {branchFilter && (
-            <span className="text-xs text-muted-foreground ml-2">Прочие доходы показываются только в общем P&L</span>
+            <span className="text-xs text-muted-foreground ml-2">Расходы и прочие доходы разнесены по филиалам ∝ выручке</span>
           )}
         </div>
       )}

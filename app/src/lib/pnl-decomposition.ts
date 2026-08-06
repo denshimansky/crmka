@@ -17,9 +17,16 @@
 // деревьев равна дереву за весь период для аддитивных величин.
 
 import { expenseAmountInWindow, type ExpenseLike } from "./expense-amortization"
+import {
+  NO_BRANCH_ID,
+  NO_DIRECTION_ID,
+  buildCellRevenue,
+  allRevenueCells,
+  resolveTargets,
+  distribute,
+} from "./pnl-allocation"
 
-export const NO_BRANCH_ID = "__no_branch__"
-export const NO_DIRECTION_ID = "__no_direction__"
+export { NO_BRANCH_ID, NO_DIRECTION_ID } from "./pnl-allocation"
 export const NO_BRANCH_LABEL = "Без филиала"
 export const NO_DIRECTION_LABEL = "Без направления"
 export const REVENUE_STATYA = "Выручка от продаж"
@@ -100,11 +107,6 @@ interface Cell {
   income: Map<string, number>
   expense: Map<string, number>
 }
-interface Target {
-  b: string
-  d: string
-  weight: number
-}
 
 /** Считает дерево декомпозиции за окно [fromKey..toKey] (включительно). */
 export function computePnlDecomposition(
@@ -140,22 +142,17 @@ export function computePnlDecomposition(
     c.expense.set(statya, (c.expense.get(statya) ?? 0) + amt)
   }
 
-  // Веса распределения = выручка ячейки (только выручка, не ЗП/прочие доходы).
-  const cellRevenue = new Map<string, Map<string, number>>()
-  const bumpRevenue = (b: string, d: string, amt: number) => {
-    let byDir = cellRevenue.get(b)
-    if (!byDir) {
-      byDir = new Map()
-      cellRevenue.set(b, byDir)
-    }
-    byDir.set(d, (byDir.get(d) ?? 0) + amt)
-  }
+  // Веса распределения = выручка ячеек окна (только выручка, не ЗП/прочие доходы).
+  const cellRevenue = buildCellRevenue(
+    raw.revenue
+      .filter((r) => inWindow(r.ymKey))
+      .map((r) => ({ branchId: r.branchId, directionId: r.directionId, amount: r.amount })),
+  )
 
-  // Pass 1: выручка (напрямую в ячейку + вес распределения).
+  // Pass 1: выручка напрямую в ячейку.
   for (const r of raw.revenue) {
     if (!inWindow(r.ymKey) || r.amount === 0) continue
     addIncome(r.branchId, r.directionId, REVENUE_STATYA, r.amount)
-    bumpRevenue(r.branchId, r.directionId, r.amount)
   }
 
   // Pass 2: ЗП инструкторов (прямой расход ячейки).
@@ -164,87 +161,17 @@ export function computePnlDecomposition(
     addExpense(s.branchId, s.directionId, INSTRUCTOR_SALARY_STATYA, s.amount)
   }
 
-  // Все выручковые ячейки как цели распределения (общий расход / прочий доход).
-  const allRevenueCells = (): Target[] => {
-    const out: Target[] = []
-    for (const [b, byDir] of cellRevenue) for (const [d, rev] of byDir) out.push({ b, d, weight: rev })
-    return out
-  }
-  const branchRevenueCells = (b: string): Target[] => {
-    const byDir = cellRevenue.get(b)
-    return byDir ? Array.from(byDir, ([d, rev]) => ({ b, d, weight: rev })) : []
-  }
-  const directionCells = (d: string): Target[] => {
-    const out: Target[] = []
-    for (const [b, byDir] of cellRevenue) {
-      const rev = byDir.get(d)
-      if (rev != null) out.push({ b, d, weight: rev })
-    }
-    return out
-  }
-
-  // Приводит связи расхода к списку целевых ячеек с весами (выручка).
-  const resolveTargets = (links: DecompExpenseLink[]): Target[] => {
-    const meaningful = links.filter((l) => l.branchId || l.directionId)
-    if (meaningful.length === 0) return allRevenueCells()
-
-    const merged = new Map<string, Target>()
-    const push = (b: string, d: string, weight: number) => {
-      const key = `${b}::${d}`
-      const prev = merged.get(key)
-      if (prev) prev.weight += weight
-      else merged.set(key, { b, d, weight })
-    }
-    for (const l of meaningful) {
-      if (l.branchId && l.directionId) {
-        push(l.branchId, l.directionId, cellRevenue.get(l.branchId)?.get(l.directionId) ?? 0)
-      } else if (l.branchId) {
-        const scoped = branchRevenueCells(l.branchId)
-        if (scoped.length) for (const c of scoped) push(c.b, c.d, c.weight)
-        else push(l.branchId, NO_DIRECTION_ID, 0)
-      } else if (l.directionId) {
-        const scoped = directionCells(l.directionId)
-        if (scoped.length) for (const c of scoped) push(c.b, c.d, c.weight)
-        else push(NO_BRANCH_ID, l.directionId, 0)
-      }
-    }
-    return Array.from(merged.values())
-  }
-
-  // Раскладывает сумму по целям ∝ весам (при нулевых весах — поровну), с компенсацией
-  // округления в последней цели, чтобы Σ долей точно равнялась исходной сумме.
-  const distribute = (amount: number, targets: Target[], apply: (b: string, d: string, part: number) => void) => {
-    if (targets.length === 0) {
-      apply(NO_BRANCH_ID, NO_DIRECTION_ID, amount)
-      return
-    }
-    const totalW = targets.reduce((s, t) => s + Math.max(0, t.weight), 0)
-    let distributed = 0
-    for (let i = 0; i < targets.length; i++) {
-      const t = targets[i]
-      let part: number
-      if (i === targets.length - 1) {
-        part = round2(amount - distributed)
-      } else {
-        const share = totalW > 0 ? Math.max(0, t.weight) / totalW : 1 / targets.length
-        part = round2(amount * share)
-        distributed = round2(distributed + part)
-      }
-      if (part !== 0) apply(t.b, t.d, part)
-    }
-  }
-
-  // Pass 3: расходы (доля в окне признания → раскладка по ячейкам).
+  // Pass 3: расходы (доля в окне признания → раскладка по ячейкам ∝ выручке).
   for (const e of raw.expenses) {
     const amt = expenseAmountInWindow(e, fY, fM, tY, tM)
     if (amt <= 0) continue
-    distribute(amt, resolveTargets(e.links), (b, d, part) => addExpense(b, d, e.categoryName, part))
+    distribute(amt, resolveTargets(e.links, cellRevenue), (b, d, part) => addExpense(b, d, e.categoryName, part))
   }
 
   // Pass 4: прочие доходы — распределяем по сети ∝ выручке (как общий расход).
   for (const oi of raw.otherIncome) {
     if (!inWindow(oi.ymKey) || oi.amount === 0) continue
-    distribute(oi.amount, allRevenueCells(), (b, d, part) => addIncome(b, d, oi.categoryName, part))
+    distribute(oi.amount, allRevenueCells(cellRevenue), (b, d, part) => addIncome(b, d, oi.categoryName, part))
   }
 
   // === Сборка дерева ===

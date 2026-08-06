@@ -6,6 +6,8 @@ import {
   expenseAmountInWindow,
   expenseFetchWindow,
 } from "@/lib/expense-amortization"
+import { branchShare } from "@/lib/pnl-allocation"
+import { fetchCellRevenue } from "@/lib/pnl-cell-revenue"
 import { isUnscoped, scopeExpense, scopePaymentByAccount } from "@/lib/branch-scope"
 
 /** 7.2. Финансовый результат (P&L) с учётом периода признания расхода. */
@@ -114,13 +116,15 @@ export async function GET(req: NextRequest) {
     dateFrom.getUTCFullYear(), dateFrom.getUTCMonth() + 1,
     dateTo.getUTCFullYear(), dateTo.getUTCMonth() + 1,
   )
+  // Расходы тянем по всей сети (без some:{branchId}): в срезе филиала берём ДОЛЮ расхода
+  // на филиал (∝ выручке сети, ядро branchShare) — общие/оклад-твин не выпадают,
+  // мультифилиальные не задваиваются. scope расходов (ADM-04) применяем, когда филиал явно
+  // не выбран (при явном branchId он уже пересечён со scope выше).
   const expWhere: any = {
     tenantId,
     deletedAt: null,
     date: { gte: expensesFrom, lte: expensesTo },
   }
-  if (branchId) expWhere.branches = { some: { branchId } }
-  // ADM-04: scope расходов (если не перекрыт явным branchId).
   const expenseScopeFilter = scopeExpense(scope)
   const finalExpWhere =
     Object.keys(expenseScopeFilter).length > 0 && !branchId
@@ -133,7 +137,7 @@ export async function GET(req: NextRequest) {
       category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
       // Направление берём из ExpenseBranch — если указано, относим расход напрямую
       // к этому направлению в распределении (минуя пропорциональный split).
-      branches: { select: { directionId: true } },
+      branches: { select: { branchId: true, directionId: true } },
     },
   })
 
@@ -152,9 +156,15 @@ export async function GET(req: NextRequest) {
     // Если у расхода указано направление — относим целиком к нему (не распределяем).
     directDirectionId: string | null
   }
+  // Веса аллокации для среза филиала (по всей сети). Без филиала расход берётся целиком.
+  const cellRev = branchId ? await fetchCellRevenue(tenantId, dateFrom, dateTo) : null
   const slices: ExpenseSlice[] = []
   for (const e of expenses) {
-    const inWindow = expenseAmountInWindow(e, fromY, fromM, toY, toM)
+    const windowed = expenseAmountInWindow(e, fromY, fromM, toY, toM)
+    if (windowed === 0) continue
+    const inWindow = branchId && cellRev
+      ? branchShare(windowed, e.branches.map((b) => ({ branchId: b.branchId, directionId: b.directionId })), cellRev, branchId)
+      : windowed
     if (inWindow === 0) continue
     // Все ExpenseBranch одного расхода имеют одинаковый directionId — берём первый.
     const directDirectionId =

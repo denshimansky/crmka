@@ -15,6 +15,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Pencil, Plus, Trash2, Wallet } from "lucide-react"
 import { useCurrencySymbol } from "@/components/currency-provider"
 import {
@@ -44,6 +45,15 @@ interface RateRow {
 interface DirectionOption {
   id: string
   name: string
+}
+
+interface BranchOption {
+  id: string
+  name: string
+}
+
+function sameBranchSet(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((x) => b.includes(x))
 }
 
 function rowToForm(r: RateRow): RateFormValue {
@@ -85,6 +95,10 @@ interface Props {
   // Оклад редактируется здесь же, чтобы вся настройка ЗП была в одном месте.
   monthlySalary?: number | null
   defaultDirectionId?: string | null
+  // Филиалы организации + текущий выбор филиалов оклада (Employee.okladBranchIds).
+  // Пусто → оклад распределяется по всем филиалам ∝ выручке.
+  branches?: BranchOption[]
+  okladBranchIds?: string[] | null
   open?: boolean
   onOpenChange?: (open: boolean) => void
   hideTrigger?: boolean
@@ -98,6 +112,8 @@ export function SalaryRatesDialog({
   role,
   monthlySalary = null,
   defaultDirectionId = null,
+  branches = [],
+  okladBranchIds = null,
   open: openProp,
   onOpenChange,
   hideTrigger,
@@ -126,6 +142,7 @@ export function SalaryRatesDialog({
   // --- Оклад (фиксированная месячная ставка, хранится на Employee) ---
   const [oklad, setOklad] = useState(monthlySalary != null ? String(monthlySalary) : "")
   const [okladDir, setOkladDir] = useState(defaultDirectionId ?? "")
+  const [okladBranches, setOkladBranches] = useState<string[]>(okladBranchIds ?? [])
   const [okladSaving, setOkladSaving] = useState(false)
   const [okladSaved, setOkladSaved] = useState(false)
   const [okladError, setOkladError] = useState<string | null>(null)
@@ -135,13 +152,21 @@ export function SalaryRatesDialog({
     if (!open) return
     setOklad(monthlySalary != null ? String(monthlySalary) : "")
     setOkladDir(defaultDirectionId ?? "")
+    setOkladBranches(okladBranchIds ?? [])
     setOkladSaved(false)
     setOkladError(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, monthlySalary, defaultDirectionId])
+
+  function toggleOkladBranch(id: string) {
+    setOkladBranches((prev) => (prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]))
+    setOkladSaved(false)
+  }
 
   const okladDirty =
     (oklad.trim() === "" ? null : Number(oklad)) !== (monthlySalary ?? null) ||
-    (okladDir || null) !== (defaultDirectionId ?? null)
+    (okladDir || null) !== (defaultDirectionId ?? null) ||
+    !sameBranchSet(okladBranches, okladBranchIds ?? [])
 
   async function saveOklad() {
     setOkladSaving(true)
@@ -154,6 +179,7 @@ export function SalaryRatesDialog({
         body: JSON.stringify({
           monthlySalary: oklad.trim() === "" ? null : Number(oklad),
           defaultDirectionId: okladDir || null,
+          okladBranchIds: okladBranches,
         }),
       })
       if (!res.ok) {
@@ -357,6 +383,27 @@ export function SalaryRatesDialog({
                     Основное направление — для разнесения оклада по направлениям в ОПИУ.
                     Не выбрано — оклад распределяется по всем направлениям пропорционально выручке.
                   </p>
+                  {branches.length > 1 && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Филиалы оклада</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {branches.map((b) => (
+                          <label key={b.id} className="flex items-center gap-1.5 text-sm">
+                            <Checkbox
+                              checked={okladBranches.includes(b.id)}
+                              onCheckedChange={() => toggleOkladBranch(b.id)}
+                            />
+                            {b.name}
+                          </label>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {okladBranches.length === 0
+                          ? "Не выбрано — оклад распределяется по всем филиалам ∝ выручке."
+                          : `Оклад разносится на выбранные филиалы (${okladBranches.length}) ∝ выручке.`}
+                      </p>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" onClick={saveOklad} disabled={okladSaving || !okladDirty}>
                       {okladSaving ? "Сохранение..." : "Сохранить оклад"}

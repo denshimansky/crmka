@@ -5,6 +5,8 @@ import {
   expenseAmountInWindow,
   expenseFetchWindow,
 } from "@/lib/expense-amortization"
+import { branchShare } from "@/lib/pnl-allocation"
+import { fetchCellRevenue } from "@/lib/pnl-cell-revenue"
 
 /** FIN-15: P&L по направлениям */
 export async function GET(req: NextRequest) {
@@ -71,18 +73,18 @@ export async function GET(req: NextRequest) {
     dateFrom.getUTCFullYear(), dateFrom.getUTCMonth() + 1,
     dateTo.getUTCFullYear(), dateTo.getUTCMonth() + 1,
   )
-  const expWhere: any = {
-    tenantId,
-    deletedAt: null,
-    date: { gte: expensesFrom, lte: expensesTo },
-  }
-  if (branchId) expWhere.branches = { some: { branchId } }
-
+  // Расходы тянем по всей сети (без some:{branchId}): в срезе филиала берём ДОЛЮ расхода
+  // на филиал (∝ выручке сети) — иначе общие/оклад-твин расходы выпадут, а мультифилиальные
+  // задвоятся. Доля считается ядром аллокации (branchShare) ниже.
   const expenses = await db.expense.findMany({
-    where: expWhere,
+    where: {
+      tenantId,
+      deletedAt: null,
+      date: { gte: expensesFrom, lte: expensesTo },
+    },
     include: {
       category: { select: { name: true, isSalary: true, isVariable: true } },
-      branches: { select: { directionId: true } },
+      branches: { select: { branchId: true, directionId: true } },
     },
   })
 
@@ -91,12 +93,19 @@ export async function GET(req: NextRequest) {
   const toY = dateTo.getUTCFullYear()
   const toM = dateTo.getUTCMonth() + 1
 
+  // Веса аллокации для среза филиала (по всей сети). Без филиала расход берётся целиком.
+  const cellRev = branchId ? await fetchCellRevenue(tenantId, dateFrom, dateTo) : null
+
   // Split expenses: variable (linked to direction) vs fixed (to distribute)
   let totalFixed = 0
   const directExpensesByDir = new Map<string, number>()
 
   for (const e of expenses) {
-    const amount = expenseAmountInWindow(e, fromY, fromM, toY, toM)
+    const windowed = expenseAmountInWindow(e, fromY, fromM, toY, toM)
+    if (windowed === 0) continue
+    const amount = branchId && cellRev
+      ? branchShare(windowed, e.branches.map((b) => ({ branchId: b.branchId, directionId: b.directionId })), cellRev, branchId)
+      : windowed
     if (amount === 0) continue
     const isVariable = e.category.isVariable
 
@@ -177,12 +186,15 @@ export async function GET(req: NextRequest) {
       incomeCategory: { select: { id: true, name: true } },
     },
   })
+  // В срезе филиала прочий доход разносится ∝ выручке (как в основном P&L) — берём долю.
   const otherIncomeMap = new Map<string, { categoryId: string; categoryName: string; amount: number }>()
   for (const p of otherIncomePayments) {
     if (!p.incomeCategory) continue
+    const amt = branchId && cellRev ? branchShare(Number(p.amount), [], cellRev, branchId) : Number(p.amount)
+    if (amt === 0) continue
     const key = p.incomeCategory.id
     const prev = otherIncomeMap.get(key) || { categoryId: key, categoryName: p.incomeCategory.name, amount: 0 }
-    prev.amount += Number(p.amount)
+    prev.amount += amt
     otherIncomeMap.set(key, prev)
   }
   const otherIncomeByCategory = Array.from(otherIncomeMap.values()).sort((a, b) => b.amount - a.amount)

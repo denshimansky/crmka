@@ -271,6 +271,9 @@ model Employee {
   // (monthlySalary, defaultDirectionId) — преподаватели начисляются по факту посещений.
   monthlySalary      Decimal? @map("monthly_salary") @db.Decimal(12, 2)
   defaultDirectionId String?  @map("default_direction_id") @db.Uuid
+  // Филиалы, на которые распространяется оклад (разнесение оклад-твина в ОПИУ).
+  // JSON-массив branchId. NULL/пусто → распределяется по всем филиалам ∝ выручке.
+  okladBranchIds     Json?    @map("oklad_branch_ids")
 
   organization               Organization         @relation(fields: [tenantId], references: [id])
   defaultDirection           Direction?           @relation("EmployeeDefaultDirection", fields: [defaultDirectionId], references: [id])

@@ -190,7 +190,7 @@ export async function POST(req: NextRequest) {
     const directionIds = Array.from(new Set(data.items.map(i => i.directionId).filter((v): v is string => !!v)))
 
     const [employees, accounts, directions] = await Promise.all([
-      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true, monthlySalary: true, defaultDirectionId: true } }),
+      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true, monthlySalary: true, defaultDirectionId: true, okladBranchIds: true } }),
       accountIds.length > 0
         ? db.financialAccount.findMany({ where: { id: { in: accountIds }, tenantId }, select: { id: true } })
         : Promise.resolve([] as Array<{ id: string }>),
@@ -311,6 +311,7 @@ export async function POST(req: NextRequest) {
             employeeId: empId,
             monthlySalary: Number(emp.monthlySalary),
             defaultDirectionId: emp.defaultDirectionId ?? null,
+            okladBranchIds: Array.isArray(emp.okladBranchIds) ? (emp.okladBranchIds as string[]) : [],
             periodYear: data.periodYear,
             periodMonth: data.periodMonth,
             okladCategoryId,
@@ -349,7 +350,7 @@ export async function POST(req: NextRequest) {
   const data = parsed.data
 
   const [employee, account] = await Promise.all([
-    db.employee.findFirst({ where: { id: data.employeeId, tenantId }, select: { id: true, defaultDirectionId: true, monthlySalary: true } }),
+    db.employee.findFirst({ where: { id: data.employeeId, tenantId }, select: { id: true, defaultDirectionId: true, monthlySalary: true, okladBranchIds: true } }),
     db.financialAccount.findFirst({ where: { id: data.accountId, tenantId }, select: { id: true } }),
   ])
   if (!employee) return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
@@ -407,6 +408,7 @@ export async function POST(req: NextRequest) {
         employeeId: data.employeeId,
         monthlySalary: Number(employee.monthlySalary),
         defaultDirectionId: employee.defaultDirectionId ?? null,
+        okladBranchIds: Array.isArray(employee.okladBranchIds) ? (employee.okladBranchIds as string[]) : [],
         periodYear: data.periodYear,
         periodMonth: data.periodMonth,
         okladCategoryId: legacyOkladCategoryId,

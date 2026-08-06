@@ -44,7 +44,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     where: { id, tenantId },
     select: {
       id: true, employeeId: true, accountId: true, amount: true, periodYear: true, periodMonth: true,
-      employee: { select: { monthlySalary: true, defaultDirectionId: true } },
+      employee: { select: { monthlySalary: true, defaultDirectionId: true, okladBranchIds: true } },
       items: { select: { accountId: true, amount: true } },
     },
   })
@@ -82,6 +82,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         employeeId: payment.employeeId,
         monthlySalary: Number(payment.employee?.monthlySalary ?? 0),
         defaultDirectionId: payment.employee?.defaultDirectionId ?? null,
+        okladBranchIds: Array.isArray(payment.employee?.okladBranchIds) ? (payment.employee.okladBranchIds as string[]) : [],
         periodYear: payment.periodYear,
         periodMonth: payment.periodMonth,
         okladCategoryId,
@@ -113,7 +114,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     where: { id, tenantId },
     select: {
       id: true, employeeId: true, accountId: true, amount: true, periodYear: true, periodMonth: true,
-      employee: { select: { monthlySalary: true, defaultDirectionId: true } },
+      employee: { select: { monthlySalary: true, defaultDirectionId: true, okladBranchIds: true } },
       items: { select: { accountId: true, amount: true } },
     },
   })
@@ -185,6 +186,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         employeeId: payment.employeeId,
         monthlySalary: Number(payment.employee?.monthlySalary ?? 0),
         defaultDirectionId: payment.employee?.defaultDirectionId ?? null,
+        okladBranchIds: Array.isArray(payment.employee?.okladBranchIds) ? (payment.employee.okladBranchIds as string[]) : [],
         periodYear: payment.periodYear,
         periodMonth: payment.periodMonth,
         okladCategoryId,
