@@ -19,6 +19,8 @@ import {
   type PnlRawData,
   type PnlView,
 } from "@/lib/pnl-view"
+import { computePnlDecomposition, type PnlDecompRawData, type DecompView } from "@/lib/pnl-decomposition"
+import { PnlDecompositionTree } from "@/components/pnl-decomposition-tree"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { getOrgUiSettings } from "@/lib/role-names"
@@ -77,7 +79,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       lesson: {
         select: {
           date: true,
-          group: { select: { directionId: true, direction: { select: { name: true } } } },
+          group: { select: { branchId: true, directionId: true, direction: { select: { name: true } } } },
         },
       },
     },
@@ -93,7 +95,10 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       },
       instructorPayEnabled: true,
     },
-    select: { instructorPayAmount: true, lesson: { select: { date: true } } },
+    select: {
+      instructorPayAmount: true,
+      lesson: { select: { date: true, group: { select: { branchId: true, directionId: true } } } },
+    },
   })
 
   // Прочие доходы вне абонементов (Payment без subscriptionId, с incomeCategoryId).
@@ -122,7 +127,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     where: expWhere,
     include: {
       category: { select: { id: true, name: true, isSalary: true, isVariable: true } },
-      branches: { select: { directionId: true } },
+      branches: { select: { branchId: true, directionId: true } },
     },
   })
 
@@ -164,17 +169,54 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     directionNameById: new Map(directions.map((d) => [d.id, d.name])),
   }
 
+  // === Сырьё для «Финрез Декомпозиции» (Филиал → Направление → Статья) ===
+  // Тот же набор занятий/ЗП/расходов, что и основной P&L (гарантия reconcile). При
+  // активном табе филиала связи расхода фильтруем по нему — расход целиком остаётся
+  // внутри видимого филиала (как и в основном P&L для этого таба).
+  const branchNameById = new Map(allBranches.map((b) => [b.id, b.name]))
+  const decompRaw: PnlDecompRawData = {
+    revenue: attendances.map((a) => ({
+      branchId: a.lesson.group.branchId,
+      directionId: a.lesson.group.directionId,
+      amount: Number(a.chargeAmount),
+      ymKey: monthKeyOfDate(a.lesson.date),
+    })),
+    salary: salaryAttendances.map((s) => ({
+      branchId: s.lesson.group.branchId,
+      directionId: s.lesson.group.directionId,
+      amount: Number(s.instructorPayAmount),
+      ymKey: monthKeyOfDate(s.lesson.date),
+    })),
+    otherIncome: otherIncomePayments.flatMap((p) =>
+      p.incomeCategory ? [{ categoryName: p.incomeCategory.name, amount: Number(p.amount), ymKey: monthKeyOfDate(p.date) }] : [],
+    ),
+    expenses: expenses.map((e) => ({
+      amount: e.amount,
+      date: e.date,
+      recognitionMode: e.recognitionMode,
+      amortizationMonths: e.amortizationMonths,
+      amortizationStartDate: e.amortizationStartDate,
+      categoryName: e.category.name,
+      links: e.branches
+        .filter((b) => !branchFilter || b.branchId === branchFilter)
+        .map((b) => ({ branchId: b.branchId, directionId: b.directionId })),
+    })),
+    branchNameById,
+    directionNameById: new Map(directions.map((d) => [d.id, d.name])),
+  }
+
   const fromKeyNum = monthKey(fromYm.year, fromYm.month)
   const toKeyNum = monthKey(toYm.year, toYm.month)
   const total = computePnlView(fromKeyNum, toKeyNum, raw)
   const months = enumerateMonths(fromYm.year, fromYm.month, toYm.year, toYm.month)
 
   // Колонки декомпозиции: «Весь период» + карточка на каждый месяц (только для диапазона).
-  type PnlColumn = { key: string; title: string; view: PnlView; drill: { month: string; from: string; to: string } }
+  type PnlColumn = { key: string; title: string; view: PnlView; decomp: DecompView; drill: { month: string; from: string; to: string } }
   const periodColumn: PnlColumn = {
     key: "total",
     title: isRange ? "Весь период" : "",
     view: total,
+    decomp: computePnlDecomposition(fromKeyNum, toKeyNum, decompRaw),
     drill: { month: fromKey, from: fromKey, to: toKey },
   }
   const monthColumns: PnlColumn[] = isRange
@@ -184,6 +226,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
           key: mk,
           title: mm.label,
           view: computePnlView(mm.key, mm.key, raw),
+          decomp: computePnlDecomposition(mm.key, mm.key, decompRaw),
           drill: { month: mk, from: mk, to: mk },
         }
       })
@@ -337,12 +380,10 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
             <TableHead className="text-right">Выручка</TableHead>
             <TableHead className="text-right">Доля</TableHead>
             <TableHead className="text-right">Пост. (распред.)</TableHead>
-            <TableHead className="text-right">P&L напр.</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {v.directionEntries.map((dir) => {
-            const dirNetProfit = dir.revenue - dir.distributedFixed
             return (
               <TableRow key={dir.directionId}>
                 <TableCell className="font-medium">{dir.name}</TableCell>
@@ -373,9 +414,6 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
                     </Tooltip>
                   </TooltipProvider>
                 </TableCell>
-                <TableCell className={`text-right font-medium ${dirNetProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
-                  {formatMoney(dirNetProfit)}
-                </TableCell>
               </TableRow>
             )
           })}
@@ -384,9 +422,6 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
             <TableCell className="text-right text-green-700">{formatMoney(v.revenue)}</TableCell>
             <TableCell className="text-right">100%</TableCell>
             <TableCell className="text-right text-orange-600">{formatMoney(v.fixedExpenses)}</TableCell>
-            <TableCell className={`text-right ${v.revenue - v.fixedExpenses >= 0 ? "text-green-700" : "text-red-700"}`}>
-              {formatMoney(v.revenue - v.fixedExpenses)}
-            </TableCell>
           </TableRow>
         </TableBody>
       </Table>
@@ -537,6 +572,30 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
                     <p className="text-xs text-muted-foreground mt-1">Прямые — целиком к направлению; остальные — пропорционально выручке.</p>
                   </CardHeader>
                   <CardContent>{renderDirectionsTable(col.view)}</CardContent>
+                </Card>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* Финрез Декомпозиция: Филиал → Направление → Статья */}
+      {pnlColumns.some((c) => c.decomp.branches.length > 0) && (
+        <div>
+          {isRange && <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Финрез Декомпозиция — по месяцам</h2>}
+          <div className={sectionRow}>
+            {pnlColumns
+              .filter((c) => c.decomp.branches.length > 0)
+              .map((col) => (
+                <Card key={col.key} className="shrink-0">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{col.title || "Финрез Декомпозиция"}</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Филиал → Направление → Статья. Расходы разнесены пропорционально выручке.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <PnlDecompositionTree branches={col.decomp.branches} totals={col.decomp.totals} currency={currency} />
+                  </CardContent>
                 </Card>
               ))}
           </div>
