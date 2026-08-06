@@ -268,6 +268,12 @@ export default async function LessonsAttendancePage({
               clientId: true,
               wardId: true,
               isPending: true,
+              // subscriptionId/isMakeup/isTrial — для ретро-состава (баг #110):
+              // отметку по абонементу без зачисления показываем отдельной строкой,
+              // а разовые/отработки/пробные в этот механизм не тянем.
+              subscriptionId: true,
+              isMakeup: true,
+              isTrial: true,
               attendanceType: { select: { code: true, name: true } },
             },
           },
@@ -416,6 +422,9 @@ export default async function LessonsAttendancePage({
   // === Строим строки ===
   const groupById = new Map(groups.map((g) => [g.id, g]))
   const rows: AttendanceRow[] = []
+  // Ключи (client|ward|lesson) отметок, уже показанных строками зачислений —
+  // чтобы ретро-состав (баг #110) не задваивал их отдельной строкой.
+  const emittedAtt = new Set<string>()
 
   for (const e of enrollments) {
     const g = groupById.get(e.groupId)
@@ -445,15 +454,23 @@ export default async function LessonsAttendancePage({
         // в середине месяца не показывается с 1-го). Проверяем ПО КАЖДОМУ занятию:
         // у перенесённого и обычного занятия одного дня границы разные.
         const rosterDate = lessonInfo.rescheduledFromDate ?? new Date(Date.UTC(year, month - 1, day))
-        if (!isEnrolledOnLesson(e, rosterDate)) continue
         const att = lessonInfo.attendances.find((a) => {
           if (a.clientId !== e.clientId) return false
           return (a.wardId || null) === (e.wardId || null)
         })
-        // Гейт покрытия: плановую ячейку (без отметки) показываем только при наличии
-        // покрывающего абонемента на дату. Уже отмеченные — всегда (см. коммент выше).
-        if (!att && !coverage.isCoveredOn(e.clientId, e.wardId, g.directionId, rosterDate, lessonInfo.lessonId)) continue
+        // Отметка (Attendance) — исторический факт: показываем всегда, даже если
+        // ученик выбыл к этой дате (withdrawnAt <= дата). Гейты применяем только к
+        // ПЛАНОВОЙ (без отметки) ячейке: она нужна лишь тем, кто в составе на дату
+        // (isEnrolledOnLesson) и имеет покрывающий абонемент — иначе выбывший висел
+        // бы markable и «Был» уходил бы в разовое списание (баг Низаметдиновой).
+        // Раньше isEnrolledOnLesson отсекал ячейку ДО проверки отметки, из-за чего
+        // реальная отметка после границы выбытия пропадала из сетки (баг #110).
+        if (!att) {
+          if (!isEnrolledOnLesson(e, rosterDate)) continue
+          if (!coverage.isCoveredOn(e.clientId, e.wardId, g.directionId, rosterDate, lessonInfo.lessonId)) continue
+        }
         planCount++
+        if (att) emittedAtt.add(`${e.clientId}|${e.wardId || ""}|${lessonInfo.lessonId}`)
         dayCells.push({
           lessonId: lessonInfo.lessonId,
           startTime: lessonInfo.startTime,
@@ -487,6 +504,101 @@ export default async function LessonsAttendancePage({
       planCount,
       cells,
     })
+  }
+
+  // === Ретро-состав: отметки по абонементу без покрывающего зачисления (баг #110) ===
+  // После отчисления абонемента или сброса enrolledAt при возврате
+  // (ensureEnrollmentForSubscription — правило «ВОЗВРАТ после отчисления»)
+  // ребёнок теряет зачисление, покрывающее прошлый месяц, но его РЕАЛЬНЫЕ отметки
+  // за тот месяц остаются. Сетка была чисто enrollment-driven и такие строки
+  // теряла, хотя карточка занятия их показывает. Достраиваем строки по отметкам,
+  // не показанным строками зачислений. Берём только отметки ПО АБОНЕМЕНТУ
+  // (subscriptionId задан, не отработка/пробное); истинно разовые (subscriptionId
+  // = null) в сетке не показываем, как и раньше.
+  const orphanByCombo = new Map<
+    string,
+    {
+      clientId: string
+      wardId: string | null
+      groupId: string
+      cellsByDay: Map<number, AttendanceCellData[]>
+    }
+  >()
+  for (const l of lessons) {
+    const day = l.date.getUTCDate()
+    for (const a of l.attendances) {
+      if (!a.subscriptionId || a.isMakeup || a.isTrial) continue
+      if (emittedAtt.has(`${a.clientId}|${a.wardId || ""}|${l.id}`)) continue
+      const comboKey = `${a.clientId}|${a.wardId || ""}|${l.groupId}`
+      let entry = orphanByCombo.get(comboKey)
+      if (!entry) {
+        entry = { clientId: a.clientId, wardId: a.wardId, groupId: l.groupId, cellsByDay: new Map() }
+        orphanByCombo.set(comboKey, entry)
+      }
+      const dayList = entry.cellsByDay.get(day) ?? []
+      dayList.push({
+        lessonId: l.id,
+        startTime: l.startTime,
+        attendanceId: a.id,
+        attendanceTypeCode: a.isPending ? null : a.attendanceType.code,
+        attendanceTypeName: a.isPending ? null : a.attendanceType.name,
+        isPending: a.isPending,
+      })
+      entry.cellsByDay.set(day, dayList)
+    }
+  }
+  if (orphanByCombo.size > 0) {
+    const orphanEntries = Array.from(orphanByCombo.values())
+    const orphanClientIds = Array.from(new Set(orphanEntries.map((o) => o.clientId)))
+    const orphanWardIds = Array.from(
+      new Set(orphanEntries.map((o) => o.wardId).filter((v): v is string => !!v)),
+    )
+    const [orphanClients, orphanWards] = await Promise.all([
+      db.client.findMany({
+        where: { tenantId, id: { in: orphanClientIds } },
+        select: { id: true, firstName: true, lastName: true },
+      }),
+      orphanWardIds.length > 0
+        ? db.ward.findMany({
+            where: { tenantId, id: { in: orphanWardIds } },
+            select: { id: true, firstName: true, lastName: true, birthDate: true },
+          })
+        : Promise.resolve([]),
+    ])
+    const orphanClientMap = new Map(orphanClients.map((c) => [c.id, c]))
+    const orphanWardMap = new Map(orphanWards.map((w) => [w.id, w]))
+    for (const o of orphanEntries) {
+      const g = groupById.get(o.groupId)
+      if (!g) continue
+      const client = orphanClientMap.get(o.clientId)
+      const ward = o.wardId ? orphanWardMap.get(o.wardId) : null
+      const parent = client ? clientName(client) : "Без имени"
+      const contragentLabel = ward
+        ? clientName({ firstName: ward.firstName, lastName: ward.lastName })
+        : parent
+      const cells: AttendanceCellData[][] = []
+      let planCount = 0
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dc = o.cellsByDay.get(day) ?? []
+        if (dc.length > 1) dc.sort((a, b) => a.startTime.localeCompare(b.startTime))
+        planCount += dc.length
+        cells.push(dc)
+      }
+      if (planCount === 0) continue
+      rows.push({
+        key: `orphan|${o.clientId}|${o.wardId || ""}|${o.groupId}`,
+        clientId: o.clientId,
+        wardId: o.wardId,
+        contragentLabel,
+        parentLabel: ward ? parent : null,
+        birthDate: ward?.birthDate ? ward.birthDate.toISOString().slice(0, 10) : null,
+        toPayAmount: null,
+        groupName: g.name,
+        instructorLabel: instructorShortName(g.instructor),
+        planCount,
+        cells,
+      })
+    }
   }
 
   // === Пробные ученики (баг #42) ===

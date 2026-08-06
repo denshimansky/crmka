@@ -501,9 +501,15 @@ export default async function LessonCardPage({
     }),
   ]
 
-  // Разовые ученики — Attendance без активного GroupEnrollment, не trial и
-  // не makeup. Включают и placeholder (isPending=true, «Не отмечен»), и реально
-  // отмеченные разовые посещения.
+  // Отметки без покрывающего зачисления (не trial и не makeup). Делятся на два
+  // класса, различаемых по subscription_id:
+  //  - subscription_id = NULL → истинно РАЗОВОЕ посещение (placeholder isPending
+  //    «Не отмечен» либо оплаченный разовый визит) — бейдж «Разовое».
+  //  - subscription_id задан  → визит ПО АБОНЕМЕНТУ, потерявший покрытие после
+  //    отчисления/закрытия абонемента или сброса enrolledAt при возврате
+  //    (ensureEnrollmentForSubscription). Это ретро-состав прошлого месяца, а НЕ
+  //    разовое: показываем обычной строкой с его отметкой, иначе исторический
+  //    «Был» ложно превращается в «Разовое» (баг #110, семья Низаметдиновых).
   const enrollmentKeys = new Set(
     enrollments.map((e) => `${e.clientId}:${e.wardId || ""}`),
   )
@@ -644,7 +650,10 @@ export default async function LessonCardPage({
         : null,
       subscriptionId: a.subscriptionId,
       lessonPrice,
-      isOneTime: true as const,
+      // Баг #110: только истинно разовые (subscription_id=NULL) получают бейдж
+      // «Разовое». Визит по отчисленному/закрытому абонементу — обычная строка
+      // ретро-состава без бейджа (иначе исторический «Был» = ложное «Разовое»).
+      isOneTime: a.subscriptionId ? false : (true as const),
       // Placeholder (isPending=true) рендерим как «Не отмечен» — attendance=null.
       attendance: a.isPending
         ? null
