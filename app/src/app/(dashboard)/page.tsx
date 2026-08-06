@@ -450,12 +450,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // не только активную базу (иначе прогноз занижался и показывал прочерк, пока
   // выписанные лидам абонементы не оплачены — совпадает с отчётом 7.1). ЗП — оклад
   // или ставка×занятия
-  // (см. helper). Переменные расходы — плановые расходы переменных категорий
-  // БЕЗ ЗП-категорий (PlannedExpense, isVariable=true, isSalary=false): ЗП
-  // инструкторов уже учтена отдельным столбцом (считается из расписания), поэтому
-  // категории ЗП исключаем, чтобы не задвоить. Постоянные платежи — плановые
-  // расходы постоянных категорий (PlannedExpense, isVariable=false),
-  // «заполняется вручную раз в месяц».
+  // (см. helper). Переменные расходы — среднемесячный ФАКТ переменных расходов за
+  // последние 3 месяца (Expense.isVariable, БЕЗ ЗП-категорий), как в отчёте §7.1:
+  // плановые переменные почти не заполняются, поэтому берём факт (детали у запроса
+  // ниже). Постоянные платежи — плановые расходы постоянных категорий
+  // (PlannedExpense, isVariable=false), «заполняется вручную раз в месяц».
   // Отдельный запрос от «Ожидаемых поступлений»: тот же период/пакетный сплит и
   // scope, но БЕЗ фильтра client.clientStatus='active' — прогноз включает пайплайн
   // продаж (лиды/выбывшие с выписанными абонементами). incomeTotals.subAmount не
@@ -484,7 +483,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // finance.result), поэтому протечки нет. Если такие права выдадут админу —
   // отдельно заскоупить salary/planned по филиалам (семантика «общих» статей
   // без филиала требует продуктового решения).
-  const [salaryForecast, plannedFixed, plannedVariable] = await Promise.all([
+  // Переменные расходы прогноза — среднемесячный ФАКТ за последние 3 месяца (как в
+  // отчёте §7.1, api/reports/profit-forecast): плановые переменные расходы почти
+  // никогда не заполняются, поэтому раньше столбец был всегда «—». ЗП-категории
+  // исключаем (category.isSalary=false) — ЗП инструкторов уже отдельным столбцом
+  // (из расписания), иначе задвоение. not_in_pnl в прогноз не идёт.
+  const variableExpFrom = new Date(Date.UTC(year, month - 4, 1)) // начало 3-го месяца до отчётного
+  const [salaryForecast, plannedFixed, prevVariableExpenses] = await Promise.all([
     computeMonthlySalaryForecast(db, tenantId, year, month),
     db.plannedExpense.findMany({
       where: {
@@ -495,24 +500,33 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       },
       select: { plannedAmount: true },
     }),
-    db.plannedExpense.findMany({
+    db.expense.findMany({
       where: {
         tenantId,
-        periodYear: year,
-        periodMonth: month,
-        category: { isVariable: true, isSalary: false },
+        deletedAt: null,
+        isVariable: true,
+        category: { isSalary: false },
+        date: { gte: variableExpFrom, lt: monthStart },
+        recognitionMode: { not: "not_in_pnl" },
       },
-      select: { plannedAmount: true },
+      select: { amount: true, date: true },
     }),
   ])
   const fixedPaymentsForecast = plannedFixed.reduce(
     (s, p) => s + Number(p.plannedAmount),
     0
   )
-  const variableExpensesForecast = plannedVariable.reduce(
-    (s, p) => s + Number(p.plannedAmount),
-    0
-  )
+  // Среднее по месяцам, в которых были переменные расходы (до 3): сумма ÷ число
+  // таких месяцев — прогноз занижался бы, делись мы всегда на 3 при неполных данных.
+  const variableMonthBuckets = new Map<string, number>()
+  for (const e of prevVariableExpenses) {
+    const key = `${e.date.getUTCFullYear()}-${e.date.getUTCMonth()}`
+    variableMonthBuckets.set(key, (variableMonthBuckets.get(key) ?? 0) + Number(e.amount))
+  }
+  const variableExpensesForecast =
+    variableMonthBuckets.size > 0
+      ? [...variableMonthBuckets.values()].reduce((s, v) => s + v, 0) / variableMonthBuckets.size
+      : 0
   const profitForecast =
     profitSubAmount - salaryForecast - variableExpensesForecast - fixedPaymentsForecast
 
@@ -1281,7 +1295,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <h1 className="text-2xl font-bold">Дашборд</h1>
           <PageHelp pageKey="dashboard" />
-          <MonthPicker />
+          {/* На дашборде можно смотреть только текущий месяц и один вперёд:
+              назад не листаем, вперёд — максимум на 1 месяц. */}
+          <MonthPicker disablePast maxMonthsAhead={1} />
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">{dateStr}</span>

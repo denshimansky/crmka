@@ -29,7 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Plus, Pencil, Trash2, Copy, TrendingDown, Target, BarChart3, ChevronLeft, ChevronRight } from "lucide-react"
+import { Plus, Pencil, Trash2, Copy, Target, ChevronLeft, ChevronRight } from "lucide-react"
 import { PageHelp } from "@/components/page-help"
 import { useMoneyFormat } from "@/components/currency-provider"
 
@@ -233,16 +233,10 @@ export default function PlannedExpensesPage() {
   const deviation = totalActual - totalPlanned
   const deviationPercent = totalPlanned > 0 ? ((deviation / totalPlanned) * 100).toFixed(1) : "0"
 
+  // Карточки «Факт» и «Отклонение» убраны — остаётся только «План»
+  // (факт/отклонение по-прежнему видны в таблице по статьям).
   const summaryCards = [
     { title: "План", value: formatMoney(totalPlanned), icon: Target, color: "text-blue-600", bg: "bg-blue-50" },
-    { title: "Факт", value: formatMoney(totalActual), icon: TrendingDown, color: "text-red-600", bg: "bg-red-50" },
-    {
-      title: "Отклонение",
-      value: `${deviation >= 0 ? "+" : ""}${formatMoney(deviation)} (${deviationPercent}%)`,
-      icon: BarChart3,
-      color: deviation > 0 ? "text-red-600" : "text-green-600",
-      bg: deviation > 0 ? "bg-red-50" : "bg-green-50",
-    },
   ]
 
   return (
