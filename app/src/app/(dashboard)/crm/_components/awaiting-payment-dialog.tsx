@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Calendar } from "@/components/ui/calendar"
 import { AlertCircle, Loader2 } from "lucide-react"
+import { PackageLessonPicker } from "./package-lesson-picker"
 
 interface BranchOption {
   id: string
@@ -101,6 +102,8 @@ export function AwaitingPaymentDialog({
   const [packageTemplates, setPackageTemplates] = useState<PackageTemplateOption[]>([])
   const [packageTemplateId, setPackageTemplateId] = useState<string>("")
   const [validDays, setValidDays] = useState<string>("")
+  // Пакет с выбором занятий (фаза 3 UI). Пикер сам подрезает при смене окна/группы.
+  const [selectedLessonIds, setSelectedLessonIds] = useState<string[]>([])
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -195,6 +198,7 @@ export function AwaitingPaymentDialog({
       setGroupLessonDates(null)
       setPackageTemplateId("")
       setValidDays("")
+      setSelectedLessonIds([])
       setError(null)
     }
   }, [open, defaultBranchId, defaultDirectionId, defaultGroupId])
@@ -279,8 +283,13 @@ export function AwaitingPaymentDialog({
   }, [groups, branchId, directionId])
 
   // Пакетным орг пакет выбирается ЗДЕСЬ (заявка создаётся без пакета), поэтому
-  // он обязателен для перехода — сервер иначе ответит «Выберите пакет».
-  const packageOk = !isPackageOrg || packageTemplateId !== ""
+  // он обязателен для перехода — сервер иначе ответит «Выберите пакет». Плюс для
+  // пакета с выбором нужно отметить ровно N занятий.
+  const selectedTpl = packageTemplates.find((t) => t.id === packageTemplateId)
+  const targetCount = selectedTpl?.lessonsCount ?? 0
+  const packageOk =
+    !isPackageOrg ||
+    (packageTemplateId !== "" && selectedLessonIds.length === targetCount)
   const canSubmit =
     branchId && directionId && groupId && firstPaidDate && packageOk && !submitting
 
@@ -304,6 +313,7 @@ export function AwaitingPaymentDialog({
         if (validDays.trim() !== "" && Number.isFinite(days) && days > 0) {
           payload.validDays = days
         }
+        payload.selectedLessonIds = selectedLessonIds
       }
       const res = await fetch(
         `/api/wards/${wardId}/move-to-awaiting-payment`,
@@ -532,6 +542,24 @@ export function AwaitingPaymentDialog({
                     return d.toLocaleDateString("ru-RU")
                   })()}
                 </div>
+
+                {packageTemplateId && firstPaidDate && (
+                  <PackageLessonPicker
+                    groupId={groupId}
+                    windowStart={firstPaidDate}
+                    windowEnd={(() => {
+                      const days =
+                        Number(validDays) || (selectedTpl?.validDays ?? packageDefaultValidDays)
+                      const d = new Date(`${firstPaidDate}T00:00:00.000Z`)
+                      if (Number.isNaN(d.getTime())) return ""
+                      d.setUTCDate(d.getUTCDate() + days)
+                      return d.toISOString().slice(0, 10)
+                    })()}
+                    targetCount={targetCount}
+                    value={selectedLessonIds}
+                    onChange={setSelectedLessonIds}
+                  />
+                )}
               </div>
             )}
           </div>
