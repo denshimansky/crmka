@@ -47,6 +47,11 @@ interface BranchOption {
   name: string
 }
 
+// Сентинел значения селекта «Филиал»: "" = Все, NO_BRANCH = без филиала на
+// карточке (branchId/lastBranchId/prevBranchId все NULL — см. filter.ts). Не UUID,
+// чтобы не пересечься с реальным id филиала. Баг #113.
+const NO_BRANCH = "__none__"
+
 type PreviewState = { count: number } | "error" | null
 
 // Live-предпросмотр размера выборки (debounce). Считается, пока открыт диалог.
@@ -122,7 +127,8 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
     const fc: Record<string, unknown> = {}
     if (funnelStatus) fc.funnelStatus = funnelStatus
     if (clientStatus) fc.clientStatus = clientStatus
-    if (branchId) fc.branchId = branchId
+    if (branchId === NO_BRANCH) fc.noBranch = true
+    else if (branchId) fc.branchId = branchId
     // Кламп 0..120 — чтобы и предпросмотр, и создание не падали на zod-валидации.
     if (minAge !== "" && !Number.isNaN(Number(minAge))) fc.minAge = Math.min(120, Math.max(0, Math.trunc(Number(minAge))))
     if (maxAge !== "" && !Number.isNaN(Number(maxAge))) fc.maxAge = Math.min(120, Math.max(0, Math.trunc(Number(maxAge))))
@@ -190,9 +196,12 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
             <div className="space-y-1.5">
               <Label>Филиал</Label>
               <Select value={branchId} onValueChange={v => setBranchId(v || "")}>
-                <SelectTrigger className="w-full">{selectedBranch?.name || "Все филиалы"}</SelectTrigger>
+                <SelectTrigger className="w-full">
+                  {branchId === NO_BRANCH ? "Без филиала" : (selectedBranch?.name || "Все филиалы")}
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="">Все филиалы</SelectItem>
+                  <SelectItem value={NO_BRANCH}>Без филиала</SelectItem>
                   {branches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                 </SelectContent>
               </Select>

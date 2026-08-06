@@ -33,6 +33,12 @@ export interface CampaignFilterCriteria {
   clientStatus?: string
   /** Филиал: куда ходил (выбывший) или записывался/пробное (потенциальный). */
   branchId?: string
+  /**
+   * «Без филиала»: клиенты, у которых филиал на карточке не проставлен
+   * (branchId/lastBranchId/prevBranchId — все NULL). Взаимоисключающе с branchId
+   * (в UI — один селект). Баг #113.
+   */
+  noBranch?: boolean
   /** Возраст подопечного, лет — от. */
   minAge?: number
   /** Возраст подопечного, лет — до (включительно). */
@@ -67,6 +73,7 @@ export const campaignFilterSchema = z.object({
     "not_active",
   ]).optional(),
   branchId: z.string().optional(),
+  noBranch: z.boolean().optional(),
   minAge: z.number().int().min(0).max(120).optional(),
   maxAge: z.number().int().min(0).max(120).optional(),
   withdrawnFrom: z.string().optional(),
@@ -237,6 +244,16 @@ export function buildCampaignClientWhere(
         },
       ],
     })
+  }
+
+  // --- Без филиала (баг #113) ---
+  // Клиент, у которого филиал не проставлен на карточке: branchId, lastBranchId и
+  // prevBranchId — все NULL. Именно эти три поля показывает столбец «Филиал» в
+  // списках; производный филиал (по заявкам/зачислениям/пробным) здесь не
+  // учитываем — «филиал не указан» означает пустое поле филиала клиента. В UI
+  // взаимоисключающе с выбором конкретного филиала (один селект).
+  if (fc.noBranch) {
+    and.push({ branchId: null, lastBranchId: null, prevBranchId: null })
   }
 
   // --- Дата выбытия (от/до) ---
