@@ -111,11 +111,19 @@ export async function PATCH(
     return NextResponse.json({ ok: true, changed: 0 })
   }
 
-  // v1-restrict: удалять из плана можно только занятия БЕЗ реальной отметки —
-  // иначе нужен откат списания (его точка — снятие отметки на самом занятии).
+  // v1-restrict: удалять из плана можно только занятия без СПИСЫВАЮЩЕЙ отметки
+  // (chargeAmount>0) — иначе нужен откат списания (его точка — снятие отметки на
+  // занятии). Несписывающие отметки (no_show «Не был», charge=0) откатывать нечего,
+  // удаление выбора безопасно.
   if (removed.length > 0) {
     const marked = await db.attendance.findFirst({
-      where: { tenantId, subscriptionId: id, lessonId: { in: removed }, isPending: false },
+      where: {
+        tenantId,
+        subscriptionId: id,
+        lessonId: { in: removed },
+        isPending: false,
+        chargeAmount: { gt: 0 },
+      },
       include: { lesson: { select: { date: true } } },
     })
     if (marked) {

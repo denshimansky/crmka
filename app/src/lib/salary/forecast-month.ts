@@ -162,11 +162,20 @@ export async function computeSalaryForecastBreakdown(
   const selByLesson = new Map<string, Set<string>>()
   const selectingByGroup = new Map<string, Set<string>>()
   if (isPackageOrg) {
+    // selectingByGroup — по ВСЕМ выборам живых пакетов групп месяца (не только по
+    // занятиям месяца): ученик, выбравший занятия только соседнего месяца в пределах
+    // срока пакета, иначе остался бы в постоянном счёте и завышал бы прогноз этого
+    // месяца. selByLesson — только по занятиям месяца.
+    const monthLessonSet = new Set(lessons.map((l) => l.id))
     const selRows = await db.subscriptionLesson.findMany({
       where: {
         tenantId,
-        lessonId: { in: lessons.map((l) => l.id) },
-        subscription: { type: "package", status: { in: ["active", "pending"] }, deletedAt: null },
+        subscription: {
+          type: "package",
+          status: { in: ["active", "pending"] },
+          deletedAt: null,
+          groupId: { in: groupIds },
+        },
       },
       select: {
         lessonId: true,
@@ -175,12 +184,14 @@ export async function computeSalaryForecastBreakdown(
     })
     for (const r of selRows) {
       const key = `${r.subscription.clientId}:${r.subscription.wardId || ""}`
-      let s = selByLesson.get(r.lessonId)
-      if (!s) { s = new Set(); selByLesson.set(r.lessonId, s) }
-      s.add(key)
       let g = selectingByGroup.get(r.subscription.groupId)
       if (!g) { g = new Set(); selectingByGroup.set(r.subscription.groupId, g) }
       g.add(key)
+      if (monthLessonSet.has(r.lessonId)) {
+        let s = selByLesson.get(r.lessonId)
+        if (!s) { s = new Set(); selByLesson.set(r.lessonId, s) }
+        s.add(key)
+      }
     }
   }
 

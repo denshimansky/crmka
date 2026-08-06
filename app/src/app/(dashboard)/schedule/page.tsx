@@ -288,14 +288,23 @@ export default async function SchedulePage({
     select: { subscriptionType: true },
   })
   const isPackageOrg = orgTypeRow?.subscriptionType === "package"
-  const selByLesson = new Map<string, Set<string>>() // lessonId → ключи учеников с выбором
-  const selectingByGroup = new Map<string, Set<string>>() // groupId → ключи учеников с выбором
+  const selByLesson = new Map<string, Set<string>>() // lessonId → ключи учеников с выбором (видимые занятия)
+  const selectingByGroup = new Map<string, Set<string>>() // groupId → все ученики группы с выбором
   if (isPackageOrg && lessonIds.length > 0) {
+    // selectingByGroup строим по ВСЕМ выборам живых пакетов видимых групп (не только
+    // по видимым занятиям) — иначе ученик с выбором вне окна остался бы в постоянном
+    // счёте группы и считался бы на каждом видимом занятии. selByLesson — по видимым.
+    const groupIds = [...new Set(lessons.map((l) => l.groupId))]
+    const visibleSet = new Set(lessonIds)
     const selRows = await db.subscriptionLesson.findMany({
       where: {
         tenantId,
-        lessonId: { in: lessonIds },
-        subscription: { type: "package", status: { in: ["active", "pending"] }, deletedAt: null },
+        subscription: {
+          type: "package",
+          status: { in: ["active", "pending"] },
+          deletedAt: null,
+          groupId: { in: groupIds },
+        },
       },
       select: {
         lessonId: true,
@@ -304,12 +313,14 @@ export default async function SchedulePage({
     })
     for (const r of selRows) {
       const key = `${r.subscription.clientId}:${r.subscription.wardId || ""}`
-      let s = selByLesson.get(r.lessonId)
-      if (!s) { s = new Set(); selByLesson.set(r.lessonId, s) }
-      s.add(key)
       let g = selectingByGroup.get(r.subscription.groupId)
       if (!g) { g = new Set(); selectingByGroup.set(r.subscription.groupId, g) }
       g.add(key)
+      if (visibleSet.has(r.lessonId)) {
+        let s = selByLesson.get(r.lessonId)
+        if (!s) { s = new Set(); selByLesson.set(r.lessonId, s) }
+        s.add(key)
+      }
     }
   }
 
