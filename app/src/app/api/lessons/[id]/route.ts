@@ -759,6 +759,13 @@ export async function DELETE(
     where: { lessonId: id, tenantId, isPending: true },
   })
 
+  // Пакет с выбором: снимок выборов ДО удаления (cascade сотрёт строки), задачи
+  // на перевыбор — после (решение владельца №2). Для не-package пусто.
+  const { snapshotPackageSelections, createReselectPackageLessonTasks } = await import(
+    "@/lib/tasks/reselect-package-lesson"
+  )
+  const selSnapshot = await snapshotPackageSelections(db, tenantId, [id])
+
   await db.lesson.delete({ where: { id } })
 
   // Живые календарные абонементы периода теряют одно занятие — уменьшаем
@@ -777,6 +784,8 @@ export async function DELETE(
       createdBy: employeeId ?? null,
     })
   }
+
+  await createReselectPackageLessonTasks(db, tenantId, selSnapshot, employeeId ?? null)
 
   return NextResponse.json({ ok: true })
 }

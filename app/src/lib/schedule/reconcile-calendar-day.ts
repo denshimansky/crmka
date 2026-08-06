@@ -21,6 +21,10 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { generateGroupLessons } from "@/lib/schedule/generate-group-lessons"
 import { recalcSubscriptionsOnScheduleChange } from "@/lib/subscriptions/recalc-on-schedule-change"
+import {
+  snapshotPackageSelections,
+  createReselectPackageLessonTasks,
+} from "@/lib/tasks/reselect-package-lesson"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -97,6 +101,10 @@ export async function reconcileDayToNonWorking(
   const { deletableIds, removedDatesByGroup } = partitionDeletableLessons(lessons)
   if (deletableIds.length === 0) return { deleted: 0, subscriptionsUpdated: 0 }
 
+  // Пакет с выбором: снимок выборов ДО удаления (cascade сотрёт строки) — задачи
+  // на перевыбор создаём после (решение владельца №2). Для не-package пусто.
+  const selSnapshot = await snapshotPackageSelections(db, tenantId, deletableIds)
+
   // FK перед удалением: отвязать отменённые пробные и снять placeholder-отметки
   // (isPending) — как в одиночном DELETE занятия.
   await db.trialLesson.updateMany({
@@ -119,6 +127,9 @@ export async function reconcileDayToNonWorking(
     })
     subscriptionsUpdated += r.updated
   }
+
+  await createReselectPackageLessonTasks(db, tenantId, selSnapshot, createdBy ?? null)
+
   return { deleted: deletableIds.length, subscriptionsUpdated }
 }
 

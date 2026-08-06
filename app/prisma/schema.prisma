@@ -1818,6 +1818,7 @@ enum TaskAutoTrigger {
   no_show_review
   first_paid_reminder
   package_expiring
+  reselect_package_lesson
 }
 
 enum TaskStatus {

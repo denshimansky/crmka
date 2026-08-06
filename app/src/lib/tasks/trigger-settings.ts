@@ -37,6 +37,7 @@ export const TRIGGER_LABEL: Record<TaskAutoTrigger, string> = {
   absence: "Пропуск занятия",
   missed_makeup: "Отработка не состоялась (переназначить)",
   package_expiring: "Пакет скоро истекает (несгоревшие занятия)",
+  reselect_package_lesson: "Перевыбрать занятие пакета (после отмены)",
 }
 
 /** Краткое описание условия, при котором создаётся автозадача. */
@@ -60,6 +61,8 @@ export const TRIGGER_DESCRIPTION: Record<TaskAutoTrigger, string> = {
     "Назначенная отработка не состоялась — нужно переназначить",
   package_expiring:
     "Срок пакета истекает в ближайшие дни, а занятия ещё не сгорели",
+  reselect_package_lesson:
+    "Выбранное занятие пакета отменено — нужно выбрать новое в сроке действия",
 }
 
 export function parseTriggerSettings(raw: unknown): TriggerSetting[] {
