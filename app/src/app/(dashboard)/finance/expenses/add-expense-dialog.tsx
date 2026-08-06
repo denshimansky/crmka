@@ -311,7 +311,7 @@ export function AddExpenseDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Если указано — расход относится напрямую к направлению в ОПИУ. Иначе распределяется пропорционально выручке.
+                Если указано — расход относится напрямую к направлению в финрезе (P&L). Иначе распределяется пропорционально выручке.
               </p>
             </div>
           )}
@@ -352,7 +352,7 @@ export function AddExpenseDialog({
               есть только ручное копирование между месяцами. Возвращаем, когда
               появится крон-генерация. Состояние оставляем (isRecurring=false по умолчанию). */}
 
-          {/* Блок «Как провести в ОПИУ» */}
+          {/* Блок «Как провести в финрезе (P&L)» */}
           <OpiuRecognitionFieldset value={opiu} onChange={setOpiu} amount={Number(amount) || 0} sym={sym} />
 
           <DialogFooter>

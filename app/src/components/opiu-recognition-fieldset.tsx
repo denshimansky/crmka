@@ -48,9 +48,9 @@ export function OpiuRecognitionFieldset({
 
   return (
     <fieldset className="space-y-2 rounded-md border p-3">
-      <legend className="px-1 text-sm font-medium">Как провести в ОПИУ</legend>
+      <legend className="px-1 text-sm font-medium">Как провести в финрезе (P&L)</legend>
       <p className="text-xs text-muted-foreground">
-        В ДДС расход всегда учитывается по дате платежа. В ОПИУ — по периоду признания.
+        В ДДС расход всегда учитывается по дате платежа. В финрезе (P&L) — по периоду признания.
       </p>
 
       <label className="flex items-start gap-2 text-sm">
@@ -59,7 +59,7 @@ export function OpiuRecognitionFieldset({
           onChange={() => set({ recognitionMode: "by_payment_date" })} />
         <span>
           <span className="font-medium">Одной суммой по дате платежа</span>
-          <span className="block text-xs text-muted-foreground">ОПИУ и ДДС совпадают: расход относится к месяцу даты выше.</span>
+          <span className="block text-xs text-muted-foreground">Финрез (P&L) и ДДС совпадают: расход относится к месяцу даты выше.</span>
         </span>
       </label>
 
@@ -69,7 +69,7 @@ export function OpiuRecognitionFieldset({
           onChange={() => set({ recognitionMode: "single_period" })} />
         <span className="flex-1">
           <span className="font-medium">Одной суммой в другом месяце</span>
-          <span className="block text-xs text-muted-foreground">Например, ЗП июля выплачена 1 августа → ОПИУ июль.</span>
+          <span className="block text-xs text-muted-foreground">Например, ЗП июля выплачена 1 августа → финрез (P&L) июль.</span>
           {value.recognitionMode === "single_period" && (
             <div className="mt-2 space-y-1.5">
               <Label className="text-xs">Месяц признания</Label>
@@ -112,7 +112,7 @@ export function OpiuRecognitionFieldset({
           onChange={() => set({ recognitionMode: "not_in_pnl" })} />
         <span>
           <span className="font-medium">Не учитывать в финрезе</span>
-          <span className="block text-xs text-muted-foreground">Только ДДС: расход уменьшит остаток на счёте, но не попадёт в ОПИУ.</span>
+          <span className="block text-xs text-muted-foreground">Только ДДС: расход уменьшит остаток на счёте, но не попадёт в финрез (P&L).</span>
         </span>
       </label>
     </fieldset>

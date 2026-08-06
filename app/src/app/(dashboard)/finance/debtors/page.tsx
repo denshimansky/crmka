@@ -2,6 +2,9 @@ import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { oneOffDebtByClient } from "@/lib/one-off-debt"
 import { scopeClientByBranch } from "@/lib/client-segments"
+import { scopeBranch } from "@/lib/branch-scope"
+import { clientStateLabel } from "@/lib/clients/state-label"
+import { BranchSwitcher } from "./branch-switcher"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -18,6 +21,26 @@ import { getOrgUiSettings } from "@/lib/role-names"
 function formatDate(date: Date | null): string {
   if (!date) return "—"
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
+}
+
+// Цвет бейджа статуса клиента (метки из clientStateLabel).
+function statusBadgeClass(label: string): string {
+  switch (label) {
+    case "Активный":
+      return "border-transparent bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+    case "Выбывший":
+      return "border-transparent bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+    case "Архив":
+      return "border-transparent bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+    case "Чёрный список":
+      return "border-transparent bg-zinc-800 text-white dark:bg-zinc-700"
+    case "Нецелевой":
+      return "border-transparent bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+    case "Потенциал":
+      return "border-transparent bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+    default: // Лид
+      return "border-transparent bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+  }
 }
 
 type TabKey = "planned" | "actual" | "balance"
@@ -39,6 +62,17 @@ export default async function DebtorsPage({
   const sp = await searchParams
   const tab: TabKey =
     sp.tab === "actual" ? "actual" : sp.tab === "balance" ? "balance" : "planned"
+
+  // Переключатель филиалов (баг #107): список филиалов в пределах доступа
+  // пользователя + выбранный филиал из URL (?branch=<id>). Пусто = все филиалы.
+  const branchOptions = await db.branch.findMany({
+    where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  })
+  const branchParam = typeof sp.branch === "string" ? sp.branch : null
+  const selectedBranchId =
+    branchParam && branchOptions.some((b) => b.id === branchParam) ? branchParam : null
 
   // Подтягиваем клиентов, у которых ЕСТЬ потенциальный долг (любого типа):
   //   - есть не-отчисленный абонемент с остатком к оплате (balance>0) — кандидат
@@ -82,7 +116,9 @@ export default async function DebtorsPage({
       promisedPaymentDate: true,
       comment: true,
       phone: true,
-      branch: { select: { name: true } },
+      funnelStatus: true,
+      clientStatus: true,
+      branch: { select: { id: true, name: true } },
       subscriptions: {
         where: {
           deletedAt: null,
@@ -92,7 +128,7 @@ export default async function DebtorsPage({
           id: true,
           status: true,
           direction: { select: { name: true } },
-          group: { select: { branch: { select: { name: true } } } },
+          group: { select: { branch: { select: { id: true, name: true } } } },
           ward: { select: { id: true, firstName: true, lastName: true } },
           periodYear: true,
           periodMonth: true,
@@ -159,6 +195,7 @@ export default async function DebtorsPage({
   type Row = {
     id: string
     name: string
+    status: string
     branchName: string
     directions: string
     debt: number
@@ -188,9 +225,22 @@ export default async function DebtorsPage({
     // у самого клиента обычно пустое). Фоллбэк — филиал клиента.
     const branchSet = new Set<string>()
 
+    // Филиалы, с которыми связан клиент (свой филиал + филиалы групп его
+    // абонементов). Клиентские долги (разовые/перенесённый) привязываем к ним —
+    // у них нет собственного филиала (баг #107).
+    const clientBranchIds = new Set<string>()
+    if (c.branch?.id) clientBranchIds.add(c.branch.id)
+    for (const sub of c.subscriptions) {
+      if (sub.group.branch?.id) clientBranchIds.add(sub.group.branch.id)
+    }
+    const clientLevelBranchMatch =
+      !selectedBranchId || clientBranchIds.has(selectedBranchId)
+
     const sources: Source[] = []
     let debt = 0
     for (const sub of c.subscriptions) {
+      // Фильтр по филиалу: абонементы других филиалов не учитываем (баг #107).
+      if (selectedBranchId && sub.group.branch?.id !== selectedBranchId) continue
       const balance = Number(sub.balance)
       const finalAmount = Number(sub.finalAmount)
       const chargedAmount = Number(sub.chargedAmount)
@@ -238,7 +288,7 @@ export default async function DebtorsPage({
     // сейчас», виден на обеих вкладках; остаток (перенесённый/импортный) —
     // только во «Фактическом».
     const totalNeg = Math.max(0, -Number(c.clientBalance))
-    if (totalNeg > 0) {
+    if (totalNeg > 0 && clientLevelBranchMatch) {
       const oneOffDebt = oneOffDebtMap.get(c.id) || 0
       const carried = totalNeg - oneOffDebt
       if (oneOffDebt > 0) {
@@ -263,6 +313,7 @@ export default async function DebtorsPage({
     rows.push({
       id: c.id,
       name,
+      status: clientStateLabel(c.funnelStatus, c.clientStatus),
       branchName,
       directions: directionsSet.size > 0 ? Array.from(directionsSet).join(", ") : "—",
       debt,
@@ -299,13 +350,15 @@ export default async function DebtorsPage({
             clientBalance: true,
             phone: true,
             comment: true,
-            branch: { select: { name: true } },
+            funnelStatus: true,
+            clientStatus: true,
+            branch: { select: { id: true, name: true } },
             wards: {
               select: { id: true, firstName: true, lastName: true },
             },
             subscriptions: {
               where: { deletedAt: null, status: { not: "withdrawn" } },
-              select: { group: { select: { branch: { select: { name: true } } } } },
+              select: { group: { select: { branch: { select: { id: true, name: true } } } } },
             },
           },
         })
@@ -314,6 +367,7 @@ export default async function DebtorsPage({
   type BalanceRow = {
     id: string
     name: string
+    status: string
     wards: { id: string; name: string }[]
     branchName: string
     balance: number
@@ -321,32 +375,53 @@ export default async function DebtorsPage({
     comment: string | null
   }
 
-  const balanceRows: BalanceRow[] = balanceClients.map((c) => {
-    // Филиал — из групп абонементов (у клиента branchId часто пуст), фоллбэк — филиал клиента.
-    const branchSet = new Set<string>()
-    for (const s of c.subscriptions) {
-      if (s.group?.branch?.name) branchSet.add(s.group.branch.name)
-    }
-    return {
-      id: c.id,
-      name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
-      wards: c.wards.map((w) => ({
-        id: w.id,
-        name: [w.lastName, w.firstName].filter(Boolean).join(" ") || "—",
-      })),
-      branchName: branchSet.size > 0 ? Array.from(branchSet).join(", ") : c.branch?.name || "—",
-      balance: Number(c.clientBalance),
-      phone: c.phone,
-      comment: c.comment,
-    }
-  })
+  const balanceRows: BalanceRow[] = balanceClients
+    // Фильтр по филиалу (баг #107): баланс — деньги клиента (уровень клиента),
+    // показываем его в филиалах, с которыми клиент связан (свой филиал или
+    // филиалы групп его абонементов).
+    .filter((c) => {
+      if (!selectedBranchId) return true
+      const ids = new Set<string>()
+      if (c.branch?.id) ids.add(c.branch.id)
+      for (const s of c.subscriptions) {
+        if (s.group?.branch?.id) ids.add(s.group.branch.id)
+      }
+      return ids.has(selectedBranchId)
+    })
+    .map((c) => {
+      // Филиал — из групп абонементов (у клиента branchId часто пуст), фоллбэк — филиал клиента.
+      const branchSet = new Set<string>()
+      for (const s of c.subscriptions) {
+        if (s.group?.branch?.name) branchSet.add(s.group.branch.name)
+      }
+      return {
+        id: c.id,
+        name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
+        status: clientStateLabel(c.funnelStatus, c.clientStatus),
+        wards: c.wards.map((w) => ({
+          id: w.id,
+          name: [w.lastName, w.firstName].filter(Boolean).join(" ") || "—",
+        })),
+        branchName: branchSet.size > 0 ? Array.from(branchSet).join(", ") : c.branch?.name || "—",
+        balance: Number(c.clientBalance),
+        phone: c.phone,
+        comment: c.comment,
+      }
+    })
   balanceRows.sort((a, b) => b.balance - a.balance)
   const totalBalance = balanceRows.reduce((s, r) => s + r.balance, 0)
 
+  // Ссылки вкладок сохраняют выбранный филиал (?branch), чтобы он не сбрасывался
+  // при переключении вкладки (баг #107).
+  const branchQs = selectedBranchId ? `&branch=${selectedBranchId}` : ""
   const tabs: { key: TabKey; label: string; href: string }[] = [
-    { key: "planned", label: "Плановый долг", href: "/finance/debtors" },
-    { key: "actual", label: "Фактический долг", href: "/finance/debtors?tab=actual" },
-    { key: "balance", label: "Баланс", href: "/finance/debtors?tab=balance" },
+    {
+      key: "planned",
+      label: "Плановый долг",
+      href: selectedBranchId ? `/finance/debtors?branch=${selectedBranchId}` : "/finance/debtors",
+    },
+    { key: "actual", label: "Фактический долг", href: `/finance/debtors?tab=actual${branchQs}` },
+    { key: "balance", label: "Баланс", href: `/finance/debtors?tab=balance${branchQs}` },
   ]
 
   const tabDescription =
@@ -367,6 +442,7 @@ export default async function DebtorsPage({
             filename="clients-balance"
             columns={[
               { header: "Клиент", key: "name", width: 25 },
+              { header: "Статус", key: "status", width: 14 },
               { header: "Ребёнок", key: "children", width: 25 },
               { header: "Филиал", key: "branchName", width: 18 },
               { header: "Баланс", key: "balance", width: 14 },
@@ -375,6 +451,7 @@ export default async function DebtorsPage({
             ]}
             rows={balanceRows.map((r) => ({
               name: r.name,
+              status: r.status,
               children: r.wards.map((w) => w.name).filter((n) => n !== "—").join(", ") || "—",
               branchName: r.branchName,
               balance: r.balance,
@@ -388,6 +465,7 @@ export default async function DebtorsPage({
             filename={tab === "planned" ? "debtors-planned" : "debtors-actual"}
             columns={[
               { header: "Клиент", key: "name", width: 25 },
+              { header: "Статус", key: "status", width: 14 },
               { header: "Ребёнок", key: "children", width: 25 },
               { header: "Филиал", key: "branchName", width: 18 },
               { header: "Направление", key: "directions", width: 25 },
@@ -396,6 +474,7 @@ export default async function DebtorsPage({
             ]}
             rows={rows.map((r) => ({
               name: r.name,
+              status: r.status,
               children:
                 Array.from(new Set(r.sources.map((s) => s.wardName).filter(Boolean))).join(", ") || "—",
               branchName: r.branchName,
@@ -406,6 +485,12 @@ export default async function DebtorsPage({
           />
         )}
       </div>
+
+      {branchOptions.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <BranchSwitcher branches={branchOptions} selected={selectedBranchId} />
+        </div>
+      )}
 
       <div className="border-b flex flex-wrap gap-1">
         {tabs.map((t) => {
@@ -505,6 +590,7 @@ export default async function DebtorsPage({
               <TableHeader>
                 <TableRow>
                   <TableHead>Клиент</TableHead>
+                  <TableHead>Статус</TableHead>
                   <TableHead>Ребёнок</TableHead>
                   <TableHead>Филиал</TableHead>
                   <TableHead className="text-right">Баланс</TableHead>
@@ -519,6 +605,11 @@ export default async function DebtorsPage({
                       <Link href={`/crm/clients/${r.id}`} className="font-medium text-primary hover:underline">
                         {r.name}
                       </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={cn("text-xs whitespace-nowrap", statusBadgeClass(r.status))}>
+                        {r.status}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground align-top">
                       {r.wards.length === 0 ? (
@@ -570,6 +661,7 @@ export default async function DebtorsPage({
             <TableHeader>
               <TableRow>
                 <TableHead>Клиент</TableHead>
+                <TableHead>Статус</TableHead>
                 <TableHead>Ребёнок</TableHead>
                 <TableHead>Филиал</TableHead>
                 <TableHead>Источник долга</TableHead>
@@ -586,6 +678,11 @@ export default async function DebtorsPage({
                     <Link href={`/crm/clients/${r.id}`} className="font-medium text-primary hover:underline">
                       {r.name}
                     </Link>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <Badge variant="outline" className={cn("text-xs whitespace-nowrap", statusBadgeClass(r.status))}>
+                      {r.status}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground align-top">
                     {r.sources.length === 0 ? (

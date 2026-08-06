@@ -317,7 +317,7 @@ export function EditExpenseDialog({
 
           {isWriteoff ? (
             <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-              Списание товара — без счёта (только ОПИУ, в ДДС не попадает).
+              Списание товара — без счёта (только финрез (P&L), в ДДС не попадает).
             </p>
           ) : (
             <div className="space-y-1.5">
@@ -405,11 +405,11 @@ export function EditExpenseDialog({
               только ручное копирование между месяцами. Значение существующего
               расхода сохраняется (isRecurring приходит как есть и не меняется). */}
 
-          {/* Блок «Как провести в ОПИУ» */}
+          {/* Блок «Как провести в финрезе (P&L)» */}
           <fieldset className="space-y-2 rounded-md border p-3">
-            <legend className="px-1 text-sm font-medium">Как провести в ОПИУ</legend>
+            <legend className="px-1 text-sm font-medium">Как провести в финрезе (P&L)</legend>
             <p className="text-xs text-muted-foreground">
-              В ДДС расход всегда учитывается по дате платежа. В ОПИУ — по периоду признания.
+              В ДДС расход всегда учитывается по дате платежа. В финрезе (P&L) — по периоду признания.
             </p>
 
             <label className="flex items-start gap-2 text-sm">
@@ -423,7 +423,7 @@ export function EditExpenseDialog({
               <span>
                 <span className="font-medium">Одной суммой по дате платежа</span>
                 <span className="block text-xs text-muted-foreground">
-                  ОПИУ и ДДС совпадают: расход относится к месяцу даты выше.
+                  Финрез (P&L) и ДДС совпадают: расход относится к месяцу даты выше.
                 </span>
               </span>
             </label>
@@ -439,7 +439,7 @@ export function EditExpenseDialog({
               <span className="flex-1">
                 <span className="font-medium">Одной суммой в другом месяце</span>
                 <span className="block text-xs text-muted-foreground">
-                  Например, аренда июня оплачена 25 мая → ОПИУ июнь.
+                  Например, аренда июня оплачена 25 мая → финрез (P&L) июнь.
                 </span>
                 {recognitionMode === "single_period" && (
                   <div className="mt-2 space-y-1.5">
@@ -511,7 +511,7 @@ export function EditExpenseDialog({
                 <span>
                   <span className="font-medium">Не учитывать в финрезе</span>
                   <span className="block text-xs text-muted-foreground">
-                    Только ДДС: расход уменьшит остаток на счёте, но не попадёт в ОПИУ и отчёты о прибыли (вывод средств, возврат займа, покупка актива).
+                    Только ДДС: расход уменьшит остаток на счёте, но не попадёт в финрез (P&L) (вывод средств, возврат займа, покупка актива).
                   </span>
                 </span>
               </label>

@@ -193,7 +193,7 @@ export function WriteOffStockDialog({
           </div>
 
           <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            Сумма списания ≈ {formatMoney(previewAmount)} (кол-во × себестоимость). Расход идёт в ОПИУ, в ДДС не попадает (деньги не двигаются).
+            Сумма списания ≈ {formatMoney(previewAmount)} (кол-во × себестоимость). Расход идёт в финрез (P&L), в ДДС не попадает (деньги не двигаются).
           </p>
 
           <div className="space-y-1.5">
@@ -229,7 +229,7 @@ export function WriteOffStockDialog({
           </div>
 
           <fieldset className="space-y-2 rounded-md border p-3">
-            <legend className="px-1 text-sm font-medium">Как провести в ОПИУ</legend>
+            <legend className="px-1 text-sm font-medium">Как провести в финрезе (P&L)</legend>
             <label className="flex items-start gap-2 text-sm">
               <input type="radio" name="wo-recognition" className="mt-1" checked={recognitionMode === "by_payment_date"} onChange={() => setRecognitionMode("by_payment_date")} />
               <span>

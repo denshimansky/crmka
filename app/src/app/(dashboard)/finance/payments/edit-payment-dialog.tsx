@@ -224,9 +224,9 @@ export function EditPaymentDialog({
                 className="mt-0.5"
               />
               <span>
-                <span className="font-medium">Не учитывать в ОПИУ</span>
+                <span className="font-medium">Не учитывать в финрезе (P&L)</span>
                 <span className="block text-xs text-muted-foreground">
-                  Доход не попадёт в финрез (ОПИУ), но останется в кассе/ДДС.
+                  Доход не попадёт в финрез (P&L), но останется в кассе/ДДС.
                 </span>
               </span>
             </label>

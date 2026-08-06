@@ -211,7 +211,7 @@ export function AddPaymentDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Например: проценты банка, продажа товаров. Не учитывается в выручке ОПИУ (она по списаниям с занятий).
+                Например: проценты банка, продажа товаров. Не учитывается в выручке финреза (P&L) (она по списаниям с занятий).
               </p>
             </div>
           ) : (
@@ -317,9 +317,9 @@ export function AddPaymentDialog({
                 className="mt-0.5"
               />
               <span>
-                <span className="font-medium">Не учитывать в ОПИУ</span>
+                <span className="font-medium">Не учитывать в финрезе (P&L)</span>
                 <span className="block text-xs text-muted-foreground">
-                  Доход не попадёт в финрез (ОПИУ), но останется в кассе/ДДС.
+                  Доход не попадёт в финрез (P&L), но останется в кассе/ДДС.
                 </span>
               </span>
             </label>
