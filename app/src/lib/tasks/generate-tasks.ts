@@ -2,6 +2,7 @@ import { db } from "@/lib/db"
 import { getRoleNames } from "@/lib/role-names"
 import { isTriggerEnabled, parseTriggerSettings } from "@/lib/tasks/trigger-settings"
 import { createContactDateTaskIfDue } from "@/lib/tasks/contact-date-task"
+import { lessonsWithRoster } from "@/lib/subscriptions/roster-filter"
 
 /**
  * Генерация автозадач по 6 триггерам для ОДНОГО тенанта.
@@ -115,10 +116,31 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
     yesterday.setDate(yesterday.getDate() - 1)
     // isPending-плейсхолдер разового ученика — не отметка: занятие, где есть
     // только неотмеченные разовые, тоже считается неотмеченным.
-    const unmarkedLessons = await db.lesson.findMany({
+    const unmarkedLessonsRaw = await db.lesson.findMany({
       where: { tenantId, date: yesterday, status: "scheduled", attendances: { none: { isPending: false } } },
-      select: { id: true, group: { select: { name: true, instructorId: true, branchId: true } } },
+      select: {
+        id: true,
+        date: true,
+        rescheduledFromDate: true,
+        groupId: true,
+        group: { select: { name: true, directionId: true, instructorId: true, branchId: true } },
+      },
     })
+    // Гейт состава (баг #114): «Отметить занятие» ставим только если на дату есть
+    // кого отмечать — хотя бы один зачисленный ребёнок с покрывающим абонементом.
+    // Пустые занятия (в группе в тот день никого) задачу не создают.
+    const rosterIds = await lessonsWithRoster(
+      db,
+      tenantId,
+      unmarkedLessonsRaw.map((l) => ({
+        id: l.id,
+        date: l.date,
+        rescheduledFromDate: l.rescheduledFromDate,
+        groupId: l.groupId,
+        directionId: l.group.directionId,
+      })),
+    )
+    const unmarkedLessons = unmarkedLessonsRaw.filter((l) => rosterIds.has(l.id))
     for (const l of unmarkedLessons) {
       const exists = await db.task.findFirst({
         where: { tenantId, autoTrigger: "unmarked_lesson", dueDate: today, deletedAt: null, title: { contains: l.group.name } },

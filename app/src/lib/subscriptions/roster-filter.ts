@@ -319,3 +319,84 @@ export async function buildCoverageResolver(
     },
   }
 }
+
+/** Занятие для проверки «есть кого отмечать» (минимальный набор полей). */
+export interface RosterLessonInput {
+  id: string
+  date: Date
+  rescheduledFromDate: Date | null
+  groupId: string
+  directionId: string
+}
+
+/**
+ * Из набора занятий возвращает id тех, у кого на их дату ЕСТЬ КОГО ОТМЕЧАТЬ —
+ * хотя бы один зачисленный ребёнок в составе с покрывающим абонементом (тот же
+ * гейт, что в карточке занятия и отчёте «Неотмеченные»). Пустые занятия — в группе
+ * в тот день никого (все выбыли, ещё никто не зачислён, нет покрытия) — в результат
+ * НЕ попадают: их «неотмеченными» считать нельзя, отмечать там нечего (баг #114).
+ *
+ * Один батч: enrollments по всем группам + единый резолвер покрытия на диапазон дат.
+ * selectedDays (частичная неделя) сверяем по фактическому дню занятия — как в отчёте.
+ */
+export async function lessonsWithRoster(
+  db: DB,
+  tenantId: string,
+  lessons: RosterLessonInput[],
+): Promise<Set<string>> {
+  const result = new Set<string>()
+  if (lessons.length === 0) return result
+
+  const groupIds = [...new Set(lessons.map((l) => l.groupId))]
+  const enrollments = await db.groupEnrollment.findMany({
+    where: { tenantId, groupId: { in: groupIds }, deletedAt: null, ...rosterWhereAnyDate() },
+    select: {
+      groupId: true,
+      clientId: true,
+      wardId: true,
+      enrolledAt: true,
+      withdrawnAt: true,
+      selectedDays: true,
+    },
+  })
+  const byGroup = new Map<string, typeof enrollments>()
+  for (const e of enrollments) {
+    const list = byGroup.get(e.groupId)
+    if (list) list.push(e)
+    else byGroup.set(e.groupId, [e])
+  }
+
+  // Окно покрытия — по датам состава (при переносе — исходная дата).
+  let from = effectiveRosterDate(lessons[0])
+  let to = from
+  for (const l of lessons) {
+    const d = effectiveRosterDate(l)
+    if (d < from) from = d
+    if (d > to) to = d
+  }
+  const coverage = await buildCoverageResolver(
+    db,
+    tenantId,
+    [...new Set(lessons.map((l) => l.directionId))],
+    from,
+    to,
+  )
+
+  for (const l of lessons) {
+    const rosterDate = effectiveRosterDate(l)
+    // selectedDays — по фактическому дню занятия (как в отчёте «Неотмеченные»).
+    const dow = l.date.getUTCDay() === 0 ? 7 : l.date.getUTCDay()
+    const list = byGroup.get(l.groupId)
+    if (!list) continue
+    const has = list.some((e) => {
+      if (!isEnrolledOnLesson(e, rosterDate)) return false
+      if (!coverage.isCoveredOn(e.clientId, e.wardId, l.directionId, rosterDate, l.id)) return false
+      if (e.selectedDays && Array.isArray(e.selectedDays)) {
+        return (e.selectedDays as number[]).includes(dow)
+      }
+      return true
+    })
+    if (has) result.add(l.id)
+  }
+  return result
+}

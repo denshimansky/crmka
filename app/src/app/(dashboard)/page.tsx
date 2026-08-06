@@ -34,6 +34,7 @@ import { computeActiveSubscriptionsByBranch } from "@/lib/dashboard/active-subsc
 import { computeUpcomingBirthdays } from "@/lib/dashboard/upcoming-birthdays"
 import { computePlannedExpensesWithFact } from "@/lib/finance/planned-expenses"
 import { computeSalesFunnel, summarizeSalesFunnel } from "@/lib/reports/sales-funnel"
+import { lessonsWithRoster } from "@/lib/subscriptions/roster-filter"
 import {
   branchScopeFromSession,
   scopeFinancialAccount,
@@ -244,24 +245,45 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       // ADM-04: только занятия групп видимых филиалов.
       ...scopeLesson(scope),
     },
-    include: {
-      group: { select: { name: true } },
-      instructor: { select: { firstName: true, lastName: true } },
+    select: {
+      id: true,
+      date: true,
+      startTime: true,
+      durationMinutes: true,
+      rescheduledFromDate: true,
+      groupId: true,
+      group: { select: { name: true, directionId: true } },
     },
     orderBy: { date: "desc" },
-    take: 30,
+    // С запасом: пустые занятия (в группе в тот день никого) ниже отсекаются,
+    // поэтому кандидатов берём больше пятёрки, что реально показываем.
+    take: 60,
   })
   const nowMs = Date.now()
-  const unmarkedLessons = unmarkedRaw
-    .filter((l) => {
-      const [hh, mm] = l.startTime.split(":").map(Number)
-      // date — DATE без TZ, считаем как локальную дату.
-      const start = new Date(l.date)
-      start.setHours(hh || 0, mm || 0, 0, 0)
-      const end = start.getTime() + (l.durationMinutes || 60) * 60_000
-      return end <= nowMs
-    })
-    .slice(0, 5)
+  const endedUnmarked = unmarkedRaw.filter((l) => {
+    const [hh, mm] = l.startTime.split(":").map(Number)
+    // date — DATE без TZ, считаем как локальную дату.
+    const start = new Date(l.date)
+    start.setHours(hh || 0, mm || 0, 0, 0)
+    const end = start.getTime() + (l.durationMinutes || 60) * 60_000
+    return end <= nowMs
+  })
+  // Гейт состава (баг #114): занятие «неотмеченное», только если на его дату
+  // есть кого отмечать — хотя бы один зачисленный ребёнок с покрывающим
+  // абонементом (как в отчёте «Неотмеченные» и карточке занятия). Пустые
+  // занятия (все выбыли / никто не зачислён / нет покрытия) в виджет не попадают.
+  const rosterIds = await lessonsWithRoster(
+    db,
+    tenantId,
+    endedUnmarked.map((l) => ({
+      id: l.id,
+      date: l.date,
+      rescheduledFromDate: l.rescheduledFromDate,
+      groupId: l.groupId,
+      directionId: l.group.directionId,
+    })),
+  )
+  const unmarkedLessons = endedUnmarked.filter((l) => rosterIds.has(l.id)).slice(0, 5)
 
   // Воронка продаж (CRM-13) — те же цифры, что и в отчёте /reports/crm/funnel:
   // событийная воронка по заявкам за месяц, на дашборде каждый этап одной
