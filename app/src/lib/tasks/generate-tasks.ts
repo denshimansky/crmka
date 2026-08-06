@@ -214,8 +214,14 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
         `${lessonDateStr}. Уточните причину и переведите в «Уваж. пропуск», ` +
         `«Прогул» или «Назначена отработка». ${marker}`
 
+      // Дедуп по маркеру [att=id] БЕЗ фильтра по статусу: одна задача на конкретную
+      // отметку «Не был» за всё время. Раньше здесь стояло status:"pending" — и как
+      // только администратор ЗАКРЫВАЛ задачу (completed), ночной крон на следующий
+      // день создавал её заново (задача уточнения ≠ переклассификация отметки), из-за
+      // чего одни и те же «Не был» всплывали в «Задачах на сегодня» каждый день
+      // (баг #111). Как в триггере first_paid_reminder — дедупим по маркеру.
       const exists = await db.task.findFirst({
-        where: { tenantId, autoTrigger: "no_show_review", status: "pending", deletedAt: null, description: { contains: marker } },
+        where: { tenantId, autoTrigger: "no_show_review", deletedAt: null, description: { contains: marker } },
       })
       if (exists) continue
 
