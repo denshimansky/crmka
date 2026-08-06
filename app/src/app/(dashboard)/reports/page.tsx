@@ -43,7 +43,7 @@ const reportGroups: ReportGroup[] = [
     columns: [
       // Колонка 1 — лиды и воронка
       [
-        { name: "Воронка продаж", href: "/reports/crm/funnel", description: "Заявки по этапам за месяц: новые/действующие, с пробным/без, детализация", source: "clients" },
+        { name: "Воронка продаж", href: "/reports/crm/funnel", description: "Заявки по этапам за месяц: лиды/база, с пробным/без, детализация", source: "clients" },
         { name: "Лиды по менеджерам", href: "/reports/crm/leads-by-manager", description: "Создано лидов/заявок, записи на пробные и продажи по сотрудникам", source: "clients" },
         { name: "Лиды по дням", href: "/reports/crm/leads-by-day", description: "Новые лиды по дням месяца", source: "clients" },
         { name: "Лиды по каналам", href: "/reports/crm/leads-by-channel", description: "Новые лиды по каналам привлечения и дням месяца", source: "clients" },

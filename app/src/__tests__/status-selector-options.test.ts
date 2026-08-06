@@ -5,10 +5,11 @@ import { statusSelectorOptions } from "../lib/clients/status-selector-options"
 const values = (r: { options: { value: string }[] }) => r.options.map((o) => o.value)
 
 describe("statusSelectorOptions", () => {
-  it("никогда не клиент — режим funnel, есть Потенциальный", () => {
+  it("никогда не клиент — режим funnel, есть Потенциальный, «Лид» вручную недоступен", () => {
     const r = statusSelectorOptions({ isActiveClient: false, wasEverClient: false, clientStatus: null })
     assert.equal(r.mode, "funnel")
-    assert.deepEqual(values(r), ["new", "potential", "non_target", "blacklisted", "archived"])
+    assert.deepEqual(values(r), ["potential", "non_target", "blacklisted", "archived"])
+    assert.equal(values(r).includes("new"), false)
   })
 
   it("активный сейчас — режим transition: Выбывшие/Архив/ЧС", () => {
@@ -23,16 +24,18 @@ describe("statusSelectorOptions", () => {
     assert.deepEqual(values(r), ["active", "archived", "blacklisted"])
   })
 
-  it("бывший клиент, не активный, не churned — Выбывшие + Лид/Не целевой/ЧС/Архив, без Потенциального", () => {
+  it("бывший клиент, не активный, не churned — Выбывшие + Не целевой/ЧС/Архив, без Потенциального и без «Лид»", () => {
     const r = statusSelectorOptions({ isActiveClient: false, wasEverClient: true, clientStatus: null })
     assert.equal(r.mode, "transition")
-    assert.deepEqual(values(r), ["churned", "new", "non_target", "blacklisted", "archived"])
+    assert.deepEqual(values(r), ["churned", "non_target", "blacklisted", "archived"])
     assert.equal(values(r).includes("potential"), false)
+    assert.equal(values(r).includes("new"), false)
   })
 
-  it("бывший клиент, выбывший — Вернуть в Активные вместо Выбывших", () => {
+  it("бывший клиент, выбывший — Вернуть в Активные вместо Выбывших, «Лид» недоступен", () => {
     const r = statusSelectorOptions({ isActiveClient: false, wasEverClient: true, clientStatus: "churned" })
     assert.equal(r.mode, "transition")
-    assert.deepEqual(values(r), ["active", "new", "non_target", "blacklisted", "archived"])
+    assert.deepEqual(values(r), ["active", "non_target", "blacklisted", "archived"])
+    assert.equal(values(r).includes("new"), false)
   })
 })

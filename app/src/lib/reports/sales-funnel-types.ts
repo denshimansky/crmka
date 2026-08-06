@@ -5,9 +5,12 @@ export type FunnelTab = "new" | "existing"
 export type FunnelSchemeKey = "with_trial" | "no_trial"
 export type FunnelStageKey = "lead" | "application" | "trial" | "trial_attended" | "won"
 
+// «Лиды» — контакты со статусом «Лид» (ещё не покупали, не помечены
+// Потенциал/Не целевой); «База» — все прочие (уже покупали ИЛИ помечены
+// Потенциал/Не целевой/Архив/ЧС). Внутренние ключи new/existing не меняем.
 export const FUNNEL_TAB_LABELS: Record<FunnelTab, string> = {
-  new: "Новые",
-  existing: "Действующие",
+  new: "Лиды",
+  existing: "База",
 }
 
 export const FUNNEL_SCHEME_LABELS: Record<FunnelSchemeKey, string> = {

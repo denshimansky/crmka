@@ -123,6 +123,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Нельзя вернуть активного клиента в воронку лидов" }, { status: 400 })
   }
 
+  // Ручной перевод в «Лид» запрещён: стать лидом можно только при создании контакта
+  // или импорте. Разрешаем лишь no-op (клиент уже «Лид»). Дублирует запрет в UI
+  // (statusSelectorOptions) на уровне API — защита от прямых вызовов.
+  if (data.funnelStatus === "new" && existing.funnelStatus !== "new") {
+    return NextResponse.json({ error: "Ручной перевод в «Лид» запрещён" }, { status: 400 })
+  }
+
   // Возврат из Архив/ЧС — только владелец или управляющий
   if (
     data.funnelStatus &&

@@ -1,9 +1,10 @@
 export type StatusOption = { value: string; label: string }
 export type SelectorMode = "transition" | "funnel"
 
-// Пресейл-воронка для тех, кто никогда не был клиентом.
+// Пресейл-воронка для тех, кто никогда не был клиентом. «Лид» вручную НЕ
+// выставляется (стать лидом можно только при создании контакта или импорте):
+// из «Лида» можно уйти дальше по воронке, но вернуться в него нельзя.
 const FUNNEL_OPTIONS: StatusOption[] = [
-  { value: "new", label: "Лид" },
   { value: "potential", label: "Потенциальный" },
   { value: "non_target", label: "Не целевой" },
   { value: "blacklisted", label: "Чёрный список" },
@@ -14,7 +15,9 @@ const FUNNEL_OPTIONS: StatusOption[] = [
  * Набор опций селектора статуса на карточке клиента.
  * - transition: значения active/churned роутятся в clientStatus, остальные — в funnelStatus.
  * - funnel: обычный селектор воронки (никогда не клиент).
- * Бывшему клиенту (wasEverClient) недоступен «Потенциальный», но доступны «В Выбывшие».
+ * Ручной перевод в «Лид» запрещён везде (стать лидом можно только при создании
+ * контакта или импорте). Бывшему клиенту (wasEverClient) недоступен «Потенциальный»,
+ * но доступны «В Выбывшие».
  */
 export function statusSelectorOptions(p: {
   isActiveClient: boolean
@@ -38,7 +41,6 @@ export function statusSelectorOptions(p: {
       mode: "transition",
       options: [
         head,
-        { value: "new", label: "Лид" },
         { value: "non_target", label: "Не целевой" },
         { value: "blacklisted", label: "Чёрный список" },
         { value: "archived", label: "Архив" },

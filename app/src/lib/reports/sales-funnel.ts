@@ -14,8 +14,9 @@ import { scopeClientByBranch } from "@/lib/client-segments"
 
 // Отчёт CRM-13 «Воронка продаж» — событийная воронка по заявкам.
 //
-// Две вкладки: «новые» (на момент создания заявки клиент был Лидом/Потенциалом)
-// и «действующие» (на момент создания заявки — Активный/Выбывший, т.е. уже покупал).
+// Две вкладки (ключи new/existing): «Лиды» — статус «Лид» и активные этапы воронки,
+// ещё не покупал (первая покупка лида остаётся тут); «База» — уже покупал ЛИБО статус
+// потенциал/нецелевой/архив/ЧС (не-лид). Классификацию см. NON_LEAD_STATUSES ниже.
 // В каждой вкладке две схемы: «с пробным» и «без пробного» — заявка относится к
 // схеме по наличию хотя бы одного не-отменённого пробного.
 //
@@ -28,6 +29,11 @@ import { scopeClientByBranch } from "@/lib/client-segments"
 function fullName(first: string | null, last: string | null): string {
   return [last, first].filter(Boolean).join(" ") || "Без имени"
 }
+
+// Пресейл-статусы, которые НЕ считаются «Лидом»: их заявки идут во вкладку «База»
+// (вместе с уже покупавшими). active_client сюда НЕ входит — первая покупка лида
+// (лид→купил) должна остаться во вкладке «Лиды», иначе воронка теряет этап «Купил».
+const NON_LEAD_STATUSES = new Set(["potential", "non_target", "archived", "blacklisted"])
 
 // Даты покупки (firstPaymentDate, firstPaidLessonDate) хранятся как @db.Date
 // (полночь UTC), а createdAt — полный timestamp. Все сравнения «стал клиентом
@@ -101,6 +107,7 @@ export async function computeSalesFunnel(
             firstName: true,
             lastName: true,
             phone: true,
+            funnelStatus: true,
             clientStatus: true,
             firstPaymentDate: true,
             firstPaidLessonDate: true,
@@ -338,7 +345,13 @@ export async function computeSalesFunnel(
   const wonCountedWardDir = new Set<string>()
 
   for (const a of apps) {
-    const tab: FunnelTab = wasExistingAt(a.client, a.createdAt) ? "existing" : "new"
+    // Вкладка «База» (existing), если клиент уже покупал ДО заявки ИЛИ его статус —
+    // пресейл-бакет не-лида (потенциал/нецелевой/архив/ЧС). Иначе — «Лиды» (new):
+    // статус «Лид» и активные этапы воронки, а также первая покупка лида.
+    const tab: FunnelTab =
+      wasExistingAt(a.client, a.createdAt) || NON_LEAD_STATUSES.has(a.client.funnelStatus)
+        ? "existing"
+        : "new"
     const wardDirKey = `${a.ward.id}|${a.direction?.id ?? ""}`
     const purchase = purchaseByWardDir.get(wardDirKey)
     const attendedTrial = attendedByWardDir.has(wardDirKey)
