@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client"
 import { consumedPackageLessonsMap, packageLessonsRemaining } from "./package-remaining"
+import { loadPackageSelections, packageSelectionGate } from "./subscription-lessons"
 
 type DB = PrismaClient | Prisma.TransactionClient
 
@@ -228,17 +229,25 @@ export async function coverageKeysOnDate(
   tenantId: string,
   subs: CoverageSubscription[],
   rosterDate: Date,
-  excludeLessonId?: string,
+  // Занятие, для которого строится состав. Двойная роль: (1) исключается из счёта
+  // израсходованного (перезапись своей же отметки не жжёт остаток пакета — прежняя
+  // семантика excludeLessonId); (2) для ПАКЕТА С ВЫБОРОМ — проверка членства занятия
+  // в наборе SubscriptionLesson (packageSelectionGate). Все вызывающие передают lesson.id.
+  lessonId?: string,
 ): Promise<Set<string>> {
   const packageIds = subs.filter((s) => s.type === "package").map((s) => s.id)
-  const consumedById = await consumedPackageLessonsMap(db, tenantId, packageIds, excludeLessonId)
+  const consumedById = await consumedPackageLessonsMap(db, tenantId, packageIds, lessonId)
+  // Наборы выбранных занятий пакетов (инвариант №1: пусто → легаси-режим).
+  const sel = await loadPackageSelections(db, tenantId, packageIds)
 
   const keys = new Set<string>()
   for (const s of subs) {
     const consumed = s.type === "package" ? consumedById.get(s.id) ?? 0 : 0
-    if (subscriptionCoversDate(s, rosterDate, consumed)) {
-      keys.add(coverageKey(s.clientId, s.wardId))
-    }
+    if (!subscriptionCoversDate(s, rosterDate, consumed)) continue
+    // Пакет с явным выбором: занятие должно быть в наборе, иначе ученика в составе
+    // ЭТОГО занятия нет. Легаси-пакет (нет строк) и календарный → gate=true.
+    if (s.type === "package" && lessonId && !packageSelectionGate(sel, s.id, lessonId)) continue
+    keys.add(coverageKey(s.clientId, s.wardId))
   }
   return keys
 }
@@ -258,7 +267,16 @@ export async function coverageKeysOnDate(
  * где сам урок не в счёте израсходованного; уже отмеченные показываются отдельно.
  */
 export interface CoverageResolver {
-  isCoveredOn(clientId: string, wardId: string | null, directionId: string, date: Date): boolean
+  // lessonId ОБЯЗАТЕЛЕН (инвариант B-5): TypeScript валит все 4 колл-сайта, чтобы их
+  // осознанно обновили — иначе пакет с выбором давал бы ложное покрытие на невыбранном
+  // занятии. Для календарных/легаси-пакетов lessonId игнорируется (покрытие по дате).
+  isCoveredOn(
+    clientId: string,
+    wardId: string | null,
+    directionId: string,
+    date: Date,
+    lessonId: string,
+  ): boolean
 }
 
 export async function buildCoverageResolver(
@@ -274,11 +292,10 @@ export async function buildCoverageResolver(
     where: coverageSubscriptionsWhere({ tenantId, directionIds, from, to }),
     select: { ...coverageSubscriptionSelect, directionId: true },
   })
-  const consumed = await consumedPackageLessonsMap(
-    db,
-    tenantId,
-    subs.filter((s) => s.type === "package").map((s) => s.id),
-  )
+  const packageIds = subs.filter((s) => s.type === "package").map((s) => s.id)
+  const consumed = await consumedPackageLessonsMap(db, tenantId, packageIds)
+  // Наборы выбранных занятий пакетов диапазона (один запрос). Пусто → легаси (инвариант №1).
+  const sel = await loadPackageSelections(db, tenantId, packageIds)
   // Ключ: clientId:wardId:directionId → покрывающие абонементы ребёнка по направлению.
   const byKey = new Map<string, typeof subs>()
   for (const s of subs) {
@@ -289,12 +306,16 @@ export async function buildCoverageResolver(
   }
 
   return {
-    isCoveredOn(clientId, wardId, directionId, date) {
+    isCoveredOn(clientId, wardId, directionId, date, lessonId) {
       const arr = byKey.get(`${coverageKey(clientId, wardId)}:${directionId}`)
       if (!arr) return false
-      return arr.some((s) =>
-        subscriptionCoversDate(s, date, s.type === "package" ? consumed.get(s.id) ?? 0 : 0),
-      )
+      return arr.some((s) => {
+        if (!subscriptionCoversDate(s, date, s.type === "package" ? consumed.get(s.id) ?? 0 : 0)) {
+          return false
+        }
+        // Пакет с выбором — только если занятие в наборе; легаси/календарный → true.
+        return s.type !== "package" || packageSelectionGate(sel, s.id, lessonId)
+      })
     },
   }
 }
