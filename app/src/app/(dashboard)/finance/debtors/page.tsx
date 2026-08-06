@@ -5,6 +5,7 @@ import { scopeClientByBranch } from "@/lib/client-segments"
 import { scopeBranch } from "@/lib/branch-scope"
 import { clientStateLabel } from "@/lib/clients/state-label"
 import { BranchSwitcher } from "./branch-switcher"
+import { StatusFilter } from "./status-filter"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -43,6 +44,18 @@ function statusBadgeClass(label: string): string {
   }
 }
 
+// Опции фильтра по статусу клиента (баг #109). Метки обязаны совпадать с выводом
+// clientStateLabel — по ним фильтруются строки.
+const STATUS_OPTIONS: { key: string; label: string }[] = [
+  { key: "active", label: "Активный" },
+  { key: "churned", label: "Выбывший" },
+  { key: "potential", label: "Потенциал" },
+  { key: "lead", label: "Лид" },
+  { key: "archived", label: "Архив" },
+  { key: "blacklisted", label: "Чёрный список" },
+  { key: "non_target", label: "Нецелевой" },
+]
+
 type TabKey = "planned" | "actual" | "balance"
 
 export default async function DebtorsPage({
@@ -73,6 +86,10 @@ export default async function DebtorsPage({
   const branchParam = typeof sp.branch === "string" ? sp.branch : null
   const selectedBranchId =
     branchParam && branchOptions.some((b) => b.id === branchParam) ? branchParam : null
+
+  // Фильтр по статусу клиента (баг #109): ключ из URL (?status=<key>) → метка.
+  const statusParam = typeof sp.status === "string" ? sp.status : null
+  const selectedStatus = STATUS_OPTIONS.find((s) => s.key === statusParam) ?? null
 
   // Подтягиваем клиентов, у которых ЕСТЬ потенциальный долг (любого типа):
   //   - есть не-отчисленный абонемент с остатком к оплате (balance>0) — кандидат
@@ -215,7 +232,7 @@ export default async function DebtorsPage({
     return `${s.direction.name}${period}${tag}`
   }
 
-  const rows: Row[] = []
+  const allRows: Row[] = []
   for (const c of candidates) {
     const name = [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени"
     const promised = c.promisedPaymentDate
@@ -310,7 +327,7 @@ export default async function DebtorsPage({
 
     if (debt <= 0) continue
     sources.sort((a, b) => b.amount - a.amount)
-    rows.push({
+    allRows.push({
       id: c.id,
       name,
       status: clientStateLabel(c.funnelStatus, c.clientStatus),
@@ -325,7 +342,12 @@ export default async function DebtorsPage({
       sources: sources.slice(0, 4),
     })
   }
-  rows.sort((a, b) => b.debt - a.debt)
+  allRows.sort((a, b) => b.debt - a.debt)
+
+  // Фильтр по статусу клиента (баг #109) — до сводки, чтобы карточки её учитывали.
+  const rows = selectedStatus
+    ? allRows.filter((r) => r.status === selectedStatus.label)
+    : allRows
 
   const totalDebt = rows.reduce((s, r) => s + r.debt, 0)
   const overdueCount = rows.filter((r) => r.isOverdue).length
@@ -408,20 +430,26 @@ export default async function DebtorsPage({
         comment: c.comment,
       }
     })
+    // Фильтр по статусу клиента (баг #109).
+    .filter((r) => !selectedStatus || r.status === selectedStatus.label)
   balanceRows.sort((a, b) => b.balance - a.balance)
   const totalBalance = balanceRows.reduce((s, r) => s + r.balance, 0)
 
-  // Ссылки вкладок сохраняют выбранный филиал (?branch), чтобы он не сбрасывался
-  // при переключении вкладки (баг #107).
-  const branchQs = selectedBranchId ? `&branch=${selectedBranchId}` : ""
+  // Ссылки вкладок сохраняют выбранные фильтры (филиал/статус), чтобы они не
+  // сбрасывались при переключении вкладки (баг #107, #109).
+  const carryParams = new URLSearchParams()
+  if (selectedBranchId) carryParams.set("branch", selectedBranchId)
+  if (selectedStatus) carryParams.set("status", selectedStatus.key)
+  function tabHref(key: TabKey): string {
+    const p = new URLSearchParams(carryParams)
+    if (key !== "planned") p.set("tab", key)
+    const qs = p.toString()
+    return qs ? `/finance/debtors?${qs}` : "/finance/debtors"
+  }
   const tabs: { key: TabKey; label: string; href: string }[] = [
-    {
-      key: "planned",
-      label: "Плановый долг",
-      href: selectedBranchId ? `/finance/debtors?branch=${selectedBranchId}` : "/finance/debtors",
-    },
-    { key: "actual", label: "Фактический долг", href: `/finance/debtors?tab=actual${branchQs}` },
-    { key: "balance", label: "Баланс", href: `/finance/debtors?tab=balance${branchQs}` },
+    { key: "planned", label: "Плановый долг", href: tabHref("planned") },
+    { key: "actual", label: "Фактический долг", href: tabHref("actual") },
+    { key: "balance", label: "Баланс", href: tabHref("balance") },
   ]
 
   const tabDescription =
@@ -486,11 +514,12 @@ export default async function DebtorsPage({
         )}
       </div>
 
-      {branchOptions.length > 1 && (
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {branchOptions.length > 1 && (
           <BranchSwitcher branches={branchOptions} selected={selectedBranchId} />
-        </div>
-      )}
+        )}
+        <StatusFilter options={STATUS_OPTIONS} selected={selectedStatus?.key ?? null} />
+      </div>
 
       <div className="border-b flex flex-wrap gap-1">
         {tabs.map((t) => {

@@ -15,6 +15,11 @@ function formatDate(date: Date | null): string {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
+// Авто-префикс заметки об отчислении, который добавляет PATCH /api/subscriptions/[id]:
+// «Отчисление абонемента «<направление>»[ (<MM.YYYY>)]. <комментарий>». Снимаем его,
+// чтобы показать в отчёте только сам комментарий пользователя (баг #108).
+const WITHDRAWAL_NOTE_PREFIX = /^Отчисление абонемента «[^»]*»(?: \([^)]*\))?\.\s*/
+
 export default async function ChurnDetailsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
@@ -51,6 +56,8 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
         take: 1,
         select: {
           withdrawalDate: true,
+          periodMonth: true,
+          periodYear: true,
           direction: { select: { name: true } },
           group: { select: { instructor: { select: { firstName: true, lastName: true } } } },
           withdrawalReason: { select: { name: true } },
@@ -80,11 +87,55 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
     churnByBranch.set(br, (churnByBranch.get(br) || 0) + 1)
   }
 
+  // Комментарий отчисления живёт в истории коммуникаций клиента (баг #108):
+  // при переходе в withdrawn PATCH /api/subscriptions/[id] пишет заметку
+  // Communication (type=note, channel=internal). Заметка создаётся только когда
+  // комментарий заполнен, поэтому её наличие = комментарий был.
+  const churnedIds = churnedClients.map((c) => c.id)
+  const withdrawalNotes = churnedIds.length
+    ? await db.communication.findMany({
+        where: {
+          tenantId,
+          clientId: { in: churnedIds },
+          type: "note",
+          channel: "internal",
+          content: { startsWith: "Отчисление абонемента «" },
+        },
+        select: { clientId: true, content: true },
+        orderBy: { createdAt: "desc" },
+      })
+    : []
+  const notesByClient = new Map<string, string[]>()
+  for (const n of withdrawalNotes) {
+    if (!n.content) continue // content nullable в схеме; startsWith-фильтр уже отсеял пустые
+    const arr = notesByClient.get(n.clientId)
+    if (arr) arr.push(n.content)
+    else notesByClient.set(n.clientId, [n.content])
+  }
+  function withdrawalComment(clientId: string, directionName: string, period: string | null): string {
+    const notes = notesByClient.get(clientId)
+    if (!notes || notes.length === 0) return "—"
+    // У клиента могло быть несколько отчислений (в т.ч. по одному направлению в
+    // разные периоды). Ищем заметку по направлению И периоду; иначе — по одному
+    // направлению; иначе — самую свежую (заметки отсортированы по убыванию даты).
+    const wantDir = directionName && directionName !== "—" ? `«${directionName}»` : null
+    const wantPeriod = period ? `(${period})` : null
+    const match =
+      notes.find((c) => (!wantDir || c.includes(wantDir)) && (!wantPeriod || c.includes(wantPeriod))) ??
+      (wantDir ? notes.find((c) => c.includes(wantDir)) : undefined) ??
+      notes[0]
+    return match.replace(WITHDRAWAL_NOTE_PREFIX, "").trim() || "—"
+  }
+
   const rows = churnedClients
     .map((c) => {
       const name = [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени"
       const sub = c.subscriptions[0]
       const direction = sub?.direction?.name || "—"
+      const period =
+        sub?.periodMonth && sub?.periodYear
+          ? `${String(sub.periodMonth).padStart(2, "0")}.${sub.periodYear}`
+          : null
       const instructor = sub?.group?.instructor
         ? [sub.group.instructor.lastName, sub.group.instructor.firstName].filter(Boolean).join(" ")
         : "—"
@@ -96,6 +147,7 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
         instructor,
         withdrawalDate: sub?.withdrawalDate ?? null,
         reason: sub?.withdrawalReason?.name || "—",
+        comment: withdrawalComment(c.id, direction, period),
       }
     })
     .sort((a, b) => (b.withdrawalDate?.getTime() ?? 0) - (a.withdrawalDate?.getTime() ?? 0))
@@ -207,6 +259,7 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
                 <TableHead>{roleNames.instructor}</TableHead>
                 <TableHead>Дата выбытия</TableHead>
                 <TableHead>Причина отчисления</TableHead>
+                <TableHead>Комментарий</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -222,6 +275,7 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
                   <TableCell className="text-muted-foreground">{r.instructor}</TableCell>
                   <TableCell className="text-muted-foreground">{formatDate(r.withdrawalDate)}</TableCell>
                   <TableCell className="text-muted-foreground">{r.reason}</TableCell>
+                  <TableCell className="text-muted-foreground whitespace-pre-wrap">{r.comment}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
