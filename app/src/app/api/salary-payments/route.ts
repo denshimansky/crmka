@@ -10,6 +10,7 @@ import { syncOkladTwinsForEmployeePeriod } from "@/lib/salary/sync-oklad-twin"
 import { getOkladCategoryId } from "@/lib/salary/oklad-category"
 import { getBranchScope } from "@/lib/session"
 import { scopeEmployee } from "@/lib/branch-scope"
+import { kindOfDirection } from "@/lib/salary/kind-split"
 
 // Legacy: одна выплата = (employee × account × amount). Используется простым диалогом
 // «Провести выплату». Сохраняется как SalaryPayment + одна позиция SalaryPaymentItem
@@ -56,9 +57,12 @@ const docSchema = z.object({
   // в items НЕ попадает.
   adjustments: z.array(z.object({
     employeeId: z.string().uuid(),
+    // Направление премии/депремирования: != null → сдельная (вкладка «Сделка»),
+    // null → окладная. Комментарий опционален (у сдельной метка = направление).
+    directionId: z.string().uuid().nullable().optional(),
     type: z.enum(["bonus", "penalty"]),
     amount: z.number().min(0.01),
-    comment: z.string().min(1, "Комментарий к премии/штрафу обязателен"),
+    comment: z.string().optional().nullable(),
   })).default([]),
   kind: z.enum(["salary", "piece"]).default("piece"),
   recognitionMode: z.enum(["by_payment_date", "single_period", "amortized", "not_in_pnl"]).default("by_payment_date"),
@@ -112,20 +116,40 @@ export async function GET(req: NextRequest) {
   })
 
   // Обогащаем ответ плоскими полями для ConductedPaymentsList (employeeName/accountName/
-  // isOklad/date как YYYY-MM-DD), сохраняя исходную структуру (employee/account/items) —
-  // существующие вызовы GET (напр. будущие отчёты) не ломаются, форма ответа (массив) та же.
-  // isOklad — по признаку окладника (monthlySalary>0), а НЕ по наличию твина: в per-period
-  // модели твин висит на одной выплате периода, иначе аванс окладника ушёл бы на «Сдельную».
-  let enriched = payments.map((p) => ({
-    ...p,
-    employeeName: [p.employee?.lastName, p.employee?.firstName].filter(Boolean).join(" ").trim() || p.employee?.id || "",
-    accountName: p.account?.name ?? "",
-    isOklad: Number(p.employee?.monthlySalary ?? 0) > 0,
-    date: p.date.toISOString().slice(0, 10),
-  }))
+  // date как YYYY-MM-DD) + разбивкой суммы по типу ЗП (okladAmount/pieceAmount),
+  // сохраняя исходную структуру (employee/account/items) — существующие вызовы GET не
+  // ломаются. Тип определяется ПО СТРОКАМ (directionId), а не по monthlySalary>0: у
+  // совместителя одна выплата бывает смешанной, и бакетирование по признаку окладника
+  // отправляло ВСЕ его выплаты (включая чисто сделочные) только на вкладку «Оклады».
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  let enriched = payments.map((p) => {
+    const hasOklad = Number(p.employee?.monthlySalary ?? 0) > 0
+    let okladAmount = 0
+    let pieceAmount = 0
+    for (const it of p.items) {
+      if (kindOfDirection(it.directionId, hasOklad) === "salary") okladAmount += Number(it.amount)
+      else pieceAmount += Number(it.amount)
+    }
+    // Легаси-выплаты без строк items — весь amount по признаку окладника.
+    if (p.items.length === 0) {
+      if (hasOklad) okladAmount = Number(p.amount)
+      else pieceAmount = Number(p.amount)
+    }
+    return {
+      ...p,
+      employeeName: [p.employee?.lastName, p.employee?.firstName].filter(Boolean).join(" ").trim() || p.employee?.id || "",
+      accountName: p.account?.name ?? "",
+      isOklad: hasOklad,
+      okladAmount: r2(okladAmount),
+      pieceAmount: r2(pieceAmount),
+      date: p.date.toISOString().slice(0, 10),
+    }
+  })
 
-  if (kind === "salary") enriched = enriched.filter((p) => p.isOklad)
-  else if (kind === "piece") enriched = enriched.filter((p) => !p.isOklad)
+  // Выплата показывается на вкладке, если у неё есть суммы этого типа (смешанная —
+  // на обеих). Аннулирование удаляет выплату целиком, поэтому это честно.
+  if (kind === "salary") enriched = enriched.filter((p) => p.okladAmount > 0)
+  else if (kind === "piece") enriched = enriched.filter((p) => p.pieceAmount > 0)
 
   return NextResponse.json(enriched)
 }
@@ -207,11 +231,12 @@ export async function POST(req: NextRequest) {
           data: data.adjustments.map((a) => ({
             tenantId,
             employeeId: a.employeeId,
+            directionId: a.directionId ?? null,
             type: a.type,
             amount: a.amount,
             periodYear: data.periodYear,
             periodMonth: data.periodMonth,
-            comment: a.comment,
+            comment: a.comment ?? null,
             createdBy: employeeId,
           })),
         })

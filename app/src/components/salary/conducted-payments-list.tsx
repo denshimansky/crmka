@@ -13,12 +13,17 @@ interface PaymentRow {
   employeeName: string
   accountName: string
   isOklad: boolean
+  okladAmount: number
+  pieceAmount: number
 }
 
 export function ConductedPaymentsList({ year, month, kind }: { year: number; month: number; kind: "salary" | "piece" }) {
   const router = useRouter()
   const [rows, setRows] = useState<PaymentRow[]>([])
   const [busy, setBusy] = useState<string | null>(null)
+  // Сумма по типу вкладки (смешанная выплата показывает свою часть; аннул удаляет
+  // выплату целиком).
+  const tabAmount = (r: PaymentRow) => (kind === "salary" ? r.okladAmount : r.pieceAmount)
 
   useEffect(() => {
     fetch(`/api/salary-payments?year=${year}&month=${month}&kind=${kind}`)
@@ -61,7 +66,7 @@ export function ConductedPaymentsList({ year, month, kind }: { year: number; mon
                   <TableCell className="font-medium">{r.employeeName}</TableCell>
                   <TableCell>{r.date}</TableCell>
                   <TableCell>{r.accountName}</TableCell>
-                  <TableCell className="text-right">{new Intl.NumberFormat("ru-RU").format(r.amount)}</TableCell>
+                  <TableCell className="text-right">{new Intl.NumberFormat("ru-RU").format(tabAmount(r))}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="sm" disabled={busy === r.id} onClick={() => annul(r.id)}>
                       Аннулировать

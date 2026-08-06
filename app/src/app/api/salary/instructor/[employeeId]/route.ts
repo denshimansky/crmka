@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { buildInstructorSalaryDetail, type AttendanceInput } from "@/lib/salary/instructor-detail"
+import { kindOfDirection } from "@/lib/salary/kind-split"
 
 export async function GET(
   req: NextRequest,
@@ -66,7 +67,7 @@ export async function GET(
     }),
     db.salaryAdjustment.findMany({
       where: { tenantId, employeeId, periodYear, periodMonth },
-      select: { type: true, amount: true },
+      select: { type: true, amount: true, directionId: true, direction: { select: { name: true } } },
     }),
     db.salaryPaymentItem.findMany({
       where: { tenantId, employeeId, salaryPayment: { periodYear, periodMonth } },
@@ -90,22 +91,59 @@ export async function GET(
     instructorPayAmount: Number(a.instructorPayAmount),
   }))
 
-  const detail = buildInstructorSalaryDetail({
-    attendances: attInput,
-    adjustments: adjustments.map((a) => ({ type: a.type as "bonus" | "penalty", amount: Number(a.amount) })),
-    paymentItems: paymentItems.map((p) => ({
-      directionId: p.directionId,
-      amount: Number(p.amount),
-      directionName: p.direction?.name ?? null,
-    })),
-    salaried: employee.monthlySalary && Number(employee.monthlySalary) > 0
-      ? {
-          monthlySalary: Number(employee.monthlySalary),
-          defaultDirectionId: employee.defaultDirectionId,
-          defaultDirectionName: employee.defaultDirection?.name ?? "Без направления",
-        }
-      : null,
-  })
+  // Тип карточки: oklad-вид (только оклад) или piece-вид (только сделка). Оклад =
+  // «без направления» (см. lib/salary/kind-split). kind из ссылки; без него —
+  // «Оклады» для чистого окладника (есть оклад, нет сделки), иначе «Сдельная».
+  const hasOklad = employee.monthlySalary != null && Number(employee.monthlySalary) > 0
+  const pieceAccruedTotal = attInput.reduce((s, a) => s + a.instructorPayAmount, 0)
+  const kindParam = searchParams.get("kind")
+  const kind: "piece" | "salary" =
+    kindParam === "salary" ? "salary"
+      : kindParam === "piece" ? "piece"
+        : hasOklad && pieceAccruedTotal === 0 ? "salary" : "piece"
+
+  const okladName = employee.defaultDirection?.name
+    ? `Оклад — ${employee.defaultDirection.name}`
+    : "Оклад без направления"
+
+  const detail = kind === "salary"
+    ? buildInstructorSalaryDetail({
+        // Окладный вид: одна строка оклада + окладные (без направления) премии/штрафы.
+        attendances: [],
+        adjustments: adjustments
+          .filter((a) => kindOfDirection(a.directionId, hasOklad) === "salary")
+          .map((a) => ({ type: a.type as "bonus" | "penalty", amount: Number(a.amount) })),
+        paymentItems: paymentItems
+          .filter((p) => kindOfDirection(p.directionId, hasOklad) === "salary")
+          .map((p) => ({ directionId: p.directionId, amount: Number(p.amount), directionName: p.direction?.name ?? null })),
+        salaried: hasOklad
+          ? {
+              monthlySalary: Number(employee.monthlySalary),
+              defaultDirectionId: employee.defaultDirectionId,
+              defaultDirectionName: okladName,
+            }
+          : null,
+      })
+    : buildInstructorSalaryDetail({
+        // Сдельный вид: направления занятий; направленные премии складываются в свои
+        // строки, ненаправленные (только у чистого сдельщика) — строкой «Премии − штрафы».
+        attendances: attInput,
+        adjustments: adjustments
+          .filter((a) => kindOfDirection(a.directionId, hasOklad) === "piece" && a.directionId == null)
+          .map((a) => ({ type: a.type as "bonus" | "penalty", amount: Number(a.amount) })),
+        paymentItems: paymentItems
+          .filter((p) => kindOfDirection(p.directionId, hasOklad) === "piece")
+          .map((p) => ({ directionId: p.directionId, amount: Number(p.amount), directionName: p.direction?.name ?? null })),
+        salaried: null,
+        directionAdjustments: adjustments
+          .filter((a) => a.directionId != null && kindOfDirection(a.directionId, hasOklad) === "piece")
+          .map((a) => ({
+            directionId: a.directionId as string,
+            directionName: a.direction?.name ?? "Направление",
+            type: a.type as "bonus" | "penalty",
+            amount: Number(a.amount),
+          })),
+      })
 
   return NextResponse.json({
     employee: {
@@ -113,6 +151,9 @@ export async function GET(
       name: [employee.lastName, employee.firstName].filter(Boolean).join(" ").trim() || "Без имени",
       role: employee.role,
     },
+    kind,
+    hasOklad,
+    defaultDirectionId: employee.defaultDirectionId,
     periodYear,
     periodMonth,
     canPay,

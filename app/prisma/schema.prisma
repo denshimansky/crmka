@@ -474,6 +474,7 @@ model Direction {
   clientBalanceTransactions ClientBalanceTransaction[]
   defaultForEmployees       Employee[]                 @relation("EmployeeDefaultDirection")
   salaryPaymentItems        SalaryPaymentItem[]
+  salaryAdjustments         SalaryAdjustment[]
   priceVersions             DirectionPrice[]
 
   @@index([tenantId])
@@ -869,15 +870,22 @@ model SalaryAdjustment {
   id          String         @id @default(uuid()) @db.Uuid
   tenantId    String         @map("tenant_id") @db.Uuid
   employeeId  String         @map("employee_id") @db.Uuid
+  // Направление премии/депремирования (nullable). Определяет тип ЗП, к которому
+  // относится корректировка: directionId != null → сдельная (вкладка «Сдельная»,
+  // конкретное направление, для ОПИУ); null → окладная (вкладка «Оклады»).
+  // Историческим строкам directionId=null: у окладника уходят на «Оклады», у
+  // чистого сдельщика (monthlySalary=0) — на «Сделку» (правило «нет оклада → сделка»).
+  directionId String?        @map("direction_id") @db.Uuid
   type        AdjustmentType
   amount      Decimal        @db.Decimal(12, 2)
   periodYear  Int            @map("period_year")
   periodMonth Int            @map("period_month")
-  comment     String
+  comment     String?
   createdBy   String?        @map("created_by") @db.Uuid
   createdAt   DateTime       @default(now()) @map("created_at")
 
-  employee Employee @relation(fields: [employeeId], references: [id])
+  employee  Employee   @relation(fields: [employeeId], references: [id])
+  direction Direction? @relation(fields: [directionId], references: [id])
 
   @@index([tenantId, periodYear, periodMonth])
   @@map("salary_adjustments")

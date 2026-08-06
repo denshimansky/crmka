@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { PayByDirectionDialog } from "./pay-by-direction-dialog"
+import { OkladPayDialog } from "./oklad-pay-dialog"
 import { PageHelp } from "@/components/page-help"
 import { ReportExport } from "@/components/report-export"
 import { useCurrencySymbol } from "@/components/currency-provider"
@@ -32,6 +33,10 @@ interface LessonDetail {
 }
 export interface InstructorDetailData {
   employee: { id: string; name: string; role: string }
+  // Тип карточки: «Оклады» (salary) или «Сдельная» (piece) — разные показатели и форма выплаты.
+  kind: "piece" | "salary"
+  hasOklad: boolean
+  defaultDirectionId: string | null
   periodYear: number
   periodMonth: number
   canPay: boolean
@@ -43,7 +48,7 @@ export interface InstructorDetailData {
   totals: { accrued: number; accruedFirstHalf: number; bonuses: number; penalties: number; paid: number; remaining: number }
 }
 
-export function InstructorDetailClient({ employeeId, year, month }: { employeeId: string; year: number; month: number }) {
+export function InstructorDetailClient({ employeeId, year, month, kind }: { employeeId: string; year: number; month: number; kind?: "piece" | "salary" }) {
   const sym = useCurrencySymbol()
   const fmt = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n * 100) / 100) + " " + sym
   const [data, setData] = useState<InstructorDetailData | null>(null)
@@ -55,7 +60,8 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/salary/instructor/${employeeId}?periodYear=${year}&periodMonth=${month}`)
+      const kindParam = kind ? `&kind=${kind}` : ""
+      const res = await fetch(`/api/salary/instructor/${employeeId}?periodYear=${year}&periodMonth=${month}${kindParam}`)
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
         setError(d.error || "Ошибка загрузки")
@@ -67,7 +73,7 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
     } finally {
       setLoading(false)
     }
-  }, [employeeId, year, month])
+  }, [employeeId, year, month, kind])
 
   useEffect(() => { load() }, [load])
 
@@ -118,7 +124,9 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
               <h1 className="text-2xl font-bold">{data.employee.name}</h1>
               <PageHelp pageKey="salary/instructor" />
             </div>
-            <p className="text-sm text-muted-foreground">Детализация ЗП — {monthName}</p>
+            <p className="text-sm text-muted-foreground">
+              Детализация ЗП · {data.kind === "salary" ? "Оклады" : "Сдельная"} — {monthName}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -140,10 +148,17 @@ export function InstructorDetailClient({ employeeId, year, month }: { employeeId
             />
           )}
           {data.canPay && (
-            <>
-              <PayByDirectionDialog mode="advance" data={data} onPaid={load} />
-              <PayByDirectionDialog mode="remainder" data={data} onPaid={load} />
-            </>
+            data.kind === "salary" ? (
+              <>
+                <OkladPayDialog mode="advance" data={data} onPaid={load} />
+                <OkladPayDialog mode="remainder" data={data} onPaid={load} />
+              </>
+            ) : (
+              <>
+                <PayByDirectionDialog mode="advance" data={data} onPaid={load} />
+                <PayByDirectionDialog mode="remainder" data={data} onPaid={load} />
+              </>
+            )
           )}
         </div>
       </div>

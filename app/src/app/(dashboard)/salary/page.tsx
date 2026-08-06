@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Banknote, TrendingUp, TrendingDown, Users, ChevronRight } from "lucide-react"
 import Link from "next/link"
-import { PaySalaryDialog } from "./pay-salary-dialog"
+import { PoolPiecePayDialog } from "./pool-piece-pay-dialog"
+import { PoolOkladPayDialog } from "./pool-oklad-pay-dialog"
 import { SalaryCorrections } from "./salary-corrections"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
@@ -15,6 +16,7 @@ import { ReportExport } from "@/components/report-export"
 import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { ConductedPaymentsList } from "@/components/salary/conducted-payments-list"
+import { splitEmployeeByKind } from "@/lib/salary/kind-split"
 
 export default async function SalaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
@@ -29,6 +31,10 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   const { year, month } = getMonthFromParams(sp)
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0))
+
+  // Выплаты проводят только владелец/управляющий (как POST /api/salary-payments и
+  // карточный API): иначе кнопка «Провести выплату» упёрлась бы в 403 при загрузке.
+  const canPay = session.user.role === "owner" || session.user.role === "manager"
 
   // ADM-04: инструктор видит только свою строку (salary.own); админ — только
   // сотрудников своих филиалов (плюс кросс-филиальных). Owner/manager — всех.
@@ -81,80 +87,68 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
     }
   }
 
-  // Премии и штрафы за месяц
+  // Премии и штрафы за месяц (с направлением: directionId → тип ЗП оклад/сделка).
   const adjustments = await db.salaryAdjustment.findMany({
     where: { tenantId, periodYear: year, periodMonth: month },
-    select: { employeeId: true, type: true, amount: true },
+    select: { employeeId: true, type: true, amount: true, directionId: true },
   })
-
-  const bonusesByEmployee = new Map<string, number>()
-  const penaltiesByEmployee = new Map<string, number>()
+  const adjByEmployee = new Map<string, { directionId: string | null; type: "bonus" | "penalty"; amount: number }[]>()
   for (const a of adjustments) {
-    if (a.type === "bonus") {
-      bonusesByEmployee.set(a.employeeId, (bonusesByEmployee.get(a.employeeId) || 0) + Number(a.amount))
-    } else {
-      penaltiesByEmployee.set(a.employeeId, (penaltiesByEmployee.get(a.employeeId) || 0) + Number(a.amount))
-    }
+    const list = adjByEmployee.get(a.employeeId) ?? []
+    list.push({ directionId: a.directionId, type: a.type as "bonus" | "penalty", amount: Number(a.amount) })
+    adjByEmployee.set(a.employeeId, list)
   }
 
-  // Выплаты за месяц
-  const salaryPayments = await db.salaryPayment.findMany({
-    where: { tenantId, periodYear: year, periodMonth: month },
-    select: { employeeId: true, amount: true },
+  // Выплаты за месяц — по СТРОКАМ (directionId), чтобы разделить оклад/сделку
+  // (одна выплата бывает смешанной; тип в БД не хранится — атрибуция по направлению).
+  const paymentItems = await db.salaryPaymentItem.findMany({
+    where: { tenantId, salaryPayment: { periodYear: year, periodMonth: month } },
+    select: { employeeId: true, directionId: true, amount: true },
   })
-
-  const paidByEmployee = new Map<string, number>()
-  for (const p of salaryPayments) {
-    paidByEmployee.set(p.employeeId, (paidByEmployee.get(p.employeeId) || 0) + Number(p.amount))
+  const itemsByEmployee = new Map<string, { directionId: string | null; amount: number }[]>()
+  for (const it of paymentItems) {
+    const list = itemsByEmployee.get(it.employeeId) ?? []
+    list.push({ directionId: it.directionId, amount: Number(it.amount) })
+    itemsByEmployee.set(it.employeeId, list)
   }
 
-  // Классификация по источнику ЗП (спека Р6/Р7):
-  //  • «Оклады» — у кого задан оклад в карточке (monthlySalary>0).
-  //  • «Сдельная» — у кого есть начисление за занятия.
-  //  Совмещающий попадает в обе вкладки (в каждой — своя часть).
+  // Классификация по типу ЗП:
+  //  • «Оклады» — окладники (monthlySalary>0).
+  //  • «Сдельная» — у кого есть сделочная активность (начисление/выплата/корректировка).
+  //  Совмещающий попадает в обе вкладки (в каждой — своя часть; см. lib/salary/kind-split).
   const okladIds = new Set(employees.filter((e) => Number(e.monthlySalary) > 0).map((e) => e.id))
 
-  // Таблица. Строка несёт обе части начисления раздельно: pieceAccrued (сделка
-  // за занятия) и okladAccrued (оклад из карточки). Колонка «Начислено» на
-  // каждой вкладке показывает свою часть, чтобы вкладки не смешивались.
+  // Каждая строка несёт РАЗДЕЛЁННЫЕ по типу ЗП суммы: начислено/выплачено/остаток
+  // на вкладке — только своя часть, вкладки больше не смешиваются.
   const rows = employees.map((emp) => {
     const name = [emp.lastName, emp.firstName].filter(Boolean).join(" ") || "Без имени"
-    const pieceAccrued = accrualsByEmployee.get(emp.id) || 0
-    const okladAccrued = Number(emp.monthlySalary) || 0
-    const bonuses = bonusesByEmployee.get(emp.id) || 0
-    const penalties = penaltiesByEmployee.get(emp.id) || 0
-    const paid = paidByEmployee.get(emp.id) || 0
-    const accrued = pieceAccrued + okladAccrued
-    // «Осталось» и предзаполнение суммы выплаты — по РЕЛЕВАНТНОЙ вкладке части
-    // начисления (оклад для «Оклады», сделка для «Сдельной»). Иначе на вкладке
-    // «Оклады» в выплату окладника-инструктора подставилась бы и сделочная часть,
-    // и она попала бы в твин-расход «Зарплата окладников» → двойной счёт в ОПИУ
-    // (сделка уже начисляется отдельно из посещений).
-    const tabAccrued = activeTab === "salary" ? okladAccrued : pieceAccrued
-    const remaining = tabAccrued + bonuses - penalties - paid
+    const split = splitEmployeeByKind({
+      monthlySalary: Number(emp.monthlySalary) || 0,
+      pieceAccrued: accrualsByEmployee.get(emp.id) || 0,
+      paymentItems: itemsByEmployee.get(emp.id) ?? [],
+      adjustments: adjByEmployee.get(emp.id) ?? [],
+    })
+    const tab = activeTab === "salary" ? split.salary : split.piece
+    const pieceActive = split.piece.accrued !== 0 || split.piece.paid !== 0 || split.piece.bonuses !== 0 || split.piece.penalties !== 0
     const substitutions = substituteLessonCount.get(emp.id) || 0
-    return { id: emp.id, name, role: emp.role, pieceAccrued, okladAccrued, accrued, bonuses, penalties, paid, remaining, substitutions }
+    return {
+      id: emp.id, name, role: emp.role,
+      accrued: tab.accrued, bonuses: tab.bonuses, penalties: tab.penalties, paid: tab.paid, remaining: tab.remaining,
+      pieceActive, substitutions,
+    }
   })
 
-  // Наборы строк по вкладкам: «Сдельная» — у кого есть сделочное начисление;
+  // Наборы строк по вкладкам: «Сдельная» — со сделочной активностью;
   // «Оклады» — окладники (monthlySalary>0). Пустая вкладка → пустая ведомость.
-  const pieceRows = rows.filter((r) => r.pieceAccrued > 0)
+  const pieceRows = rows.filter((r) => r.pieceActive)
   const salaryRows = rows.filter((r) => okladIds.has(r.id))
-  const tabRows = activeTab === "salary" ? salaryRows : pieceRows
-  const displayRows = tabRows.length > 0 ? tabRows : []
+  const displayRows = activeTab === "salary" ? salaryRows : pieceRows
 
-  // «Начислено» на вкладке = релевантная часть: оклад для «Оклады», сделка для «Сдельная».
-  const totalAccrued = displayRows.reduce((s, r) => s + (activeTab === "salary" ? r.okladAccrued : r.pieceAccrued), 0)
+  const totalAccrued = displayRows.reduce((s, r) => s + r.accrued, 0)
   const totalBonuses = displayRows.reduce((s, r) => s + r.bonuses, 0)
   const totalPenalties = displayRows.reduce((s, r) => s + r.penalties, 0)
   const totalPaid = displayRows.reduce((s, r) => s + r.paid, 0)
   const totalRemaining = displayRows.reduce((s, r) => s + r.remaining, 0)
-
-  const accounts = await db.financialAccount.findMany({
-    where: { tenantId, deletedAt: null },
-    select: { id: true, name: true },
-    orderBy: { createdAt: "asc" },
-  })
 
   const monthName = monthStart.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
@@ -172,7 +166,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   const salaryExportRows = displayRows.map((r) => ({
     name: r.name,
     role: roleNames[r.role as keyof typeof roleNames] || r.role,
-    accrued: Math.round(activeTab === "salary" ? r.okladAccrued : r.pieceAccrued),
+    accrued: Math.round(r.accrued),
     bonuses: Math.round(r.bonuses),
     penalties: Math.round(r.penalties),
     paid: Math.round(r.paid),
@@ -203,13 +197,19 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
           />
         </div>
         <div className="flex items-center gap-2">
-          <PaySalaryDialog
-            employees={displayRows.map(r => ({ id: r.id, name: r.name, remaining: r.remaining }))}
-            accounts={accounts}
-            periodYear={year}
-            periodMonth={month}
-            kind={activeTab === "salary" ? "salary" : "piece"}
-          />
+          {canPay && (activeTab === "salary" ? (
+            <PoolOkladPayDialog
+              employees={displayRows.map(r => ({ id: r.id, name: r.name }))}
+              periodYear={year}
+              periodMonth={month}
+            />
+          ) : (
+            <PoolPiecePayDialog
+              employees={displayRows.map(r => ({ id: r.id, name: r.name }))}
+              periodYear={year}
+              periodMonth={month}
+            />
+          ))}
         </div>
       </div>
 
@@ -269,7 +269,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
                   <TableRow key={r.id}>
                     <TableCell className="font-medium">
                       <Link
-                        href={`/salary/instructor/${r.id}?year=${year}&month=${month}`}
+                        href={`/salary/instructor/${r.id}?year=${year}&month=${month}&kind=${activeTab}`}
                         className="text-primary hover:underline"
                       >
                         {r.name}
@@ -278,7 +278,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
                         <Badge variant="secondary" className="ml-2 text-xs">замена ({r.substitutions})</Badge>
                       )}
                       <Link
-                        href={`/salary/instructor/${r.id}?year=${year}&month=${month}`}
+                        href={`/salary/instructor/${r.id}?year=${year}&month=${month}&kind=${activeTab}`}
                         title="Детали / выплата"
                         className="ml-2 inline-flex align-middle text-muted-foreground hover:text-foreground"
                       >
@@ -286,7 +286,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
                       </Link>
                     </TableCell>
                     <TableCell><Badge variant="outline">{roleNames[r.role as keyof typeof roleNames] || r.role}</Badge></TableCell>
-                    <TableCell className="text-right">{formatMoney(activeTab === "salary" ? r.okladAccrued : r.pieceAccrued)}</TableCell>
+                    <TableCell className="text-right">{formatMoney(r.accrued)}</TableCell>
                     <TableCell className="text-right text-green-600">{r.bonuses > 0 ? formatMoney(r.bonuses) : "—"}</TableCell>
                     <TableCell className="text-right text-red-600">{r.penalties > 0 ? formatMoney(r.penalties) : "—"}</TableCell>
                     <TableCell className="text-right text-purple-600">{r.paid > 0 ? formatMoney(r.paid) : "—"}</TableCell>

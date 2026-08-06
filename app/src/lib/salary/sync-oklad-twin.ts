@@ -62,13 +62,16 @@ export async function syncOkladTwinsForEmployeePeriod(
   const totalPaid = Number(paidAgg._sum.amount ?? 0)
   if (totalPaid <= 0) return 0
 
-  // 3. Премии − штрафы за период (входят в потолок признания).
+  // 3. Премии − штрафы за период — ТОЛЬКО окладные (без направления). Направленные
+  // (directionId != null) относятся к сдельной части и не входят в окладный потолок,
+  // иначе сдельная премия раздула бы окладный расход в ОПИУ. См. lib/salary/kind-split.
   const adjustments = await tx.salaryAdjustment.findMany({
     where: {
       tenantId: input.tenantId,
       employeeId: input.employeeId,
       periodYear: input.periodYear,
       periodMonth: input.periodMonth,
+      directionId: null,
     },
     select: { type: true, amount: true },
   })

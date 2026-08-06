@@ -9,6 +9,8 @@ export default async function InstructorSalaryPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const { employeeId } = await params
-  const { year, month } = getMonthFromParams(await searchParams)
-  return <InstructorDetailClient employeeId={employeeId} year={year} month={month} />
+  const sp = await searchParams
+  const { year, month } = getMonthFromParams(sp)
+  const kind = sp.kind === "salary" ? "salary" : sp.kind === "piece" ? "piece" : undefined
+  return <InstructorDetailClient employeeId={employeeId} year={year} month={month} kind={kind} />
 }

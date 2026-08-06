@@ -24,6 +24,16 @@ export interface AdjustmentInput {
   amount: number
 }
 
+// Направленная премия/депремирование (сдельная): складывается в начисление своего
+// направления (bonus +, penalty −), чтобы выплата премии позицией с этим directionId
+// сходилась с остатком строки. Начисления «до 15-го» премия не меняет.
+export interface DirectionAdjustmentInput {
+  directionId: string
+  directionName: string
+  type: "bonus" | "penalty"
+  amount: number
+}
+
 export interface PaymentItemInput {
   directionId: string | null
   amount: number
@@ -86,8 +96,11 @@ export function buildInstructorSalaryDetail(params: {
   adjustments: AdjustmentInput[]
   paymentItems: PaymentItemInput[]
   salaried: SalariedInput | null
+  // Направленные премии/штрафы (сдельные) — складываются в строку своего направления.
+  // Ненаправленные корректировки идут через `adjustments` (строка «Премии − штрафы»).
+  directionAdjustments?: DirectionAdjustmentInput[]
 }): InstructorSalaryDetail {
-  const { attendances, adjustments, paymentItems, salaried } = params
+  const { attendances, adjustments, paymentItems, salaried, directionAdjustments } = params
 
   // --- Начисления по направлениям + множество занятий ---
   type Acc = { directionId: string | null; directionName: string; accrued: number; accruedFirstHalf: number; lessons: Set<string> }
@@ -108,9 +121,18 @@ export function buildInstructorSalaryDetail(params: {
 
   // Окладник: оклад на defaultDirection; половина — в «до 15-го».
   if (salaried && salaried.monthlySalary > 0) {
-    const acc = getAcc(salaried.defaultDirectionId, salaried.defaultDirectionName || "Без направления")
+    const acc = getAcc(salaried.defaultDirectionId, salaried.defaultDirectionName || "Оклад без направления")
     acc.accrued += salaried.monthlySalary
     acc.accruedFirstHalf += salaried.monthlySalary / 2
+  }
+
+  // Направленные премии/штрафы (сдельные) — в начисление своего направления
+  // (bonus +, penalty −). В «до 15-го» не входят.
+  if (directionAdjustments) {
+    for (const da of directionAdjustments) {
+      const acc = getAcc(da.directionId, da.directionName)
+      acc.accrued += da.type === "bonus" ? da.amount : -da.amount
+    }
   }
 
   // --- Корректировки (нужны до аллокации: премии гасятся выплатой раньше оклада) ---
