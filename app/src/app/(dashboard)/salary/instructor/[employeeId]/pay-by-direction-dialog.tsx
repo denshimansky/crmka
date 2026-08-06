@@ -62,12 +62,34 @@ function buildRows(data: InstructorDetailData, mode: "advance" | "remainder"): R
     })
   }
   if (mode === "remainder") {
-    const capped = capPresetsToBudget(dirRows.map((r) => r.preset), data.totals.remaining)
+    // «Доначислено» — накопленный сделочный остаток прошлых периодов. ТЕКУЩИЕ строки
+    // капим к остатку месяца (как раньше, чтобы депремирование/переплата по
+    // направлению не завышали «Итого»). Отрицательное доначисление (прошлая
+    // переплата) уменьшает этот бюджет → текущий месяц платим меньше на сумму
+    // переплаты. Положительное (недоплата прошлых месяцев) добавляем ОТДЕЛЬНОЙ
+    // позицией «Доначисление» сверх — тег текущего месяца, модель самосогласована
+    // (см. lib/salary/prior-piece-balance). Направление позиции — priorTopDirectionId,
+    // чтобы у совместителя она классифицировалась как сделка, а не оклад.
+    const prior = data.priorPieceBalance ?? 0
+    const currentBudget = Math.round((data.totals.remaining + Math.min(0, prior)) * 100) / 100
+    const capped = capPresetsToBudget(dirRows.map((r) => r.preset), currentBudget)
     dirRows.forEach((r, i) => {
       r.preset = capped[i]
       r.amount = String(capped[i])
       r.checked = capped[i] > 0
     })
+    if (prior > 0) {
+      const p = Math.round(prior * 100) / 100
+      dirRows.push({
+        key: "__prior__",
+        directionId: data.priorTopDirectionId ?? null,
+        name: "Доначисление за прошлые периоды",
+        remaining: p,
+        preset: p,
+        checked: true,
+        amount: String(p),
+      })
+    }
   }
   return dirRows
 }

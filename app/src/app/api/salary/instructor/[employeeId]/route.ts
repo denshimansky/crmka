@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { buildInstructorSalaryDetail, type AttendanceInput } from "@/lib/salary/instructor-detail"
 import { kindOfDirection } from "@/lib/salary/kind-split"
+import { computePriorPieceBalances } from "@/lib/salary/prior-piece-balance"
 
 export async function GET(
   req: NextRequest,
@@ -145,6 +146,18 @@ export async function GET(
           })),
       })
 
+  // «Доначислено» — накопленный сделочный остаток прошлых периодов (только для
+  // сделочной карточки; для окладной он не применим). topDirectionId нужен позиции
+  // выплаты «доначисления», чтобы у совместителя она классифицировалась как сделка.
+  let priorPieceBalance = 0
+  let priorTopDirectionId: string | null = null
+  if (kind === "piece") {
+    const priorMap = await computePriorPieceBalances(db, tenantId, periodYear, periodMonth, { employeeIds: [employeeId] })
+    const prior = priorMap.get(employeeId)
+    priorPieceBalance = prior?.balance ?? 0
+    priorTopDirectionId = prior?.topDirectionId ?? null
+  }
+
   return NextResponse.json({
     employee: {
       id: employee.id,
@@ -159,6 +172,8 @@ export async function GET(
     canPay,
     periodLocked,
     accounts,
+    priorPieceBalance,
+    priorTopDirectionId,
     ...detail,
   })
 }

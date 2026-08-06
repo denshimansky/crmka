@@ -17,6 +17,7 @@ import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { ConductedPaymentsList } from "@/components/salary/conducted-payments-list"
 import { splitEmployeeByKind } from "@/lib/salary/kind-split"
+import { computePriorPieceBalances } from "@/lib/salary/prior-piece-balance"
 
 export default async function SalaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await getSession()
@@ -118,6 +119,15 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   //  Совмещающий попадает в обе вкладки (в каждой — своя часть; см. lib/salary/kind-split).
   const okladIds = new Set(employees.filter((e) => Number(e.monthlySalary) > 0).map((e) => e.id))
 
+  // «Доначислено» — накопленный сделочный остаток прошлых периодов (только вкладка
+  // «Сдельная»): плюс = недоплата (в т.ч. ретро-отметки после выплаты), минус —
+  // переплата. Входит в «Осталось» (к выплате). Считаем только по видимым (scoped)
+  // сотрудникам. См. lib/salary/prior-piece-balance.
+  const showDonachisleno = activeTab === "piece"
+  const priorMap = showDonachisleno
+    ? await computePriorPieceBalances(db, tenantId, year, month, { employeeIds: employees.map((e) => e.id) })
+    : new Map<string, { balance: number; topDirectionId: string | null }>()
+
   // Каждая строка несёт РАЗДЕЛЁННЫЕ по типу ЗП суммы: начислено/выплачено/остаток
   // на вкладке — только своя часть, вкладки больше не смешиваются.
   const rows = employees.map((emp) => {
@@ -128,23 +138,29 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
       paymentItems: itemsByEmployee.get(emp.id) ?? [],
       adjustments: adjByEmployee.get(emp.id) ?? [],
     })
+    const donachisleno = showDonachisleno ? (priorMap.get(emp.id)?.balance ?? 0) : 0
     const tab = activeTab === "salary" ? split.salary : split.piece
     const pieceActive = split.piece.accrued !== 0 || split.piece.paid !== 0 || split.piece.bonuses !== 0 || split.piece.penalties !== 0
     const substitutions = substituteLessonCount.get(emp.id) || 0
     return {
       id: emp.id, name, role: emp.role,
-      accrued: tab.accrued, bonuses: tab.bonuses, penalties: tab.penalties, paid: tab.paid, remaining: tab.remaining,
+      accrued: tab.accrued, bonuses: tab.bonuses, penalties: tab.penalties, paid: tab.paid,
+      donachisleno,
+      // «Осталось» = остаток месяца + доначислено (к выплате с учётом прошлых периодов).
+      remaining: Math.round((tab.remaining + donachisleno) * 100) / 100,
       pieceActive, substitutions,
     }
   })
 
-  // Наборы строк по вкладкам: «Сдельная» — со сделочной активностью;
+  // Наборы строк по вкладкам: «Сдельная» — со сделочной активностью ИЛИ с ненулевым
+  // доначислением (долг/переплата прошлых периодов при нулевой активности месяца);
   // «Оклады» — окладники (monthlySalary>0). Пустая вкладка → пустая ведомость.
-  const pieceRows = rows.filter((r) => r.pieceActive)
+  const pieceRows = rows.filter((r) => r.pieceActive || r.donachisleno !== 0)
   const salaryRows = rows.filter((r) => okladIds.has(r.id))
   const displayRows = activeTab === "salary" ? salaryRows : pieceRows
 
   const totalAccrued = displayRows.reduce((s, r) => s + r.accrued, 0)
+  const totalDonachisleno = displayRows.reduce((s, r) => s + r.donachisleno, 0)
   const totalBonuses = displayRows.reduce((s, r) => s + r.bonuses, 0)
   const totalPenalties = displayRows.reduce((s, r) => s + r.penalties, 0)
   const totalPaid = displayRows.reduce((s, r) => s + r.paid, 0)
@@ -154,6 +170,9 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
 
   const summary = [
     { title: "Начислено", value: formatMoney(totalAccrued), icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50" },
+    ...(showDonachisleno
+      ? [{ title: "Доначислено", value: formatMoney(totalDonachisleno), icon: TrendingUp, color: "text-amber-600", bg: "bg-amber-50" }]
+      : []),
     { title: "Премии", value: formatMoney(totalBonuses), icon: TrendingUp, color: "text-green-600", bg: "bg-green-50" },
     { title: "Штрафы", value: formatMoney(totalPenalties), icon: TrendingDown, color: "text-red-600", bg: "bg-red-50" },
     { title: "Выплачено", value: formatMoney(totalPaid), icon: Banknote, color: "text-purple-600", bg: "bg-purple-50" },
@@ -167,11 +186,23 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
     name: r.name,
     role: roleNames[r.role as keyof typeof roleNames] || r.role,
     accrued: Math.round(r.accrued),
+    ...(showDonachisleno ? { donachisleno: Math.round(r.donachisleno) } : {}),
     bonuses: Math.round(r.bonuses),
     penalties: Math.round(r.penalties),
     paid: Math.round(r.paid),
     remaining: Math.round(r.remaining),
   }))
+
+  const salaryExportColumns = [
+    { header: "Сотрудник", key: "name", width: 25 },
+    { header: "Роль", key: "role", width: 16 },
+    { header: "Начислено", key: "accrued", width: 14 },
+    ...(showDonachisleno ? [{ header: "Доначислено", key: "donachisleno", width: 14 }] : []),
+    { header: "Премии", key: "bonuses", width: 14 },
+    { header: "Штрафы", key: "penalties", width: 14 },
+    { header: "Выплачено", key: "paid", width: 14 },
+    { header: "Осталось", key: "remaining", width: 14 },
+  ]
 
   return (
     <div className="space-y-6">
@@ -183,15 +214,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
           <ReportExport
             title="Зарплатная ведомость"
             filename={`salary-${monthKey}`}
-            columns={[
-              { header: "Сотрудник", key: "name", width: 25 },
-              { header: "Роль", key: "role", width: 16 },
-              { header: "Начислено", key: "accrued", width: 14 },
-              { header: "Премии", key: "bonuses", width: 14 },
-              { header: "Штрафы", key: "penalties", width: 14 },
-              { header: "Выплачено", key: "paid", width: 14 },
-              { header: "Осталось", key: "remaining", width: 14 },
-            ]}
+            columns={salaryExportColumns}
             rows={salaryExportRows}
             period={monthName}
           />
@@ -228,7 +251,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className={`grid gap-4 sm:grid-cols-3 ${showDonachisleno ? "lg:grid-cols-6" : "lg:grid-cols-5"}`}>
         {summary.map((s) => (
           <Card key={s.title}>
             <CardContent className="flex items-center gap-4 p-4">
@@ -258,6 +281,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
                   <TableHead>Сотрудник</TableHead>
                   <TableHead>Роль</TableHead>
                   <TableHead className="text-right">Начислено</TableHead>
+                  {showDonachisleno && <TableHead className="text-right">Доначислено</TableHead>}
                   <TableHead className="text-right">Премии</TableHead>
                   <TableHead className="text-right">Штрафы</TableHead>
                   <TableHead className="text-right">Выплачено</TableHead>
@@ -287,6 +311,11 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
                     </TableCell>
                     <TableCell><Badge variant="outline">{roleNames[r.role as keyof typeof roleNames] || r.role}</Badge></TableCell>
                     <TableCell className="text-right">{formatMoney(r.accrued)}</TableCell>
+                    {showDonachisleno && (
+                      <TableCell className={`text-right ${r.donachisleno > 0 ? "text-amber-600" : r.donachisleno < 0 ? "text-green-600" : "text-muted-foreground"}`}>
+                        {r.donachisleno !== 0 ? formatMoney(r.donachisleno) : "—"}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right text-green-600">{r.bonuses > 0 ? formatMoney(r.bonuses) : "—"}</TableCell>
                     <TableCell className="text-right text-red-600">{r.penalties > 0 ? formatMoney(r.penalties) : "—"}</TableCell>
                     <TableCell className="text-right text-purple-600">{r.paid > 0 ? formatMoney(r.paid) : "—"}</TableCell>
@@ -298,6 +327,11 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
                 <TableRow className="font-bold">
                   <TableCell colSpan={2}>Итого</TableCell>
                   <TableCell className="text-right">{formatMoney(totalAccrued)}</TableCell>
+                  {showDonachisleno && (
+                    <TableCell className={`text-right ${totalDonachisleno > 0 ? "text-amber-600" : totalDonachisleno < 0 ? "text-green-600" : ""}`}>
+                      {totalDonachisleno !== 0 ? formatMoney(totalDonachisleno) : "—"}
+                    </TableCell>
+                  )}
                   <TableCell className="text-right text-green-600">{totalBonuses > 0 ? formatMoney(totalBonuses) : "—"}</TableCell>
                   <TableCell className="text-right text-red-600">{totalPenalties > 0 ? formatMoney(totalPenalties) : "—"}</TableCell>
                   <TableCell className="text-right text-purple-600">{totalPaid > 0 ? formatMoney(totalPaid) : "—"}</TableCell>

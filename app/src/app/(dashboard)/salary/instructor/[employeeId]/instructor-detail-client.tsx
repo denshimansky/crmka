@@ -42,6 +42,11 @@ export interface InstructorDetailData {
   canPay: boolean
   periodLocked: boolean
   accounts: { id: string; name: string }[]
+  // «Доначислено» — накопленный сделочный остаток прошлых периодов (плюс/минус);
+  // priorTopDirectionId — направление позиции выплаты «доначисления» (чтобы у
+  // совместителя она классифицировалась как сделка). Только для kind="piece".
+  priorPieceBalance?: number
+  priorTopDirectionId?: string | null
   byDirection: DirectionDetail[]
   adjustments: { bonuses: number; penalties: number; net: number; paidNoDirection: number; remaining: number }
   lessons: LessonDetail[]
@@ -91,6 +96,11 @@ export function InstructorDetailClient({ employeeId, year, month, kind }: { empl
 
   const monthName = new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
   const monthKey = `${year}-${String(month).padStart(2, "0")}`
+
+  // «Доначислено» — накопленный сделочный остаток прошлых периодов (плюс/минус);
+  // только на сделочной карточке. «К выплате» = остаток месяца + доначислено.
+  const priorBalance = data.kind === "piece" ? (data.priorPieceBalance ?? 0) : 0
+  const toPay = Math.round((data.totals.remaining + priorBalance) * 100) / 100
 
   // Расшифровка по занятиям для выгрузки в Excel: одна строка на занятие
   // (направление/дата/группа/тип/ученики/начислено), затем премии−штрафы и Итого.
@@ -235,6 +245,26 @@ export function InstructorDetailClient({ employeeId, year, month, kind }: { empl
                 <TableCell className="text-right text-purple-600">{data.totals.paid > 0 ? fmt(data.totals.paid) : "—"}</TableCell>
                 <TableCell className="text-right">{fmt(data.totals.remaining)}</TableCell>
               </TableRow>
+              {priorBalance !== 0 && (
+                <>
+                  <TableRow>
+                    <TableCell className="font-medium">
+                      Доначисление за прошлые периоды
+                      <span className="ml-1 text-xs text-muted-foreground">(недо/переплата)</span>
+                    </TableCell>
+                    <TableCell colSpan={4} className="text-right text-xs text-muted-foreground">
+                      накопленный сделочный остаток прошлых месяцев
+                    </TableCell>
+                    <TableCell className={`text-right font-medium ${priorBalance > 0 ? "text-orange-600" : "text-green-600"}`}>
+                      {fmt(priorBalance)}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow className="font-bold border-t-2">
+                    <TableCell colSpan={5}>К выплате (с доначислением)</TableCell>
+                    <TableCell className={`text-right ${toPay > 0 ? "text-orange-600" : ""}`}>{fmt(toPay)}</TableCell>
+                  </TableRow>
+                </>
+              )}
             </TableBody>
           </Table>
         </CardContent>
