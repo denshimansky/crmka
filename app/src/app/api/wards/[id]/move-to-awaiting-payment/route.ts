@@ -10,6 +10,11 @@ import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { packageLessonPrice } from "@/lib/subscriptions/package-price"
 import { directionPriceAt, toUtcDay } from "@/lib/subscriptions/direction-price"
+import {
+  validateSelectedLessons,
+  lockAndVerifySelection,
+  SelectionConflictError,
+} from "@/lib/subscriptions/subscription-lessons"
 
 const moveSchema = z.object({
   applicationId: z.string().uuid().optional(),
@@ -22,6 +27,7 @@ const moveSchema = z.object({
   // Поля только для пакетного типа
   packageTemplateId: z.string().uuid().nullable().optional(),
   validDays: z.number().int().min(1).max(3650).optional(),
+  selectedLessonIds: z.array(z.string().uuid()).optional(),
 })
 
 function addDaysUtc(d: Date, days: number): Date {
@@ -160,7 +166,7 @@ export async function POST(
 
   const group = await db.group.findFirst({
     where: { id: data.groupId, tenantId, deletedAt: null },
-    select: { id: true, branchId: true, directionId: true },
+    select: { id: true, branchId: true, directionId: true, maxStudents: true },
   })
   if (!group) {
     return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
@@ -281,10 +287,28 @@ export async function POST(
     )
   }
 
+  // Пакет с выбором занятий: валидируем набор до транзакции (мягко в API — пусто = легаси).
+  if (orgType === "package" && data.selectedLessonIds && data.selectedLessonIds.length > 0) {
+    const v = await validateSelectedLessons(db, {
+      tenantId,
+      groupId: data.groupId,
+      clientId: ward.clientId,
+      wardId: ward.id,
+      maxStudents: group.maxStudents,
+      totalLessons,
+      windowStart: firstPaid,
+      windowEnd: expiresAt,
+      selectedLessonIds: data.selectedLessonIds,
+    })
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: v.status })
+  }
+
   const totalAmount = lessonPrice.mul(totalLessons)
   const finalAmount = totalAmount
 
-  const result = await db.$transaction(async (tx) => {
+  let result
+  try {
+   result = await db.$transaction(async (tx) => {
     const subscription = await tx.subscription.create({
       data: {
         tenantId,
@@ -308,6 +332,28 @@ export async function POST(
         createdBy: session.user.employeeId,
       },
     })
+
+    // Выбор занятий пакета — в той же транзакции. Под advisory-локом перепроверяем
+    // кросс-пакет+вместимость (гонка oversell, #4).
+    if (orgType === "package" && data.selectedLessonIds && data.selectedLessonIds.length > 0) {
+      await lockAndVerifySelection(tx, {
+        tenantId,
+        groupId: data.groupId,
+        clientId: ward.clientId,
+        wardId: ward.id,
+        maxStudents: group.maxStudents,
+        lessonIds: data.selectedLessonIds,
+        excludeSubscriptionId: subscription.id,
+      })
+      await tx.subscriptionLesson.createMany({
+        data: data.selectedLessonIds.map((lessonId) => ({
+          tenantId,
+          subscriptionId: subscription.id,
+          lessonId,
+          createdBy: session.user.employeeId ?? null,
+        })),
+      })
+    }
 
     // Скидки v2: выписка из воронки — такой же путь создания абонемента,
     // шаблонные скидки применяются единым пересчётом.
@@ -401,7 +447,13 @@ export async function POST(
     // Свежие суммы: пересчёт скидок мог изменить finalAmount/balance.
     const freshSub = await tx.subscription.findFirst({ where: { id: subscription.id } })
     return { subscription: freshSub ?? subscription }
-  })
+   })
+  } catch (e) {
+    if (e instanceof SelectionConflictError) {
+      return NextResponse.json({ error: e.message }, { status: e.status })
+    }
+    throw e
+  }
 
   if (session.user.employeeId) {
     // entityType=Application: переход этапа заявки — его читает лента истории

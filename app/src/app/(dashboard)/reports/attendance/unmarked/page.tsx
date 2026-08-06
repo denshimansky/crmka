@@ -178,7 +178,7 @@ export default async function UnmarkedReportPage({
 
     const relevantEnrollments = groupEnrollments.filter((e) => {
       if (!isEnrolledOnLesson(e, rosterDate)) return false
-      if (!coverage.isCoveredOn(e.clientId, e.wardId, lesson.group.directionId, rosterDate)) return false
+      if (!coverage.isCoveredOn(e.clientId, e.wardId, lesson.group.directionId, rosterDate, lesson.id)) return false
       if (e.selectedDays && Array.isArray(e.selectedDays)) {
         return (e.selectedDays as number[]).includes(dayOfWeek)
       }

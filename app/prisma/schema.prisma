@@ -77,27 +77,27 @@ model Organization {
   email     String?
 
   // Настройки
-  salaryDay1          Int?     @default(15) @map("salary_day_1")
-  salaryDay2          Int?     @default(30) @map("salary_day_2")
-  payForAbsence       Boolean  @default(false) @map("pay_for_absence")
+  salaryDay1           Int?     @default(15) @map("salary_day_1")
+  salaryDay2           Int?     @default(30) @map("salary_day_2")
+  payForAbsence        Boolean  @default(false) @map("pay_for_absence")
   /// Оплата пробных инструктору: none — не платить, paid_only — только платные
   /// (у направления задана цена пробного), all — все пробные.
-  trialPayMode        String   @default("none") @map("trial_pay_mode")
-  attendanceDeadline  Int      @default(14) @map("attendance_deadline")
+  trialPayMode         String   @default("none") @map("trial_pay_mode")
+  attendanceDeadline   Int      @default(14) @map("attendance_deadline")
   // Видят ли инструкторы (instructor) телефоны клиентов. По умолчанию скрыты (маска);
   // владелец может открыть в «Настройки → Организация».
-  instructorsSeePhones Boolean @default(false) @map("instructors_see_phones")
-  debtLimit           Decimal? @map("debt_limit") @db.Decimal(12, 2)
-  makeupDaysLimit     Int?     @map("makeup_days_limit")
-  makeupDeadlineDays  Int?     @map("makeup_deadline_days")
-  roleDisplayNames    Json?    @map("role_display_names")
-  rolePermissions     Json?    @map("role_permissions")
-  onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  instructorsSeePhones Boolean  @default(false) @map("instructors_see_phones")
+  debtLimit            Decimal? @map("debt_limit") @db.Decimal(12, 2)
+  makeupDaysLimit      Int?     @map("makeup_days_limit")
+  makeupDeadlineDays   Int?     @map("makeup_deadline_days")
+  roleDisplayNames     Json?    @map("role_display_names")
+  rolePermissions      Json?    @map("role_permissions")
+  onboardingCompleted  Boolean  @default(false) @map("onboarding_completed")
   // Валюта расчёта (только отображение символа/формата — без пересчёта сумм по курсу).
   // Дефолт — рубль РФ. currencyChosen=false у новых организаций → на дашборде
   // показываем разовый запрос валюты; существующие проставлены true миграцией.
-  currency            String   @default("RUB")
-  currencyChosen      Boolean  @default(false) @map("currency_chosen")
+  currency             String   @default("RUB")
+  currencyChosen       Boolean  @default(false) @map("currency_chosen")
 
   // Тип абонемента (один на компанию). Выбирается в wizard, блокируется после первого абонемента.
   subscriptionType              SubscriptionType? @map("subscription_type")
@@ -602,6 +602,7 @@ model Lesson {
   trialLessons               TrialLesson[]
   clientBalanceTransactions  ClientBalanceTransaction[]
   studentNotes               LessonStudentNote[]
+  subscriptionLessons        SubscriptionLesson[]
 
   @@index([tenantId, date])
   @@index([groupId, date])
@@ -633,30 +634,30 @@ model GroupEnrollment {
 }
 
 model AttendanceType {
-  id                    String   @id @default(uuid()) @db.Uuid
-  tenantId              String?  @map("tenant_id") @db.Uuid
-  name                  String
-  code                  String
-  chargesSubscription   Boolean  @default(true) @map("charges_subscription")
-  paysInstructor        Boolean  @default(true) @map("pays_instructor")
-  countsAsRevenue       Boolean  @default(true) @map("counts_as_revenue")
-  availableToInstructor Boolean  @default(false) @map("available_to_instructor")
-  availableToAdmin      Boolean  @default(true) @map("available_to_admin")
-  partOfPlan            Boolean  @default(true) @map("part_of_plan")
-  partOfFact            Boolean  @default(false) @map("part_of_fact")
-  partOfForecast        Boolean  @default(false) @map("part_of_forecast")
-  chargePercent         Int      @default(100) @map("charge_percent")
+  id                          String   @id @default(uuid()) @db.Uuid
+  tenantId                    String?  @map("tenant_id") @db.Uuid
+  name                        String
+  code                        String
+  chargesSubscription         Boolean  @default(true) @map("charges_subscription")
+  paysInstructor              Boolean  @default(true) @map("pays_instructor")
+  countsAsRevenue             Boolean  @default(true) @map("counts_as_revenue")
+  availableToInstructor       Boolean  @default(false) @map("available_to_instructor")
+  availableToAdmin            Boolean  @default(true) @map("available_to_admin")
+  partOfPlan                  Boolean  @default(true) @map("part_of_plan")
+  partOfFact                  Boolean  @default(false) @map("part_of_fact")
+  partOfForecast              Boolean  @default(false) @map("part_of_forecast")
+  chargePercent               Int      @default(100) @map("charge_percent")
   // Разрешает отчислять абонемент, у которого на занятии стоит этот статус.
   // false → «Отчислить» блокируется с ошибкой (напр. «Назначена отработка»:
   // нельзя закрыть абонемент, пока отработка не проведена или не отменена).
-  allowSubscriptionWithdrawal Boolean @default(true) @map("allow_subscription_withdrawal")
-  isSystem              Boolean  @default(false) @map("is_system")
-  isFlagsLocked         Boolean  @default(false) @map("is_flags_locked")
-  isActive              Boolean  @default(true) @map("is_active")
-  sortOrder             Int      @default(0) @map("sort_order")
-  createdAt             DateTime @default(now()) @map("created_at")
+  allowSubscriptionWithdrawal Boolean  @default(true) @map("allow_subscription_withdrawal")
+  isSystem                    Boolean  @default(false) @map("is_system")
+  isFlagsLocked               Boolean  @default(false) @map("is_flags_locked")
+  isActive                    Boolean  @default(true) @map("is_active")
+  sortOrder                   Int      @default(0) @map("sort_order")
+  createdAt                   DateTime @default(now()) @map("created_at")
 
-  attendances       Attendance[]
+  attendances         Attendance[]
   withdrawalOverrides AttendanceTypeWithdrawalOverride[]
 
   @@index([tenantId])
@@ -728,8 +729,8 @@ model SalaryRate {
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at")
 
-  employee  Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  direction Direction?      @relation(fields: [directionId], references: [id])
+  employee  Employee             @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  direction Direction?           @relation(fields: [directionId], references: [id])
   brackets  SalaryBracket[]
   schedules SalaryRateSchedule[]
 
@@ -906,54 +907,54 @@ model PackageTemplate {
 }
 
 model Subscription {
-  id                     String                     @id @default(uuid()) @db.Uuid
-  tenantId               String                     @map("tenant_id") @db.Uuid
-  clientId               String                     @map("client_id") @db.Uuid
-  wardId                 String?                    @map("ward_id") @db.Uuid
-  directionId            String                     @map("direction_id") @db.Uuid
-  groupId                String                     @map("group_id") @db.Uuid
-  type                   SubscriptionType           @default(calendar)
-  status                 SubscriptionStatus         @default(pending)
-  periodYear             Int?                       @map("period_year")
-  periodMonth            Int?                       @map("period_month")
-  lessonPrice            Decimal                    @map("lesson_price") @db.Decimal(12, 2)
-  totalLessons           Int                        @map("total_lessons")
-  totalAmount            Decimal                    @map("total_amount") @db.Decimal(12, 2)
-  discountAmount         Decimal                    @default(0) @map("discount_amount") @db.Decimal(12, 2)
-  finalAmount            Decimal                    @map("final_amount") @db.Decimal(12, 2)
-  balance                Decimal                    @default(0) @db.Decimal(12, 2)
-  chargedAmount          Decimal                    @default(0) @map("charged_amount") @db.Decimal(12, 2)
+  id                          String                     @id @default(uuid()) @db.Uuid
+  tenantId                    String                     @map("tenant_id") @db.Uuid
+  clientId                    String                     @map("client_id") @db.Uuid
+  wardId                      String?                    @map("ward_id") @db.Uuid
+  directionId                 String                     @map("direction_id") @db.Uuid
+  groupId                     String                     @map("group_id") @db.Uuid
+  type                        SubscriptionType           @default(calendar)
+  status                      SubscriptionStatus         @default(pending)
+  periodYear                  Int?                       @map("period_year")
+  periodMonth                 Int?                       @map("period_month")
+  lessonPrice                 Decimal                    @map("lesson_price") @db.Decimal(12, 2)
+  totalLessons                Int                        @map("total_lessons")
+  totalAmount                 Decimal                    @map("total_amount") @db.Decimal(12, 2)
+  discountAmount              Decimal                    @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  finalAmount                 Decimal                    @map("final_amount") @db.Decimal(12, 2)
+  balance                     Decimal                    @default(0) @db.Decimal(12, 2)
+  chargedAmount               Decimal                    @default(0) @map("charged_amount") @db.Decimal(12, 2)
   /// Скидки v2: текущая скидка за занятие (эффективная цена = max(0, lessonPrice − discountPerLesson)).
   /// Будущие списания идут по эффективной цене; прошлые — снимок, не пересчитываются.
-  discountPerLesson      Decimal                    @default(0) @map("discount_per_lesson") @db.Decimal(12, 2)
+  discountPerLesson           Decimal                    @default(0) @map("discount_per_lesson") @db.Decimal(12, 2)
   /// Скидки v2: источник текущей скидки (type1/type2/legacy/none).
-  discountSource         SubscriptionDiscountSource @default(none) @map("discount_source")
+  discountSource              SubscriptionDiscountSource @default(none) @map("discount_source")
   /// Скидки v3 (docs/discounts-v3.md): выбранный ВРУЧНУЮ для ЭТОГО абонемента шаблон
   /// скидки со scope=subscription (permanent, тип 2). NULL — пер-абонементная скидка
   /// не выбрана. Доступно только когда у клиента perSubDiscountMode=true; красит
   /// скидкой только этот абонемент (в отличие от client.discountTemplateId — на все)
   /// и переносится при массовой/точечной выписке (previousSubscription).
-  discountTemplateId     String?                    @map("discount_template_id") @db.Uuid
-  startDate              DateTime                   @map("start_date") @db.Date
-  endDate                DateTime?                  @map("end_date") @db.Date
-  expiresAt              DateTime?                  @map("expires_at") @db.Date
-  packageTemplateId      String?                    @map("package_template_id") @db.Uuid
-  withdrawalReasonId     String?                    @map("withdrawal_reason_id") @db.Uuid
-  withdrawalDate         DateTime?                  @map("withdrawal_date") @db.Date
+  discountTemplateId          String?                    @map("discount_template_id") @db.Uuid
+  startDate                   DateTime                   @map("start_date") @db.Date
+  endDate                     DateTime?                  @map("end_date") @db.Date
+  expiresAt                   DateTime?                  @map("expires_at") @db.Date
+  packageTemplateId           String?                    @map("package_template_id") @db.Uuid
+  withdrawalReasonId          String?                    @map("withdrawal_reason_id") @db.Uuid
+  withdrawalDate              DateTime?                  @map("withdrawal_date") @db.Date
   /// Отложенное отчисление: дата ухода в будущем (в пределах периода). Пока
   /// абонемент остаётся active; занятия до этой даты списываются по факту, на
   /// дату X+1 cron finalize-scheduled-withdrawals проводит финальную сверку и
   /// переводит в withdrawn. reasonId/comment — что применить при финализации.
-  scheduledWithdrawalDate     DateTime?             @map("scheduled_withdrawal_date") @db.Date
-  scheduledWithdrawalReasonId String?               @map("scheduled_withdrawal_reason_id") @db.Uuid
-  scheduledWithdrawalComment  String?               @map("scheduled_withdrawal_comment")
-  isTrialCredited        Boolean                    @default(false) @map("is_trial_credited")
-  previousSubscriptionId String?                    @map("previous_subscription_id") @db.Uuid
-  activatedAt            DateTime?                  @map("activated_at")
-  createdBy              String?                    @map("created_by") @db.Uuid
-  createdAt              DateTime                   @default(now()) @map("created_at")
-  updatedAt              DateTime                   @updatedAt @map("updated_at")
-  deletedAt              DateTime?                  @map("deleted_at")
+  scheduledWithdrawalDate     DateTime?                  @map("scheduled_withdrawal_date") @db.Date
+  scheduledWithdrawalReasonId String?                    @map("scheduled_withdrawal_reason_id") @db.Uuid
+  scheduledWithdrawalComment  String?                    @map("scheduled_withdrawal_comment")
+  isTrialCredited             Boolean                    @default(false) @map("is_trial_credited")
+  previousSubscriptionId      String?                    @map("previous_subscription_id") @db.Uuid
+  activatedAt                 DateTime?                  @map("activated_at")
+  createdBy                   String?                    @map("created_by") @db.Uuid
+  createdAt                   DateTime                   @default(now()) @map("created_at")
+  updatedAt                   DateTime                   @updatedAt @map("updated_at")
+  deletedAt                   DateTime?                  @map("deleted_at")
 
   client              Client                     @relation(fields: [clientId], references: [id])
   ward                Ward?                      @relation(fields: [wardId], references: [id])
@@ -967,6 +968,7 @@ model Subscription {
   attendances         Attendance[]
   balanceTransactions ClientBalanceTransaction[]
   unprolongedComments UnprolongedComment[]
+  selectedLessons     SubscriptionLesson[]
 
   @@index([tenantId, clientId])
   @@index([tenantId, periodYear, periodMonth])
@@ -974,6 +976,29 @@ model Subscription {
   @@index([tenantId, clientId, groupId, type, status])
   @@index([tenantId, scheduledWithdrawalDate])
   @@map("subscriptions")
+}
+
+/// Явный выбор конкретных занятий для ПАКЕТНОГО абонемента (docs/package-lesson-selection-plan.md).
+/// Одна строка = «этот пакет покрывает это занятие». Пустой набор у пакета = ЛЕГАСИ-режим:
+/// покрытие/списание идут по старому правилу packageLessonsRemaining>0 (инвариант №1 —
+/// hasSelection определяется ПЕР-АБОНЕМЕНТНО: COUNT строк у ЭТОГО subscriptionId > 0).
+/// Влияет ТОЛЬКО на покрытие состава, право отметки и по-занятийную вместимость;
+/// «израсходовано/остаток» ВСЕГДА считается по Attendance (инвариант №2), эту таблицу не трогает.
+/// Членство резолвится join'ом через subscription.wardId (инвариант №3 — wardId тут не хранится).
+model SubscriptionLesson {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  subscriptionId String   @map("subscription_id") @db.Uuid
+  lessonId       String   @map("lesson_id") @db.Uuid
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  lesson       Lesson       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, lessonId])
+  @@index([tenantId, lessonId])
+  @@map("subscription_lessons")
 }
 
 // === СЧЕТА (КОШЕЛЬКИ) ===
@@ -1269,7 +1294,7 @@ model Expense {
   category       ExpenseCategory   @relation(fields: [categoryId], references: [id])
   account        FinancialAccount? @relation(fields: [accountId], references: [id])
   branches       ExpenseBranch[]
-  leadChannel    LeadChannel?     @relation(fields: [leadChannelId], references: [id])
+  leadChannel    LeadChannel?      @relation(fields: [leadChannelId], references: [id])
   salaryPayment  SalaryPayment?    @relation("SalaryPaymentTwin", fields: [salaryPaymentId], references: [id], onDelete: Cascade)
   // legacy: расход от СТАРОЙ закупки на склад (до переработки склада). Новые внесения
   // денег не двигают; связь сохранена для исторических записей.
@@ -1377,10 +1402,10 @@ model AiChatLog {
 // знаний kb_*: факты продуктовые, одинаковы для всех организаций.
 model AiFaq {
   id          String   @id @default(uuid()) @db.Uuid
-  question    String   // как вопрос звучит от пользователя (триггер/тема)
-  answer      String   // короткий достоверный ответ-факт для промпта
+  question    String // как вопрос звучит от пользователя (триггер/тема)
+  answer      String // короткий достоверный ответ-факт для промпта
   category    String   @default("navigation") // navigation | logic | data
-  keywords    String?  // доп. ключевые слова (через запятую), на будущее
+  keywords    String? // доп. ключевые слова (через запятую), на будущее
   isActive    Boolean  @default(true) @map("is_active")
   source      String   @default("manual") // manual | review — откуда добавлено
   sourceLogId String?  @map("source_log_id") @db.Uuid // из какого диалога родился (ai_chat_logs.id)
@@ -1793,6 +1818,7 @@ enum TaskAutoTrigger {
   no_show_review
   first_paid_reminder
   package_expiring
+  reselect_package_lesson
 }
 
 enum TaskStatus {
@@ -2210,14 +2236,14 @@ model Application {
   updatedAt           DateTime            @updatedAt @map("updated_at")
   deletedAt           DateTime?           @map("deleted_at")
 
-  organization Organization  @relation(fields: [tenantId], references: [id])
-  client       Client        @relation(fields: [clientId], references: [id])
-  ward         Ward          @relation(fields: [wardId], references: [id])
-  branch       Branch        @relation(fields: [branchId], references: [id])
-  direction    Direction     @relation(fields: [directionId], references: [id])
+  organization    Organization     @relation(fields: [tenantId], references: [id])
+  client          Client           @relation(fields: [clientId], references: [id])
+  ward            Ward             @relation(fields: [wardId], references: [id])
+  branch          Branch           @relation(fields: [branchId], references: [id])
+  direction       Direction        @relation(fields: [directionId], references: [id])
   packageTemplate PackageTemplate? @relation(fields: [packageTemplateId], references: [id], onDelete: SetNull)
-  processor    Employee?     @relation("ApplicationProcessor", fields: [processedBy], references: [id])
-  trialLessons TrialLesson[]
+  processor       Employee?        @relation("ApplicationProcessor", fields: [processedBy], references: [id])
+  trialLessons    TrialLesson[]
 
   // Заявка, созданная прямо из кампании обзвона (кнопка «Создать заявку»).
   // Даёт отчёту «Эффективность обзвонов» тянуть за заявкой её пробные и продажу —
@@ -2340,29 +2366,29 @@ model ProductionCalendar {
 // isStackable — историческое поле, новой логикой не используется (правило «один
 // шаблон на родителя» делает стек неактуальным).
 model DiscountTemplate {
-  id          String            @id @default(uuid()) @db.Uuid
-  tenantId    String            @map("tenant_id") @db.Uuid
+  id          String                @id @default(uuid()) @db.Uuid
+  tenantId    String                @map("tenant_id") @db.Uuid
   name        String
   type        DiscountType
-  kind        DiscountKind      @default(permanent)
-  systemKey   String?           @map("system_key")
-  valueType   DiscountValueType @map("value_type")
-  value       Decimal           @db.Decimal(12, 2)
-  isStackable Boolean           @default(false) @map("is_stackable")
-  isActive    Boolean           @default(true) @map("is_active")
+  kind        DiscountKind          @default(permanent)
+  systemKey   String?               @map("system_key")
+  valueType   DiscountValueType     @map("value_type")
+  value       Decimal               @db.Decimal(12, 2)
+  isStackable Boolean               @default(false) @map("is_stackable")
+  isActive    Boolean               @default(true) @map("is_active")
   /// Скидки v2: момент последнего включения тип-1 (тоггл). Тип 1 действует на
   /// абонементы с периодом со СЛЕДУЮЩЕГО месяца после включения.
-  activatedAt DateTime?         @map("activated_at")
+  activatedAt DateTime?             @map("activated_at")
   /// Скидки v2: легаси-шаблон старой логики (старые системные linked и fixed со
   /// старой семантикой value). Деактивирован, в UI не предлагается, история жива.
-  isLegacy    Boolean           @default(false) @map("is_legacy")
+  isLegacy    Boolean               @default(false) @map("is_legacy")
   /// Скидки v3 (docs/discounts-v3.md): область применения ручного шаблона (тип 2).
   /// client — выбирается в карточке клиента, красит все абонементы (как v2);
   /// subscription — выбирается по абонементу (Subscription.discountTemplateId),
   /// красит только выбранный. У системного тип-1 и легаси — client (признак скрыт).
   scope       DiscountTemplateScope @default(client) @map("scope")
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
 
   organization          Organization   @relation(fields: [tenantId], references: [id])
   appliedDiscounts      Discount[]     @relation("DiscountByTemplate")

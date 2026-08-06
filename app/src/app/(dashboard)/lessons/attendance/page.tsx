@@ -452,7 +452,7 @@ export default async function LessonsAttendancePage({
         })
         // Гейт покрытия: плановую ячейку (без отметки) показываем только при наличии
         // покрывающего абонемента на дату. Уже отмеченные — всегда (см. коммент выше).
-        if (!att && !coverage.isCoveredOn(e.clientId, e.wardId, g.directionId, rosterDate)) continue
+        if (!att && !coverage.isCoveredOn(e.clientId, e.wardId, g.directionId, rosterDate, lessonInfo.lessonId)) continue
         planCount++
         dayCells.push({
           lessonId: lessonInfo.lessonId,

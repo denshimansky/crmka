@@ -9,6 +9,11 @@ import {
 } from "@/lib/discounts/recalc-client-discounts"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
+import {
+  validateSelectedLessons,
+  lockAndVerifySelection,
+  SelectionConflictError,
+} from "@/lib/subscriptions/subscription-lessons"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
@@ -32,6 +37,9 @@ const createSchema = z.object({
   // Поля только для пакетного типа
   packageTemplateId: z.string().uuid().optional(),
   validDays: z.number().int().min(1).max(3650).optional(),
+  // Явный выбор конкретных занятий пакета. Мягко в API (отсутствие = легаси-пакет),
+  // обязателен в UI. Валидируется через validateSelectedLessons.
+  selectedLessonIds: z.array(z.string().uuid()).optional(),
 })
 
 function addDaysUtc(d: Date, days: number): Date {
@@ -263,7 +271,30 @@ export async function POST(req: NextRequest) {
       ? addDaysUtc(startDate, resolvedValidDays)
       : null
 
-  const subscription = await db.$transaction(async (tx) => {
+  // Пакет с явным выбором занятий: валидируем набор до транзакции (ровно N, в группе,
+  // в окне срока, без кросс-пакета, есть места). Мягко в API: пустой набор = легаси-пакет.
+  const selectedLessonIds =
+    orgType === "package" && data.selectedLessonIds && data.selectedLessonIds.length > 0
+      ? data.selectedLessonIds
+      : []
+  if (selectedLessonIds.length > 0) {
+    const v = await validateSelectedLessons(db, {
+      tenantId: session.user.tenantId,
+      groupId: data.groupId,
+      clientId: data.clientId,
+      wardId: data.wardId ?? null,
+      maxStudents: group.maxStudents,
+      totalLessons: data.totalLessons,
+      windowStart: startDate,
+      windowEnd: expiresAt,
+      selectedLessonIds,
+    })
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: v.status })
+  }
+
+  let subscription
+  try {
+   subscription = await db.$transaction(async (tx) => {
     const sub = await tx.subscription.create({
       data: {
         tenantId: session.user.tenantId,
@@ -292,6 +323,28 @@ export async function POST(req: NextRequest) {
         ward: { select: { id: true, firstName: true, lastName: true } },
       },
     })
+
+    // Выбор занятий пакета — в той же транзакции (атомарно с созданием абонемента).
+    // Под advisory-локом перепроверяем кросс-пакет+вместимость (гонка oversell, #4).
+    if (selectedLessonIds.length > 0) {
+      await lockAndVerifySelection(tx, {
+        tenantId: session.user.tenantId,
+        groupId: data.groupId,
+        clientId: data.clientId,
+        wardId: data.wardId ?? null,
+        maxStudents: group.maxStudents,
+        lessonIds: selectedLessonIds,
+        excludeSubscriptionId: sub.id,
+      })
+      await tx.subscriptionLesson.createMany({
+        data: selectedLessonIds.map((lessonId) => ({
+          tenantId: session.user.tenantId,
+          subscriptionId: sub.id,
+          lessonId,
+          createdBy: session.user.employeeId ?? null,
+        })),
+      })
+    }
 
     // ADM-04 + баг #79: денормализуем два последних РАЗНЫХ филиала абонементов
     // (мультифилиальная видимость) + считаем общее количество купленных
@@ -362,7 +415,13 @@ export async function POST(req: NextRequest) {
       },
     })
     return fresh ?? sub
-  })
+   })
+  } catch (e) {
+    if (e instanceof SelectionConflictError) {
+      return NextResponse.json({ error: e.message }, { status: e.status })
+    }
+    throw e
+  }
 
   return NextResponse.json(subscription, { status: 201 })
 }

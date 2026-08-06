@@ -394,7 +394,7 @@ export default async function LessonsAbsencesPage({
       const att = attendedMap.get(key)
       if (att && !att.isPending) continue // отметка есть и не заглушка
       // Плановую (без реальной отметки) строку показываем только при покрытии.
-      if (!att && !coverage.isCoveredOn(e.clientId, e.wardId, lesson.group.directionId, lessonRosterDate)) continue
+      if (!att && !coverage.isCoveredOn(e.clientId, e.wardId, lesson.group.directionId, lessonRosterDate, lesson.id)) continue
       unmarkedEntries.push({
         lessonDate: lesson.date,
         lessonId: lesson.id,

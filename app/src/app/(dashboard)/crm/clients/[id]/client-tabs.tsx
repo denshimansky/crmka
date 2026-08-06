@@ -37,6 +37,8 @@ import { useMoneyFormat, useCurrencySymbol } from "@/components/currency-provide
 import type { DiscountPreview } from "@/lib/discounts/preview-discount"
 import { packageLessonPrice } from "@/lib/subscriptions/package-price"
 import { directionPriceAt, type DirectionPriceVersionInput } from "@/lib/subscriptions/direction-price"
+import { PackageLessonPicker } from "@/app/(dashboard)/crm/_components/package-lesson-picker"
+import { EditPackageLessonsDialog } from "@/app/(dashboard)/crm/_components/edit-package-lessons-dialog"
 
 interface Ward {
   id: string
@@ -1051,6 +1053,9 @@ function SubscriptionsTab({ clientId, wards, perSubDiscountMode }: { clientId: s
                           {s.type === "package" && (
                             <ExtendPackageDialog subscription={s} onSuccess={handleSubUpdated} />
                           )}
+                          {s.type === "package" && (
+                            <EditPackageLessonsDialog subscriptionId={s.id} onSuccess={handleSubUpdated} />
+                          )}
                           <WithdrawSubscriptionDialog subscription={s} onSuccess={handleSubUpdated} />
                         </div>
                       )}
@@ -1435,6 +1440,9 @@ function AddSubscriptionDialog({
   const [packageTemplateId, setPackageTemplateId] = useState("")
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [validDays, setValidDays] = useState("")
+  // Пакет с выбором: конкретные выбранные занятия (фаза 3 UI). Пикер сам подрезает
+  // набор при смене группы/окна.
+  const [selectedLessonIds, setSelectedLessonIds] = useState<string[]>([])
 
   // SUB-12: абонементы с положительным балансом для авто-предложения переноса
   const subsWithBalance = subscriptions.filter(s =>
@@ -1642,6 +1650,7 @@ function AddSubscriptionDialog({
     setStartDate(new Date().toISOString().slice(0, 10))
     setFirstLessonDate(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`)
     setValidDays("")
+    setSelectedLessonIds([])
     setDiscountPreview(null)
     setDiscountTemplateId("none")
     setError(null)
@@ -1656,6 +1665,10 @@ function AddSubscriptionDialog({
     if (!groupId) { setError("Выберите группу"); return }
     if (!lessonPrice || Number(lessonPrice) <= 0) { setError("Укажите цену занятия"); return }
     if (!totalLessons || Number(totalLessons) <= 0) { setError("Укажите кол-во занятий"); return }
+    if (subscriptionType === "package" && selectedLessonIds.length !== Number(totalLessons)) {
+      setError(`Отметьте ровно ${Number(totalLessons)} занятий пакета (выбрано ${selectedLessonIds.length})`)
+      return
+    }
 
     setLoading(true)
     try {
@@ -1675,6 +1688,7 @@ function AddSubscriptionDialog({
         payload.startDate = startDate
         if (packageTemplateId) payload.packageTemplateId = packageTemplateId
         if (validDays) payload.validDays = Number(validDays)
+        payload.selectedLessonIds = selectedLessonIds
       } else {
         payload.periodYear = Number(periodYear)
         payload.periodMonth = Number(periodMonth)
@@ -1945,6 +1959,23 @@ function AddSubscriptionDialog({
                   return d.toLocaleDateString("ru-RU")
                 })()}
               </div>
+
+              {groupId && Number(totalLessons) > 0 && (
+                <PackageLessonPicker
+                  groupId={groupId}
+                  windowStart={startDate}
+                  windowEnd={(() => {
+                    const days = Number(validDays) || packageDefaultValidDays
+                    const d = new Date(`${startDate}T00:00:00.000Z`)
+                    if (Number.isNaN(d.getTime())) return ""
+                    d.setUTCDate(d.getUTCDate() + days)
+                    return d.toISOString().slice(0, 10)
+                  })()}
+                  targetCount={Number(totalLessons)}
+                  value={selectedLessonIds}
+                  onChange={setSelectedLessonIds}
+                />
+              )}
             </div>
           )}
 

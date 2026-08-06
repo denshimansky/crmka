@@ -21,6 +21,11 @@ import { effectiveLessonPrice, oneOffPriceWithDiscount } from "@/lib/discounts/e
 import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
 import { isConsumingAttendanceType, consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 import { consumedPackageLessonsMap, pickChargeableSubscription } from "@/lib/subscriptions/package-remaining"
+import {
+  isBlockedByPackageSelection,
+  loadPackageSelections,
+  packageSelectionGate,
+} from "@/lib/subscriptions/subscription-lessons"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { logAudit } from "@/lib/audit"
@@ -303,6 +308,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     ? data.instructorPayEnabled
     : false
 
+  // Блокировка отметки вне плана пакета (решение владельца №1): списывающий тип на
+  // НЕвыбранном занятии, когда у ученика есть живой пакет с выбором → ошибка, НЕ drop-in.
+  // Отработка (списывается со слота исходного L1) и пробное исключены.
+  if (
+    org?.subscriptionType === "package" &&
+    attendanceType.chargesSubscription &&
+    !isMakeupArrival &&
+    !lesson.isTrial
+  ) {
+    const blocked = await isBlockedByPackageSelection(db, {
+      tenantId,
+      clientId: data.clientId,
+      wardId: data.wardId,
+      groupId: lesson.groupId,
+      lessonId,
+      lessonDate: new Date(effectiveRosterDate(lesson)),
+    })
+    if (blocked) {
+      return NextResponse.json(
+        { error: "Занятие не входит в пакет ученика. Измените план пакета." },
+        { status: 409 },
+      )
+    }
+  }
+
   // === Вся бизнес-логика в транзакции ===
   const attendance = await db.$transaction(async (tx) => {
     // Снимок ЗП занятия до мутаций — для net-компенсации при реаллокации
@@ -468,7 +498,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             },
             orderBy: { startDate: "asc" },
           })
+          // Пакет с выбором списывается только на выбранном занятии; легаси (без
+          // строк выбора) → gate=true (прежнее поведение). Блок вне плана уже отсеян выше.
+          const fifoSel = await loadPackageSelections(tx, tenantId, candidates.map((c) => c.id))
           for (const cand of candidates) {
+            if (!packageSelectionGate(fifoSel, cand.id, lessonId)) continue
             const consumed = await tx.attendance.count({
               where: {
                 tenantId,
@@ -1058,6 +1092,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     subscriptions.filter((s) => s.type === "package").map((s) => s.id),
     lessonId,
   )
+  // Наборы выбора пакетов группы — чтобы у пакетника списался ИМЕННО тот пакет,
+  // что выбрал это занятие (легаси без выбора → gate=true). Состав bulk уже отсечён
+  // покрытием (coverageKeysOnDate) — невыбранные сюда не попадают.
+  const bulkSel = await loadPackageSelections(
+    db,
+    tenantId,
+    subscriptions.filter((s) => s.type === "package").map((s) => s.id),
+  )
 
   // Резолв ставки ЗП через единую утилиту: приоритет — GroupSalaryRate
   // группы → личное исключение по направлению → дефолт инструктора.
@@ -1116,11 +1158,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       // Пакет — по FIFO/остатку занятий (полностью оплаченный тоже списывается);
       // календарный — первый на месяц (как раньше). Исчерпанный пакет → null →
       // разовое (ветка ниже).
-      const mySubs = subscriptions.filter(
-        (s) => s.clientId === enrollment.clientId && (
-          enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
+      const mySubs = subscriptions
+        .filter(
+          (s) => s.clientId === enrollment.clientId && (
+            enrollment.wardId ? s.wardId === enrollment.wardId : !s.wardId
+          )
         )
-      )
+        // Пакет с выбором — только если это занятие в его наборе (легаси → gate=true).
+        .filter((s) => s.type !== "package" || packageSelectionGate(bulkSel, s.id, lessonId))
       const subscription = pickChargeableSubscription(mySubs, bulkConsumedById)
 
       // Если у ученика уже стоит «Назначена отработка» — bulk не перетирает,

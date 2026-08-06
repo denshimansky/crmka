@@ -20,12 +20,16 @@ export async function GET(
   const tenantId = session.user.tenantId
   const url = new URL(req.url)
   const fromParam = url.searchParams.get("from")
+  const toParam = url.searchParams.get("to")
   const includePast = url.searchParams.get("includePast") === "1"
   const from = fromParam ? new Date(fromParam) : new Date()
   from.setHours(0, 0, 0, 0)
   if (includePast && !fromParam) {
     from.setDate(from.getDate() - 90)
   }
+  // to — верхняя граница окна (напр. expiresAt пакета) для пикера занятий.
+  const to = toParam ? new Date(toParam) : null
+  if (to) to.setHours(23, 59, 59, 999)
 
   const group = await db.group.findFirst({
     where: { id, tenantId, deletedAt: null },
@@ -38,12 +42,37 @@ export async function GET(
       tenantId,
       groupId: id,
       status: { not: "cancelled" },
-      date: { gte: from },
+      date: { gte: from, ...(to ? { lte: to } : {}) },
     },
-    select: { id: true, date: true, startTime: true, durationMinutes: true },
+    select: {
+      id: true,
+      date: true,
+      startTime: true,
+      durationMinutes: true,
+      instructor: { select: { firstName: true, lastName: true } },
+      substituteInstructor: { select: { firstName: true, lastName: true } },
+    },
     orderBy: { date: "asc" },
-    take: includePast ? 200 : 60,
+    // Окно пакета (validDays до 365) при 5 занятиях/нед ≈ 260 — поднимаем кап при to.
+    take: to ? 400 : includePast ? 200 : 60,
   })
 
-  return NextResponse.json(lessons)
+  // Добавляем эффективного инструктора и isPast, сохраняя прежние поля
+  // (id/date/startTime/durationMinutes) — потребители пробных форм не ломаются.
+  const todayFloor = new Date()
+  todayFloor.setHours(0, 0, 0, 0)
+  const result = lessons.map((l) => {
+    const eff = l.substituteInstructor ?? l.instructor
+    return {
+      id: l.id,
+      date: l.date,
+      startTime: l.startTime,
+      durationMinutes: l.durationMinutes,
+      instructorName: [eff?.lastName, eff?.firstName].filter(Boolean).join(" ") || null,
+      isSubstitute: !!l.substituteInstructor,
+      isPast: l.date < todayFloor,
+    }
+  })
+
+  return NextResponse.json(result)
 }
