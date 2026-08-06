@@ -8,6 +8,14 @@ export const db =
   globalForPrisma.prisma ??
   new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["query"] : [],
+    // Локальная разработка через SSH-туннель к удалённой БД: латентность на запрос
+    // высокая, и тяжёлые интерактивные транзакции (создание абонемента +
+    // recalcClientDiscounts и т.п.) не укладываются в дефолтные 5с Prisma.
+    // PRISMA_TX_TIMEOUT_MS задаётся ТОЛЬКО в локальном .env; в проде переменная не
+    // задана → поведение Prisma (дефолтный таймаут) не меняется.
+    ...(process.env.PRISMA_TX_TIMEOUT_MS
+      ? { transactionOptions: { timeout: Number(process.env.PRISMA_TX_TIMEOUT_MS) } }
+      : {}),
   });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = db;
