@@ -13,6 +13,7 @@
 // сюда не заглядывает. Кроны истечения/уведомления не трогаются.
 
 import type { Prisma, PrismaClient } from "@prisma/client"
+import { consumedPackageLessonsMap, packageLessonsRemaining } from "./package-remaining"
 
 type DB = PrismaClient | Prisma.TransactionClient
 
@@ -174,4 +175,62 @@ export async function validateSelectedLessons(
   }
 
   return { ok: true, lessonIds: ids }
+}
+
+// ── Блокировка отметки вне плана (решение владельца №1) ──────────────────────
+
+/**
+ * Нужно ли ЗАБЛОКИРОВАТЬ списывающую отметку на этом занятии (решение владельца №1:
+ * не drop-in, а ошибка). Блок = у ученика есть живой пакет С ВЫБОРОМ на эту группу
+ * с остатком занятий, но НИ ОДИН его живой пакет не покрывает это занятие.
+ *
+ * Три исхода (guard C-8):
+ *  - есть валидный пакет (выбрано ИЛИ легаси с остатком) → false (спишется штатно);
+ *  - валидного нет, НО есть пакет с выбором-без-этого-занятия → true (блок);
+ *  - пакета нет вовсе / все исчерпаны (remaining=0) → false (законное разовое).
+ *
+ * НЕ звать для отработки (списывается со слота исходного L1) и пробного — там
+ * своя семантика (гейт в attendance route стоит за !isMakeupArrival && !isTrial).
+ */
+export async function isBlockedByPackageSelection(
+  db: DB,
+  args: {
+    tenantId: string
+    clientId: string
+    wardId: string | null
+    groupId: string
+    lessonId: string
+    lessonDate: Date
+  },
+): Promise<boolean> {
+  const { tenantId, clientId, wardId, groupId, lessonId, lessonDate } = args
+  const candidates = await db.subscription.findMany({
+    where: {
+      tenantId,
+      clientId,
+      groupId,
+      type: "package",
+      deletedAt: null,
+      status: { in: ["active", "pending"] },
+      startDate: { lte: lessonDate },
+      OR: [{ expiresAt: null }, { expiresAt: { gte: lessonDate } }],
+      // Как в FIFO-резолвере списания: строгий ward, если задан.
+      ...(wardId ? { wardId } : {}),
+    },
+    select: { id: true, totalLessons: true },
+  })
+  if (candidates.length === 0) return false
+
+  const ids = candidates.map((c) => c.id)
+  const consumed = await consumedPackageLessonsMap(db, tenantId, ids, lessonId)
+  const sel = await loadPackageSelections(db, tenantId, ids)
+
+  let hasValid = false
+  let hasBlocking = false
+  for (const c of candidates) {
+    if (packageLessonsRemaining(c.totalLessons, consumed.get(c.id) ?? 0) <= 0) continue
+    if (packageSelectionGate(sel, c.id, lessonId)) hasValid = true
+    else hasBlocking = true // живой пакет с выбором, но занятие не в наборе
+  }
+  return !hasValid && hasBlocking
 }
