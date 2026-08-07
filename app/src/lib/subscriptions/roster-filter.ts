@@ -140,6 +140,62 @@ export function coverageKey(clientId: string, wardId: string | null | undefined)
   return `${clientId}:${wardId || ""}`
 }
 
+// Живое пробное на конкретном занятии (scheduled/attended/no_show, заявка не
+// выведена из воронки). Совпадает с условием отображения пробных в составе.
+const LIVE_TRIAL_WHERE: Prisma.TrialLessonWhereInput = {
+  status: { in: ["scheduled", "attended", "no_show"] },
+  // Пробное выведенной из воронки заявки (soft-deleted) не показываем в составе.
+  NOT: { application: { deletedAt: { not: null } } },
+}
+
+/**
+ * Ключи (clientId:wardId) детей с ЖИВЫМ пробным на этом занятии.
+ *
+ * Инвариант «пробное побеждает на своём занятии»: ребёнок с пробным на дату D
+ * НЕ участвует в платном составе этого занятия (иначе, когда «дату первого
+ * платного» ставят = дате пробного, покрывающий/pending абонемент задваивает его
+ * как пробника и как платника, а «Отметить всех»/сетка ещё и спишет с абонемента
+ * его пробный визит). Платное покрытие действует со следующего занятия периода.
+ * Применять ВЕЗДЕ, где строится платный состав занятия: карта занятия, PUT
+ * «Отметить всех», сетка «Посещения». Реверс уже закрыт на создании пробного
+ * (services/trial-lesson.ts) — здесь закрыт обратный порядок (пробное → абонемент).
+ */
+export async function trialKeysForLesson(
+  db: DB,
+  tenantId: string,
+  lessonId: string,
+): Promise<Set<string>> {
+  const trials = await db.trialLesson.findMany({
+    where: { tenantId, lessonId, ...LIVE_TRIAL_WHERE },
+    select: { clientId: true, wardId: true },
+  })
+  return new Set(trials.map((t) => coverageKey(t.clientId, t.wardId)))
+}
+
+/** Батч-версия trialKeysForLesson для помесячной сетки: Map<lessonId, Set<key>>. */
+export async function trialKeysByLesson(
+  db: DB,
+  tenantId: string,
+  lessonIds: string[],
+): Promise<Map<string, Set<string>>> {
+  const map = new Map<string, Set<string>>()
+  if (lessonIds.length === 0) return map
+  const trials = await db.trialLesson.findMany({
+    where: { tenantId, lessonId: { in: lessonIds }, ...LIVE_TRIAL_WHERE },
+    select: { lessonId: true, clientId: true, wardId: true },
+  })
+  for (const t of trials) {
+    if (!t.lessonId) continue
+    let set = map.get(t.lessonId)
+    if (!set) {
+      set = new Set()
+      map.set(t.lessonId, set)
+    }
+    set.add(coverageKey(t.clientId, t.wardId))
+  }
+  return map
+}
+
 /**
  * Prisma-where: кандидаты в покрывающие абонементы для занятий диапазона
  * [from..to] (для одного занятия from = to = дата состава). Выборка — надмножество:

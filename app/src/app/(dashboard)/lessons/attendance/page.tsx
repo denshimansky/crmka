@@ -8,6 +8,8 @@ import {
   rosterWhereOnDate,
   isEnrolledOnLesson,
   buildCoverageResolver,
+  coverageKey,
+  trialKeysByLesson,
 } from "@/lib/subscriptions/roster-filter"
 import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { ArrowLeft } from "lucide-react"
@@ -419,6 +421,12 @@ export default async function LessonsAttendancePage({
   const directionIds = Array.from(new Set(groups.map((g) => g.directionId)))
   const coverage = await buildCoverageResolver(db, tenantId, directionIds, rosterFrom, rosterTo)
 
+  // Пробное побеждает на своём занятии: ребёнок с живым пробным на занятии не
+  // получает плановую платную ячейку (иначе задвоение со строкой пробного и
+  // ошибочное списание с абонемента при отметке «Был»). Ключи по занятию —
+  // совпадает с картой занятия/PUT «Отметить всех».
+  const trialKeyByLesson = await trialKeysByLesson(db, tenantId, lessons.map((l) => l.id))
+
   // === Строим строки ===
   const groupById = new Map(groups.map((g) => [g.id, g]))
   const rows: AttendanceRow[] = []
@@ -468,6 +476,9 @@ export default async function LessonsAttendancePage({
         if (!att) {
           if (!isEnrolledOnLesson(e, rosterDate)) continue
           if (!coverage.isCoveredOn(e.clientId, e.wardId, g.directionId, rosterDate, lessonInfo.lessonId)) continue
+          // Пробное побеждает: не рисуем плановую платную ячейку ребёнку с живым
+          // пробным на этом занятии (он показан отдельной строкой пробного).
+          if (trialKeyByLesson.get(lessonInfo.lessonId)?.has(coverageKey(e.clientId, e.wardId))) continue
         }
         planCount++
         if (att) emittedAtt.add(`${e.clientId}|${e.wardId || ""}|${lessonInfo.lessonId}`)

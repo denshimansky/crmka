@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
+import { trialKeysForLesson, coverageKey } from "@/lib/subscriptions/roster-filter"
 import { z } from "zod"
 
 const schema = z.object({
@@ -95,6 +96,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   })
   if (existingEnrollment?.isActive && !isOneTime) {
     return NextResponse.json({ error: "Ученик уже зачислен в эту группу" }, { status: 409 })
+  }
+
+  // Пробное побеждает на своём занятии: ребёнка с живым пробным на этом занятии
+  // нельзя добавить второй строкой (разовой/зачислением) — иначе он задвоится
+  // рядом со строкой пробного. Сначала снимите/перенесите пробное («Продажи»).
+  const trialKeys = await trialKeysForLesson(db, tenantId, lessonId)
+  if (trialKeys.has(coverageKey(clientId, wardId))) {
+    return NextResponse.json(
+      { error: "Ребёнок уже записан на пробное на это занятие" },
+      { status: 409 },
+    )
   }
 
   const activeEnrollmentCount = await db.groupEnrollment.count({

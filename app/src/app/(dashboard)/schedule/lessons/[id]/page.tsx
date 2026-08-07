@@ -529,7 +529,12 @@ export default async function LessonCardPage({
   )
   const oneTimeAttendances = lesson.attendances.filter((a) => {
     if (a.isMakeup || a.isTrial) return false
-    return !enrollmentKeys.has(`${a.clientId}:${a.wardId || ""}`)
+    const key = `${a.clientId}:${a.wardId || ""}`
+    // Пробное побеждает на своём занятии: ребёнка с живым пробным (trialKeys,
+    // построены выше) не показываем и ретро/разовой строкой — иначе его нетриальная
+    // отметка (напр. созданная «Отметить всех» до хардфикса) снова задвоит его
+    // рядом со строкой пробного.
+    return !enrollmentKeys.has(key) && !trialKeys.has(key)
   })
   const oneTimeClientIds = [...new Set(oneTimeAttendances.map((a) => a.clientId))]
   const oneTimeClients = oneTimeClientIds.length

@@ -8,6 +8,7 @@ import {
   coverageSubscriptionsWhere,
   coverageKeysOnDate,
   coverageKey,
+  trialKeysForLesson,
 } from "@/lib/subscriptions/roster-filter"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
@@ -1077,8 +1078,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }),
   })
   const coveredKeys = await coverageKeysOnDate(db, tenantId, subscriptionsAll, rosterDate, lessonId)
-  const enrollments = enrollmentsRaw.filter((e) =>
-    coveredKeys.has(coverageKey(e.clientId, e.wardId)),
+  // Пробное побеждает на своём занятии: «Отметить всех» НЕ отмечает как платного
+  // ребёнка с живым пробным на этом занятии (иначе спишет его пробный визит с
+  // абонемента и задвоит его в составе). Совпадает с картой занятия/сеткой.
+  const trialKeys = await trialKeysForLesson(db, tenantId, lessonId)
+  const enrollments = enrollmentsRaw.filter(
+    (e) =>
+      coveredKeys.has(coverageKey(e.clientId, e.wardId)) &&
+      !trialKeys.has(coverageKey(e.clientId, e.wardId)),
   )
   // Для списания/привязки — как раньше: живые абонементы ЭТОЙ группы.
   const subscriptions = subscriptionsAll.filter(
