@@ -37,6 +37,7 @@ interface NoContactsRow {
 
 interface SyncReport {
   leadsParsed: number
+  duplicateRowsCollapsed: number
   moneyParsed: number
   clientsCreated: number
   clientsMerged: number
@@ -229,6 +230,9 @@ export function ImportTemplateButton() {
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Прочитано строк из шаблона: {report.leadsParsed}
+                  {report.duplicateRowsCollapsed > 0
+                    ? ` · схлопнуто дублей строк: ${report.duplicateRowsCollapsed}`
+                    : ""}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Создано клиентов: {report.clientsCreated} · объединено: {report.clientsMerged} ·

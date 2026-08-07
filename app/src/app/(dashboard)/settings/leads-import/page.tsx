@@ -5,9 +5,10 @@ import { Card, CardContent } from "@/components/ui/card"
 import { PageHelp } from "@/components/page-help"
 import { ArrowLeft, AlertTriangle } from "lucide-react"
 import Link from "next/link"
+import { ProcessLeadsButton } from "./process-button"
 import { ImportTemplateButton } from "./import-template-button"
 import { DownloadTemplateLink } from "./download-template-link"
-import { TEMPLATE_FILENAME } from "./template-meta"
+import { SyncBalancesButton } from "./sync-balances-button"
 import { WipeDatabaseButton } from "./wipe-button"
 import { isWipeAvailable } from "@/lib/leads-import/sync-leads"
 
@@ -36,7 +37,7 @@ export default async function LeadsImportPage() {
             <PageHelp pageKey="settings/leads-import" />
           </div>
           <p className="text-sm text-muted-foreground">
-            Перенос клиентской базы в CRM по готовому шаблону
+            Миграция базы клиентов из 1С (или по шаблону) и синхронизация остатков
           </p>
         </div>
       </div>
@@ -47,31 +48,38 @@ export default async function LeadsImportPage() {
           <AlertTriangle className="size-5 shrink-0 text-amber-600 dark:text-amber-400" />
           <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
             Если вы не уверены — лучше обратитесь в техническую поддержку для импорта
-            базы. Ошибка при загрузке может затереть клиентов или балансы, после этого
-            аккуратно откатить сложно.
+            базы. Ошибка на любом из шагов может затереть клиентов или балансы, после
+            этого аккуратно откатить сложно.
           </p>
         </div>
       </div>
 
-      {/* Импорт по шаблону */}
+      {/* Шаги импорта */}
       <Card className="max-w-3xl">
-        <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
-          <div className="flex flex-col gap-2 sm:w-56 sm:shrink-0">
-            <ImportTemplateButton />
-            <DownloadTemplateLink />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="mt-0.5 font-medium">Импорт клиента по шаблону</div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Скачайте шаблон «{TEMPLATE_FILENAME}», заполните лист «Клиенты»
-              (по строке на каждого ребёнка) и загрузите обратно. Система создаст
-              клиентов, их подопечных, проставит балансы из колонки «Баланс» и
-              привяжет клиентов к филиалу. Этот шаг меняет базу. Дети с одним
-              телефоном становятся подопечными одного клиента-родителя. Филиалы из
-              колонки «Филиал» должны быть заранее заведены в CRM с такими же
-              названиями.
-            </p>
-          </div>
+        <CardContent className="divide-y p-0">
+          <ImportRow
+            step="Шаг 1"
+            title="Подготовить файл для импорта"
+            description="Есть выгрузка из 1С — загрузите сырой «Список лидов.xlsx»: система уберёт дубли (один ребёнок в нескольких строках → одна строка), сведёт детей одного телефона к одному родителю по приоритету статусов, пометит спорные строки и отдаст «Список лидов — для импорта.xlsx» для вычитки. Нет 1С — скачайте пустой шаблон и заполните вручную, по строке на каждого ребёнка. В базу на этом шаге ничего не пишется."
+            button={
+              <div className="flex flex-col gap-2">
+                <ProcessLeadsButton />
+                <DownloadTemplateLink />
+              </div>
+            }
+          />
+          <ImportRow
+            step="Шаг 2"
+            title="Залить контакты и балансы в CRM"
+            description="Загрузите проверенный файл (результат Шага 1 или заполненный шаблон): система создаёт клиентов, их подопечных, проставляет балансы из колонки «Баланс» и привязывает клиентов к филиалу. Дубли строк одного ребёнка схлопываются, дети одного телефона становятся подопечными одного родителя. Этот шаг меняет базу."
+            button={<ImportTemplateButton />}
+          />
+          <ImportRow
+            step="Точечно"
+            title="Обновить остатки уже залитой базы"
+            description="Точечная корректировка балансов уже существующих клиентов из «остатки.xlsx» (нужны колонки Телефон и Баланс на сегодня). Баланс устанавливается ровно к значению из файла — повторный запуск с тем же файлом ничего не меняет. Клиенты не создаются, в ДДС не пишется. Используйте, если на Шаге 2 балансы не загрузились или приехал свежий снимок остатков."
+            button={<SyncBalancesButton />}
+          />
         </CardContent>
       </Card>
 
@@ -107,6 +115,31 @@ export default async function LeadsImportPage() {
           . Для очистки после окончания окна — обратитесь в техподдержку.
         </p>
       )}
+    </div>
+  )
+}
+
+function ImportRow({
+  step,
+  title,
+  description,
+  button,
+}: {
+  step: string
+  title: string
+  description: string
+  button: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
+      <div className="sm:w-56 sm:shrink-0">{button}</div>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {step}
+        </div>
+        <div className="mt-0.5 font-medium">{title}</div>
+        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      </div>
     </div>
   )
 }

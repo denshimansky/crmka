@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     leadsParsed: result.leadsParsed,
+    duplicateRowsCollapsed: result.duplicateRowsCollapsed,
     moneyParsed: result.moneyParsed,
     clientsCreated: result.clientsCreated,
     clientsMerged: result.clientsMerged,

@@ -7,27 +7,18 @@ import { currencySymbol } from "@/lib/currency"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
 import { recordClientStatusChange } from "@/lib/clients/status-history"
-import { readSheet, normPhone, normName, indexClientsByNormPhone } from "./parse-xlsx"
-import { parseStatus, toDbStatus, topStatus, type LeadStatus } from "./status-map"
+import { readSheet, normName, indexClientsByNormPhone } from "./parse-xlsx"
+import { toDbStatus, topStatus, type LeadStatus } from "./status-map"
 import { splitParentFio } from "./surname-gender"
 import { decideBranchUpdate } from "./branch-update"
-
-interface LeadFileRow {
-  parent: string
-  phone: string
-  child: string
-  socials: string
-  birthDate: string
-  status: LeadStatus | null
-  branch: string
-  balance: number
-  /** true, если значение баланса пришло из явной ячейки файла («Баланс» в
-   *  Списке лидов или матч в деньги.xlsx). false — это «нет данных», и
-   *  трогать существующий clientBalance в БД нельзя. */
-  balanceFromFile: boolean
-  needsReview: boolean
-  rowIdx: number
-}
+import {
+  loadLeadsFile,
+  dedupLeadRows,
+  parseDob,
+  normColKey,
+  pickValue,
+  type LeadFileRow,
+} from "./parse-leads-file"
 
 interface MoneyFileRow {
   contractor: string
@@ -49,6 +40,8 @@ export interface CreatedWithoutPhone {
 export interface SyncReport {
   ok: true
   leadsParsed: number
+  // Схлопнуто дублей строк «один ребёнок в нескольких строках файла».
+  duplicateRowsCollapsed: number
   moneyParsed: number
   clientsCreated: number
   clientsMerged: number
@@ -95,73 +88,11 @@ export interface SyncBranchNotFound {
   branches: { name: string; count: number }[]
 }
 
-// Нормализация ключа колонки: lower-case, ё→е, _→пробел, схлопывание пробелов.
-function normColKey(s: string): string {
-  return s.trim().toLowerCase().replace(/ё/g, "е").replace(/_/g, " ").replace(/\s+/g, " ")
-}
-
 // Нормализация названия филиала для сопоставления кода 1С с филиалом CRM:
 // без учёта регистра, ё→е, схлопывание пробелов. Пунктуацию (точки в «С.ПОРТ»)
 // не трогаем — владелец заводит филиал с идентичным названием.
 function normBranchName(s: string): string {
   return s.trim().toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ")
-}
-
-function pickValue(
-  row: Record<string, unknown>,
-  normMap: Map<string, string>,
-  ...aliases: string[]
-): unknown {
-  for (const alias of aliases) {
-    const realKey = normMap.get(normColKey(alias))
-    if (realKey !== undefined) {
-      const v = row[realKey]
-      if (v !== null && v !== undefined && v !== "") return v
-    }
-  }
-  return null
-}
-
-function loadLeadsFile(buffer: Buffer): { rows: LeadFileRow[]; headers: string[] } {
-  // Шапка на первой строке (этап 1 пишет в этом формате).
-  const sheet = readSheet(buffer, { headerRow: 0 })
-  if (sheet.length === 0) return { rows: [], headers: [] }
-  const headers = Object.keys(sheet[0])
-  const normMap = new Map<string, string>()
-  for (const h of headers) normMap.set(normColKey(h), h)
-
-  const out: LeadFileRow[] = []
-  sheet.forEach((row, idx) => {
-    const parent = String(pickValue(row, normMap, "Фамилия Имя родителя") ?? "").trim()
-    const phoneRaw = pickValue(row, normMap, "Номер_телефона", "Номер телефона", "Телефон")
-    const phone = normPhone(phoneRaw === null ? null : String(phoneRaw))
-    const child = String(pickValue(row, normMap, "Ребёнок", "Ребенок", "ФИО") ?? "").trim()
-    if (!child) return
-    const socials = String(pickValue(row, normMap, "Соцсети") ?? "").trim()
-    const birthDate = String(pickValue(row, normMap, "Дата_рождения", "Дата рождения") ?? "").trim()
-    const status = parseStatus(String(pickValue(row, normMap, "Статус", "Состояние лида") ?? ""))
-    const branch = String(pickValue(row, normMap, "Филиал", "Подразделение", "Точка") ?? "").trim()
-    const balanceRaw = pickValue(row, normMap, "Баланс")
-    const balanceHasValue =
-      balanceRaw !== "" && balanceRaw !== null && balanceRaw !== undefined
-    const balance = balanceHasValue ? Number(balanceRaw) : 0
-    const reviewRaw = pickValue(row, normMap, "Проверить")
-    const review = (reviewRaw === null ? "" : String(reviewRaw)).trim().toLowerCase()
-    out.push({
-      parent,
-      phone,
-      child,
-      socials,
-      birthDate,
-      status,
-      branch,
-      balance: Number.isFinite(balance) ? balance : 0,
-      balanceFromFile: balanceHasValue && Number.isFinite(balance),
-      needsReview: review === "да" || review === "yes" || review === "true",
-      rowIdx: idx + 2, // +1 за заголовок, +1 для 1-based
-    })
-  })
-  return { rows: out, headers }
 }
 
 function loadMoneyFile(buffer: Buffer): {
@@ -195,32 +126,6 @@ function loadMoneyFile(buffer: Buffer): {
   return { balances: out, rowsParsed, duplicates: [...dupes.values()] }
 }
 
-function parseDob(raw: string): Date | null {
-  if (!raw) return null
-  const s = raw.trim()
-  // DD.MM.YYYY
-  const m1 = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/)
-  if (m1) {
-    const d = new Date(`${m1[3]}-${m1[2]}-${m1[1]}T00:00:00Z`)
-    return isNaN(d.getTime()) ? null : d
-  }
-  // DD.MM.YY
-  const m2 = s.match(/^(\d{2})\.(\d{2})\.(\d{2})$/)
-  if (m2) {
-    const yy = Number(m2[3])
-    const year = yy < 50 ? 2000 + yy : 1900 + yy
-    const d = new Date(`${year}-${m2[2]}-${m2[1]}T00:00:00Z`)
-    return isNaN(d.getTime()) ? null : d
-  }
-  // YYYY-MM-DD
-  const m3 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (m3) {
-    const d = new Date(`${s}T00:00:00Z`)
-    return isNaN(d.getTime()) ? null : d
-  }
-  return null
-}
-
 function splitFio(fio: string): { firstName: string; lastName: string | null } {
   const parts = fio.trim().split(/\s+/).filter(Boolean)
   if (parts.length === 0) return { firstName: "", lastName: null }
@@ -243,7 +148,13 @@ export async function syncLeads(
   opts: SyncOptions,
 ): Promise<SyncReport | SyncBlocked | SyncEmpty | SyncBranchNotFound | SyncNoContacts> {
   const parsedLeads = loadLeadsFile(opts.leadsBuffer)
-  const leads = parsedLeads.rows
+  const rawRowCount = parsedLeads.rows.length
+  // Схлопываем дубли «один ребёнок в нескольких строках» ДО всех проверок и
+  // группировки — иначе один ребёнок у телефона превращается в N подопечных, а
+  // повторяющееся имя ломает и матчинг остатков (childOccurrences считал бы N
+  // «разных родителей» и не зачислял баланс).
+  const dedup = dedupLeadRows(parsedLeads.rows)
+  const leads = dedup.rows
   if (leads.length === 0) {
     return { ok: false, reason: "empty_leads", detectedHeaders: parsedLeads.headers }
   }
@@ -413,6 +324,12 @@ export async function syncLeads(
   const existingByPhone = indexClientsByNormPhone(existingClients, wantedPhones)
 
   const warnings: string[] = [...collectedWarnings]
+  if (dedup.collapsed > 0) {
+    warnings.push(
+      `Схлопнуто дублей строк (один ребёнок встречался в нескольких строках файла): ` +
+        `${dedup.collapsed}. Каждый ребёнок добавлен один раз.`,
+    )
+  }
   const withoutPhone: CreatedWithoutPhone[] = []
   let clientsCreated = 0
   let clientsMerged = 0
@@ -623,7 +540,12 @@ export async function syncLeads(
       }
       if (groupHasBalanceData) totalBalance += groupBalance
 
-      // Подопечные: по одному на каждую строку группы.
+      // Подопечные: по одному на каждого УНИКАЛЬНОГО ребёнка группы. Множество
+      // ward-ключей заполняется и подопечными из БД (не плодим при переимпорте),
+      // и уже добавленными в этой партии — второй барьер против дублей поверх
+      // dedupLeadRows: две разные записи ребёнка («Иванов Иван» и «Иванов Иван
+      // Петрович») дают один ward-ключ (фамилия|имя), dedupLeadRows их не
+      // схлопнул бы (разные строки), а здесь — схлопываем.
       const existingWardKeys = new Set(
         (existing?.wards ?? []).map((w) =>
           `${(w.lastName ?? "").toLowerCase()}|${w.firstName.toLowerCase()}`,
@@ -634,6 +556,7 @@ export async function syncLeads(
         if (!wFirst) continue
         const wardKey = `${(wLast ?? "").toLowerCase()}|${wFirst.toLowerCase()}`
         if (existingWardKeys.has(wardKey)) continue
+        existingWardKeys.add(wardKey)
         // Копим подопечных и создаём одним createMany после цикла — иначе на
         // большой базе тысячи последовательных INSERT не укладываются в таймаут
         // интерактивной транзакции.
@@ -686,6 +609,7 @@ export async function syncLeads(
           clientsCreated,
           clientsMerged,
           wardsCreated,
+          duplicateRowsCollapsed: dedup.collapsed,
           totalBalance,
           branchAssigned,
           branchMissing,
@@ -701,7 +625,8 @@ export async function syncLeads(
 
   return {
     ok: true,
-    leadsParsed: leads.length,
+    leadsParsed: rawRowCount,
+    duplicateRowsCollapsed: dedup.collapsed,
     moneyParsed: moneyParsed.rowsParsed,
     clientsCreated,
     clientsMerged,
