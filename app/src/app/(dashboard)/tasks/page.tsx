@@ -24,10 +24,12 @@ export default async function TasksPage() {
   const canManageTasks = hasPermission(role, "clients.edit", orgPerms)
   const canViewClients = hasPermission(role, "clients.view", orgPerms)
 
-  // Сегодняшняя дата в календаре сервера как «YYYY-MM-DD» — граница «сегодня/просрочено».
-  // dueDate на строках задач сериализуется так же, сравнение строковое (см. tasks-board).
+  // Сегодняшняя дата как «YYYY-MM-DD» — граница «сегодня/просрочено». Считаем в UTC,
+  // чтобы совпадать с dueDate.toISOString() на строках задач (там тоже UTC): иначе на
+  // сервере со сдвигом таймзоны граница «просрочено» уезжала бы на день. Сравнение
+  // строковое (лексикографическое = хронологическое, см. tasks-board).
   const now = new Date()
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+  const todayStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`
 
   // Автоочистка: выполненные задачи старше 2 месяцев — soft-delete.
   // Lazy cleanup при заходе на страницу задач (cron не настроен).
@@ -54,11 +56,17 @@ export default async function TasksPage() {
     ...taskVisibilityWhere(role, employeeId, scope),
   }
 
-  // Активные и выполненные грузим РАЗДЕЛЬНО: при общем take:200 c orderBy status
-  // бэклог невыполненных мог полностью вытеснить выполненные, и новая вкладка
-  // «Выполненные» показывала пусто. Теперь у каждой выборки свои 200. Активные —
-  // по сроку (просроченные/сегодня всегда впереди), выполненные — по дате
-  // выполнения (свежие сверху). cancelled ни в одну вкладку не входит — не грузим.
+  // Актуальные (невыполненные) и выполненные грузим РАЗДЕЛЬНО: при общем take c
+  // orderBy status бэклог невыполненных мог полностью вытеснить выполненные, и
+  // вкладка «Выполненные» показывала пусто. Теперь у каждой выборки свой лимит.
+  // Актуальные — по сроку (просроченные впереди), выполненные — по дате выполнения
+  // (свежие сверху). cancelled ни в одну вкладку не входит — не грузим.
+  //
+  // Лимит 2000 (а не 200): у активных организаций и невыполненных, и выполненных
+  // за 2 месяца бывает 800–1200 (автозадачи каждый день). При 200 «Выполненные»
+  // обрезались, а «Просроченные»/счётчики на плитках недосчитывали. Выполненные
+  // старше 2 месяцев и так уходят автоочисткой выше, так что рост ограничен.
+  const TASK_FETCH_LIMIT = 2000
   const [pendingTasks, completedTasks] = await Promise.all([
     db.task.findMany({
       where: { ...visibilityWhere, status: "pending" },
@@ -67,7 +75,7 @@ export default async function TasksPage() {
         client: { select: { id: true, firstName: true, lastName: true } },
       },
       orderBy: { dueDate: "asc" },
-      take: 200,
+      take: TASK_FETCH_LIMIT,
     }),
     db.task.findMany({
       where: { ...visibilityWhere, status: "completed" },
@@ -76,7 +84,7 @@ export default async function TasksPage() {
         client: { select: { id: true, firstName: true, lastName: true } },
       },
       orderBy: { completedAt: "desc" },
-      take: 200,
+      take: TASK_FETCH_LIMIT,
     }),
   ])
   const tasks = [...pendingTasks, ...completedTasks]

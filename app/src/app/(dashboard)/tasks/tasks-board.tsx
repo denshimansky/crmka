@@ -6,7 +6,7 @@ import { CheckCircle2, Clock, AlertTriangle } from "lucide-react"
 import { TaskList, type TaskRow } from "./task-list"
 import { cn } from "@/lib/utils"
 
-type Tab = "active" | "today" | "overdue" | "completed"
+type Tab = "current" | "overdue" | "completed"
 
 export function TasksBoard({
   tasks,
@@ -20,45 +20,44 @@ export function TasksBoard({
   canDelete: boolean
   canViewClients: boolean
 }) {
-  const [tab, setTab] = useState<Tab>("active")
+  const [tab, setTab] = useState<Tab>("current")
 
   // dueDate и today — строки «YYYY-MM-DD», сравниваются лексикографически как даты.
-  const activeTasks = tasks.filter((t) => t.status === "pending")
-  const todayTasks = activeTasks.filter((t) => t.dueDate === today)
-  const overdueTasks = activeTasks.filter((t) => t.dueDate < today)
+  // «Актуальные» = все невыполненные задачи (объединили бывшие «Активные» и «На
+  // сегодня» — «сегодня» было подмножеством «активных»). Просроченные внутри идут
+  // первыми: список приходит отсортированным по сроку (dueDate asc). Отдельная
+  // вкладка «Просроченные» — фокус на тех, у кого срок уже прошёл (dueDate < today).
+  const currentTasks = tasks.filter((t) => t.status === "pending")
+  const overdueTasks = currentTasks.filter((t) => t.dueDate < today)
   const completedTasks = tasks.filter((t) => t.status === "completed")
 
   const counts = {
-    active: activeTasks.length,
-    today: todayTasks.length,
+    current: currentTasks.length,
     overdue: overdueTasks.length,
     completed: completedTasks.length,
   }
 
   const visible =
-    tab === "today" ? todayTasks
-    : tab === "overdue" ? overdueTasks
+    tab === "overdue" ? overdueTasks
     : tab === "completed" ? completedTasks
-    : activeTasks
+    : currentTasks
 
   const cards = [
-    { key: "today" as const, title: "На сегодня", value: counts.today, icon: Clock, color: "text-blue-600", bg: "bg-blue-50" },
+    { key: "current" as const, title: "Актуальные", value: counts.current, icon: Clock, color: "text-blue-600", bg: "bg-blue-50" },
     { key: "overdue" as const, title: "Просрочено", value: counts.overdue, icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
     { key: "completed" as const, title: "Выполнено", value: counts.completed, icon: CheckCircle2, color: "text-green-600", bg: "bg-green-50" },
   ]
 
   const tabs = [
-    { key: "active" as const, label: "Активные", count: counts.active },
-    { key: "today" as const, label: "На сегодня", count: counts.today },
+    { key: "current" as const, label: "Актуальные", count: counts.current },
     { key: "overdue" as const, label: "Просроченные", count: counts.overdue },
     { key: "completed" as const, label: "Выполненные", count: counts.completed },
   ]
 
   const emptyLabel =
-    tab === "today" ? "Нет задач на сегодня"
-    : tab === "overdue" ? "Нет просроченных задач"
+    tab === "overdue" ? "Нет просроченных задач"
     : tab === "completed" ? "Нет выполненных задач"
-    : "Нет активных задач"
+    : "Нет актуальных задач"
 
   return (
     <div className="space-y-6">

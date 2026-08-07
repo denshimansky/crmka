@@ -131,6 +131,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0))
   const today = new Date(Date.UTC(year, month - 1, now.getDate()))
+  // «Сегодня» для виджета «Задачи на сегодня» — от РЕАЛЬНОЙ даты, а не от месяца
+  // из селектора дашборда. Иначе при листании на будущий месяц today уезжает
+  // вперёд (месяц селектора + текущее число): будущие задачи подтягиваются как
+  // сегодняшние и весь список красится «просроченным». Финансовые виджеты ниже
+  // по-прежнему живут по выбранному месяцу (monthStart/monthEnd/today).
+  const realToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
 
   // === МЕТРИКИ ===
 
@@ -179,7 +185,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       tenantId,
       deletedAt: null,
       status: "pending",
-      dueDate: { lte: today },
+      dueDate: { lte: realToday },
       ...taskVisibilityWhere(session.user.role, session.user.employeeId ?? null, scope),
     },
     select: {
@@ -201,7 +207,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // Дата события вытаскивается из заголовка задач, у которых она есть в
   // скобках (`(YYYY-MM-DD)` для trial_reminder, `(DD.MM.YYYY)` для
   // no_show_review). Для остальных — dueDate.
-  const todayIso = today.toISOString().slice(0, 10)
+  const todayIso = realToday.toISOString().slice(0, 10)
   const todayTaskRows: DashboardTaskRow[] = todayTasks.map((t) => {
     const iso = t.title.match(/\((\d{4}-\d{2}-\d{2})\)/)
     const ru = t.title.match(/\((\d{2})\.(\d{2})\.(\d{4})\)/)
@@ -608,8 +614,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   })
 
   // === ДНИ РОЖДЕНИЯ (дети с активным абонементом + сотрудники, окно 30 дней) ===
-  // Отсчёт от реального «сегодня», не зависит от выбранного месяца.
-  const realToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  // Отсчёт от реального «сегодня» (realToday объявлен выше), не зависит от месяца.
   const birthdaysData = await computeUpcomingBirthdays(db, tenantId, realToday, scope)
   const birthdaysCount = birthdaysData.children.length + birthdaysData.staff.length
 
