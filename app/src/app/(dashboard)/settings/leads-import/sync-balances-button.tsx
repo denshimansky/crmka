@@ -8,8 +8,9 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Coins, AlertCircle } from "lucide-react"
+import { Coins, AlertCircle, Download } from "lucide-react"
 import { useCurrencySymbol } from "@/components/currency-provider"
+import { BALANCES_TEMPLATE_HREF, BALANCES_TEMPLATE_FILENAME } from "./template-meta"
 
 interface MissingClient {
   phone: string
@@ -122,8 +123,16 @@ export function SyncBalancesButton() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <a
+              href={BALANCES_TEMPLATE_HREF}
+              download={BALANCES_TEMPLATE_FILENAME}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
+            >
+              <Download className="size-4" />
+              Скачать шаблон остатков «{BALANCES_TEMPLATE_FILENAME}»
+            </a>
             <div className="space-y-1.5">
-              <Label>остатки.xlsx <span className="text-destructive">*</span></Label>
+              <Label>Файл остатков <span className="text-destructive">*</span></Label>
               <Input
                 type="file"
                 accept=".xlsx"
