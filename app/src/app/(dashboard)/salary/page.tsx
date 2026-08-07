@@ -17,6 +17,7 @@ import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { ConductedPaymentsList } from "@/components/salary/conducted-payments-list"
 import { splitEmployeeByKind } from "@/lib/salary/kind-split"
+import { okladForPeriod } from "@/lib/salary/oklad-for-period"
 import { computePriorPieceBalances } from "@/lib/salary/prior-piece-balance"
 
 export default async function SalaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -55,7 +56,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
     },
     select: {
       id: true, firstName: true, lastName: true, role: true,
-      monthlySalary: true,
+      monthlySalary: true, okladFrom: true,
       salaryRates: { select: { scheme: true, ratePerStudent: true, ratePerLesson: true, fixedPerShift: true } },
     },
     orderBy: { lastName: "asc" },
@@ -117,7 +118,21 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   //  • «Оклады» — окладники (monthlySalary>0).
   //  • «Сдельная» — у кого есть сделочная активность (начисление/выплата/корректировка).
   //  Совмещающий попадает в обе вкладки (в каждой — своя часть; см. lib/salary/kind-split).
-  const okladIds = new Set(employees.filter((e) => Number(e.monthlySalary) > 0).map((e) => e.id))
+  // Оклад сотрудника за ВЫБРАННЫЙ месяц: гейт по дате начала оклада (okladFrom) +
+  // пропорция неполного первого месяца. Раньше оклад начислялся за любой месяц —
+  // окладник, заведённый в августе, всплывал в июле (см. lib/salary/oklad-for-period).
+  const okladByEmployee = new Map(
+    employees.map((e) => [
+      e.id,
+      okladForPeriod({
+        monthlySalary: Number(e.monthlySalary) || 0,
+        okladFrom: e.okladFrom,
+        periodYear: year,
+        periodMonth: month,
+      }),
+    ]),
+  )
+  const okladIds = new Set(employees.filter((e) => (okladByEmployee.get(e.id) || 0) > 0).map((e) => e.id))
 
   // «Доначислено» — накопленный сделочный остаток прошлых периодов (только вкладка
   // «Сдельная»): плюс = недоплата (в т.ч. ретро-отметки после выплаты), минус —
@@ -133,7 +148,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   const rows = employees.map((emp) => {
     const name = [emp.lastName, emp.firstName].filter(Boolean).join(" ") || "Без имени"
     const split = splitEmployeeByKind({
-      monthlySalary: Number(emp.monthlySalary) || 0,
+      monthlySalary: okladByEmployee.get(emp.id) || 0,
       pieceAccrued: accrualsByEmployee.get(emp.id) || 0,
       paymentItems: itemsByEmployee.get(emp.id) ?? [],
       adjustments: adjByEmployee.get(emp.id) ?? [],

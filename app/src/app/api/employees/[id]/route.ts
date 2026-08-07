@@ -31,6 +31,10 @@ const updateSchema = z.object({
     if (v === null || v === undefined || v === "") return null
     return typeof v === "string" ? v : null
   }).optional(),
+  // Дата, с которой действует оклад (YYYY-MM-DD). Пусто → оклад за весь месяц во
+  // всех периодах (обратная совместимость). Иначе оклад не начисляется за месяцы
+  // до неё, неполный первый месяц — пропорционально (см. lib/salary/oklad-for-period).
+  okladFrom: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : null).optional(),
   // Филиалы, на которые распространяется оклад (разнесение оклад-твина в ОПИУ).
   // Пусто → по всем ∝ выручке.
   okladBranchIds: z.array(z.string().uuid()).nullable().optional(),
@@ -122,6 +126,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(data.password && { passwordHash: await bcrypt.hash(data.password, 10) }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
         ...(data.monthlySalary !== undefined && { monthlySalary: data.monthlySalary }),
+        ...(data.okladFrom !== undefined && { okladFrom: data.okladFrom ? new Date(data.okladFrom) : null }),
         ...(data.defaultDirectionId !== undefined && { defaultDirectionId: data.defaultDirectionId }),
         ...(data.okladBranchIds !== undefined && {
           okladBranchIds: data.okladBranchIds && data.okladBranchIds.length > 0 ? data.okladBranchIds : Prisma.DbNull,

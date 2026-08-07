@@ -99,6 +99,9 @@ interface Props {
   // Пусто → оклад распределяется по всем филиалам ∝ выручке.
   branches?: BranchOption[]
   okladBranchIds?: string[] | null
+  // Дата, с которой действует оклад (ISO/YYYY-MM-DD). Пусто → оклад за весь месяц
+  // во всех периодах (обратная совместимость).
+  okladFrom?: string | null
   open?: boolean
   onOpenChange?: (open: boolean) => void
   hideTrigger?: boolean
@@ -114,6 +117,7 @@ export function SalaryRatesDialog({
   defaultDirectionId = null,
   branches = [],
   okladBranchIds = null,
+  okladFrom: okladFromProp = null,
   open: openProp,
   onOpenChange,
   hideTrigger,
@@ -142,6 +146,7 @@ export function SalaryRatesDialog({
   // --- Оклад (фиксированная месячная ставка, хранится на Employee) ---
   const [oklad, setOklad] = useState(monthlySalary != null ? String(monthlySalary) : "")
   const [okladDir, setOkladDir] = useState(defaultDirectionId ?? "")
+  const [okladFrom, setOkladFrom] = useState(okladFromProp?.slice(0, 10) ?? "")
   const [okladBranches, setOkladBranches] = useState<string[]>(okladBranchIds ?? [])
   const [okladSaving, setOkladSaving] = useState(false)
   const [okladSaved, setOkladSaved] = useState(false)
@@ -152,11 +157,12 @@ export function SalaryRatesDialog({
     if (!open) return
     setOklad(monthlySalary != null ? String(monthlySalary) : "")
     setOkladDir(defaultDirectionId ?? "")
+    setOkladFrom(okladFromProp?.slice(0, 10) ?? "")
     setOkladBranches(okladBranchIds ?? [])
     setOkladSaved(false)
     setOkladError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, monthlySalary, defaultDirectionId])
+  }, [open, monthlySalary, defaultDirectionId, okladFromProp])
 
   function toggleOkladBranch(id: string) {
     setOkladBranches((prev) => (prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]))
@@ -166,6 +172,7 @@ export function SalaryRatesDialog({
   const okladDirty =
     (oklad.trim() === "" ? null : Number(oklad)) !== (monthlySalary ?? null) ||
     (okladDir || null) !== (defaultDirectionId ?? null) ||
+    (okladFrom || null) !== (okladFromProp?.slice(0, 10) ?? null) ||
     !sameBranchSet(okladBranches, okladBranchIds ?? [])
 
   async function saveOklad() {
@@ -179,6 +186,7 @@ export function SalaryRatesDialog({
         body: JSON.stringify({
           monthlySalary: oklad.trim() === "" ? null : Number(oklad),
           defaultDirectionId: okladDir || null,
+          okladFrom: okladFrom || null,
           okladBranchIds: okladBranches,
         }),
       })
@@ -378,6 +386,20 @@ export function SalaryRatesDialog({
                         ))}
                       </select>
                     </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Оклад действует с</Label>
+                    <Input
+                      type="date"
+                      value={okladFrom}
+                      onChange={(e) => { setOkladFrom(e.target.value); setOkladSaved(false) }}
+                      className="max-w-[200px]"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Оклад не начисляется за месяцы до этой даты; неполный первый
+                      месяц — пропорционально календарным дням. Пусто — оклад за весь
+                      месяц во всех периодах (как раньше).
+                    </p>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Основное направление — для разнесения оклада по направлениям в ОПИУ.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { requirePermission } from "@/lib/api-permissions"
 import { allocateSalaryPayments, NO_DIR } from "@/lib/salary/allocate-payments"
+import { okladForPeriod } from "@/lib/salary/oklad-for-period"
 
 /**
  * GET /api/salary-payments/accruals?periodYear&periodMonth&upTo&kind
@@ -75,6 +76,7 @@ export async function GET(req: NextRequest) {
         lastName: true,
         role: true,
         monthlySalary: true,
+        okladFrom: true,
         defaultDirectionId: true,
         defaultDirection: { select: { id: true, name: true } },
       },
@@ -133,11 +135,19 @@ export async function GET(req: NextRequest) {
   }
 
   // 2. Оклад — из Employee.monthlySalary (ключ = defaultDirectionId ?? "__no_direction__").
-  // При границе внутри месяца оклад начисляется пропорционально дням.
+  // Учитываем дату начала оклада (okladFrom): за месяцы до неё оклад не начисляется,
+  // неполный первый месяц — пропорционально календарным дням. Аванс «по N-е»
+  // комбинируется через upToDay (см. lib/salary/oklad-for-period).
   const okladAccruals = new Map<string, Map<string, AccrualPerDir>>()
-  const salaryShare = partial ? accrualEnd.getUTCDate() / monthEnd.getUTCDate() : 1
+  const upToDay = partial ? accrualEnd.getUTCDate() : null
   for (const emp of employees) {
-    const ms = (emp.monthlySalary ? Number(emp.monthlySalary) : 0) * salaryShare
+    const ms = okladForPeriod({
+      monthlySalary: emp.monthlySalary ? Number(emp.monthlySalary) : 0,
+      okladFrom: emp.okladFrom,
+      periodYear,
+      periodMonth,
+      upToDay,
+    })
     if (ms <= 0) continue
     const dirId = emp.defaultDirectionId ?? null
     const dirName = emp.defaultDirection?.name ?? "Без направления"

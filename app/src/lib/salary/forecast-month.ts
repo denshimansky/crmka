@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient, type SalaryScheme } from "@prisma/client"
 import { pickRateAt } from "./pick-rate-at"
+import { okladForPeriod } from "./oklad-for-period"
 
 type DB = PrismaClient | Prisma.TransactionClient
 
@@ -116,7 +117,7 @@ export async function computeSalaryForecastBreakdown(
   const [oklads, groupRates, personalRates, enrollGroups, orgTypeRow] = await Promise.all([
     db.employee.findMany({
       where: { tenantId, deletedAt: null, monthlySalary: { not: null } },
-      select: { id: true, monthlySalary: true },
+      select: { id: true, monthlySalary: true, okladFrom: true },
     }),
     db.groupSalaryRate.findMany({
       where: { tenantId, groupId: { in: groupIds } },
@@ -144,7 +145,21 @@ export async function computeSalaryForecastBreakdown(
     }),
   ])
 
-  const okladMap = new Map(oklads.map((e) => [e.id, Number(e.monthlySalary)]))
+  // Оклад за прогнозируемый месяц с учётом даты начала (okladFrom) и пропорции
+  // неполного месяца; окладники, чей оклад ещё не начался (0), в карту не попадают.
+  const okladMap = new Map(
+    oklads
+      .map((e) => [
+        e.id,
+        okladForPeriod({
+          monthlySalary: Number(e.monthlySalary) || 0,
+          okladFrom: e.okladFrom,
+          periodYear: year,
+          periodMonth: month,
+        }),
+      ] as const)
+      .filter(([, v]) => v > 0),
+  )
   const groupRateMap = new Map(groupRates.map((r) => [r.groupId, r as RateLike]))
   const personalByDir = new Map<string, RateLike & { schedules: (RateLike & { effectiveFrom: Date; deletedAt: Date | null })[] }>()
   const personalDefault = new Map<string, RateLike & { schedules: (RateLike & { effectiveFrom: Date; deletedAt: Date | null })[] }>()

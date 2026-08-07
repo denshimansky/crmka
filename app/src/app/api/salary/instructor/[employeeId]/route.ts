@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { buildInstructorSalaryDetail, type AttendanceInput } from "@/lib/salary/instructor-detail"
 import { kindOfDirection } from "@/lib/salary/kind-split"
+import { okladForPeriod } from "@/lib/salary/oklad-for-period"
 import { computePriorPieceBalances } from "@/lib/salary/prior-piece-balance"
 
 export async function GET(
@@ -36,7 +37,7 @@ export async function GET(
     where: { id: employeeId, tenantId, deletedAt: null },
     select: {
       id: true, firstName: true, lastName: true, role: true,
-      monthlySalary: true, defaultDirectionId: true,
+      monthlySalary: true, okladFrom: true, defaultDirectionId: true,
       defaultDirection: { select: { name: true } },
     },
   })
@@ -95,7 +96,15 @@ export async function GET(
   // Тип карточки: oklad-вид (только оклад) или piece-вид (только сделка). Оклад =
   // «без направления» (см. lib/salary/kind-split). kind из ссылки; без него —
   // «Оклады» для чистого окладника (есть оклад, нет сделки), иначе «Сдельная».
-  const hasOklad = employee.monthlySalary != null && Number(employee.monthlySalary) > 0
+  // Оклад за выбранный месяц с учётом даты начала (okladFrom) и пропорции неполного
+  // первого месяца. hasOklad — окладник ли он В ЭТОМ месяце (0 до даты начала).
+  const okladThisPeriod = okladForPeriod({
+    monthlySalary: employee.monthlySalary != null ? Number(employee.monthlySalary) : 0,
+    okladFrom: employee.okladFrom,
+    periodYear,
+    periodMonth,
+  })
+  const hasOklad = okladThisPeriod > 0
   const pieceAccruedTotal = attInput.reduce((s, a) => s + a.instructorPayAmount, 0)
   const kindParam = searchParams.get("kind")
   const kind: "piece" | "salary" =
@@ -119,7 +128,7 @@ export async function GET(
           .map((p) => ({ directionId: p.directionId, amount: Number(p.amount), directionName: p.direction?.name ?? null })),
         salaried: hasOklad
           ? {
-              monthlySalary: Number(employee.monthlySalary),
+              monthlySalary: okladThisPeriod,
               defaultDirectionId: employee.defaultDirectionId,
               defaultDirectionName: okladName,
             }
