@@ -142,18 +142,19 @@ export function ProcessLeadsButton() {
     <>
       <Button onClick={() => setOpen(true)} variant="outline">
         <Upload className="size-4" />
-        Загрузить Список лидов
+        Загрузить и проверить
       </Button>
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Шаг 1. Подготовка исходной таблицы</DialogTitle>
+            <DialogTitle>Шаг 1. Проверка файла</DialogTitle>
             <DialogDescription>
-              Загрузите таблицу старой базы с колонками: ФИО (ребёнок), Контактное лицо
-              (родитель), Телефон, Соцсети, Дата рождения, Статус, Филиал. Система уберёт
-              дубли и пометит спорные строки. Получите файл{" "}
-              <code>Список лидов — для импорта.xlsx</code> для вычитки — его затем грузите
-              на Шаге 2.
+              Загрузите заполненный шаблон <b>или</b> выгрузку старой базы. Система уберёт
+              дубли (один ребёнок в нескольких строках → одна строка), сведёт детей одного
+              телефона к одному родителю и пометит спорные строки «Проверить = да». В базу
+              ничего не пишется — вы получите файл{" "}
+              <code>Список лидов — для импорта.xlsx</code>: откройте его, поправьте
+              помеченные строки и загрузите на Шаге 2.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">

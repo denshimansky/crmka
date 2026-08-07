@@ -16,6 +16,7 @@ import {
   parseDob,
   type LeadFileRow,
 } from "../lib/leads-import/parse-leads-file"
+import { processLeads } from "../lib/leads-import/process-leads"
 
 function row(over: Partial<LeadFileRow>): LeadFileRow {
   return {
@@ -136,5 +137,33 @@ describe("loadLeadsFile + dedup — сквозной путь с датой-яч
     assert.equal(parseDob(ilya.birthDate)!.toISOString(), "2018-11-30T00:00:00.000Z")
     const vera = dd.rows.find((r) => r.child === "Шапкина Вера")!
     assert.equal(parseDob(vera.birthDate)!.toISOString(), "2020-05-12T00:00:00.000Z")
+  })
+})
+
+describe("processLeads — Шаг 1 принимает заполненный шаблон", () => {
+  it("колонки шаблона распознаются, дубли ребёнка схлопываются, контакт-пустышка помечается", () => {
+    const headers = [
+      "Фамилия Имя родителя", "Номер_телефона", "Ребёнок", "Соцсети",
+      "Дата_рождения", "Статус", "Филиал",
+    ]
+    const aoa: unknown[][] = [headers]
+    for (let i = 0; i < 10; i++) {
+      aoa.push(["Шапкина Ольга", "+7 977 406 98 33", "Шапкин Илья", "", "30.11.2018", "Продажа", "Центр"])
+    }
+    aoa.push(["Шапкина Ольга", "+7 977 406 98 33", "Шапкина Вера", "", "12.05.2020", "Продажа", "Центр"])
+    aoa.push(["", "", "Безконтактов Иван", "", "", "Лид", "Центр"]) // нет телефона и соцсетей
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Клиенты")
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer
+
+    const res = processLeads(buf)
+    assert.equal(res.ok, true, "шаблон распознан, конфликтов нет")
+    if (res.ok) {
+      assert.equal(res.stats.totalInput, 12)
+      assert.equal(res.stats.afterDedup, 3, "Илья схлопнут, всего 3 уникальных ребёнка")
+      assert.equal(res.stats.noContacts, 1, "строка без телефона и соцсетей помечена")
+      assert.equal(res.stats.needsReview, 1)
+    }
   })
 })

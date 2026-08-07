@@ -59,8 +59,39 @@ export default async function LeadsImportPage() {
         <CardContent className="divide-y p-0">
           <ImportRow
             step="Шаг 1"
-            title="Подготовить файл для импорта"
-            description="Есть большая таблица со старой базой (по строке на каждое направление/абонемент) — загрузите её: система уберёт дубли (один ребёнок в нескольких строках → одна строка), сведёт детей одного телефона к одному родителю по приоритету статусов, пометит спорные строки на проверку и отдаст готовый файл для вычитки. Нет такой таблицы — скачайте пустой шаблон и заполните вручную, по строке на каждого ребёнка. В базу на этом шаге ничего не пишется."
+            title="Подготовить и проверить файл"
+            description={
+              <>
+                <p>
+                  Здесь файл готовится и проверяется — в базу пока ничего не
+                  пишется.
+                </p>
+                <ol className="mt-1 list-decimal space-y-1 pl-5">
+                  <li>
+                    <span className="font-medium">«Скачать шаблон»</span> — откройте
+                    лист «Клиенты» и заполните его: по строке на каждого ребёнка.
+                    Обязательны «Ребёнок», «Статус» и контакт — телефон или соцсети
+                    (если у вас уже есть выгрузка старой базы — этот пункт можно
+                    пропустить, загрузив её как есть).
+                  </li>
+                  <li>
+                    <span className="font-medium">«Загрузить и проверить»</span> —
+                    выберите заполненный файл. Система уберёт дубли (один ребёнок в
+                    нескольких строках → одна строка), сведёт детей одного телефона к
+                    одному родителю и пометит спорные строки «Проверить = да».
+                  </li>
+                  <li>
+                    Система сразу <span className="font-medium">скачает вам
+                    проверенный файл</span>. Откройте его в Excel, поправьте или
+                    удалите строки с пометкой «Проверить = да» (нет контакта или
+                    непонятный статус) и сохраните.
+                  </li>
+                  <li>
+                    Готовый файл загрузите на <span className="font-medium">Шаге 2</span>.
+                  </li>
+                </ol>
+              </>
+            }
             button={
               <div className="flex flex-col gap-2">
                 <ProcessLeadsButton />
@@ -127,7 +158,7 @@ function ImportRow({
 }: {
   step: string
   title: string
-  description: string
+  description: React.ReactNode
   button: React.ReactNode
 }) {
   return (
@@ -138,7 +169,7 @@ function ImportRow({
           {step}
         </div>
         <div className="mt-0.5 font-medium">{title}</div>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        <div className="mt-1 text-sm text-muted-foreground">{description}</div>
       </div>
     </div>
   )
