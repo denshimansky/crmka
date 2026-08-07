@@ -229,12 +229,9 @@ export default function PlannedExpensesPage() {
 
   // Summary
   const totalPlanned = items.reduce((sum, i) => sum + i.plannedAmount, 0)
-  const totalActual = items.reduce((sum, i) => sum + i.actualAmount, 0)
-  const deviation = totalActual - totalPlanned
-  const deviationPercent = totalPlanned > 0 ? ((deviation / totalPlanned) * 100).toFixed(1) : "0"
 
-  // Карточки «Факт» и «Отклонение» убраны — остаётся только «План»
-  // (факт/отклонение по-прежнему видны в таблице по статьям).
+  // Столбцы «Факт», «Отклонение» и «%» убраны из таблицы —
+  // отслеживаем только план по статьям.
   const summaryCards = [
     { title: "План", value: formatMoney(totalPlanned), icon: Target, color: "text-blue-600", bg: "bg-blue-50" },
   ]
@@ -248,7 +245,7 @@ export default function PlannedExpensesPage() {
             <PageHelp pageKey="finance/planned-expenses" />
           </div>
           <p className="text-sm text-muted-foreground">
-            План vs факт по статьям расходов
+            Плановые расходы по статьям
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -314,75 +311,49 @@ export default function PlannedExpensesPage() {
               <TableHead>Категория</TableHead>
               <TableHead>Филиал</TableHead>
               <TableHead className="text-right">План</TableHead>
-              <TableHead className="text-right">Факт</TableHead>
-              <TableHead className="text-right">Отклонение</TableHead>
-              <TableHead className="text-right">%</TableHead>
               <TableHead>Комментарий</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map(item => {
-              const diff = item.actualAmount - item.plannedAmount
-              const pct = item.plannedAmount > 0
-                ? ((diff / item.plannedAmount) * 100).toFixed(1)
-                : "—"
-              const isOver = diff > 0
-              const isUnder = diff < 0
-
-              return (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.categoryName}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {item.branchName ?? "Общее"}
-                  </TableCell>
-                  <TableCell className="text-right">{formatMoney(item.plannedAmount)}</TableCell>
-                  <TableCell className="text-right">{formatMoney(item.actualAmount)}</TableCell>
-                  <TableCell className={`text-right font-medium ${isOver ? "text-red-600" : isUnder ? "text-green-600" : ""}`}>
-                    {diff === 0 ? "—" : `${diff > 0 ? "+" : ""}${formatMoney(diff)}`}
-                  </TableCell>
-                  <TableCell className={`text-right ${isOver ? "text-red-600" : isUnder ? "text-green-600" : ""}`}>
-                    {pct === "—" ? "—" : `${Number(pct) > 0 ? "+" : ""}${pct}%`}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground max-w-[150px] truncate">
-                    {item.comment || "—"}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        onClick={() => openEdit(item)}
-                      >
-                        <Pencil className="size-4 text-muted-foreground" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        onClick={() => handleDelete(item)}
-                      >
-                        <Trash2 className="size-4 text-muted-foreground" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
+            {items.map(item => (
+              <TableRow key={item.id}>
+                <TableCell className="font-medium">{item.categoryName}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {item.branchName ?? "Общее"}
+                </TableCell>
+                <TableCell className="text-right">{formatMoney(item.plannedAmount)}</TableCell>
+                <TableCell className="text-muted-foreground max-w-[150px] truncate">
+                  {item.comment || "—"}
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      onClick={() => openEdit(item)}
+                    >
+                      <Pencil className="size-4 text-muted-foreground" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      onClick={() => handleDelete(item)}
+                    >
+                      <Trash2 className="size-4 text-muted-foreground" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
 
             {/* Total row */}
             <TableRow className="font-bold bg-muted/50">
               <TableCell>Итого</TableCell>
               <TableCell />
               <TableCell className="text-right">{formatMoney(totalPlanned)}</TableCell>
-              <TableCell className="text-right">{formatMoney(totalActual)}</TableCell>
-              <TableCell className={`text-right ${deviation > 0 ? "text-red-600" : deviation < 0 ? "text-green-600" : ""}`}>
-                {deviation === 0 ? "—" : `${deviation > 0 ? "+" : ""}${formatMoney(deviation)}`}
-              </TableCell>
-              <TableCell className={`text-right ${deviation > 0 ? "text-red-600" : deviation < 0 ? "text-green-600" : ""}`}>
-                {deviationPercent}%
-              </TableCell>
               <TableCell />
               <TableCell />
             </TableRow>

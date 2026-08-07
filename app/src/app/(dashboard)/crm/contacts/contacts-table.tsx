@@ -478,20 +478,20 @@ export function ContactsTable({
               tab === "active" ||
               tab === "all") && <Th label="Дети" k="wards" width={widthOf("wards")} {...thProps} />}
             {tab === "active" && <Th label="Сегмент" k="segment" width={widthOf("segment")} {...thProps} />}
-            {tab === "leads" && <Th label="Канал" k="channel" width={widthOf("channel")} {...thProps} />}
             <Th label="Филиал" k="branch" width={widthOf("branch")} {...thProps} />
             {tab === "active" && <Th label="Направление" k="direction" width={widthOf("direction")} {...thProps} />}
             {tab === "active" && <Th label="Группа" k="group" width={widthOf("group")} {...thProps} />}
             {tab === "active" && (
               <Th label={roleNames.instructor} k="instructor" width={widthOf("instructor")} {...thProps} />
             )}
-            {tab === "leads" && <Th label="Дата создания" k="created" width={widthOf("created")} {...thProps} />}
             {(tab === "leads" || tab === "potential" || tab === "active" || tab === "churned") && (
               <Th label="След. связь" k="nextContact" width={widthOf("nextContact")} {...thProps} />
             )}
             {(tab === "leads" || tab === "potential" || tab === "nontarget" || tab === "active" || tab === "all") && (
               <Th label="Комментарий" k="comment" width={widthOf("comment")} {...thProps} />
             )}
+            {tab === "leads" && <Th label="Канал" k="channel" width={widthOf("channel")} {...thProps} />}
+            {tab === "leads" && <Th label="Дата создания" k="created" width={widthOf("created")} {...thProps} />}
             {(tab === "leads" || tab === "potential" || tab === "nontarget" || tab === "active") && (
               <Th label="Ответственный" k="assigned" width={widthOf("assigned")} {...thProps} />
             )}
@@ -558,7 +558,6 @@ export function ContactsTable({
                 <TableCell className="text-sm" title={wardsLabel(r.wards)}>{wardsLabel(r.wards)}</TableCell>
               )}
               {tab === "active" && <TableCell className="text-xs">{SEGMENT_LABELS[r.segment] || "—"}</TableCell>}
-              {tab === "leads" && <TableCell className="text-sm">{r.channelName || "—"}</TableCell>}
               <TableCell className="text-sm">{r.branchName || "—"}</TableCell>
               {tab === "active" && (
                 <TableCell className="text-sm">{r.activeSubscription?.directionName || "—"}</TableCell>
@@ -571,7 +570,6 @@ export function ContactsTable({
               {tab === "active" && (
                 <TableCell className="text-sm">{r.activeSubscription?.instructor.name || "—"}</TableCell>
               )}
-              {tab === "leads" && <TableCell className="text-sm">{fmtDate(r.createdAt)}</TableCell>}
               {(tab === "leads" || tab === "potential" || tab === "active" || tab === "churned") && (
                 <TableCell>
                   <EditableDateCell
@@ -588,6 +586,8 @@ export function ContactsTable({
                   />
                 </TableCell>
               )}
+              {tab === "leads" && <TableCell className="text-sm">{r.channelName || "—"}</TableCell>}
+              {tab === "leads" && <TableCell className="text-sm">{fmtDate(r.createdAt)}</TableCell>}
               {(tab === "leads" || tab === "potential" || tab === "nontarget" || tab === "active") && (
                 <TableCell>
                   <EditableSelectCell
