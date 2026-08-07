@@ -130,12 +130,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const now = new Date()
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0))
-  const today = new Date(Date.UTC(year, month - 1, now.getDate()))
-  // «Сегодня» для виджета «Задачи на сегодня» — от РЕАЛЬНОЙ даты, а не от месяца
-  // из селектора дашборда. Иначе при листании на будущий месяц today уезжает
-  // вперёд (месяц селектора + текущее число): будущие задачи подтягиваются как
-  // сегодняшние и весь список красится «просроченным». Финансовые виджеты ниже
-  // по-прежнему живут по выбранному месяцу (monthStart/monthEnd/today).
+  // realToday — РЕАЛЬНОЕ «сегодня», НЕ зависит от селектора месяца. Все
+  // date-relative виджеты (задачи, ДР, неотмеченные занятия) считают от него.
+  // Иначе при листании на другой месяц «сегодня» уезжало (месяц селектора +
+  // текущее число): задачи краснели «просроченными», будущие подтягивались как
+  // сегодняшние. Финансовые виджеты ниже — по выбранному месяцу (monthStart/monthEnd).
   const realToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
 
   // === МЕТРИКИ ===
@@ -237,14 +236,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     }
   })
 
-  // Неотмеченные занятия — только те, что фактически уже закончились.
-  // Урезаем по дате на стороне БД (≤ сегодня), а сегодняшние занятия,
-  // у которых endTime ещё не наступило, отсекаем в JS — sqlite/postgres
-  // не умеет элегантно сравнить time-of-day + duration без raw SQL.
+  // Неотмеченные занятия — операционный виджет «вы забыли отметить», НЕ зависит
+  // от селектора месяца: считаем от реального «сегодня» (realToday), а не от
+  // month-today. Иначе на прошлом месяце окно [1-е..month-today] теряло конец
+  // месяца, а нижняя граница цеплялась за 1-е число выбранного месяца. Окно —
+  // скользящие ~60 дней назад (ловит и конец прошлого месяца через границу).
+  // Верхняя граница ≤ realToday обязательна: иначе будущие занятия из расписания
+  // заняли бы топ-60 по date desc и все отсеялись бы фильтром «уже закончилось».
+  // Сегодняшние занятия, у которых endTime ещё не наступил, отсекаем в JS —
+  // postgres не умеет элегантно сравнить time-of-day + duration без raw SQL.
+  const unmarkedFrom = new Date(realToday)
+  unmarkedFrom.setUTCDate(unmarkedFrom.getUTCDate() - 60)
   const unmarkedRaw = await db.lesson.findMany({
     where: {
       tenantId,
-      date: { gte: monthStart, lte: today },
+      date: { gte: unmarkedFrom, lte: realToday },
       status: "scheduled",
       // isPending-плейсхолдер разового ученика — не отметка
       attendances: { none: { isPending: false } },
