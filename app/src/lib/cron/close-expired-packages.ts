@@ -3,17 +3,24 @@ import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { nextDayUtc } from "@/lib/subscriptions/last-paid-lesson-date"
 import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
+import { reconcileSubscriptionClosure } from "@/lib/subscriptions/reconcile-closure"
 import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
 
 /**
  * Закрывает все пакетные абонементы, у которых истёк срок (expiresAt < today).
- * Остаток balance сгорает — переходит в выручку. Возврат на баланс клиента —
- * только вручную через дополнительную операцию (см. UI ручного продления).
+ *
+ * Денежная сверка при закрытии (единая формула — см. reconcile-closure.ts):
+ *   - реальный ДОЛГ (ребёнок ходил, не доплатив: списано > оплачено) переносится
+ *     на баланс родителя (минус) — иначе он «замерзал» на закрытом абонементе,
+ *     который нельзя ни оплатить, ни отредактировать (баг ДЦ Первое Слово, 07.08.2026);
+ *   - ПЕРЕПЛАТА/неиспользованный остаток пакета сгорает (burnOverpayment): на
+ *     баланс не возвращаем, возврат — только вручную (UI ручного продления);
+ *   - balance зануляется ВСЕГДА, чтобы закрытый пакет не висел «мёртвым» долгом
+ *     (в т.ч. фантом неоплаченного неиспользованного пакета: delta=0 → balance→0).
  *
  * Lesson posting в attendance route уже фильтрует по expiresAt >= lessonDate,
  * так что после истечения новые списания невозможны. Этот cron нужен для
- * корректного status='closed' и endDate, чтобы отчёты не отображали
- * истёкший пакет как «активный».
+ * корректного status='closed', endDate и сверки долга/переплаты.
  *
  * Также по закрытым абонементам пересчитываем шаблонные linked-скидки клиента
  * — у других подопечных условие могло перестать выполняться.
@@ -44,10 +51,34 @@ export async function closeExpiredPackages(now: Date = new Date()) {
   })
   if (candidates.length === 0) return { closed: 0 }
 
-  await db.subscription.updateMany({
-    where: { id: { in: candidates.map((c) => c.id) } },
-    data: { status: "closed", endDate: today },
+  // Валюта по тенантам — для символа в комментарии проводки долга.
+  const tenantIds = [...new Set(candidates.map((c) => c.tenantId))]
+  const orgs = await db.organization.findMany({
+    where: { id: { in: tenantIds } },
+    select: { id: true, currency: true },
   })
+  const currencyByTenant = new Map(orgs.map((o) => [o.id, o.currency]))
+
+  // Закрываем каждый пакет с денежной сверкой (реальный долг → на баланс родителя,
+  // переплата сгорает, balance → 0). Пер-абонементная транзакция: проводка баланса
+  // и update статуса атомарны.
+  for (const c of candidates) {
+    await db.$transaction(async (tx) => {
+      await reconcileSubscriptionClosure(tx, {
+        tenantId: c.tenantId,
+        subscriptionId: c.id,
+        clientId: c.clientId,
+        directionId: c.directionId,
+        employeeId: null,
+        currency: currencyByTenant.get(c.tenantId),
+        burnOverpayment: true,
+      })
+      await tx.subscription.update({
+        where: { id: c.id },
+        data: { status: "closed", endDate: today, balance: 0 },
+      })
+    })
+  }
 
   // Баг #62: истёкший НЕОПЛАЧЕННЫЙ pending-пакет не должен оставлять заявку
   // висеть в «Ожидаем оплату» (guard'ы внутри резолвера: только pending и

@@ -1,7 +1,6 @@
 import { Prisma } from "@prisma/client"
 import { currencySymbol } from "@/lib/currency"
-import { applyBalanceDelta } from "@/lib/balance/transactions"
-import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
+import { reconcileSubscriptionClosure } from "@/lib/subscriptions/reconcile-closure"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { resolveAwaitingApplicationOnSubscriptionEnd } from "@/lib/subscriptions/resolve-awaiting-application"
 import { nextDayUtc } from "@/lib/subscriptions/last-paid-lesson-date"
@@ -84,37 +83,16 @@ export async function closeSubscription(
       : new Date())
 
   // ── Денежная сверка (net-оплачено − списано − прошлые возвраты закрытия) ──
-  const paidToSub = await netPaidToSubscription(tx, input.tenantId, existing.id)
-  const usedAgg = await tx.attendance.aggregate({
-    where: { tenantId: input.tenantId, subscriptionId: existing.id },
-    _sum: { chargeAmount: true },
+  // Штатное закрытие возвращает переплату (burnOverpayment не задан). Формула
+  // едина с крон-закрытием пакетов — см. reconcile-closure.ts.
+  const { delta, netPaid: paidToSub } = await reconcileSubscriptionClosure(tx, {
+    tenantId: input.tenantId,
+    subscriptionId: existing.id,
+    clientId: existing.clientId,
+    directionId: existing.directionId,
+    employeeId: input.employeeId,
+    currency: input.currency,
   })
-  const usedAmount = new Prisma.Decimal(usedAgg._sum.chargeAmount ?? 0)
-  const priorAgg = await tx.clientBalanceTransaction.aggregate({
-    where: {
-      tenantId: input.tenantId,
-      subscriptionId: existing.id,
-      type: "subscription_closed_refund",
-    },
-    _sum: { amount: true },
-  })
-  const delta = paidToSub
-    .minus(usedAmount)
-    .minus(new Prisma.Decimal(priorAgg._sum.amount ?? 0))
-
-  if (!delta.isZero()) {
-    await applyBalanceDelta(tx, {
-      tenantId: input.tenantId,
-      clientId: existing.clientId,
-      delta,
-      type: "subscription_closed_refund",
-      refs: { subscriptionId: existing.id, directionId: existing.directionId },
-      comment: delta.isPositive()
-        ? `Закрытие: возврат на баланс ${delta.toFixed(2)} ${sym}`
-        : `Закрытие: долг ${delta.abs().toFixed(2)} ${sym}`,
-      createdBy: input.employeeId ?? null,
-    })
-  }
 
   // Заявка «Ожидаем оплату» по неактивированному pending не должна зависнуть
   // (для active-абонемента — no-op, guard внутри). Считаем ДО update, как в PATCH.
