@@ -147,11 +147,13 @@ export function ProcessLeadsButton() {
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Этап 1. Обработка выгрузки 1С</DialogTitle>
+            <DialogTitle>Шаг 1. Подготовка исходной таблицы</DialogTitle>
             <DialogDescription>
-              Загрузите файл <code>Список лидов.xlsx</code> с колонками: ФИО, Контактное лицо,
-              Телефон, Соцсети, Дата рождения, Состояние лида (или «Актив»), Филиал. Получите файл
-              <code> Список лидов — для импорта.xlsx</code> для вычитки.
+              Загрузите таблицу старой базы с колонками: ФИО (ребёнок), Контактное лицо
+              (родитель), Телефон, Соцсети, Дата рождения, Статус, Филиал. Система уберёт
+              дубли и пометит спорные строки. Получите файл{" "}
+              <code>Список лидов — для импорта.xlsx</code> для вычитки — его затем грузите
+              на Шаге 2.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">

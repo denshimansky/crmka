@@ -103,7 +103,7 @@ export function SyncBalancesButton() {
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Синхронизация остатков из 1С</DialogTitle>
+            <DialogTitle>Синхронизация остатков</DialogTitle>
             <DialogDescription className="space-y-2">
               <span>
                 Загрузите файл <code>остатки.xlsx</code> с колонками

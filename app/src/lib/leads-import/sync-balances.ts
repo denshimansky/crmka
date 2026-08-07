@@ -208,7 +208,7 @@ export async function syncBalances(
         clientId: existing.id,
         delta,
         type: "correction",
-        comment: "Импорт остатков из 1С (остатки.xlsx)",
+        comment: "Импорт остатков (остатки.xlsx)",
         createdBy: opts.createdBy,
       })
       updated++

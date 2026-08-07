@@ -37,6 +37,17 @@ export interface CreatedWithoutPhone {
   child: string
 }
 
+// Клиент, которому баланс просуммирован из НЕСКОЛЬКИХ строк файла (несколько
+// детей одного телефона с заполненным «Балансом»). Частый источник ошибки:
+// в исходной таблице общий баланс родителя продублирован на каждую строку —
+// тогда сумма завышена. Отдаём владельцу на проверку (не блокируем).
+export interface MultiRowBalanceClient {
+  parent: string
+  phone: string
+  rows: number
+  total: number
+}
+
 export interface SyncReport {
   ok: true
   leadsParsed: number
@@ -48,6 +59,9 @@ export interface SyncReport {
   wardsCreated: number
   clientsCreatedWithoutPhone: number
   withoutPhone: CreatedWithoutPhone[]
+  // Клиенты, чей баланс сложился из >1 строки (риск задвоенной суммы).
+  multiRowBalanceCount: number
+  multiRowBalance: MultiRowBalanceClient[]
   totalBalance: number
   balanceMissing: number
   branchAssigned: number
@@ -331,6 +345,7 @@ export async function syncLeads(
     )
   }
   const withoutPhone: CreatedWithoutPhone[] = []
+  const multiRowBalance: MultiRowBalanceClient[] = []
   let clientsCreated = 0
   let clientsMerged = 0
   let wardsCreated = 0
@@ -360,6 +375,13 @@ export async function syncLeads(
       // деньги.xlsx однозначно сматчился. Иначе groupBalance — это вынужденный
       // ноль из пустых ячеек, трогать им clientBalance НЕЛЬЗЯ.
       const groupHasBalanceData = group.rows.some((r) => r.balanceFromFile)
+      // Сколько РАЗНЫХ строк группы принесли непустой баланс. Дубли одного ребёнка
+      // уже схлопнуты (dedupLeadRows берёт баланс один раз), поэтому >1 здесь — это
+      // разные дети одного телефона с заполненным «Балансом»: итог СЛОЖЕН. Если в
+      // исходном файле продублирован общий баланс родителя — сумма завышена.
+      const balanceRowCount = group.rows.filter(
+        (r) => r.balanceFromFile && (r.balance || 0) !== 0,
+      ).length
       const dbStatus = toDbStatus(top)
       const parentName = group.rows[0].parent
       const { firstName, lastName, patronymic } = splitParentFio(parentName)
@@ -374,6 +396,24 @@ export async function syncLeads(
         ? branchByName.get(normBranchName(groupBranch)) ?? null
         : null
       if (!resolvedBranchId) branchMissing++
+
+      // Баланс сложен из нескольких строк — выносим клиента на проверку (частая
+      // причина завышенного баланса: в файле общий баланс родителя продублирован).
+      if (balanceRowCount >= 2) {
+        multiRowBalance.push({
+          parent: parentName || "(без имени)",
+          phone: group.phone || "",
+          rows: balanceRowCount,
+          total: groupBalance,
+        })
+        warnings.push(
+          `Баланс клиента ${parentName || "(без имени)"} (${group.phone || "без телефона"}) ` +
+            `сложен из ${balanceRowCount} строк файла — итого ${groupBalance.toFixed(2)} ${sym}. ` +
+            `Если в файле одна и та же сумма продублирована по строкам, итог задвоен: ` +
+            `очистите столбец «Баланс» у этого клиента и внесите деньги вручную через ` +
+            `«Пополнение баланса» в карточке.`,
+        )
+      }
 
       const existing = group.phone ? existingByPhone.get(group.phone) : undefined
 
@@ -617,6 +657,8 @@ export async function syncLeads(
           branchConflicts,
           clientsCreatedWithoutPhone: withoutPhone.length,
           withoutPhone: withoutPhone.slice(0, 200),
+          multiRowBalanceCount: multiRowBalance.length,
+          multiRowBalance: multiRowBalance.slice(0, 200),
           warnings: warnings.slice(0, 200),
         } as unknown as Prisma.InputJsonValue,
       },
@@ -633,6 +675,8 @@ export async function syncLeads(
     wardsCreated,
     clientsCreatedWithoutPhone: withoutPhone.length,
     withoutPhone,
+    multiRowBalanceCount: multiRowBalance.length,
+    multiRowBalance,
     totalBalance,
     balanceMissing,
     branchAssigned,

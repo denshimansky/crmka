@@ -35,6 +35,13 @@ interface NoContactsRow {
   child: string
 }
 
+interface MultiRowBalanceClient {
+  parent: string
+  phone: string
+  rows: number
+  total: number
+}
+
 interface SyncReport {
   leadsParsed: number
   duplicateRowsCollapsed: number
@@ -44,6 +51,8 @@ interface SyncReport {
   wardsCreated: number
   clientsCreatedWithoutPhone: number
   withoutPhone: CreatedWithoutPhone[]
+  multiRowBalanceCount: number
+  multiRowBalance: MultiRowBalanceClient[]
   totalBalance: number
   balanceMissing: number
   branchAssigned: number
@@ -129,12 +138,14 @@ export function ImportTemplateButton() {
           <DialogHeader>
             <DialogTitle>Импорт клиента по шаблону</DialogTitle>
             <DialogDescription>
-              Скачайте шаблон, заполните лист <code>Клиенты</code> и загрузите файл
-              обратно. Обязательны <b>Ребёнок</b> и <b>Статус</b>, а также хотя бы один
-              контакт — телефон <b>или</b> соцсети. Балансы берутся из колонки
-              «Баланс», дети одного телефона становятся подопечными одного клиента
-              (родителя). Филиалы из колонки «Филиал» должны быть заранее заведены в CRM
-              с такими же названиями.
+              Заполните лист <code>Клиенты</code> и загрузите файл обратно. Обязательны{" "}
+              <b>Ребёнок</b> и <b>Статус</b>, а также хотя бы один контакт — телефон{" "}
+              <b>или</b> соцсети. Дети одного телефона становятся подопечными одного
+              клиента-родителя. <b>Баланс клиента = сумма колонки «Баланс» по всем его
+              строкам</b> (+ депозит, − долг, пусто = 0). Если у клиента баланс
+              продублирован в нескольких строках — сумма задвоится: очистите у него
+              «Баланс» и внесите деньги вручную в карточке. Филиалы из колонки «Филиал»
+              заведите в CRM заранее с такими же названиями.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -269,6 +280,38 @@ export function ImportTemplateButton() {
                           {report.withoutPhone.length > 50 && (
                             <li className="text-amber-800/60 dark:text-amber-200/60">
                               … и ещё {report.withoutPhone.length - 50}
+                            </li>
+                          )}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                )}
+                {report.multiRowBalanceCount > 0 && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-200">
+                    <div className="font-medium">
+                      Баланс сложен из нескольких строк: {report.multiRowBalanceCount}{" "}
+                      {report.multiRowBalanceCount === 1 ? "клиент" : "клиента(ов)"}
+                    </div>
+                    <div className="text-amber-800/80 dark:text-amber-200/80">
+                      У этих клиентов «Баланс» был заполнен в нескольких строках, и суммы
+                      сложились. Если это была одна и та же сумма, продублированная по строкам —
+                      баланс задвоен. Проверьте: очистите у них столбец «Баланс» в файле,
+                      перезалейте, а деньги внесите вручную через «Пополнение баланса» в карточке.
+                    </div>
+                    {report.multiRowBalance.length > 0 && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer">Показать ({report.multiRowBalance.length})</summary>
+                        <ul className="mt-1 list-disc pl-4 space-y-0.5">
+                          {report.multiRowBalance.slice(0, 50).map((m, i) => (
+                            <li key={i}>
+                              {m.parent} ({m.phone || "без тел."}) — {m.rows} строк, итого{" "}
+                              {m.total.toLocaleString("ru-RU")} {sym}
+                            </li>
+                          ))}
+                          {report.multiRowBalance.length > 50 && (
+                            <li className="text-amber-800/60 dark:text-amber-200/60">
+                              … и ещё {report.multiRowBalance.length - 50}
                             </li>
                           )}
                         </ul>
