@@ -188,8 +188,41 @@ export default async function LessonCardPage({
   // Дети без покрытия, но с отметкой на занятии остаются видимыми ниже —
   // через oneTimeAttendances (их списание и есть разовое).
   const coveredKeys = await coverageKeysOnDate(db, tenantId, subscriptionsAll, rosterDate, lesson.id)
-  const enrollments = enrollmentsRaw.filter((e) =>
-    coveredKeys.has(coverageKey(e.clientId, e.wardId)),
+
+  // Пробные ученики на этом занятии. Грузим ДО платного состава: если у ребёнка на
+  // ЭТОМ же занятии есть живое пробное (scheduled/attended/no_show), платный состав
+  // его сюда НЕ включает — пробное побеждает на своей дате. Иначе, когда «дату
+  // первого платного» ставят равной дате пробного, покрывающий (в т.ч. pending)
+  // абонемент задваивает ребёнка: он виден и как пробник, и как платник на одном
+  // занятии. Платное покрытие продолжает действовать со следующего занятия периода.
+  const trialLessons = await db.trialLesson.findMany({
+    where: {
+      tenantId,
+      lessonId: id,
+      status: { in: ["scheduled", "attended", "no_show"] },
+      // Пробное выведенной из воронки заявки (soft-deleted) не показываем в составе
+      // занятия — иначе ребёнок «удалённой» заявки продолжает висеть пробником.
+      NOT: { application: { deletedAt: { not: null } } },
+    },
+    select: {
+      id: true,
+      status: true,
+      clientId: true,
+      wardId: true,
+      instructorPayEnabled: true,
+      client: { select: { id: true, firstName: true, lastName: true, phone: true } },
+      ward: { select: { id: true, firstName: true, lastName: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  })
+  const trialKeys = new Set(trialLessons.map((t) => coverageKey(t.clientId, t.wardId)))
+
+  // Зачисление даёт место в платном составе, только если есть покрывающий абонемент
+  // (coveredKeys) И у ребёнка нет пробного на этом занятии (trialKeys).
+  const enrollments = enrollmentsRaw.filter(
+    (e) =>
+      coveredKeys.has(coverageKey(e.clientId, e.wardId)) &&
+      !trialKeys.has(coverageKey(e.clientId, e.wardId)),
   )
 
   // Get attendance types. Применяем пер-орг оверрайд (баг #82): убираем отключённые
@@ -308,27 +341,8 @@ export default async function LessonCardPage({
     (a) => !markedMakeupKeys.has(`${a.clientId}:${a.wardId || ""}`),
   )
 
-  // Пробные ученики на этом занятии
-  const trialLessons = await db.trialLesson.findMany({
-    where: {
-      tenantId,
-      lessonId: id,
-      status: { in: ["scheduled", "attended", "no_show"] },
-      // Пробное выведенной из воронки заявки (soft-deleted) не показываем в составе
-      // занятия — иначе ребёнок «удалённой» заявки продолжает висеть пробником.
-      NOT: { application: { deletedAt: { not: null } } },
-    },
-    select: {
-      id: true,
-      status: true,
-      clientId: true,
-      wardId: true,
-      instructorPayEnabled: true,
-      client: { select: { id: true, firstName: true, lastName: true, phone: true } },
-      ward: { select: { id: true, firstName: true, lastName: true } },
-    },
-    orderBy: { createdAt: "asc" },
-  })
+  // trialLessons загружены выше (до платного состава — они исключают ребёнка из
+  // платных enrollments на дату пробного).
 
   // Соответствующие записи Attendance (для уже отмеченных пробных) —
   // оттуда берём фактическую сумму ЗП инструктора.
