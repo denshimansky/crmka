@@ -5,7 +5,7 @@
  */
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
-import { normalizePhone, formatPhone } from "../lib/phone"
+import { normalizePhone, formatPhone, phoneMatchKey } from "../lib/phone"
 
 describe("normalizePhone: российские номера (обратная совместимость)", () => {
   it("10 цифр с 9 → 7XXXXXXXXXX", () => {
@@ -63,6 +63,39 @@ describe("normalizePhone: нет цифр — логин не выдаётся",
   it("строка без цифр → null", () => {
     assert.equal(normalizePhone("нет телефона"), null)
     assert.equal(normalizePhone("+++"), null)
+  })
+})
+
+describe("phoneMatchKey: сравнение «это один и тот же номер»", () => {
+  it("все формы одного номера дают один ключ (последние 10 цифр)", () => {
+    const forms = [
+      "+79278060278",
+      "+7 (927) 806 02 78",
+      "79278060278",
+      "+89278060278",
+      "8 927 806-02-78",
+      "9278060278",
+    ]
+    const keys = forms.map((f) => phoneMatchKey(f))
+    assert.deepEqual(new Set(keys), new Set(["9278060278"]))
+  })
+
+  it("форматированный номер с пробелами нормализуется (баг «111 111 1111»)", () => {
+    assert.equal(phoneMatchKey("111 111 1111"), "1111111111")
+    assert.equal(phoneMatchKey("1111111111"), "1111111111")
+    // Обе записи одного «номера» → один ключ → дубль будет пойман.
+    assert.equal(phoneMatchKey("111 111 1111"), phoneMatchKey("1111111111"))
+  })
+
+  it("разные номера — разные ключи", () => {
+    assert.notEqual(phoneMatchKey("+79278060278"), phoneMatchKey("+79278060279"))
+  })
+
+  it("меньше 7 цифр → null (слишком коротко для совпадения)", () => {
+    assert.equal(phoneMatchKey("12345"), null)
+    assert.equal(phoneMatchKey(""), null)
+    assert.equal(phoneMatchKey(null), null)
+    assert.equal(phoneMatchKey(undefined), null)
   })
 })
 

@@ -10,6 +10,7 @@ import { branchScopeFromSession, isUnscoped } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
 import { logClientNote } from "@/lib/communications/log-note"
+import { findClientsByPhone } from "@/lib/clients/find-by-phone"
 
 const createSchema = z.object({
   // Баг #85: достаточно фамилии ИЛИ имени (пустое поле — undefined, не ошибка).
@@ -179,42 +180,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Укажите телефон или ссылку на соцсеть" }, { status: 400 })
   }
 
-  // Запрет дублей по телефону (баг #52). Сравниваем по последним 10 цифрам
-  // (российский формат) — так "+7 999 765-43-21" и "89997654321" — один номер.
-  // Проверяем оба поля (phone и phone2): новый клиент не должен совпадать ни
-  // как основной, ни как запасной номер существующего.
+  // Запрет дублей по телефону (баг #52 + фикс нормализации). Сравниваем по
+  // последним 10 цифрам, нормализуя ОБЕ стороны (формат/скобки/пробелы и код
+  // страны 8/7) — так "+7 (999) 765-43-21", "89997654321" и "999 765 43 21" —
+  // один номер. Раньше предфильтр искал строку из одних цифр внутри сырого
+  // phone с пробелами и пропускал форматированные дубли (напр. «111 111 1111»).
+  // Проверяем и phone, и phone2 существующих (findClientsByPhone).
   if (data.phone) {
-    const digits = data.phone.replace(/\D/g, "")
-    if (digits.length >= 7) {
-      const tail = digits.slice(-10)
-      const candidates = await db.client.findMany({
-        where: {
-          tenantId: session.user.tenantId,
-          deletedAt: null,
-          OR: [
-            { phone: { contains: tail } },
-            { phone2: { contains: tail } },
-          ],
-        },
-        select: { id: true, phone: true, phone2: true, firstName: true, lastName: true },
-        take: 5,
-      })
-      const matchLen = Math.min(digits.length, 10)
-      const dup = candidates.find((c) => {
-        const p1 = (c.phone ?? "").replace(/\D/g, "")
-        const p2 = (c.phone2 ?? "").replace(/\D/g, "")
-        return (
-          (p1.length >= matchLen && p1.slice(-matchLen) === digits.slice(-matchLen)) ||
-          (p2.length >= matchLen && p2.slice(-matchLen) === digits.slice(-matchLen))
-        )
-      })
-      if (dup) {
-        const name = [dup.lastName, dup.firstName].filter(Boolean).join(" ") || "(без имени)"
-        return NextResponse.json(
-          { error: `Клиент с таким телефоном уже есть: ${name}` },
-          { status: 409 },
-        )
-      }
+    const dups = await findClientsByPhone(db, session.user.tenantId, data.phone, { limit: 1 })
+    if (dups.length > 0) {
+      const dup = dups[0]
+      const name = [dup.lastName, dup.firstName].filter(Boolean).join(" ") || "(без имени)"
+      return NextResponse.json(
+        { error: `Клиент с таким телефоном уже есть: ${name}`, existingClientId: dup.id },
+        { status: 409 },
+      )
     }
   }
 
