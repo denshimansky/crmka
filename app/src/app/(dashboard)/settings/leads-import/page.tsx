@@ -8,6 +8,7 @@ import Link from "next/link"
 import { ProcessLeadsButton } from "./process-button"
 import { ImportTemplateButton } from "./import-template-button"
 import { DownloadTemplateLink } from "./download-template-link"
+import { DownloadBalancesTemplateLink } from "./download-balances-template-link"
 import { SyncBalancesButton } from "./sync-balances-button"
 import { WipeDatabaseButton } from "./wipe-button"
 import { isWipeAvailable } from "@/lib/leads-import/sync-leads"
@@ -109,7 +110,12 @@ export default async function LeadsImportPage() {
             step="Шаг 3"
             title="Загрузить балансы (остатки)"
             description="Скачайте шаблон остатков, заполните два столбца — Телефон и Баланс на сегодня — и загрузите. Баланс каждого клиента ставится ровно к значению из файла по телефону (+ депозит, − долг). Клиенты не создаются, в ДДС не пишется, повторная загрузка того же файла ничего не меняет. Так балансы переносятся без риска задвоить сумму."
-            button={<SyncBalancesButton />}
+            button={
+              <div className="flex flex-col gap-2">
+                <SyncBalancesButton />
+                <DownloadBalancesTemplateLink />
+              </div>
+            }
           />
         </CardContent>
       </Card>
