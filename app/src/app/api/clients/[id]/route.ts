@@ -479,5 +479,23 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     })
   })
 
+  // Аудит удаления: кто и когда удалил (снимок имени/телефона для читаемости
+  // ленты). У PATCH-перевода в терминал такой лог есть — у удаления его не было.
+  if (session.user.employeeId) {
+    await db.auditLog.create({
+      data: {
+        tenantId,
+        employeeId: session.user.employeeId,
+        action: "delete",
+        entityType: "Client",
+        entityId: id,
+        changes: {
+          name: [existing.lastName, existing.firstName].filter(Boolean).join(" ") || null,
+          phone: existing.phone,
+        },
+      },
+    })
+  }
+
   return NextResponse.json({ ok: true })
 }

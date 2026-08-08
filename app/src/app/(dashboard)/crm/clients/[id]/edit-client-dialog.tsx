@@ -155,6 +155,7 @@ export function EditClientDialog({
     setDiscountValue(initialDiscountValue)
     setError(null)
     setConfirmingDelete(false)
+    setDeleting(false)
     setDeleteError(null)
   }
 

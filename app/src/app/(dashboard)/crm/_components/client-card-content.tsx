@@ -277,10 +277,15 @@ export async function ClientCardContent({
   // (по умолчанию только владелец) + гейт нулевого баланса. Удалять можно ТОЛЬКО
   // клиента без долгов и переплат — иначе кнопка задизейблена с причиной, а API
   // всё равно откажет (двойная проверка).
-  const orgPerms = await db.organization.findUnique({
-    where: { id: tenantId },
-    select: { rolePermissions: true },
-  })
+  // Владельцу право всегда true — матрицу не читаем (лишний SELECT). Остальным
+  // ролям нужна org.rolePermissions, чтобы учесть выданное владельцем право.
+  const orgPerms =
+    role === "owner"
+      ? null
+      : await db.organization.findUnique({
+          where: { id: tenantId },
+          select: { rolePermissions: true },
+        })
   const canDeleteClient = hasPermission(
     role,
     "clients.delete",
