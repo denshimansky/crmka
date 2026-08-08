@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useParams } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 import { KbArticleBody, type KbArticleBlock } from "@/components/kb/kb-article"
+import { BackButton } from "@/components/back-button"
 
 // Предпросмотр статьи базы знаний для бэк-офиса. В отличие от читалки
 // /knowledge/<section>/<article> (только опубликованное + сессия арендатора),
@@ -49,12 +50,12 @@ export default function AdminArticlePreviewPage() {
 
   return (
     <div className="p-6">
-      <Link
-        href={`/admin/knowledge/${articleId}`}
+      <BackButton
+        fallbackHref={`/admin/knowledge/${articleId}`}
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" /> К редактору
-      </Link>
+      </BackButton>
 
       <div
         className={`mb-5 rounded-md border px-3 py-2 text-sm ${

@@ -14,8 +14,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Plus, ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import { Plus } from "lucide-react"
+import { BackButton } from "@/components/back-button"
 import { PageHelp } from "@/components/page-help"
 
 interface Candidate {
@@ -102,9 +102,7 @@ export default function CandidatesPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div className="flex items-center gap-3">
-          <Link href="/staff">
-            <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
-          </Link>
+          <BackButton fallbackHref="/staff" />
           <h1 className="text-2xl font-bold">Кандидаты</h1>
           <PageHelp pageKey="staff/candidates" />
         </div>

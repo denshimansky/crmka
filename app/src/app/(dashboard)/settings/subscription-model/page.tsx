@@ -3,7 +3,7 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHelp } from "@/components/page-help"
 import { ArrowLeft, Lock, Tag, BookOpen, FileText, BarChart3, ExternalLink } from "lucide-react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { UnpaidAutoCloseForm } from "../unpaid-auto-close-form"
 import { PackageTemplatesContent } from "../package-templates-content"
 
@@ -25,9 +25,9 @@ export default async function SubscriptionModelPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/settings" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/settings" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Абонементы</h1>

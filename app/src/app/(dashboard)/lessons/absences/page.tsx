@@ -6,7 +6,7 @@ import { rosterWhereAnyDate, isEnrolledOnLesson, effectiveRosterDate, buildCover
 import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { Card, CardContent } from "@/components/ui/card"
 import { ArrowLeft, AlertTriangle } from "lucide-react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { AbsencesView } from "./absences-table"
 import type { Prisma, ClientSegment } from "@prisma/client"
 
@@ -628,9 +628,9 @@ export default async function LessonsAbsencesPage({
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/lessons" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/lessons" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Пропуски</h1>

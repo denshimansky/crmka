@@ -19,7 +19,7 @@ import {
 import {
   ArrowLeft, Building2, CircleSlash, CreditCard, FileText, KeyRound, LogIn, Pencil, Plus, Users,
 } from "lucide-react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 
 interface Plan {
   id: string
@@ -316,9 +316,9 @@ export default function PartnerDetailPage() {
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-4 gap-y-3">
-        <Link href="/admin/partners">
+        <BackButton fallbackHref="/admin/partners">
           <Button variant="ghost" size="sm"><ArrowLeft className="size-4" /></Button>
-        </Link>
+        </BackButton>
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-3 gap-y-2">
             <h1 className="text-2xl font-bold">{partner.name}</h1>

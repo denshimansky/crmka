@@ -8,7 +8,7 @@ import {
 } from "@/lib/branch-scope"
 import { db } from "@/lib/db"
 import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import type { Prisma } from "@prisma/client"
 import {
   ConversionByDaysTable,
@@ -393,9 +393,9 @@ export default async function ConversionByDaysPage({
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/reports" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/reports" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Доходимость по дням</h1>

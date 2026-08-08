@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, AlertTriangle } from "lucide-react"
 import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 
 function formatDate(date: Date | null): string {
   if (!date) return "—"
@@ -161,9 +162,9 @@ export default async function PotentialChurnPage({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/reports" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/reports" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Потенциальный отток</h1>

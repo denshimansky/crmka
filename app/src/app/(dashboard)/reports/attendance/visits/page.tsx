@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { ReportExport } from "@/components/report-export"
 
 function formatPercent(value: number, total: number): string {
@@ -110,9 +110,9 @@ export default async function VisitsReportPage({ searchParams }: { searchParams:
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Link href="/reports" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/reports" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Посещения</h1>

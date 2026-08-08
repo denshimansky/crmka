@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { PageHelp } from "@/components/page-help"
 import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { CreateDirectionDialog } from "../create-direction-dialog"
 import { EditDirectionDialog } from "../edit-direction-dialog"
 import { ArchiveDirectionButton, RestoreDirectionButton } from "../direction-archive-buttons"
@@ -28,9 +28,9 @@ export default async function DirectionsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/settings" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/settings" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Направления</h1>

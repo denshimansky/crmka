@@ -5,7 +5,7 @@ import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Archive, ArrowLeft, Phone, Users } from "lucide-react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { notFound } from "next/navigation"
 import { CampaignItemsTable } from "./campaign-items-table"
 import type { CallItem } from "./call-item-row"
@@ -108,9 +108,9 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/crm/calls" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/crm/calls" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">{campaign.name}</h1>

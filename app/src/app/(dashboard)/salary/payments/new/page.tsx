@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -365,9 +366,9 @@ function NewSalaryPaymentForm() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/salary" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/salary" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Документ выплаты ЗП{kind === "salary" ? " (оклады)" : " (сдельная)"}</h1>

@@ -13,7 +13,7 @@ import {
 } from "@/lib/subscriptions/roster-filter"
 import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
 import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import type { Prisma } from "@prisma/client"
 import { AttendanceGrid } from "./attendance-grid"
 
@@ -706,9 +706,9 @@ export default async function LessonsAttendancePage({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3 gap-y-2">
-        <Link href="/lessons" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/lessons" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Посещения</h1>

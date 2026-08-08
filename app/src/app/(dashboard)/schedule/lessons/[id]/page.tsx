@@ -13,11 +13,10 @@ import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/sub
 import { notFound } from "next/navigation"
 import { isUnscoped } from "@/lib/branch-scope"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { BackButton } from "@/components/back-button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { ArrowLeft, Clock, MapPin, User, BookOpen } from "lucide-react"
+import { Clock, MapPin, User, BookOpen } from "lucide-react"
 import { AttendanceTable } from "./attendance-table"
 import { DeleteLessonButton } from "./delete-lesson-button"
 import { MoveLessonDialog } from "./move-lesson-dialog"
@@ -742,11 +741,7 @@ export default async function LessonCardPage({
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-4 gap-y-2">
-        <Link href="/schedule">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="size-4" />
-          </Button>
-        </Link>
+        <BackButton fallbackHref="/schedule" />
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-3 gap-y-2">
             <h1 className="text-2xl font-bold">{lesson.group.name}</h1>

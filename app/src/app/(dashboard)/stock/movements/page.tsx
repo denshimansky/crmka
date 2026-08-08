@@ -2,12 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from "@/components/ui/table"
-import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { PageHelp } from "@/components/page-help"
 import { useMoneyFormat } from "@/components/currency-provider"
 
@@ -70,9 +68,7 @@ export default function MovementsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/stock">
-          <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
-        </Link>
+        <BackButton fallbackHref="/stock" />
         <h1 className="text-2xl font-bold">Движения товаров</h1>
         <PageHelp pageKey="stock/movements" />
       </div>

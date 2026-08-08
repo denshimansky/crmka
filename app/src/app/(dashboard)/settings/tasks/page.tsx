@@ -1,9 +1,7 @@
 import { redirect } from "next/navigation"
-import Link from "next/link"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
-import { Button } from "@/components/ui/button"
-import { ArrowLeft } from "lucide-react"
+import { BackButton } from "@/components/back-button"
 import { PageHelp } from "@/components/page-help"
 import {
   parseTriggerSettings,
@@ -33,11 +31,7 @@ export default async function TaskTriggersPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Link href="/settings">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="size-4" />
-          </Button>
-        </Link>
+        <BackButton fallbackHref="/settings" />
         <div className="flex-1 flex items-center gap-2">
           <h1 className="text-2xl font-bold">Автотриггеры задач</h1>
           <PageHelp pageKey="settings/tasks" />

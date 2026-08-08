@@ -6,13 +6,27 @@ import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 /**
- * Стрелка «Назад» в шапках карточек. Ведёт себя как кнопка «Назад» в
- * браузере: возвращает на предыдущую страницу в истории. Если истории нет
+ * Стрелка «Назад». Ведёт себя как кнопка «Назад» в браузере: возвращает на
+ * фактическую предыдущую страницу в истории (router.back()). Если истории нет
  * (прямой переход по ссылке, открытие в новой вкладке) — переходит по
  * `fallbackHref`. Ссылку оставляем настоящим href, чтобы средний клик /
- * «Открыть в новой вкладке» работали корректно.
+ * «Открыть в новой вкладке» / Ctrl+клик работали корректно.
+ *
+ * По умолчанию рендерит иконку-кнопку (ghost, для шапок карточек). Для инлайн-
+ * стрелок (muted-ссылка, ссылка с текстом) передайте `children` и `className` —
+ * тогда компонент оборачивает их в ту же логику «назад».
  */
-export function BackButton({ fallbackHref }: { fallbackHref: string }) {
+export function BackButton({
+  fallbackHref,
+  className,
+  children,
+  ariaLabel = "Назад",
+}: {
+  fallbackHref: string
+  className?: string
+  children?: React.ReactNode
+  ariaLabel?: string
+}) {
   const router = useRouter()
 
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
@@ -26,10 +40,17 @@ export function BackButton({ fallbackHref }: { fallbackHref: string }) {
   }
 
   return (
-    <Link href={fallbackHref} onClick={handleClick} aria-label="Назад">
-      <Button variant="ghost" size="icon">
-        <ArrowLeft className="size-4" />
-      </Button>
+    <Link
+      href={fallbackHref}
+      onClick={handleClick}
+      aria-label={ariaLabel}
+      className={className}
+    >
+      {children ?? (
+        <Button variant="ghost" size="icon">
+          <ArrowLeft className="size-4" />
+        </Button>
+      )}
     </Link>
   )
 }

@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useState, useCallback, Fragment } from "react"
-import Link from "next/link"
 import { ArrowLeft, ChevronRight, ChevronDown } from "lucide-react"
+import { BackButton } from "@/components/back-button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -126,9 +126,9 @@ export function InstructorDetailClient({ employeeId, year, month, kind }: { empl
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link href={`/salary?year=${year}&month=${month}`} className="text-muted-foreground hover:text-foreground">
+          <BackButton fallbackHref={`/salary?year=${year}&month=${month}`} className="text-muted-foreground hover:text-foreground">
             <ArrowLeft className="size-5" />
-          </Link>
+          </BackButton>
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold">{data.employee.name}</h1>

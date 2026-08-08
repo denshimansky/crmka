@@ -13,6 +13,7 @@ import {
 import { ArrowLeft, Pencil, ExternalLink, Heading, Type, ImageIcon, ClipboardPaste, Video } from "lucide-react"
 import { KbBlockEditor, type EditableBlock } from "@/components/kb/kb-block-editor"
 import { KB_VARIANT_LABELS, type KbVariant } from "@/lib/kb-variant"
+import { BackButton } from "@/components/back-button"
 
 interface ArticleData {
   id: string
@@ -215,9 +216,9 @@ export default function AdminArticleEditorPage() {
 
   return (
     <div className="p-6">
-      <Link href={`/admin/knowledge?tab=${article.section.variant}`} className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+      <BackButton fallbackHref={`/admin/knowledge?tab=${article.section.variant}`} className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" /> К списку разделов
-      </Link>
+      </BackButton>
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>

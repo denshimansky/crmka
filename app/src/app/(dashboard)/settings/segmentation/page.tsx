@@ -1,4 +1,4 @@
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { ChevronLeft } from "lucide-react"
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
@@ -19,13 +19,13 @@ export default async function SegmentationSettingsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link
-          href="/settings?tab=refs"
+        <BackButton
+          fallbackHref="/settings?tab=refs"
           className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
         >
           <ChevronLeft className="size-4" />
           Назад в Справочники
-        </Link>
+        </BackButton>
       </div>
 
       <div>

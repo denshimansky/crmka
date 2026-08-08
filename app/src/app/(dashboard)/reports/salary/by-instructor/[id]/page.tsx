@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { notFound } from "next/navigation"
 
 function formatDate(d: Date): string {
@@ -221,12 +222,12 @@ export default async function SalaryByInstructorDetailPage({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Link
-          href={`/reports/salary/by-instructor?year=${year}&month=${month}`}
+        <BackButton
+          fallbackHref={`/reports/salary/by-instructor?year=${year}&month=${month}`}
           className="text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">{instructorName}</h1>

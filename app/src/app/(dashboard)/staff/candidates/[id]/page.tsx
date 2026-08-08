@@ -15,8 +15,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@/components/ui/select"
-import { ArrowLeft, Plus, UserCheck, X } from "lucide-react"
-import Link from "next/link"
+import { Plus, UserCheck, X } from "lucide-react"
+import { BackButton } from "@/components/back-button"
 import { PageHelp } from "@/components/page-help"
 import { useRoleNames } from "@/components/role-names-provider"
 
@@ -153,9 +153,7 @@ export default function CandidateCardPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div className="flex flex-wrap items-center gap-3 gap-y-2">
-        <Link href="/staff/candidates">
-          <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
-        </Link>
+        <BackButton fallbackHref="/staff/candidates" />
         <h1 className="text-2xl font-bold">{fullName}</h1>
         <PageHelp pageKey="staff/candidates/[id]" />
         <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_COLORS[status]}`}>

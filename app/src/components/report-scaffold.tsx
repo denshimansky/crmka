@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import Link from "next/link"
 import { ArrowLeft, Loader2 } from "lucide-react"
+import { BackButton } from "@/components/back-button"
 import { PageHelp } from "@/components/page-help"
 import { MonthPicker } from "@/components/month-picker"
 import { useMoneyFormat } from "@/components/currency-provider"
@@ -114,9 +114,9 @@ export function ReportShell({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/reports" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/reports" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">{title}</h1>

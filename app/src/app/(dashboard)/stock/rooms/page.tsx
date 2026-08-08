@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button"
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from "@/components/ui/table"
-import { ArrowLeft, ArrowRightLeft } from "lucide-react"
-import Link from "next/link"
+import { ArrowRightLeft } from "lucide-react"
+import { BackButton } from "@/components/back-button"
 import { PageHelp } from "@/components/page-help"
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
@@ -72,9 +72,7 @@ export default function RoomBalancesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/stock">
-          <Button variant="ghost" size="icon"><ArrowLeft className="size-4" /></Button>
-        </Link>
+        <BackButton fallbackHref="/stock" />
         <h1 className="text-2xl font-bold">Баланс кабинетов</h1>
         <PageHelp pageKey="stock/rooms" />
       </div>

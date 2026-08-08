@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -184,13 +184,13 @@ export default function ProductionCalendarPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          href="/settings"
+        <BackButton
+          fallbackHref="/settings"
           className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="mr-1 size-4" />
           Назад к настройкам
-        </Link>
+        </BackButton>
         <div className="mt-2 flex items-center gap-2">
           <CalendarDays className="size-6 text-primary" />
           <h1 className="text-2xl font-bold">Производственный календарь</h1>
