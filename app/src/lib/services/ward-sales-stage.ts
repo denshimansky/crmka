@@ -17,6 +17,11 @@ const STAGE_PRIORITY: Record<WardSalesStage, number> = {
  *
  * Вызывать ВНУТРИ транзакции после любого перехода заявки. salesStageAt обновляется
  * только при реальной смене этапа (как было в старой логике — отчёт воронки на него опирается).
+ *
+ * Побочный эффект: при ВЫХОДЕ ребёнка из awaiting_payment (оплата / разрешение /
+ * удаление из воронки — все эти пути зовут recompute), если у родителя не осталось
+ * детей в awaiting_payment, автозакрываем открытую задачу «Напомнить об оплате»
+ * (autoTrigger=payment_due) — «одна задача до оплаты» больше не нужна.
  */
 export async function recomputeWardSalesStage(
   tx: Prisma.TransactionClient,
@@ -36,13 +41,34 @@ export async function recomputeWardSalesStage(
 
   const current = await tx.ward.findUnique({
     where: { id: wardId },
-    select: { salesStage: true },
+    select: { salesStage: true, clientId: true },
   })
   if (current && current.salesStage !== best) {
     await tx.ward.update({
       where: { id: wardId },
       data: { salesStage: best, salesStageAt: at },
     })
+
+    // Ребёнок вышел из awaiting_payment → закрываем payment_due родителя, если у
+    // него не осталось детей в ожидании оплаты (ward уже обновлён выше, поэтому
+    // count его не учитывает). completedBy=null — системное закрытие.
+    if (current.salesStage === "awaiting_payment" && best !== "awaiting_payment") {
+      const stillAwaiting = await tx.ward.count({
+        where: { tenantId, clientId: current.clientId, salesStage: "awaiting_payment" },
+      })
+      if (stillAwaiting === 0) {
+        await tx.task.updateMany({
+          where: {
+            tenantId,
+            clientId: current.clientId,
+            autoTrigger: "payment_due",
+            status: "pending",
+            deletedAt: null,
+          },
+          data: { status: "completed", completedAt: at },
+        })
+      }
+    }
   }
 
   return best
