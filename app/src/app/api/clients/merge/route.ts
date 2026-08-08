@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { recomputeClientBranchesFromHistory } from "@/lib/subscriptions/client-branches"
+import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 
 const mergeSchema = z.object({
   sourceId: z.string().uuid("sourceId должен быть UUID"),
@@ -154,6 +155,12 @@ export async function POST(req: NextRequest) {
         ...mergedBranches,
       },
     })
+
+    // Агрегат Client.firstPaidLessonDate: посещения source перецеплены на target
+    // (см. выше), поэтому пересчитываем — у target могло появиться более раннее
+    // платное занятие из объединённого. (Заявки source не переносятся — их вклад в
+    // дату сгорает вместе с soft-delete source; это отдельный известный нюанс мёржа.)
+    await recomputeClientFirstPaidLessonDate(tx, tenantId, targetId)
 
     // 5. Soft-delete source
     await tx.client.update({

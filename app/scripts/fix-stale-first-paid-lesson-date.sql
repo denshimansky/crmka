@@ -7,10 +7,20 @@
 --
 -- Зеркалит recomputeClientFirstPaidLessonDate: значение = min по ЖИВЫМ заявкам
 -- (Application.firstPaidLessonDate, deleted_at IS NULL) + первому платному
--- посещению (Attendance.chargeAmount > 0). Здесь очищаем ТОЛЬКО клиентов, у
--- которых ни того, ни другого источника не осталось → корректный recompute = NULL.
--- Клиентов с живым источником не трогаем (их значение верно). Идемпотентно.
--- Ожидаемый охват на msk1: ~16 клиентов (Dream, «Умные дети», «Умный Я», Class, Easy).
+-- посещению (Attendance.chargeAmount > 0). Очищаем ТОЛЬКО клиентов, у которых
+-- ни того, ни другого источника не осталось → корректный recompute = NULL.
+--
+-- УЗКИЙ фильтр: правим ТОЛЬКО тех, у кого очистка реально снимает блок
+-- «Потенциальный» — т.е. wasEverClient() истинен ИСКЛЮЧИТЕЛЬНО из-за
+-- firstPaidLessonDate (нет оплаты, нет статуса active/churned, не active_client).
+-- Настоящих клиентов (active_client / есть оплата) НЕ трогаем: для них
+-- firstPaidLessonDate — легитимная дата продажи (fallback в отчётах
+-- sales-by-channel / trial-conversion / new-client-income), а статус «бывшего
+-- клиента» у них корректен и от очистки поля не изменится.
+--
+-- SQL-ловушка: client_status NULLABLE, у лидов = NULL. `NOT IN ('active','churned')`
+-- на NULL даёт NULL (строка выпадает) → пишем NULL-safe через `IS NULL OR ...`.
+-- Ожидаемый охват на msk1: ~4 клиента (Умный Я, Dream x2, «Умные дети»).
 
 \set ON_ERROR_STOP on
 BEGIN;
@@ -20,6 +30,9 @@ SELECT c.id AS client_id, c.tenant_id, c.first_paid_lesson_date AS old_date
 FROM clients c
 WHERE c.first_paid_lesson_date IS NOT NULL
   AND c.deleted_at IS NULL
+  AND c.first_payment_date IS NULL
+  AND (c.client_status IS NULL OR c.client_status NOT IN ('active', 'churned'))
+  AND c.funnel_status <> 'active_client'
   AND NOT EXISTS (
     SELECT 1 FROM applications a
     WHERE a.client_id = c.id AND a.deleted_at IS NULL

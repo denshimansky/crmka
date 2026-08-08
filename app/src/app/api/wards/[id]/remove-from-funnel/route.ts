@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 
 // «Удалить» из контекстного меню /crm/sales — выводит подопечного из воронки:
 // salesStage='none', все scheduled TrialLesson отменяются, активные Application
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const ward = await db.ward.findFirst({
     where: { id, tenantId },
-    select: { id: true, salesStage: true },
+    select: { id: true, clientId: true, salesStage: true },
   })
   if (!ward) return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
 
@@ -32,6 +33,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       where: { tenantId, wardId: id, status: "active", deletedAt: null },
       data: { deletedAt: now },
     })
+
+    // 2b. Пересчитать агрегат Client.firstPaidLessonDate: удалённые awaiting_payment
+    // заявки держали витринную «дату 1-го платного», иначе она зависнет на клиенте и
+    // wasEverClient навсегда сочтёт его «бывшим клиентом» (нельзя вернуть в
+    // «Потенциальный»). Тот же фикс, что в removeApplicationFromFunnel — этот роут
+    // реализует вывод из воронки инлайн, без сервиса.
+    await recomputeClientFirstPaidLessonDate(tx, tenantId, ward.clientId)
 
     // 3. Закрыть автозадачи-напоминания о пробном (они стали фантомами).
     await tx.task.updateMany({
