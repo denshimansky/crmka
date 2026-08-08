@@ -212,6 +212,8 @@ export async function GET(
         group: { select: { name: true } },
         ward: { select: { firstName: true, lastName: true } },
         withdrawalReason: { select: { name: true } },
+        // Имя ручного шаблона (скидка тип 2 / v3) — для строки скидки в истории.
+        discountTemplate: { select: { name: true, valueType: true, value: true } },
       },
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -442,12 +444,41 @@ export async function GET(
       `сумма: ${amount.toLocaleString("ru-RU")} ${sym}`,
     ].filter(Boolean)
 
+    // Строка о применённой скидке (только для события создания). discountSource
+    // однозначно определяет тип: type1 — авто «за второй абонемент», type2 —
+    // ручной шаблон (имя в discountTemplate), legacy — архивная логика.
+    const discountAmount = Number(s.discountAmount)
+    let discountLine: string | null = null
+    if (discountAmount > 0 && s.discountSource !== "none") {
+      const total = `всего −${discountAmount.toLocaleString("ru-RU")} ${sym}`
+      const perLesson = Number(s.discountPerLesson)
+      let name: string
+      let valuePart: string | null = null
+      if (s.discountSource === "type1") {
+        name = "Скидка за второй абонемент"
+      } else if (s.discountSource === "type2" && s.discountTemplate) {
+        name = s.discountTemplate.name
+        if (s.discountTemplate.valueType === "percent") {
+          valuePart = `${Number(s.discountTemplate.value)}%`
+        }
+      } else if (s.discountSource === "legacy") {
+        name = "скидка (архивная)"
+      } else {
+        name = "скидка"
+      }
+      if (!valuePart && perLesson > 0) {
+        valuePart = `−${perLesson.toLocaleString("ru-RU")} ${sym}/занятие`
+      }
+      const inner = [valuePart, total].filter(Boolean).join(", ")
+      discountLine = `скидка: ${name} (${inner})`
+    }
+
     events.push({
       id: `sub-created-${s.id}`,
       kind: "subscription_created",
       date: s.createdAt.toISOString(),
       title: "Абонемент создан",
-      description: subDescription.join(" · "),
+      description: [...subDescription, discountLine].filter(Boolean).join(" · "),
       meta: { subscriptionId: s.id, amount },
     })
 
