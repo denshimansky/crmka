@@ -3,6 +3,7 @@ import { recomputeWardSalesStage } from "./ward-sales-stage"
 import { deactivateGroupEnrollmentOnWithdrawal } from "@/lib/subscriptions/deactivate-enrollment"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
+import { recomputeClientFirstPaidLessonDate } from "./client-first-paid-lesson-date"
 
 /**
  * Вывод одной заявки из воронки продаж. Общая логика для:
@@ -153,6 +154,14 @@ export async function removeApplicationFromFunnel(
 
   // 5. Пересчитать зеркало Ward.salesStage.
   await recomputeWardSalesStage(tx, tenantId, wardId, now)
+
+  // 6. Пересчитать агрегат Client.firstPaidLessonDate: заявка держала витринную
+  // «дату 1-го платного» (проставленную в «Ожидаем оплату»), и после её soft-delete
+  // источник исчезает. Без пересчёта дата зависает на клиенте, и wasEverClient
+  // навсегда считает его «бывшим клиентом» (нельзя вернуть в «Потенциальный»),
+  // хотя оплат/платных занятий не было. recompute берёт min по ЖИВЫМ заявкам +
+  // первому платному посещению (chargeAmount>0) → NULL, если ничего не осталось.
+  await recomputeClientFirstPaidLessonDate(tx, tenantId, clientId)
 
   return { cancelledTrials: cancelledTrials.count, deletedSubscriptions }
 }
