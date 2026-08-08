@@ -27,8 +27,7 @@ function fakeDb(cfg: FakeConfig) {
       },
     },
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { db: db as any, calls }
+  return { db: db as unknown as Parameters<typeof resolveTrialPayMode>[0], calls }
 }
 
 const AT = new Date(Date.UTC(2026, 6, 15)) // 2026-07-15

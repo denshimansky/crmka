@@ -14,8 +14,7 @@ function fakeDb(found: boolean) {
       },
     },
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { db: db as any, getWhere: () => capturedWhere }
+  return { db: db as unknown as Parameters<typeof isGroupRateLocked>[0], getWhere: () => capturedWhere }
 }
 
 describe("isGroupRateLocked", () => {
