@@ -4,6 +4,7 @@ import { oneOffDebtByClient } from "@/lib/one-off-debt"
 import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
 import { currencySymbol } from "@/lib/currency"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
+import { hasPermission, type RolePermissions } from "@/lib/permissions"
 import { scopeBookableAccount, scopeSubscription } from "@/lib/branch-scope"
 import { notFound } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -271,6 +272,32 @@ export async function ClientCardContent({
       .join(" ") || "Без имени"
   const balance = Number(client.clientBalance)
   const moneyLtv = Number(client.moneyLtv)
+
+  // Кнопка «Удалить клиента» в диалоге редактирования: право clients.delete
+  // (по умолчанию только владелец) + гейт нулевого баланса. Удалять можно ТОЛЬКО
+  // клиента без долгов и переплат — иначе кнопка задизейблена с причиной, а API
+  // всё равно откажет (двойная проверка).
+  const orgPerms = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { rolePermissions: true },
+  })
+  const canDeleteClient = hasPermission(
+    role,
+    "clients.delete",
+    orgPerms?.rolePermissions as RolePermissions | null,
+  )
+  const subsWithBalanceCount = canDeleteClient
+    ? await db.subscription.count({
+        where: { tenantId, clientId: client.id, deletedAt: null, balance: { not: 0 } },
+      })
+    : 0
+  const deleteBlockReason = !canDeleteClient
+    ? null
+    : balance !== 0
+      ? "Удаление доступно только при нулевом балансе — сейчас есть долг или переплата."
+      : subsWithBalanceCount > 0
+        ? "Есть абонементы с незакрытым балансом — удаление недоступно."
+        : null
   const assigneeName = client.assignee
     ? [client.assignee.lastName, client.assignee.firstName].filter(Boolean).join(" ")
     : "—"
@@ -677,6 +704,8 @@ export async function ClientCardContent({
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Информация</CardTitle>
                 <EditClientDialog
+                  canDelete={canDeleteClient}
+                  deleteBlockReason={deleteBlockReason}
                   client={{
                     id: client.id,
                     firstName: client.firstName,

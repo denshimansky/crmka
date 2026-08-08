@@ -20,7 +20,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select"
-import { Pencil } from "lucide-react"
+import { Pencil, Trash2 } from "lucide-react"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
 import { NO_AUTO, PER_SUB, shortTitle, type DiscountTemplateLite } from "../../_components/discount-label"
 
@@ -72,7 +72,17 @@ interface ClientData {
   hasType1Discount?: boolean
 }
 
-export function EditClientDialog({ client }: { client: ClientData }) {
+export function EditClientDialog({
+  client,
+  // Право «Удаление клиентов» (clients.delete). Если false — секция удаления не рендерится.
+  canDelete = false,
+  // Причина, по которой удаление сейчас недоступно (ненулевой баланс/долг). null = можно удалять.
+  deleteBlockReason = null,
+}: {
+  client: ClientData
+  canDelete?: boolean
+  deleteBlockReason?: string | null
+}) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -80,6 +90,10 @@ export function EditClientDialog({ client }: { client: ClientData }) {
   const [branches, setBranches] = useState<BranchOption[]>([])
   const [employees, setEmployees] = useState<EmployeeOption[]>([])
   const [channels, setChannels] = useState<ChannelOption[]>([])
+  // Удаление клиента (только при canDelete): двухшаговое подтверждение внутри диалога.
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const [firstName, setFirstName] = useState(client.firstName || "")
   const [lastName, setLastName] = useState(client.lastName || "")
@@ -140,6 +154,28 @@ export function EditClientDialog({ client }: { client: ClientData }) {
     setComment(client.comment || "")
     setDiscountValue(initialDiscountValue)
     setError(null)
+    setConfirmingDelete(false)
+    setDeleteError(null)
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, { method: "DELETE" })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setDeleteError(data.error || "Не удалось удалить клиента")
+        return
+      }
+      // Клиента больше нет — уходим из карточки в список.
+      router.push("/crm/clients")
+      router.refresh()
+    } catch {
+      setDeleteError("Ошибка сети")
+    } finally {
+      setDeleting(false)
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -454,6 +490,63 @@ export function EditClientDialog({ client }: { client: ClientData }) {
             </Button>
           </DialogFooter>
         </form>
+
+        {/* Удаление клиента — только при праве clients.delete (по умолчанию владелец).
+            Доступно только для клиента с нулевым балансом (гейт дублируется на API). */}
+        {canDelete && (
+          <div className="mt-1 border-t pt-3">
+            {!confirmingDelete ? (
+              <div className="space-y-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  disabled={!!deleteBlockReason || loading}
+                  onClick={() => {
+                    setDeleteError(null)
+                    setConfirmingDelete(true)
+                  }}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  Удалить клиента
+                </Button>
+                {deleteBlockReason && (
+                  <p className="text-xs text-muted-foreground">{deleteBlockReason}</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-md bg-amber-100 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+                  Карточка клиента будет удалена из базы. Используйте для ошибочных
+                  или дублирующих записей.
+                </div>
+                {deleteError && (
+                  <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    {deleteError}
+                  </div>
+                )}
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setConfirmingDelete(false)}
+                    disabled={deleting}
+                  >
+                    Отмена
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                  >
+                    {deleting ? "Удаление..." : "Удалить"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

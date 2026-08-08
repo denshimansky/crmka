@@ -9,6 +9,7 @@ import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
 import { recordClientStatusChange } from "@/lib/clients/status-history"
 import { planFormerClientTransition } from "@/lib/clients/former-client-status"
 import { logClientNote } from "@/lib/communications/log-note"
+import { hasPermission, type RolePermissions } from "@/lib/permissions"
 import { z } from "zod"
 
 // PATCH — частичное обновление: отсутствующее в теле поле должно остаться
@@ -416,16 +417,39 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (session.user.role !== "owner" && session.user.role !== "manager") {
+
+  // Удаление клиента — право «Удаление клиентов» (clients.delete). По умолчанию
+  // только владелец; владелец может выдать роли через матрицу прав.
+  const tenantId = session.user.tenantId
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { rolePermissions: true },
+  })
+  if (!hasPermission(session.user.role, "clients.delete", org?.rolePermissions as RolePermissions | null)) {
     return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 })
   }
 
   const { id } = await params
 
   const existing = await db.client.findFirst({
-    where: { id, tenantId: session.user.tenantId },
+    where: { id, tenantId },
   })
   if (!existing) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
+
+  // Удалять можно ТОЛЬКО клиента с нулевым балансом: без долгов и переплат.
+  //  • clientBalance != 0 — переплата (плюс) или разовый/перенесённый долг (минус);
+  //  • любой живой абонемент с balance != 0 — незакрытый долг/переплата по абонементу
+  //    (balance > 0 = долг, см. отчёт «Должники»).
+  const clientBalance = Number(existing.clientBalance)
+  const subsWithBalance = await db.subscription.count({
+    where: { tenantId, clientId: id, deletedAt: null, balance: { not: 0 } },
+  })
+  if (clientBalance !== 0 || subsWithBalance > 0) {
+    const parts = ["Удалить можно только клиента с нулевым балансом (без долгов и переплат)."]
+    if (clientBalance !== 0) parts.push(`Баланс клиента: ${clientBalance.toLocaleString("ru-RU")} ₽.`)
+    if (subsWithBalance > 0) parts.push("Есть абонементы с незакрытым балансом.")
+    return NextResponse.json({ error: parts.join(" ") }, { status: 400 })
+  }
 
   // Удаление клиента выводит его активные заявки из воронки — иначе они
   // висят активными в БД (расписание и отчёты без join на клиента продолжали
