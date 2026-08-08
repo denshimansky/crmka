@@ -160,15 +160,18 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
     }
   }
 
-  // 5. Ожидание оплаты > 3 дней — по подопечному (Ward.salesStage), одна задача на родителя.
+  // 5. Ожидание оплаты со следующего дня — по подопечному (Ward.salesStage), одна
+  //    задача на родителя. Порог 1 день: статус «Ожидаем оплату» установлен вчера
+  //    или раньше (salesStageAt < сегодня). Дедуп по ОТКРЫТОЙ задаче клиента
+  //    (status=pending), НЕ по дню: пока висит незакрытая payment_due — новую не
+  //    создаём. Иначе крон плодил бы дубль каждый день ожидания (одна задача на
+  //    родителя за каждый день) — «одна задача до оплаты».
   if (isTriggerEnabled("payment_due", triggerSettings, todayLocal)) {
-    const threeDaysAgo = new Date(today)
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
     const awaitingWards = await db.ward.findMany({
       where: {
         tenantId,
         salesStage: "awaiting_payment",
-        salesStageAt: { lt: threeDaysAgo },
+        salesStageAt: { lt: today },
         client: { deletedAt: null },
       },
       select: { client: { select: { id: true, firstName: true, lastName: true } } },
@@ -178,7 +181,7 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
       if (seenClients.has(w.client.id)) continue
       seenClients.add(w.client.id)
       const exists = await db.task.findFirst({
-        where: { tenantId, clientId: w.client.id, autoTrigger: "payment_due", dueDate: today, deletedAt: null },
+        where: { tenantId, clientId: w.client.id, autoTrigger: "payment_due", status: "pending", deletedAt: null },
       })
       if (!exists) {
         await db.task.create({
@@ -193,17 +196,17 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
     }
   }
 
-  // 6. «Не был» старше 3 дней — переходный статус не уточнён администратором.
+  // 6. «Не был» со следующего дня — переходный статус не уточнён администратором.
+  //    Порог 1 день: отметка «Не был» на занятии вчера или раньше (lesson.date <
+  //    сегодня). Дедуп по маркеру [att=id] (одна задача на отметку навсегда).
   if (isTriggerEnabled("no_show_review", triggerSettings, todayLocal)) {
     const roleNames = await getRoleNames(tenantId)
-    const threeDaysAgo = new Date(today)
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
     const pendingNoShows = await db.attendance.findMany({
       where: {
         tenantId,
         attendanceType: { code: "no_show" },
         isMakeup: false,
-        lesson: { date: { lte: threeDaysAgo } },
+        lesson: { date: { lt: today } },
       },
       include: {
         client: { select: { firstName: true, lastName: true } },
