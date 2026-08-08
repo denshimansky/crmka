@@ -297,6 +297,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const trialMode = lesson.isTrial && trialEffInstructorId
     ? await resolveTrialPayMode(db, {
         tenantId,
+        groupId: lesson.groupId,
         employeeId: trialEffInstructorId,
         directionId: lesson.group.directionId,
       }, new Date(lesson.date))
@@ -1123,6 +1124,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const bulkTrialMode = lesson.isTrial
     ? await resolveTrialPayMode(db, {
         tenantId,
+        groupId: lesson.groupId,
         employeeId: effectiveInstructorId,
         directionId: lesson.group.directionId,
       }, new Date(lesson.date))

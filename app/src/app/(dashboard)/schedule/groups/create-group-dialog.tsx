@@ -28,7 +28,7 @@ import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/empl
 import {
   SalaryRateForm,
   SCHEME_LABELS,
-  emptyRate,
+  emptyGroupRate,
   type RateFormValue,
 } from "@/components/salary/salary-rate-form"
 
@@ -125,7 +125,7 @@ export function CreateGroupDialog({
   const [endDate, setEndDate] = useState<string>("")
   const [rate, setRate] = useState<RateFormValue | null>(null)
   const [rateDialogOpen, setRateDialogOpen] = useState(false)
-  const [rateDraft, setRateDraft] = useState<RateFormValue>(emptyRate())
+  const [rateDraft, setRateDraft] = useState<RateFormValue>(emptyGroupRate())
   const [conflicts, setConflicts] = useState<SlotConflict[] | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
@@ -168,14 +168,14 @@ export function CreateGroupDialog({
     setEndDate("")
     setRate(null)
     setRateDialogOpen(false)
-    setRateDraft(emptyRate())
+    setRateDraft(emptyGroupRate())
     setError(null)
     setConflicts(null)
     setConfirmOpen(false)
   }
 
   function openRateDialog() {
-    setRateDraft(rate ?? emptyRate())
+    setRateDraft(rate ?? emptyGroupRate())
     setRateDialogOpen(true)
   }
 
@@ -210,6 +210,8 @@ export function CreateGroupDialog({
               ratePerLesson: rate.ratePerLesson,
               fixedPerShift: rate.fixedPerShift,
               percentOfPayments: rate.percentOfPayments,
+              // inherit → null: наследовать личную ставку инструктора для пробных.
+              trialPayMode: rate.trialPayMode === "inherit" ? null : rate.trialPayMode,
               brackets: rate.brackets,
             }
           : undefined,
@@ -628,7 +630,7 @@ export function CreateGroupDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <SalaryRateForm value={rateDraft} onChange={setRateDraft} />
+          <SalaryRateForm value={rateDraft} onChange={setRateDraft} groupContext />
 
           <DialogFooter className="gap-2">
             {rate && (

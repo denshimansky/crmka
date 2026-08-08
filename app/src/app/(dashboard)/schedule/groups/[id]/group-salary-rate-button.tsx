@@ -16,8 +16,9 @@ import { Wallet } from "lucide-react"
 import {
   SalaryRateForm,
   SCHEME_LABELS,
-  emptyRate,
+  emptyGroupRate,
   type RateFormValue,
+  type TrialPayMode,
 } from "@/components/salary/salary-rate-form"
 
 interface GroupRate {
@@ -27,6 +28,7 @@ interface GroupRate {
   ratePerLesson: string | null
   fixedPerShift: string | null
   percentOfPayments: string | null
+  trialPayMode: string | null
   brackets: { minStudents: number; ratePerLesson: string }[]
 }
 
@@ -37,8 +39,8 @@ function rateToForm(r: GroupRate): RateFormValue {
     ratePerLesson: r.ratePerLesson ? Number(r.ratePerLesson) : null,
     fixedPerShift: r.fixedPerShift ? Number(r.fixedPerShift) : null,
     percentOfPayments: r.percentOfPayments ? Number(r.percentOfPayments) : null,
-    // У групповой ставки нет оплаты за пробное — заполняем для типа, в UI скрыто.
-    trialPayMode: "none",
+    // NULL в БД = «По ставке инструктора» (наследование).
+    trialPayMode: r.trialPayMode == null ? "inherit" : (r.trialPayMode as TrialPayMode),
     brackets: r.brackets.map((b) => ({
       minStudents: b.minStudents,
       ratePerLesson: Number(b.ratePerLesson),
@@ -46,11 +48,25 @@ function rateToForm(r: GroupRate): RateFormValue {
   }
 }
 
-export function GroupSalaryRateButton({ groupId, groupName }: { groupId: string; groupName: string }) {
+export function GroupSalaryRateButton({
+  groupId,
+  groupName,
+  locked,
+  initialScheme,
+}: {
+  groupId: string
+  groupName: string
+  // Замок: в группе уже есть реальная отметка — ставку менять нельзя (см.
+  // lib/salary/group-rate-lock.ts). Кнопка становится неактивной.
+  locked: boolean
+  // Схема действующей ставки группы (или null) — чтобы лейбл кнопки был верным
+  // без открытия диалога (диалог грузит полную ставку лениво).
+  initialScheme: keyof typeof SCHEME_LABELS | null
+}) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [rate, setRate] = useState<GroupRate | null>(null)
-  const [form, setForm] = useState<RateFormValue>(emptyRate())
+  const [form, setForm] = useState<RateFormValue>(emptyGroupRate())
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,7 +78,7 @@ export function GroupSalaryRateButton({ groupId, groupName }: { groupId: string;
       if (res.ok) {
         const data: GroupRate | null = await res.json()
         setRate(data)
-        setForm(data ? rateToForm(data) : emptyRate())
+        setForm(data ? rateToForm(data) : emptyGroupRate())
       }
     } finally {
       setLoading(false)
@@ -86,6 +102,8 @@ export function GroupSalaryRateButton({ groupId, groupName }: { groupId: string;
           ratePerLesson: form.ratePerLesson,
           fixedPerShift: form.fixedPerShift,
           percentOfPayments: form.percentOfPayments,
+          // inherit → null: наследовать личную ставку инструктора для пробных.
+          trialPayMode: form.trialPayMode === "inherit" ? null : form.trialPayMode,
           brackets: form.brackets,
         }),
       })
@@ -94,6 +112,9 @@ export function GroupSalaryRateButton({ groupId, groupName }: { groupId: string;
         setError(data.error || "Не удалось сохранить")
         return
       }
+      // Сбрасываем локальный rate, чтобы лейбл кнопки взял свежую схему из
+      // initialScheme после router.refresh() (иначе показывал бы старую).
+      setRate(null)
       setOpen(false)
       router.refresh()
     } finally {
@@ -103,24 +124,50 @@ export function GroupSalaryRateButton({ groupId, groupName }: { groupId: string;
 
   async function handleRemove() {
     if (!confirm("Снять ставку группы? Расчёт ЗП вернётся к личным ставкам инструкторов.")) return
+    setSaving(true)
+    setError(null)
     try {
       const res = await fetch(`/api/groups/${groupId}/salary-rate`, { method: "DELETE" })
-      if (res.ok) {
-        setOpen(false)
-        setRate(null)
-        router.refresh()
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || "Не удалось снять ставку")
+        return
       }
-    } catch {
-      /* ignore */
+      setRate(null)
+      setOpen(false)
+      router.refresh()
+    } finally {
+      setSaving(false)
     }
   }
 
+  const activeScheme = rate?.scheme ?? initialScheme
+  const label = activeScheme
+    ? "Ставка группы: " + SCHEME_LABELS[activeScheme]
+    : "Задать ставку группы"
+
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <Wallet className="mr-1 size-3.5" />
-        {rate ? "Ставка группы: " + SCHEME_LABELS[rate.scheme] : "Задать ставку группы"}
-      </Button>
+      {locked ? (
+        <span
+          className="inline-flex"
+          title={
+            activeScheme
+              ? "В группе уже есть отметки — ставка группы зафиксирована и не редактируется"
+              : "В группе уже есть отметки — задать ставку группы больше нельзя"
+          }
+        >
+          <Button variant="outline" size="sm" disabled>
+            <Wallet className="mr-1 size-3.5" />
+            {label}
+          </Button>
+        </span>
+      ) : (
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <Wallet className="mr-1 size-3.5" />
+          {label}
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
@@ -146,13 +193,13 @@ export function GroupSalaryRateButton({ groupId, groupName }: { groupId: string;
                   Текущая ставка перекрывает личные настройки инструкторов.
                 </div>
               )}
-              <SalaryRateForm value={form} onChange={setForm} hideTrialPay />
+              <SalaryRateForm value={form} onChange={setForm} groupContext />
             </div>
           )}
 
           <DialogFooter className="gap-2">
             {rate && (
-              <Button variant="ghost" onClick={handleRemove} className="text-destructive">
+              <Button variant="ghost" onClick={handleRemove} disabled={saving} className="text-destructive">
                 Снять ставку
               </Button>
             )}

@@ -120,10 +120,25 @@ export default async function SalaryByInstructorDetailPage({
   })
   const rateByDirection = new Map(rates.filter((r) => r.directionId).map((r) => [r.directionId!, r]))
   const defaultRate = rates.find((r) => !r.directionId) ?? null
-  // Режим оплаты пробных — из ставки инструктора по направлению занятия (исключение
-  // → дефолтная → «none»), как в resolveTrialPayMode.
-  const trialModeForDirection = (directionId: string): string =>
+  // Режим оплаты пробных из ЛИЧНОЙ ставки инструктора по направлению занятия
+  // (исключение → дефолтная → «none»).
+  const personalTrialMode = (directionId: string): string =>
     (rateByDirection.get(directionId) ?? defaultRate)?.trialPayMode ?? "none"
+
+  // Перекрытие ставкой ГРУППЫ (как в resolveTrialPayMode): если у группы задан
+  // trialPayMode (не NULL) — он важнее личной ставки. NULL = наследовать личную.
+  const groupIds = Array.from(new Set(effectiveLessons.map((l) => l.group.id)))
+  const groupTrialOverride = new Map(
+    (groupIds.length
+      ? await db.groupSalaryRate.findMany({
+          where: { tenantId, groupId: { in: groupIds }, trialPayMode: { not: null } },
+          select: { groupId: true, trialPayMode: true },
+        })
+      : []
+    ).map((g) => [g.groupId, g.trialPayMode as string]),
+  )
+  const resolveLessonTrialMode = (groupId: string, directionId: string): string =>
+    groupTrialOverride.get(groupId) ?? personalTrialMode(directionId)
 
   // Сводка
   const totalLessons = effectiveLessons.length
@@ -159,7 +174,7 @@ export default async function SalaryByInstructorDetailPage({
     const lessonIsTrial = l.isTrial || l.attendances.some((a) => a.isTrial)
     const rate = rateByDirection.get(l.group.directionId) ?? defaultRate
     const rateConfigured = !!rate
-    const lessonTrialMode = trialModeForDirection(l.group.directionId)
+    const lessonTrialMode = resolveLessonTrialMode(l.group.id, l.group.directionId)
     const hasPayingAttendances = l.attendances.some(
       (a) => a.attendanceType.paysInstructor && Number(a.instructorPayAmount) > 0,
     )

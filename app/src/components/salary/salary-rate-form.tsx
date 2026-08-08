@@ -23,6 +23,11 @@ export const SCHEME_LABELS: Record<SchemeKey, string> = {
 
 export type TrialPayMode = "none" | "paid_only" | "all"
 
+// Значение поля «Оплата за пробное» в форме. У ставки группы допустим ещё
+// "inherit" — «По ставке инструктора» (в БД GroupSalaryRate.trialPayMode = NULL).
+// Личные ставки inherit не используют.
+export type TrialPayFormValue = TrialPayMode | "inherit"
+
 export const TRIAL_PAY_LABELS: Record<TrialPayMode, string> = {
   none: "Не платить",
   paid_only: "Только платные",
@@ -35,6 +40,10 @@ const TRIAL_PAY_HINTS: Record<TrialPayMode, string> = {
   all: "Начисляется за любое пробное, включая бесплатные",
 }
 
+const TRIAL_INHERIT_LABEL = "По ставке инструктора"
+const TRIAL_INHERIT_HINT =
+  "За пробные берётся личная настройка инструктора, ведущего занятие"
+
 export interface Bracket {
   minStudents: number
   ratePerLesson: number
@@ -46,7 +55,7 @@ export interface RateFormValue {
   ratePerLesson: number | null
   fixedPerShift: number | null
   percentOfPayments: number | null
-  trialPayMode: TrialPayMode
+  trialPayMode: TrialPayFormValue
   brackets: Bracket[]
 }
 
@@ -62,11 +71,20 @@ export function emptyRate(scheme: SchemeKey = "per_student"): RateFormValue {
   }
 }
 
+// Пустая ставка группы: по умолчанию оплата пробного наследуется от личной
+// ставки инструктора (inherit → NULL в БД) — поведение как до появления поля.
+export function emptyGroupRate(scheme: SchemeKey = "per_student"): RateFormValue {
+  return { ...emptyRate(scheme), trialPayMode: "inherit" }
+}
+
 interface SalaryRateFormProps {
   value: RateFormValue
   onChange: (v: RateFormValue) => void
-  /** Скрыть блок «Оплата за пробное» (у групповой ставки его нет). */
-  hideTrialPay?: boolean
+  /**
+   * Контекст «ставка группы»: показывает доп. вариант «По ставке инструктора»
+   * (inherit → NULL в БД). По умолчанию форма личной ставки — inherit недоступен.
+   */
+  groupContext?: boolean
 }
 
 function numInput(v: number | null): string {
@@ -78,7 +96,7 @@ function parseNum(s: string): number | null {
   return Number.isNaN(n) ? null : n
 }
 
-export function SalaryRateForm({ value, onChange, hideTrialPay }: SalaryRateFormProps) {
+export function SalaryRateForm({ value, onChange, groupContext }: SalaryRateFormProps) {
   const sym = useCurrencySymbol()
   const patch = (p: Partial<RateFormValue>) => onChange({ ...value, ...p })
 
@@ -230,23 +248,26 @@ export function SalaryRateForm({ value, onChange, hideTrialPay }: SalaryRateForm
         </div>
       )}
 
-      {!hideTrialPay && (
-        <div className="space-y-1.5 border-t pt-4">
-          <Label>Оплата за пробное занятие</Label>
-          <select
-            value={value.trialPayMode}
-            onChange={(e) => patch({ trialPayMode: e.target.value as TrialPayMode })}
-            className="h-9 w-full rounded border bg-background px-3 text-sm"
-          >
-            {(Object.keys(TRIAL_PAY_LABELS) as TrialPayMode[]).map((k) => (
-              <option key={k} value={k}>
-                {TRIAL_PAY_LABELS[k]}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-muted-foreground">{TRIAL_PAY_HINTS[value.trialPayMode]}</p>
-        </div>
-      )}
+      <div className="space-y-1.5 border-t pt-4">
+        <Label>Оплата за пробное занятие</Label>
+        <select
+          value={value.trialPayMode}
+          onChange={(e) => patch({ trialPayMode: e.target.value as TrialPayFormValue })}
+          className="h-9 w-full rounded border bg-background px-3 text-sm"
+        >
+          {groupContext && <option value="inherit">{TRIAL_INHERIT_LABEL}</option>}
+          {(Object.keys(TRIAL_PAY_LABELS) as TrialPayMode[]).map((k) => (
+            <option key={k} value={k}>
+              {TRIAL_PAY_LABELS[k]}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          {value.trialPayMode === "inherit"
+            ? TRIAL_INHERIT_HINT
+            : TRIAL_PAY_HINTS[value.trialPayMode]}
+        </p>
+      </div>
     </div>
   )
 }

@@ -353,6 +353,7 @@ export async function createTrialLessonForClient(
   const trialPayMode = trialInstructorId
     ? await resolveTrialPayMode(db, {
         tenantId,
+        groupId: input.groupId,
         employeeId: trialInstructorId,
         directionId: effectiveDirectionId,
       }, date)

@@ -107,15 +107,31 @@ export async function resolveRate(
 }
 
 /**
- * Режим оплаты пробного инструктору (trialPayMode) из ЛИЧНОЙ ставки на дату atDate.
- * Приоритет: ставка по направлению → дефолтная → "none". Групповую не учитываем.
- * trialPayMode входит в снимок версии — резолвим по дате так же, как ставку.
+ * Режим оплаты пробного инструктору (trialPayMode) на дату atDate.
+ * Приоритет (как у resolveRate):
+ *   1. Ставка группы (GroupSalaryRate), если задана И режим указан явно
+ *      (trialPayMode != null) — перекрывает личную. NULL = наследовать личную.
+ *   2. Личная ставка по направлению (исключение) → её версия на atDate.
+ *   3. Личная дефолтная ставка → её версия на atDate.
+ *   4. "none".
+ * trialPayMode входит в снимок версии — личную резолвим по дате так же, как ставку.
+ * У ставки группы версий нет.
  */
 export async function resolveTrialPayMode(
   db: DB,
-  input: { tenantId: string; employeeId: string; directionId: string | null },
+  input: { tenantId: string; groupId?: string | null; employeeId: string; directionId: string | null },
   atDate: Date,
 ): Promise<string> {
+  // Ставка группы перекрывает личную и для пробных — но только если режим задан
+  // явно. trialPayMode = NULL (по умолчанию) означает «наследовать личную».
+  if (input.groupId) {
+    const groupRate = await db.groupSalaryRate.findUnique({
+      where: { groupId: input.groupId },
+      select: { trialPayMode: true },
+    })
+    if (groupRate?.trialPayMode != null) return groupRate.trialPayMode
+  }
+
   const trialSchedules = {
     where: { deletedAt: null },
     orderBy: { effectiveFrom: "asc" as const },

@@ -760,6 +760,12 @@ model GroupSalaryRate {
   ratePerLesson     Decimal?     @map("rate_per_lesson") @db.Decimal(12, 2)
   fixedPerShift     Decimal?     @map("fixed_per_shift") @db.Decimal(12, 2)
   percentOfPayments Decimal?     @map("percent_of_payments") @db.Decimal(5, 2)
+  // Оплата инструктору за пробное занятие этой группы.
+  // NULL = наследовать личную ставку инструктора (поведение по умолчанию, без
+  // регрессии для существующих групп); 'none'|'paid_only'|'all' = перекрыть
+  // личную настройку для пробных этой группы (как ставка группы перекрывает
+  // остальное). Резолв — resolveTrialPayMode в lib/salary/resolve-rate.ts.
+  trialPayMode      String?      @map("trial_pay_mode")
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 

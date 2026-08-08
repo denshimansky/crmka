@@ -11,6 +11,7 @@ import { GroupTabs } from "./group-tabs"
 import { GroupSalaryRateButton } from "./group-salary-rate-button"
 import { PageHelp } from "@/components/page-help"
 import { getMonthFromParams } from "@/lib/month-params"
+import { isGroupRateLocked } from "@/lib/salary/group-rate-lock"
 
 const DAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -203,6 +204,13 @@ export default async function GroupCardPage({
   const monthLabel = new Date(Date.UTC(year, month - 1, 1))
     .toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
 
+  // Замок ставки группы: если в группе уже есть реальная отметка — задавать/менять
+  // ставку нельзя. Схему действующей ставки берём для лейбла кнопки.
+  const [rateLocked, groupRate] = await Promise.all([
+    isGroupRateLocked(db, tenantId, id),
+    db.groupSalaryRate.findUnique({ where: { groupId: id }, select: { scheme: true } }),
+  ])
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -236,7 +244,12 @@ export default async function GroupCardPage({
             </span>
           </div>
         </Card>
-        <GroupSalaryRateButton groupId={id} groupName={group.name} />
+        <GroupSalaryRateButton
+          groupId={id}
+          groupName={group.name}
+          locked={rateLocked}
+          initialScheme={groupRate?.scheme ?? null}
+        />
       </div>
 
       {/* Tabs */}

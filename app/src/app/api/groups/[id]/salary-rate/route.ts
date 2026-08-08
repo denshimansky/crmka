@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { bracketSchema, validateForScheme } from "@/lib/salary/rate-schema"
+import { isGroupRateLocked } from "@/lib/salary/group-rate-lock"
 
 // Для GroupSalaryRate directionId не нужен (один rate на группу — независимо от направления).
 const groupRateSchema = z.object({
@@ -18,6 +19,8 @@ const groupRateSchema = z.object({
   ratePerLesson: z.number().min(0).nullable().optional(),
   fixedPerShift: z.number().min(0).nullable().optional(),
   percentOfPayments: z.number().min(0).max(100).nullable().optional(),
+  // null = наследовать личную ставку инструктора для пробных этой группы.
+  trialPayMode: z.enum(["none", "paid_only", "all"]).nullable().optional(),
   brackets: z.array(bracketSchema).optional(),
 })
 
@@ -63,16 +66,32 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   })
   if (!group) return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
 
+  // Замок: в группе уже есть реальная отметка — ставку менять нельзя.
+  if (await isGroupRateLocked(db, tenantId, id)) {
+    return NextResponse.json(
+      { error: "В группе уже есть отмеченные занятия — ставку группы менять нельзя" },
+      { status: 409 },
+    )
+  }
+
   const body = await req.json()
   const parsed = groupRateSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.errors[0]?.message || "Ошибка валидации" }, { status: 400 })
   }
 
-  const validationError = validateForScheme(parsed.data)
+  // trialPayMode (null = наследовать) в проверку схемы не входит — нормализуем.
+  const validationError = validateForScheme({
+    ...parsed.data,
+    trialPayMode: parsed.data.trialPayMode ?? undefined,
+  })
   if (validationError) return NextResponse.json({ error: validationError }, { status: 400 })
 
   const result = await db.$transaction(async (tx) => {
+    // Повторная проверка замка ВНУТРИ транзакции (TOCTOU): между внешней проверкой
+    // и записью могла появиться первая отметка — тогда ставку менять уже нельзя.
+    if (await isGroupRateLocked(tx, tenantId, id)) return { locked: true as const }
+
     const existing = await tx.groupSalaryRate.findUnique({ where: { groupId: id } })
     const rateData = {
       scheme: parsed.data.scheme,
@@ -80,6 +99,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       ratePerLesson: parsed.data.ratePerLesson ?? null,
       fixedPerShift: parsed.data.fixedPerShift ?? null,
       percentOfPayments: parsed.data.percentOfPayments ?? null,
+      trialPayMode: parsed.data.trialPayMode ?? null,
     }
     const upserted = existing
       ? await tx.groupSalaryRate.update({ where: { groupId: id }, data: rateData })
@@ -99,13 +119,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
-    return tx.groupSalaryRate.findUnique({
+    const rate = await tx.groupSalaryRate.findUnique({
       where: { id: upserted.id },
       include: { brackets: { orderBy: { minStudents: "asc" } } },
     })
+    return { rate }
   })
 
-  return NextResponse.json(result)
+  if ("locked" in result) {
+    return NextResponse.json(
+      { error: "В группе уже есть отмеченные занятия — ставку группы менять нельзя" },
+      { status: 409 },
+    )
+  }
+  return NextResponse.json(result.rate)
 }
 
 // DELETE /api/groups/[id]/salary-rate — снять ставку группы, вернуться к личным ставкам инструкторов.
@@ -127,9 +154,21 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   })
   if (!group) return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
 
-  const existing = await db.groupSalaryRate.findUnique({ where: { groupId: id } })
-  if (!existing) return NextResponse.json({ ok: true, removed: false })
+  // Замок + снятие атомарно (TOCTOU): проверяем и удаляем в одной транзакции —
+  // между проверкой и delete не должна проскочить первая отметка.
+  const result = await db.$transaction(async (tx) => {
+    if (await isGroupRateLocked(tx, tenantId, id)) return { locked: true as const }
+    const existing = await tx.groupSalaryRate.findUnique({ where: { groupId: id } })
+    if (!existing) return { removed: false }
+    await tx.groupSalaryRate.delete({ where: { groupId: id } })
+    return { removed: true }
+  })
 
-  await db.groupSalaryRate.delete({ where: { groupId: id } })
-  return NextResponse.json({ ok: true, removed: true })
+  if ("locked" in result) {
+    return NextResponse.json(
+      { error: "В группе уже есть отмеченные занятия — ставку группы менять нельзя" },
+      { status: 409 },
+    )
+  }
+  return NextResponse.json({ ok: true, removed: result.removed })
 }

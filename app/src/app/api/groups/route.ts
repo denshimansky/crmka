@@ -61,6 +61,8 @@ const salaryRateInputSchema = z.object({
   ratePerLesson: z.number().min(0).nullable().optional(),
   fixedPerShift: z.number().min(0).nullable().optional(),
   percentOfPayments: z.number().min(0).max(100).nullable().optional(),
+  // null = наследовать личную ставку инструктора для пробных этой группы.
+  trialPayMode: z.enum(["none", "paid_only", "all"]).nullable().optional(),
   brackets: z.array(bracketSchema).optional(),
 })
 
@@ -139,9 +141,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Если задана ставка — валидируем под её схему до записи в БД
+  // Если задана ставка — валидируем под её схему до записи в БД.
+  // trialPayMode (null = наследовать) в проверку схемы не входит — нормализуем.
   if (salaryRate) {
-    const validationError = validateForScheme(salaryRate)
+    const validationError = validateForScheme({
+      ...salaryRate,
+      trialPayMode: salaryRate.trialPayMode ?? undefined,
+    })
     if (validationError) {
       return NextResponse.json({ error: validationError }, { status: 400 })
     }
@@ -186,6 +192,7 @@ export async function POST(request: NextRequest) {
         ratePerLesson: salaryRate.ratePerLesson ?? null,
         fixedPerShift: salaryRate.fixedPerShift ?? null,
         percentOfPayments: salaryRate.percentOfPayments ?? null,
+        trialPayMode: salaryRate.trialPayMode ?? null,
       },
     })
     if (salaryRate.brackets && salaryRate.brackets.length > 0) {
