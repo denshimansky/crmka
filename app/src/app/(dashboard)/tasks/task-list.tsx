@@ -162,7 +162,7 @@ export function TaskList({
                 />
               </TableCell>
               <TableCell className={`font-medium ${t.status === "completed" ? "line-through" : ""}`}>
-                {t.title}
+                <div className="max-w-[320px] truncate" title={t.title}>{t.title}</div>
               </TableCell>
               <TableCell>
                 {t.type === "auto" ? (

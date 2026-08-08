@@ -33,7 +33,7 @@ export function ConductedPaymentsList({ year, month, kind }: { year: number; mon
   }, [year, month, kind])
 
   async function annul(id: string) {
-    if (!confirm("Аннулировать выплату? Деньги вернутся на счёт, расход в ОПИУ снимется.")) return
+    if (!confirm("Аннулировать выплату? Деньги вернутся на счёт, расход в Финрез (P&L) снимется.")) return
     setBusy(id)
     try {
       const res = await fetch(`/api/salary-payments/${id}`, { method: "DELETE" })

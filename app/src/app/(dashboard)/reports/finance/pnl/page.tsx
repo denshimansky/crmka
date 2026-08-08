@@ -359,7 +359,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
           <TableRow>
             <TableHead>Статья</TableHead>
             <TableHead className="text-right">Сумма</TableHead>
-            <TableHead className="text-right">% от выручки</TableHead>
+            <TableHead className="text-right">Доля в выручке</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -533,14 +533,14 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       {/* % распределения финреза */}
       {pnlColumns.some((c) => c.view.distributionArticles.length > 0) && (
         <div>
-          {isRange && <h2 className="mb-2 text-sm font-semibold text-muted-foreground">% распределения финреза по месяцам</h2>}
+          {isRange && <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Распределение финреза по месяцам</h2>}
           <div className={sectionRow}>
             {pnlColumns
               .filter((c) => c.view.distributionArticles.length > 0)
               .map((col) => (
                 <Card key={col.key} className="shrink-0">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base">{col.title || "% распределения финреза"}</CardTitle>
+                    <CardTitle className="text-base">{col.title || "Распределение финреза"}</CardTitle>
                     <p className="text-xs text-muted-foreground mt-1">Доля каждой статьи расходов и ЗП в выручке</p>
                   </CardHeader>
                   <CardContent className="p-0 pb-4">{renderDistributionTable(col.view)}</CardContent>

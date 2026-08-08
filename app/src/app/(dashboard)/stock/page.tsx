@@ -513,7 +513,7 @@ export default function StockPage() {
             </div>
 
             <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-              Товар на сумму {formatMoney(previewSum)} попадёт на общий склад. На финансы (ДДС/ОПИУ) не влияет. Дальше его можно переместить в филиалы и кабинеты.
+              Товар на сумму {formatMoney(previewSum)} попадёт на общий склад. На финансы (ДДС/Финрез) не влияет. Дальше его можно переместить в филиалы и кабинеты.
             </p>
 
             <div className="flex justify-end gap-2">

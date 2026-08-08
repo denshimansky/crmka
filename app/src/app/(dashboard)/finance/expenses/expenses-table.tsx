@@ -94,7 +94,7 @@ export function ExpensesTable({
               <TableHead>Направление</TableHead>
               <TableHead>Канал</TableHead>
               <TableHead>Счёт</TableHead>
-              <TableHead>ОПИУ</TableHead>
+              <TableHead>Финрез (P&L)</TableHead>
               <TableHead>Комментарий</TableHead>
             </TableRow>
           </TableHeader>

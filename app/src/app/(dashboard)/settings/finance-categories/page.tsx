@@ -204,7 +204,7 @@ export default function FinanceCategoriesPage() {
             <PageHelp pageKey="settings/finance-categories" />
           </div>
           <p className="text-sm text-muted-foreground">
-            Категории для журнала ДДС и отчёта ОПИУ. Системные категории видны всем тенантам и не редактируются.
+            Категории для журнала ДДС и отчёта Финрез (P&L). Системные категории видны всем тенантам и не редактируются.
           </p>
         </div>
       </div>
@@ -390,7 +390,7 @@ export default function FinanceCategoriesPage() {
             </DialogTitle>
             <DialogDescription>
               {dialogKind === "expense"
-                ? "Используется при внесении расходов и в отчёте ОПИУ"
+                ? "Используется при внесении расходов и в отчёте Финрез (P&L)"
                 : "Используется для прочих поступлений (проценты банка, продажа товаров и т.п.)"}
             </DialogDescription>
           </DialogHeader>
@@ -431,7 +431,7 @@ export default function FinanceCategoriesPage() {
                       <span className="flex flex-col">
                         <span>Постоянный</span>
                         <span className="text-xs font-normal text-muted-foreground">
-                          Не зависит от выручки (аренда, коммуналка). В ОПИУ распределяется
+                          Не зависит от выручки (аренда, коммуналка). В Финрез (P&L) распределяется
                           по направлениям пропорционально выручке.
                         </span>
                       </span>
@@ -447,7 +447,7 @@ export default function FinanceCategoriesPage() {
                       <span className="flex flex-col">
                         <span>Переменный</span>
                         <span className="text-xs font-normal text-muted-foreground">
-                          Зависит от объёма (расходники, эквайринг). В ОПИУ вычитается до маржи.
+                          Зависит от объёма (расходники, эквайринг). В Финрез (P&L) вычитается до маржи.
                         </span>
                       </span>
                     </Label>

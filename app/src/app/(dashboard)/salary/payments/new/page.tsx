@@ -618,7 +618,7 @@ function NewSalaryPaymentForm() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Итого по направлениям (для ОПИУ)</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Итого по направлениям (для финреза P&L)</CardTitle></CardHeader>
             <CardContent className="space-y-1 text-sm">
               {Array.from(totalByDirection.entries()).map(([name, sum]) => (
                 <div key={name} className="flex justify-between">

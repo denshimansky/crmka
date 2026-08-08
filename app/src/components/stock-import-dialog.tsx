@@ -82,7 +82,7 @@ export function StockImportDialog({
           <DialogTitle>Загрузить остатки</DialogTitle>
           <DialogDescription>
             Перенос складских остатков старых товаров при переезде на CRMka. Все товары
-            попадут на общий склад. На финансы (ДДС, ОПИУ) загрузка не влияет.
+            попадут на общий склад. На финансы (ДДС, Финрез) загрузка не влияет.
           </DialogDescription>
         </DialogHeader>
 

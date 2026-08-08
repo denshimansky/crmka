@@ -1,7 +1,9 @@
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { EditableDateCell, EditableTextCell } from "../_components/editable-cell"
+import { RemoveFromContactButton } from "./remove-from-contact-button"
 
 // Ярлыки статусов совпадают с табами «Клиенты» (/crm/contacts) и подсказкой дублей.
 const STATUS_LABELS: Record<string, string> = {
@@ -58,7 +60,7 @@ export function ContactTable({ rows, canEdit }: { rows: ContactRow[]; canEdit: b
   today.setHours(0, 0, 0, 0)
 
   return (
-    <div className="rounded-md border">
+    <StickyHScroll className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -69,6 +71,7 @@ export function ContactTable({ rows, canEdit }: { rows: ContactRow[]; canEdit: b
             <TableHead>След. связь</TableHead>
             <TableHead>Комментарий</TableHead>
             <TableHead>Ответственный</TableHead>
+            {canEdit && <TableHead className="w-10"></TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -123,11 +126,16 @@ export function ContactTable({ rows, canEdit }: { rows: ContactRow[]; canEdit: b
                   )}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">{r.assigneeName || "—"}</TableCell>
+                {canEdit && (
+                  <TableCell className="text-right">
+                    <RemoveFromContactButton clientId={r.clientId} name={r.name} />
+                  </TableCell>
+                )}
               </TableRow>
             )
           })}
         </TableBody>
       </Table>
-    </div>
+    </StickyHScroll>
   )
 }

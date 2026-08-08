@@ -113,7 +113,7 @@ export default async function SettingsPage() {
     {
       href: "/settings/finance-categories",
       title: "Статьи доходов и расходов",
-      description: "Категории для ДДС и ОПИУ: аренда, реклама, проценты банка",
+      description: "Категории для ДДС и Финрез (P&L): аренда, реклама, проценты банка",
       icon: ArrowDownUp,
     },
     {
