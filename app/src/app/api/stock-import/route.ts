@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { db } from "@/lib/db"
 import * as XLSX from "xlsx"
 
 // POST /api/stock-import — загрузка складских остатков при переезде на CRMka.
-// ТОЛЬКО владелец. Все товары попадают на общий склад — ровно как «Внести на
-// склад» (движение type=purchase): расход НЕ создаётся, поэтому в ДДС/ОПИУ и
-// прочих финансовых отчётах эти остатки не отображаются.
+// Требует право warehouse.edit (операции склада). Все товары попадают на общий
+// склад — ровно как «Внести на склад» (движение type=purchase): расход НЕ
+// создаётся, поэтому в ДДС/ОПИУ и прочих финансовых отчётах эти остатки не
+// отображаются.
 // Файл — Excel (.xlsx/.xls) или CSV со столбцами:
 //   «Название», «Единица измерения», «Количество», «Цена».
 
@@ -55,11 +57,10 @@ const QTY_ALIASES = ["Количество", "Кол-во", "Колво", "quant
 const PRICE_ALIASES = ["Цена", "Цена за ед.", "Цена за единицу", "Стоимость", "price", "Price"]
 
 export async function POST(req: NextRequest) {
+  const guard = await requirePermission("warehouse.edit")
+  if (!guard.ok) return guard.response
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (session.user.role !== "owner") {
-    return NextResponse.json({ error: "Загрузка остатков доступна только владельцу" }, { status: 403 })
-  }
   const tenantId = session.user.tenantId
 
   const formData = await req.formData()

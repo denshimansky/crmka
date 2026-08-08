@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { processLeads } from "@/lib/leads-import/process-leads"
 
 export const runtime = "nodejs"
@@ -8,13 +7,8 @@ export const maxDuration = 60
 
 // POST /api/leads-import/process — этап 1: сырой xlsx из 1С → промежуточный xlsx
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-  if (session.user.role !== "owner") {
-    return NextResponse.json({ error: "Только владелец может выполнять импорт" }, { status: 403 })
-  }
+  const guard = await requirePermission("clients.import")
+  if (!guard.ok) return guard.response
 
   const formData = await req.formData()
   const file = formData.get("file") as File | null

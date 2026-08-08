@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { db } from "@/lib/db"
 import { z } from "zod"
 
@@ -11,11 +12,10 @@ const updateSchema = z.object({
 })
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const guard = await requirePermission("warehouse.edit")
+  if (!guard.ok) return guard.response
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!["owner", "manager", "admin"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
 
   const { id } = await params
   const body = await req.json()
@@ -34,11 +34,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const guard = await requirePermission("warehouse.edit")
+  if (!guard.ok) return guard.response
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!["owner", "manager", "admin"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
 
   const { id } = await params
   await db.stockItem.updateMany({

@@ -17,6 +17,9 @@ export const PERMISSIONS = [
   { key: "clients.view", label: "Просмотр клиентов и лидов", group: "Клиенты" },
   { key: "clients.edit", label: "Создание и редактирование клиентов", group: "Клиенты" },
   { key: "clients.delete", label: "Удаление клиентов", group: "Клиенты" },
+  // Импорт базы (Настройки → Импорт базы) — рискованная операция миграции:
+  // по умолчанию выключен у всех настраиваемых ролей, владелец включает явно.
+  { key: "clients.import", label: "Импорт базы клиентов", group: "Клиенты" },
 
   // Задачи — отдельное право, чтобы раздел «Задачи» не был жёстко привязан к
   // просмотру клиентов (инструктор видит свои задачи, но не всю клиентскую базу).
@@ -30,6 +33,10 @@ export const PERMISSIONS = [
   // Склад — отдельное право, чтобы скрыть склад у ролей, у которых есть
   // расписание, но нет склада (инструктор).
   { key: "warehouse.view", label: "Просмотр склада", group: "Склад" },
+  // Операции склада: внесение (приход), перемещение, списание, а также
+  // массовая загрузка остатков. Дефолт совпадает с прежним хардкодом
+  // (owner/manager/admin), но теперь настраивается в матрице прав.
+  { key: "warehouse.edit", label: "Операции склада (приход, перемещение, списание, остатки)", group: "Склад" },
 
   // Финансы
   { key: "finance.view", label: "Просмотр финансов (оплаты, расходы)", group: "Финансы" },
@@ -95,6 +102,10 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
     // Удаление оплат — деньги: владелец включает явно через матрицу прав.
     "clients.delete": false,
     "payments.delete": false,
+    // Импорт базы по умолчанию закрыт (рискованная миграция) — владелец
+    // выдаёт явно. Операции склада (warehouse.edit) остаются true — как и в
+    // прежнем хардкоде owner/manager/admin.
+    "clients.import": false,
   },
   admin: {
     ...ALL_FALSE,
@@ -106,6 +117,7 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
     "schedule.edit": false,
     "attendance.mark": true,
     "warehouse.view": true,
+    "warehouse.edit": true, // админ и раньше делал операции склада (хардкод owner/manager/admin)
     "finance.view": true,
     "finance.edit": true,
     "finance.result": false, // PRD §5.3: админ по умолчанию не видит финрез (ДДС/P&L)

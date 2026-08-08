@@ -1,10 +1,9 @@
 import { getSession } from "@/lib/session"
 import { db } from "@/lib/db"
-import { redirect } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHelp } from "@/components/page-help"
 import { ArrowLeft, AlertTriangle } from "lucide-react"
-import Link from "next/link"
+import { BackButton } from "@/components/back-button"
 import { ProcessLeadsButton } from "./process-button"
 import { ImportTemplateButton } from "./import-template-button"
 import { DownloadTemplateLink } from "./download-template-link"
@@ -14,11 +13,11 @@ import { WipeDatabaseButton } from "./wipe-button"
 import { isWipeAvailable } from "@/lib/leads-import/sync-leads"
 
 export default async function LeadsImportPage() {
+  // Доступ гейтит layout (route-permissions: /settings/leads-import → clients.import).
   const session = await getSession()
-  if (session.user.role !== "owner") {
-    redirect("/settings")
-  }
-
+  // Импорт может быть выдан управляющему, но полное стирание базы («Очистить всю
+  // базу») остаётся только у владельца — деструктивная операция.
+  const isOwner = session.user.role === "owner"
   const tenantId = session.user.tenantId
   const org = await db.organization.findUnique({
     where: { id: tenantId },
@@ -29,9 +28,9 @@ export default async function LeadsImportPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/settings" className="text-muted-foreground hover:text-foreground">
+        <BackButton fallbackHref="/settings" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
-        </Link>
+        </BackButton>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Импорт базы</h1>
@@ -124,8 +123,8 @@ export default async function LeadsImportPage() {
         </CardContent>
       </Card>
 
-      {/* Wipe — только в окне 7 дней после первого импорта */}
-      {wipeGate.available && wipeGate.expiresAt && (
+      {/* Wipe — только владельцу и только в окне 7 дней после первого импорта */}
+      {isOwner && wipeGate.available && wipeGate.expiresAt && (
         <Card className="max-w-3xl border-destructive/40">
           <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
             <div className="sm:w-56 sm:shrink-0">
@@ -146,7 +145,7 @@ export default async function LeadsImportPage() {
         </Card>
       )}
 
-      {!wipeGate.available && (
+      {isOwner && !wipeGate.available && (
         <p className="max-w-3xl text-xs text-muted-foreground">
           Кнопка «Очистить всю базу» появится после первого успешного импорта и
           доступна 7 дней. Сейчас окно недоступно

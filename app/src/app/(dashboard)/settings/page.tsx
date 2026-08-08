@@ -1,4 +1,6 @@
 import { getSession } from "@/lib/session"
+import { getOrgUiSettings } from "@/lib/role-names"
+import { hasPermission, type RolePermissions } from "@/lib/permissions"
 import { Card, CardContent } from "@/components/ui/card"
 import { SettingsTabs } from "./settings-tabs"
 import {
@@ -42,6 +44,12 @@ export default async function SettingsPage() {
   const session = await getSession()
   const isOwner = session.user.role === "owner"
   const isOwnerOrManager = isOwner || session.user.role === "manager"
+
+  // «Импорт базы» — по праву clients.import (владелец включает управляющему в матрице).
+  const orgPerms = isOwner
+    ? null
+    : ((await getOrgUiSettings(session.user.tenantId))?.rolePermissions as RolePermissions | null) ?? null
+  const canImport = hasPermission(session.user.role, "clients.import", orgPerms)
 
   const orgTiles: Tile[] = [
     {
@@ -155,7 +163,7 @@ export default async function SettingsPage() {
       title: "Импорт базы",
       description: "Миграция базы клиентов из 1С и синхронизация остатков",
       icon: Upload,
-      show: isOwner,
+      show: canImport,
     },
     {
       href: "/finance/planned-expenses",

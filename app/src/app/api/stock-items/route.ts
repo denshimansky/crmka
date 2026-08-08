@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { db } from "@/lib/db"
 import { z } from "zod"
 
@@ -23,11 +24,10 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const guard = await requirePermission("warehouse.edit")
+  if (!guard.ok) return guard.response
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (!["owner", "manager", "admin"].includes(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-  }
 
   const body = await req.json()
   const parsed = createSchema.safeParse(body)

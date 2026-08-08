@@ -45,7 +45,9 @@ const PATH_PERMISSIONS: Array<{ prefix: string; permission: PermissionKey }> = [
   // Персонал
   { prefix: "/staff", permission: "staff.view" },
 
-  // Настройки
+  // Настройки. «Импорт базы» — отдельное право clients.import (перекрывает общий
+  // /settings по longest-prefix); остальные разделы настроек — settings.view.
+  { prefix: "/settings/leads-import", permission: "clients.import" },
   { prefix: "/settings", permission: "settings.view" },
 ]
 

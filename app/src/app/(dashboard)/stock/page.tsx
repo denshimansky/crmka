@@ -78,7 +78,10 @@ export default function StockPage() {
   const { data: session } = useSession()
   const formatMoney = useMoneyFormat()
   const sym = useCurrencySymbol()
-  const isOwner = (session?.user as { role?: string } | undefined)?.role === "owner"
+  // «Загрузить остатки» — подсказка UI по роли (владелец/управляющий/админ по
+  // умолчанию держат warehouse.edit). Авторитетная проверка — на API stock-import.
+  const role = (session?.user as { role?: string } | undefined)?.role
+  const canEditStock = role === "owner" || role === "manager" || role === "admin"
   const [importOpen, setImportOpen] = useState(false)
   const [warehouse, setWarehouse] = useState<WarehouseBalance[]>([])
   const [branchBalances, setBranchBalances] = useState<BranchBalance[]>([])
@@ -320,7 +323,7 @@ export default function StockPage() {
               <ArrowRight className="size-4 mr-1" /> Движения товаров
             </Button>
           </Link>
-          {isOwner && (
+          {canEditStock && (
             <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
               <Upload className="size-4 mr-1" /> Загрузить остатки
             </Button>
@@ -466,8 +469,8 @@ export default function StockPage() {
         onDone={load}
       />
 
-      {/* Загрузить остатки (только владелец) — перенос старых товаров при переезде */}
-      {isOwner && (
+      {/* Загрузить остатки (warehouse.edit) — перенос старых товаров при переезде */}
+      {canEditStock && (
         <StockImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={load} />
       )}
 
