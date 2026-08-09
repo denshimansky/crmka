@@ -21,6 +21,10 @@ export interface CallItem {
   status: string
   comment: string | null
   result: string | null
+  /** Дата фиксации результата (ISO) — колонка «Дата обработки». null, если не обзвонен. */
+  processedAt: string | null
+  /** Кто зафиксировал результат — колонка «Ответственный». Пусто, если не обзвонен. */
+  responsibleName: string
   /** Подопечные клиента — для кнопки «Создать заявку» прямо из обзвона. */
   wards: { id: string; firstName: string; lastName: string | null }[]
 }
@@ -43,11 +47,20 @@ const RESULT_LABELS: Record<string, string> = {
   refused: "Отказ",
 }
 
-/** Текст ячейки «Комментарий»: сначала комментарий, иначе метка результата. */
-function commentText(item: CallItem): string {
+/**
+ * Ключ сортировки колонки «Комментарий» — та же логика, что рисует ячейка
+ * (commentText), но без плейсхолдера «—»: чтобы порядок строк совпадал с видимым
+ * текстом (метка результата, а не сырой код), а пустые уходили в конец списка.
+ */
+export function commentSortKey(item: CallItem): string {
   if (item.comment) return item.comment
   if (item.result) return RESULT_LABELS[item.result] ?? item.result
-  return "—"
+  return ""
+}
+
+/** Текст ячейки «Комментарий»: сначала комментарий, иначе метка результата. */
+function commentText(item: CallItem): string {
+  return commentSortKey(item) || "—"
 }
 
 /** Русское склонение «год/года/лет» после числа. */
@@ -148,6 +161,10 @@ export function CallItemRow({
             {STATUS_LABELS[item.status] || item.status}
           </Badge>
         </TableCell>
+        <TableCell className="whitespace-nowrap text-muted-foreground text-xs">
+          {item.processedAt ? new Date(item.processedAt).toLocaleDateString("ru-RU") : "—"}
+        </TableCell>
+        <TableCell className="text-muted-foreground text-xs">{item.responsibleName || "—"}</TableCell>
         <TableCell className="max-w-[200px] truncate text-muted-foreground">{commentText(item)}</TableCell>
         <TableCell>
           {item.status === "pending" ? (
@@ -168,7 +185,7 @@ export function CallItemRow({
       </TableRow>
       {showForm && (
         <TableRow>
-          <TableCell colSpan={8}>
+          <TableCell colSpan={10}>
             <div className="flex flex-wrap items-center gap-2 py-1">
               <Input
                 placeholder="Комментарий"

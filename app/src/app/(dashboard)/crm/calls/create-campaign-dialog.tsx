@@ -15,27 +15,17 @@ import {
 import { Database, ListChecks } from "lucide-react"
 import { MANAGED_TRIGGERS, TRIGGER_LABEL } from "@/lib/tasks/trigger-settings"
 
-// Этап воронки = вкладки раздела «Продажи»: 4 этапа активной заявки + «Связь»
-// (назначена дата следующей связи). Семантика отбора — lib/call-campaigns/filter.ts.
-const FUNNEL_OPTIONS = [
-  { value: "", label: "Все" },
-  { value: "application", label: "Заявка" },
-  { value: "trial_scheduled", label: "Пробное" },
-  { value: "trial_attended", label: "Прошёл пробное" },
-  { value: "awaiting_payment", label: "Ожидание оплаты" },
-  { value: "contact", label: "Связь" },
-]
-
-// Статус клиента = вкладки раздела «Клиенты» (7 вкладок + «Все»).
+// Статус клиента — единый селект отбора базы. «Связь» (назначена дата следующей
+// связи) перенесён сюда из бывшего «Этапа воронки». Архив / Чёрный список /
+// Нецелевой убраны: обзвон по базам их не таргетирует — они глобально
+// исключаются в base-режиме (см. lib/call-campaigns/filter.ts).
 const CLIENT_STATUS_OPTIONS = [
   { value: "", label: "Все" },
   { value: "leads", label: "Лиды" },
   { value: "active", label: "Активные" },
   { value: "churned", label: "Выбывшие" },
   { value: "potential", label: "Потенциал" },
-  { value: "archived", label: "Архив" },
-  { value: "blacklist", label: "Чёрный список" },
-  { value: "nontarget", label: "Нецелевой" },
+  { value: "contact", label: "Связь" },
 ]
 
 // unmarked_lesson создаётся без clientId (задача инструктору про занятие) —
@@ -105,44 +95,39 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState("")
-  const [funnelStatus, setFunnelStatus] = useState("")
   const [clientStatus, setClientStatus] = useState("")
   const [branchId, setBranchId] = useState("")
   const [minAge, setMinAge] = useState("")
   const [maxAge, setMaxAge] = useState("")
   const [withdrawnFrom, setWithdrawnFrom] = useState("")
   const [withdrawnTo, setWithdrawnTo] = useState("")
-  const [nextContactFrom, setNextContactFrom] = useState("")
-  const [nextContactTo, setNextContactTo] = useState("")
 
   function reset() {
-    setName(""); setFunnelStatus(""); setClientStatus(""); setBranchId("")
+    setName(""); setClientStatus(""); setBranchId("")
     setMinAge(""); setMaxAge("")
     setWithdrawnFrom(""); setWithdrawnTo("")
-    setNextContactFrom(""); setNextContactTo("")
     setError(null)
   }
 
   const buildFilterCriteria = useCallback((): Record<string, unknown> => {
     const fc: Record<string, unknown> = {}
-    if (funnelStatus) fc.funnelStatus = funnelStatus
     if (clientStatus) fc.clientStatus = clientStatus
     if (branchId === NO_BRANCH) fc.noBranch = true
     else if (branchId) fc.branchId = branchId
     // Кламп 0..120 — чтобы и предпросмотр, и создание не падали на zod-валидации.
     if (minAge !== "" && !Number.isNaN(Number(minAge))) fc.minAge = Math.min(120, Math.max(0, Math.trunc(Number(minAge))))
     if (maxAge !== "" && !Number.isNaN(Number(maxAge))) fc.maxAge = Math.min(120, Math.max(0, Math.trunc(Number(maxAge))))
-    if (withdrawnFrom) fc.withdrawnFrom = withdrawnFrom
-    if (withdrawnTo) fc.withdrawnTo = withdrawnTo
-    if (nextContactFrom) fc.nextContactFrom = nextContactFrom
-    if (nextContactTo) fc.nextContactTo = nextContactTo
+    // «Дата выбытия» действует только для «Выбывших» (в UI видна только там) —
+    // гейтим и в критериях, чтобы значение не применилось скрыто.
+    if (clientStatus === "churned") {
+      if (withdrawnFrom) fc.withdrawnFrom = withdrawnFrom
+      if (withdrawnTo) fc.withdrawnTo = withdrawnTo
+    }
     return fc
-  }, [funnelStatus, clientStatus, branchId, minAge, maxAge,
-    withdrawnFrom, withdrawnTo, nextContactFrom, nextContactTo])
+  }, [clientStatus, branchId, minAge, maxAge, withdrawnFrom, withdrawnTo])
 
   const preview = useCampaignPreview(open, true, buildFilterCriteria)
 
-  const selectedFunnel = FUNNEL_OPTIONS.find(o => o.value === funnelStatus)
   const selectedClientStatus = CLIENT_STATUS_OPTIONS.find(o => o.value === clientStatus)
   const selectedBranch = branches.find(b => b.id === branchId)
 
@@ -171,25 +156,23 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="Например: Обзвон лидов март" />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Этап воронки</Label>
-              <Select value={funnelStatus} onValueChange={v => setFunnelStatus(v || "")}>
-                <SelectTrigger className="w-full">{selectedFunnel?.label || "Все"}</SelectTrigger>
-                <SelectContent>
-                  {FUNNEL_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Статус клиента</Label>
-              <Select value={clientStatus} onValueChange={v => setClientStatus(v || "")}>
-                <SelectTrigger className="w-full">{selectedClientStatus?.label || "Все"}</SelectTrigger>
-                <SelectContent>
-                  {CLIENT_STATUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="space-y-1.5">
+            <Label>Статус клиента</Label>
+            <Select
+              value={clientStatus}
+              onValueChange={v => {
+                const next = v || ""
+                setClientStatus(next)
+                // «Дата выбытия» относится только к «Выбывшим»: уходя со статуса,
+                // очищаем диапазон, чтобы он не применился скрыто.
+                if (next !== "churned") { setWithdrawnFrom(""); setWithdrawnTo("") }
+              }}
+            >
+              <SelectTrigger className="w-full">{selectedClientStatus?.label || "Все"}</SelectTrigger>
+              <SelectContent>
+                {CLIENT_STATUS_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -225,29 +208,19 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Дата выбытия</Label>
-            <div className="flex items-center gap-2">
-              <Input type="date" value={withdrawnFrom} onChange={e => setWithdrawnFrom(e.target.value)} className="w-full" />
-              <span className="text-muted-foreground">—</span>
-              <Input type="date" value={withdrawnTo} onChange={e => setWithdrawnTo(e.target.value)} className="w-full" />
+          {clientStatus === "churned" && (
+            <div className="space-y-1.5">
+              <Label>Дата выбытия</Label>
+              <div className="flex items-center gap-2">
+                <Input type="date" value={withdrawnFrom} onChange={e => setWithdrawnFrom(e.target.value)} className="w-full" />
+                <span className="text-muted-foreground">—</span>
+                <Input type="date" value={withdrawnTo} onChange={e => setWithdrawnTo(e.target.value)} className="w-full" />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                По дате последнего платного занятия. Например: ходил в учебном году, но не летом.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              По дате последнего платного занятия. Например: ходил в учебном году, но не летом.
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Дата следующей связи</Label>
-            <div className="flex items-center gap-2">
-              <Input type="date" value={nextContactFrom} onChange={e => setNextContactFrom(e.target.value)} className="w-full" />
-              <span className="text-muted-foreground">—</span>
-              <Input type="date" value={nextContactTo} onChange={e => setNextContactTo(e.target.value)} className="w-full" />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Назначенная дата следующей связи попадает в этот период.
-            </p>
-          </div>
+          )}
 
           <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm text-muted-foreground">{previewLabel(preview)}</span>

@@ -27,8 +27,10 @@ export interface CampaignFilterCriteria {
    */
   funnelStatus?: string
   /**
-   * Статус клиента — вкладки раздела «Клиенты»: leads | active | churned |
-   * potential | archived | blacklist | nontarget.
+   * Статус клиента (единый селект модалки): leads | active | churned |
+   * potential | contact (назначена дата следующей связи — перенесён из
+   * «Этапа воронки»). archived | blacklist | nontarget больше не выбираются
+   * из UI, но остаются валидными для актуализации старых кампаний (legacy).
    */
   clientStatus?: string
   /** Филиал: куда ходил (выбывший) или записывался/пробное (потенциальный). */
@@ -68,7 +70,8 @@ export const campaignFilterSchema = z.object({
     "new", "active_client", "potential",
   ]).optional(),
   clientStatus: z.enum([
-    "leads", "active", "churned", "potential", "archived", "blacklist", "nontarget",
+    "leads", "active", "churned", "potential", "contact",
+    "archived", "blacklist", "nontarget",
     // legacy-значение старых кампаний
     "not_active",
   ]).optional(),
@@ -127,6 +130,22 @@ export function buildCampaignClientWhere(
     if (!fc.autoTriggers || fc.autoTriggers.length === 0) {
       and.push({ id: { in: [] } })
     }
+  }
+
+  // --- База: не звоним в архив / чёрный список / нецелевых ---
+  // Эти статусы убраны из селектора «Статус клиента» (обзвон по базам их больше
+  // не таргетирует). Глобально исключаем их из ЛЮБОЙ base-выборки: «Все»,
+  // «Связь», а также фильтры только по возрасту/филиалу/дате. Пропускаем только
+  // когда старая кампания явно выбрала один из этих терминальных статусов
+  // (legacy-значения ниже), чтобы её актуализация не превратилась в пустую.
+  const TERMINAL_CLIENT_STATUSES = new Set(["archived", "blacklist", "nontarget", "not_active"])
+  if (fc.mode !== "tasks" && !TERMINAL_CLIENT_STATUSES.has(fc.clientStatus ?? "")) {
+    and.push({ funnelStatus: { notIn: ["archived", "blacklisted", "non_target"] } })
+    // «Архив» может жить и в clientStatus (наследие импорта: clientStatus="archived"
+    // при неархивном funnelStatus — именно поэтому case "archived" ниже ловит оба
+    // поля). Исключаем и его, но СОХРАНЯЯ клиентов с clientStatus=NULL: иначе
+    // трёхзначная логика SQL (NULL <> 'archived' = NULL) выкинула бы почти всех.
+    and.push({ OR: [{ clientStatus: null }, { clientStatus: { not: "archived" } }] })
   }
 
   // --- Возраст подопечного (от/до) ---
@@ -206,6 +225,13 @@ export function buildCampaignClientWhere(
         funnelStatus: "potential",
         applications: { none: { status: "active", deletedAt: null } },
       })
+      break
+    case "contact":
+      // «Связь» — назначена дата следующей связи (пункт перенесён из «Этапа
+      // воронки» в «Статус клиента»). Архив (и в funnelStatus, и в clientStatus),
+      // ЧС и нецелевые уже отсечены глобальным base-исключением выше — здесь
+      // только наличие даты.
+      and.push({ nextContactDate: { not: null } })
       break
     case "archived":
       and.push({ OR: archivedOr })

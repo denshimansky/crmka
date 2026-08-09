@@ -9,6 +9,7 @@ import { BackButton } from "@/components/back-button"
 import { notFound } from "next/navigation"
 import { CampaignItemsTable } from "./campaign-items-table"
 import type { CallItem } from "./call-item-row"
+import { RefreshCampaignButton } from "./refresh-campaign-button"
 import { PageHelp } from "@/components/page-help"
 import { clientStateLabel } from "@/lib/clients/state-label"
 
@@ -53,6 +54,20 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       },
     },
   })
+
+  // Имена ответственных (кто зафиксировал результат) — по CallCampaignItem.calledBy.
+  const responsibleIds = [
+    ...new Set(items.map((i) => i.calledBy).filter((v): v is string => !!v)),
+  ]
+  const employees = responsibleIds.length
+    ? await db.employee.findMany({
+        where: { id: { in: responsibleIds }, tenantId },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : []
+  const employeeName = new Map(
+    employees.map((e) => [e.id, [e.lastName, e.firstName].filter(Boolean).join(" ").trim()]),
+  )
 
   // Архивная кампания доступна только для просмотра: кнопка «Результат» у
   // контактов становится неактивной (фиксировать результаты звонков нельзя).
@@ -101,6 +116,10 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       status: i.status,
       comment: i.comment,
       result: i.result,
+      // Дата обработки (когда зафиксировали результат) и ответственный. ISO —
+      // чтобы сортировка в таблице шла хронологически; формат — при отображении.
+      processedAt: i.calledAt ? i.calledAt.toISOString() : null,
+      responsibleName: i.calledBy ? (employeeName.get(i.calledBy) ?? "") : "",
       wards: i.client.wards.map((w) => ({ id: w.id, firstName: w.firstName, lastName: w.lastName })),
     }
   })
@@ -120,9 +139,12 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
             Создана {campaign.createdAt.toLocaleDateString("ru-RU")}
           </p>
         </div>
-        <Badge variant={campaign.status === "active" ? "default" : "secondary"} className="ml-auto">
-          {campaign.status === "active" ? "Активная" : campaign.status === "closed" ? "Закрыта" : "Архивный"}
-        </Badge>
+        <div className="ml-auto flex items-center gap-3">
+          {campaign.status === "active" && <RefreshCampaignButton campaignId={id} />}
+          <Badge variant={campaign.status === "active" ? "default" : "secondary"}>
+            {campaign.status === "active" ? "Активная" : campaign.status === "closed" ? "Закрыта" : "Архивный"}
+          </Badge>
+        </div>
       </div>
 
       {readOnly && (

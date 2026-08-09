@@ -3,9 +3,11 @@
 import { useMemo, useState } from "react"
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react"
-import { CallItemRow, CALL_STATUS_LABELS, type CallItem } from "./call-item-row"
+import { CallItemRow, CALL_STATUS_LABELS, commentSortKey, type CallItem } from "./call-item-row"
 
-type SortKey = "clientName" | "phone" | "wardName" | "age" | "clientStatusLabel" | "callStatus" | "comment"
+type SortKey =
+  | "clientName" | "phone" | "wardName" | "age" | "clientStatusLabel"
+  | "callStatus" | "processedAt" | "responsibleName" | "comment"
 type SortDir = "asc" | "desc"
 
 const COLUMNS: { key: SortKey; label: string; numeric?: boolean }[] = [
@@ -15,6 +17,8 @@ const COLUMNS: { key: SortKey; label: string; numeric?: boolean }[] = [
   { key: "age", label: "Возраст", numeric: true },
   { key: "clientStatusLabel", label: "Статус клиента" },
   { key: "callStatus", label: "Статус" },
+  { key: "processedAt", label: "Дата обработки" },
+  { key: "responsibleName", label: "Ответственный" },
   { key: "comment", label: "Комментарий" },
 ]
 
@@ -27,7 +31,9 @@ function sortValue(item: CallItem, key: SortKey): string | number | null {
     case "age": return item.age
     case "clientStatusLabel": return item.clientStatusLabel
     case "callStatus": return CALL_STATUS_LABELS[item.status] || item.status
-    case "comment": return item.comment || item.result || ""
+    case "processedAt": return item.processedAt ?? ""
+    case "responsibleName": return item.responsibleName
+    case "comment": return commentSortKey(item)
   }
 }
 
