@@ -483,30 +483,44 @@ export async function computeSalesFunnel(
   return { new: build("new"), existing: build("existing") }
 }
 
-/** Суммарные цифры за месяц для дашборда: этап → одна цифра (текущие + перетекающие). */
+/**
+ * Суммарные цифры за месяц: этап → одна цифра (текущие + перетекающие).
+ *
+ * По умолчанию (onlyNew=false) складывает ОБЕ вкладки — «Лиды» (new) и «База»
+ * (existing): такова сводная строка отчёта воронки и API. onlyNew=true оставляет
+ * только вкладку «Лиды» — это нужно виджету дашборда «Воронка продаж», где нужна
+ * воронка ТОЛЬКО по новым лидам, без действующей базы (допродажи/продления).
+ * Этап «Лид» существует лишь во вкладке «Лиды», поэтому от флага не зависит.
+ */
 export function summarizeSalesFunnel(
   data: SalesFunnelData,
+  opts: { onlyNew?: boolean } = {},
 ): { key: FunnelStageKey; label: string; count: number }[] {
+  const onlyNew = opts.onlyNew ?? false
   const total = (stage: FunnelStage | undefined) =>
     stage ? stage.current + stage.carryover : 0
   const find = (schemes: FunnelScheme[], scheme: FunnelSchemeKey, stage: FunnelStageKey) =>
     schemes.find((s) => s.key === scheme)?.stages.find((s) => s.key === stage)
 
-  // «Лид» теперь разложен по блокам (с пробным / без) — суммируем оба.
+  // «Лид» есть только во вкладке «Лиды» (new), разложен по блокам (с пробным /
+  // без) — суммируем оба блока.
   const lead =
     total(find(data.new, "with_trial", "lead")) + total(find(data.new, "no_trial", "lead"))
-  const sumBoth = (stage: FunnelStageKey) =>
+  // Остальные этапы: вкладка «Лиды» всегда; «База» — только когда onlyNew=false.
+  const sumStage = (stage: FunnelStageKey) =>
     (["with_trial", "no_trial"] as FunnelSchemeKey[]).reduce(
       (acc, scheme) =>
-        acc + total(find(data.new, scheme, stage)) + total(find(data.existing, scheme, stage)),
+        acc +
+        total(find(data.new, scheme, stage)) +
+        (onlyNew ? 0 : total(find(data.existing, scheme, stage))),
       0,
     )
 
   return [
     { key: "lead", label: FUNNEL_STAGE_LABELS.lead + "ы", count: lead },
-    { key: "application", label: "Заявки", count: sumBoth("application") },
-    { key: "trial", label: "Пробные", count: sumBoth("trial") },
-    { key: "trial_attended", label: "Пришли на пробное", count: sumBoth("trial_attended") },
-    { key: "won", label: "Купили", count: sumBoth("won") },
+    { key: "application", label: "Заявки", count: sumStage("application") },
+    { key: "trial", label: "Пробные", count: sumStage("trial") },
+    { key: "trial_attended", label: "Пришли на пробное", count: sumStage("trial_attended") },
+    { key: "won", label: "Купили", count: sumStage("won") },
   ]
 }

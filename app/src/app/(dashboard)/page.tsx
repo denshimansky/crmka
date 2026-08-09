@@ -297,14 +297,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   )
   const unmarkedLessons = endedUnmarked.filter((l) => rosterIds.has(l.id)).slice(0, 5)
 
-  // Воронка продаж (CRM-13) — те же цифры, что и в отчёте /reports/crm/funnel:
-  // событийная воронка по заявкам за месяц, на дашборде каждый этап одной
-  // суммарной цифрой (текущий месяц + перетекающие). ADM-04: scope сессии.
+  // Воронка продаж (CRM-13) — событийная воронка по заявкам за месяц, каждый этап
+  // одной суммарной цифрой (текущий месяц + перетекающие). ADM-04: scope сессии.
+  // onlyNew: на дашборде показываем воронку ТОЛЬКО по новым лидам (вкладка «Лиды»
+  // отчёта), без действующей базы (допродажи/продления). В самом отчёте сводная
+  // строка складывает обе вкладки (Лиды + База) — там это осознанно.
   const funnelMonth = summarizeSalesFunnel(
     await computeSalesFunnel(tenantId, year, month, {
       withRows: false,
       scope,
-    })
+    }),
+    { onlyNew: true },
   )
   const funnelStageColors: Record<string, string> = {
     lead: "bg-blue-500",
@@ -747,7 +750,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           {reportTitle("reports.marketing", "/reports/crm/funnel", "Воронка продаж")}
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          За месяц, включая перетекающие заявки — детали в отчёте
+          Только новые лиды (вкладка «Лиды») за месяц, включая перетекающие
+          заявки. Действующая база — в отчёте
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
