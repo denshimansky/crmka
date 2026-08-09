@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
+import { computeMonthSubscriptionFigures } from "@/lib/finance/subscription-month-figures"
 
 /** 5.3. Ожидаемые поступления */
 export async function GET(req: NextRequest) {
@@ -14,69 +15,44 @@ export async function GET(req: NextRequest) {
   const year = dateFrom.getUTCFullYear()
   const month = dateFrom.getUTCMonth() + 1
 
-  // Развилка по типу абонемента организации: calendar — фильтр по periodYear/Month,
-  // package — пересечение интервала действия пакета с (dateFrom, dateTo).
   const org = await db.organization.findUnique({
     where: { id: tenantId },
     select: { subscriptionType: true },
   })
   const isPackage = org?.subscriptionType === "package"
 
-  const subWhere: any = {
+  // Единый набор абонементов месяца (спека Ани 09.08.2026, см.
+  // lib/finance/subscription-month-figures.ts): ВСЕ статусы и клиенты, включая
+  // воронку; закрытые/выбывшие — по факту отработанного. «Сумма абонементов»
+  // здесь совпадает с карточками дашборда «Ожидаемые/Отработанные/Прогноз».
+  const figures = await computeMonthSubscriptionFigures(db, {
     tenantId,
-    deletedAt: null,
-    status: { in: ["active", "pending"] },
-    ...(isPackage
-      ? {
-          type: "package",
-          startDate: { lte: dateTo },
-          OR: [{ expiresAt: null }, { expiresAt: { gte: dateFrom } }],
-        }
-      : {
-          periodYear: year,
-          periodMonth: month,
-        }),
-  }
-  if (branchId) subWhere.group = { branchId }
-
-  const subs = await db.subscription.findMany({
-    where: subWhere,
-    select: {
-      id: true,
-      finalAmount: true,
-      discountAmount: true,
-      balance: true,
-      direction: { select: { name: true } },
-      client: { select: { clientStatus: true } },
-    },
+    year,
+    month,
+    branchId,
+    isPackageOrg: isPackage,
   })
 
-  // Only active clients' unpaid subscriptions
-  const activeSubs = subs.filter((s) => s.client.clientStatus === "active")
-
-  const totalSubAmount = activeSubs.reduce((s, sub) => s + Number(sub.finalAmount), 0)
-  const totalBalance = activeSubs.reduce((s, sub) => s + Number(sub.balance), 0)
-  // Expected = sum of positive balances (owed)
-  const expected = activeSubs
-    .filter((s) => Number(s.balance) > 0)
-    .reduce((s, sub) => s + Number(sub.balance), 0)
+  const totalSubAmount = figures.reduce((s, f) => s + f.subAmount, 0)
+  // Ожидается (долг) = остаток к оплате по действующим/ожидающим + долг закрытия
+  // по закрытым/выбывшим.
+  const expected = figures.reduce((s, f) => s + f.expected, 0)
   const totalPaid = totalSubAmount - expected
-  const totalDiscount = activeSubs.reduce((s, sub) => s + Number(sub.discountAmount), 0)
+  const totalDiscount = figures.reduce((s, f) => s + f.discount, 0)
 
-  // By direction
+  // По направлениям
   const byDirection: Record<string, { subAmount: number; expected: number; paid: number }> = {}
-  for (const s of activeSubs) {
-    const dir = s.direction.name
+  for (const f of figures) {
+    const dir = f.directionName
     if (!byDirection[dir]) byDirection[dir] = { subAmount: 0, expected: 0, paid: 0 }
-    byDirection[dir].subAmount += Number(s.finalAmount)
-    const bal = Number(s.balance)
-    if (bal > 0) byDirection[dir].expected += bal
-    else byDirection[dir].paid += Number(s.finalAmount)
+    byDirection[dir].subAmount += f.subAmount
+    byDirection[dir].expected += f.expected
   }
+  for (const v of Object.values(byDirection)) v.paid = v.subAmount - v.expected
 
-  // Forecast next month — для calendar это абонементы периода M+1,
-  // для package — пакеты, у которых expiresAt попадает в следующий месяц
-  // (т.е. их остаток ещё будет «отрабатываться» в следующем месяце).
+  // Прогноз на следующий месяц — активная база (forward-looking, отдельный расчёт).
+  // Для calendar — абонементы периода M+1; для package — пакеты, чей остаток ещё
+  // отрабатывается в следующем месяце (expiresAt в нём).
   const nextMonth = month === 12 ? 1 : month + 1
   const nextYear = month === 12 ? year + 1 : year
   const nextStart = new Date(Date.UTC(nextYear, nextMonth - 1, 1))
@@ -88,6 +64,7 @@ export async function GET(req: NextRequest) {
       deletedAt: null,
       status: { in: ["active", "pending"] },
       client: { clientStatus: "active" },
+      ...(branchId ? { group: { branchId } } : {}),
       ...(isPackage
         ? {
             type: "package",

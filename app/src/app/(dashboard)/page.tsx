@@ -34,6 +34,7 @@ import { computeActiveSubscriptionsByBranch } from "@/lib/dashboard/active-subsc
 import { computeUpcomingBirthdays } from "@/lib/dashboard/upcoming-birthdays"
 import { computePlannedExpensesWithFact } from "@/lib/finance/planned-expenses"
 import { computeSalesFunnel, summarizeSalesFunnel } from "@/lib/reports/sales-funnel"
+import { computeMonthSubscriptionFigures } from "@/lib/finance/subscription-month-figures"
 import { lessonsWithRoster } from "@/lib/subscriptions/roster-filter"
 import {
   branchScopeFromSession,
@@ -171,9 +172,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const monthExpenses = Number(monthExpensesData._sum.amount || 0)
 
   // Должники за выбранный месяц (debtorCount / totalDebt) считаются ниже из того
-  // же набора абонементов, что и виджет «Ожидаемые поступления средств»
-  // (expectedSubs) — чтобы карточка «Должники» на дашборде совпадала с ним по
-  // сумме. См. блок «Ожидаемые поступления средств».
+  // же единого набора абонементов (subFigures), что и виджет «Ожидаемые
+  // поступления средств» — чтобы карточка «Должники» совпадала с ним по сумме.
 
   // Задачи на сегодня (и просроченные). Для менеджера/владельца — все задачи
   // тенанта; админ с привязкой к филиалу — только задачи своих филиалов (по
@@ -358,43 +358,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     .sort((a, b) => a.percent - b.percent)
     .slice(0, 10)
 
-  // Ожидаемые поступления средств — финансовый отчёт по филиалам за выбранный месяц.
-  // Логика повторяет /api/reports/expected-income: активные/pending абонементы
-  // активных клиентов; calendar — фильтр по periodYear/Month, package — пересечение
-  // действия пакета с диапазоном месяца.
+  // Единая «Сумма абонементов» месяца для трёх карточек (Ожидаемые/Отработанные/
+  // Прогноз) и карточки «Должники»: ОДИН набор абонементов месяца — любого статуса
+  // и клиента, включая воронку — считается одинаково (спека Ани 09.08.2026,
+  // см. lib/finance/subscription-month-figures.ts). ADM-04: scope сессии.
   const orgInfo = await db.organization.findUnique({
     where: { id: tenantId },
     select: { subscriptionType: true },
   })
   const isPackageOrg = orgInfo?.subscriptionType === "package"
-  const monthEndDt = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
 
-  const expectedSubs = await db.subscription.findMany({
-    where: {
-      tenantId,
-      deletedAt: null,
-      status: { in: ["active", "pending"] },
-      client: { clientStatus: "active" },
-      // ADM-04: абонементы групп видимых филиалов (виджет и карточка «Должники»
-      // скрыты у админа без reports.finance/finance.view, scope — защита прав).
-      ...scopeSubscription(scope),
-      ...(isPackageOrg
-        ? {
-            type: "package",
-            startDate: { lte: monthEndDt },
-            OR: [{ expiresAt: null }, { expiresAt: { gte: monthStart } }],
-          }
-        : { periodYear: year, periodMonth: month }),
-    },
-    select: {
-      finalAmount: true,
-      discountAmount: true,
-      balance: true,
-      client: { select: { id: true } },
-      group: { select: { branch: { select: { id: true, name: true } } } },
-    },
+  const subFigures = await computeMonthSubscriptionFigures(db, {
+    tenantId, year, month, scope, isPackageOrg,
   })
 
+  // Ожидаемые поступления средств — по филиалам за выбранный месяц.
   interface IncomeRow {
     branchId: string
     branch: string
@@ -404,13 +382,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     discount: number
   }
   const incomeMap = new Map<string, IncomeRow>()
-  for (const s of expectedSubs) {
-    const branchId = s.group.branch.id
+  for (const s of subFigures) {
+    const branchId = s.branchId ?? "__none__"
     let row = incomeMap.get(branchId)
     if (!row) {
       row = {
         branchId,
-        branch: s.group.branch.name,
+        branch: s.branchName ?? "Без филиала",
         subAmount: 0,
         expected: 0,
         paid: 0,
@@ -418,11 +396,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       }
       incomeMap.set(branchId, row)
     }
-    const finalAmt = Number(s.finalAmount)
-    const bal = Number(s.balance)
-    row.subAmount += finalAmt
-    if (bal > 0) row.expected += bal
-    row.discount += Number(s.discountAmount)
+    row.subAmount += s.subAmount
+    row.expected += s.expected
+    row.discount += s.discount
   }
   for (const r of incomeMap.values()) {
     // paid = subAmount − expected: то, что уже фактически списано в счёт абонементов.
@@ -441,13 +417,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     { subAmount: 0, expected: 0, paid: 0, discount: 0 }
   )
 
-  // Должники за выбранный месяц: активные клиенты с непогашенным остатком
-  // (balance>0) по абонементам этого месяца. totalDebt по построению равен
-  // «Ожидаемым поступлениям» (incomeTotals.expected) — одна и та же сумма
-  // остатка к оплате за месяц, поэтому карточка «Должники» совпадает с виджетом.
+  // Должники за выбранный месяц: клиенты с долгом (expected>0) в едином наборе
+  // абонементов месяца. totalDebt по построению равен «Ожидаемым поступлениям»
+  // (incomeTotals.expected), поэтому карточка «Должники» совпадает с виджетом.
   const monthDebtorIds = new Set<string>()
-  for (const s of expectedSubs) {
-    if (Number(s.balance) > 0) monthDebtorIds.add(s.client.id)
+  for (const s of subFigures) {
+    if (s.expected > 0) monthDebtorIds.add(s.clientId)
   }
   const debtorCount = monthDebtorIds.size
   const totalDebt = incomeTotals.expected
@@ -459,40 +434,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   // === ПРОГНОЗ ПРИБЫЛИ (reports-logic §7.1, упрощённый под дашборд) ===
   // Прибыль = Сумма абонементов − Прогноз ЗП инструкторов − Переменные расходы
-  // − Прогноз постоянных платежей. «Сумма абонементов» здесь считается ШИРЕ, чем
-  // в виджете «Ожидаемые поступления»: прогноз учитывает ВСЕ выписанные (pending/
-  // active) абонементы месяца, включая лидов и выбывших из воронки «Продажи», а
-  // не только активную базу (иначе прогноз занижался и показывал прочерк, пока
-  // выписанные лидам абонементы не оплачены — совпадает с отчётом 7.1). ЗП — оклад
-  // или ставка×занятия
-  // (см. helper). Переменные расходы — среднемесячный ФАКТ переменных расходов за
-  // последние 3 месяца (Expense.isVariable, БЕЗ ЗП-категорий), как в отчёте §7.1:
-  // плановые переменные почти не заполняются, поэтому берём факт (детали у запроса
-  // ниже). Постоянные платежи — плановые расходы постоянных категорий
-  // (PlannedExpense, isVariable=false), «заполняется вручную раз в месяц».
-  // Отдельный запрос от «Ожидаемых поступлений»: тот же период/пакетный сплит и
-  // scope, но БЕЗ фильтра client.clientStatus='active' — прогноз включает пайплайн
-  // продаж (лиды/выбывшие с выписанными абонементами). incomeTotals.subAmount не
-  // трогаем: его показывает виджет «Ожидаемые поступления» (только активная база).
-  const forecastSubAgg = await db.subscription.aggregate({
-    where: {
-      tenantId,
-      deletedAt: null,
-      status: { in: ["active", "pending"] },
-      ...scopeSubscription(scope),
-      ...(isPackageOrg
-        ? {
-            type: "package",
-            startDate: { lte: monthEndDt },
-            OR: [{ expiresAt: null }, { expiresAt: { gte: monthStart } }],
-          }
-        : { periodYear: year, periodMonth: month }),
-    },
-    _sum: { finalAmount: true },
-  })
-  const profitSubAmount = Number(forecastSubAgg._sum.finalAmount ?? 0)
+  // − Прогноз постоянных платежей. «Сумма абонементов» — та же ЕДИНАЯ сумма, что
+  // в «Ожидаемых» и «Отработанных» (спека Ани 09.08.2026: во всех трёх карточках
+  // одинаковая — один набор абонементов месяца, включая воронку). ЗП — оклад или
+  // ставка×занятия (helper). Переменные расходы — среднемесячный ФАКТ переменных
+  // расходов за 3 месяца (Expense.isVariable, БЕЗ ЗП-категорий), как в §7.1.
+  // Постоянные платежи — плановые расходы постоянных категорий (PlannedExpense,
+  // isVariable=false), «заполняется вручную раз в месяц».
+  const profitSubAmount = subFigures.reduce((s, f) => s + f.subAmount, 0)
 
-  // ADM-04: profitSubAmount уже заскоуплен (через forecastSubAgg), но прогноз ЗП и
+  // ADM-04: profitSubAmount уже заскоуплен (через subFigures), но прогноз ЗП и
   // плановые расходы ниже остаются общеорганизационными. Виджеты «Прогноз
   // прибыли»/«Плановые расходы» скрыты у скоуп-админа (reports.finance/
   // finance.result), поэтому протечки нет. Если такие права выдадут админу —
@@ -628,27 +579,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const birthdaysCount = birthdaysData.children.length + birthdaysData.staff.length
 
   // === ОТРАБОТАННЫЕ АБОНЕМЕНТЫ (по филиалам, за месяц) — reports-logic §5.10 ===
-  // Сумма абонементов = SUM(finalAmount) всех выписанных за период; Отработано
-  // = SUM(chargedAmount) — накопленные списания с абонемента (доход в финрезе).
-  const workedSubsRaw = await db.subscription.findMany({
-    where: { tenantId, deletedAt: null, periodYear: year, periodMonth: month, ...scopeSubscription(scope) },
-    select: {
-      finalAmount: true,
-      chargedAmount: true,
-      group: { select: { branch: { select: { id: true, name: true } } } },
-    },
-  })
+  // Тот же ЕДИНЫЙ набор, что «Ожидаемые»/«Прогноз» (одинаковая «Сумма абонементов»,
+  // спека Ани). Отработано = SUM(chargedAmount) — списания за проведённые занятия.
   interface WorkedRow { branchId: string; branch: string; subAmount: number; worked: number }
   const workedMap = new Map<string, WorkedRow>()
-  for (const s of workedSubsRaw) {
-    const b = s.group.branch
-    let row = workedMap.get(b.id)
+  for (const s of subFigures) {
+    const branchId = s.branchId ?? "__none__"
+    let row = workedMap.get(branchId)
     if (!row) {
-      row = { branchId: b.id, branch: b.name, subAmount: 0, worked: 0 }
-      workedMap.set(b.id, row)
+      row = { branchId, branch: s.branchName ?? "Без филиала", subAmount: 0, worked: 0 }
+      workedMap.set(branchId, row)
     }
-    row.subAmount += Number(s.finalAmount)
-    row.worked += Number(s.chargedAmount)
+    row.subAmount += s.subAmount
+    row.worked += s.worked
   }
   const workedRows = [...workedMap.values()].sort((a, b) => a.branch.localeCompare(b.branch, "ru"))
   const workedTotals = workedRows.reduce(
@@ -782,9 +725,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </Link>
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          «Сумма абонементов» здесь — только активные клиенты. В «Прогнозе прибыли»
-          она шире (все выписанные, включая лидов и выбывших в воронке), поэтому
-          суммы обычно отличаются.
+          «Сумма абонементов» — все абонементы месяца (одинаковая во всех трёх
+          карточках: Ожидаемые/Отработанные/Прогноз). «Ожидается» — остаток к
+          оплате (долг). Закрытые/выбывшие учтены по факту отработанного.
         </p>
       </CardHeader>
       <CardContent>
@@ -1068,9 +1011,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </Link>
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          «Сумма абонементов» здесь — все выписанные за месяц: активные, а также
-          лиды и выбывшие в воронке. Поэтому обычно она больше, чем «Сумма
-          абонементов» в «Ожидаемых поступлениях» (там только активные клиенты).
+          «Сумма абонементов» — все абонементы месяца (та же, что в «Ожидаемых» и
+          «Отработанных»). Прибыль = Сумма − прогноз ЗП − переменные − постоянные
+          расходы.
         </p>
       </CardHeader>
       <CardContent>

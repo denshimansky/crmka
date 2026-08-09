@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext } from "@/lib/report-helpers"
+import { computeMonthSubscriptionFigures } from "@/lib/finance/subscription-month-figures"
 
 /** 7.1. Прогноз прибыли */
 export async function GET(req: NextRequest) {
@@ -14,21 +15,23 @@ export async function GET(req: NextRequest) {
   const year = dateFrom.getUTCFullYear()
   const month = dateFrom.getUTCMonth() + 1
 
-  // Subscription amounts (expected revenue)
-  const subWhere: any = {
-    tenantId,
-    deletedAt: null,
-    periodYear: year,
-    periodMonth: month,
-    status: { in: ["active", "pending"] },
-  }
-  if (branchId) subWhere.group = { branchId }
-
-  const subAgg = await db.subscription.aggregate({
-    where: subWhere,
-    _sum: { finalAmount: true },
+  // «Сумма абонементов» = единый набор месяца (спека Ани 09.08.2026, см.
+  // lib/finance/subscription-month-figures.ts): ВСЕ статусы и клиенты, включая
+  // воронку; закрытые/выбывшие — по факту отработанного. Та же сумма, что в
+  // карточках дашборда «Ожидаемые/Отработанные/Прогноз» и отчёте «Ожидаемые
+  // поступления».
+  const org = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionType: true },
   })
-  const totalSubscriptionAmount = Number(subAgg._sum.finalAmount || 0)
+  const figures = await computeMonthSubscriptionFigures(db, {
+    tenantId,
+    year,
+    month,
+    branchId,
+    isPackageOrg: org?.subscriptionType === "package",
+  })
+  const totalSubscriptionAmount = figures.reduce((s, f) => s + f.subAmount, 0)
 
   // Salary forecast from salary rates + attendances
   const salaryAtt = await db.attendance.findMany({

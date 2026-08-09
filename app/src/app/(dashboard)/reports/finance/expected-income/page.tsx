@@ -21,7 +21,7 @@ export default function ExpectedIncomeReportPage() {
   return (
     <ReportShell
       title="Ожидаемые поступления"
-      subtitle="Неоплаченные абонементы активных клиентов за месяц + прогноз на следующий"
+      subtitle="Абонементы месяца: сумма, остаток к оплате и % долга + прогноз на следующий"
       pageKey="reports/finance/expected-income"
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
