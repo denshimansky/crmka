@@ -26,6 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Plus, Pencil, Ban, CalendarDays, Undo2, CalendarPlus } from "lucide-react"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { AddWardForm } from "./add-ward-form"
 import { AttendanceTab } from "./attendance-tab"
 import { PayFromBalanceDialog } from "./pay-from-balance-dialog"
@@ -928,6 +929,7 @@ function SubscriptionsTab({ clientId, wards, perSubDiscountMode }: { clientId: s
         ) : subs.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">Нет абонементов</p>
         ) : (
+          <StickyHScroll className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -1060,6 +1062,7 @@ function SubscriptionsTab({ clientId, wards, perSubDiscountMode }: { clientId: s
               })}
             </TableBody>
           </Table>
+          </StickyHScroll>
         )}
       </CardContent>
     </Card>
@@ -1208,6 +1211,7 @@ function BalanceOperationsTab({ clientId }: { clientId: string }) {
         ) : txns.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">Нет операций с балансом</p>
         ) : (
+          <StickyHScroll className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -1235,6 +1239,7 @@ function BalanceOperationsTab({ clientId }: { clientId: string }) {
               })}
             </TableBody>
           </Table>
+          </StickyHScroll>
         )}
         {txns.length === 300 && (
           <p className="pt-3 text-center text-xs text-muted-foreground">Показаны последние 300 операций</p>
@@ -1435,6 +1440,7 @@ function ScheduleTab({ clientId }: { clientId: string }) {
             Нет предстоящих занятий. Проверьте, что ученик зачислен в группу и расписание сгенерировано.
           </p>
         ) : (
+          <StickyHScroll className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -1466,6 +1472,7 @@ function ScheduleTab({ clientId }: { clientId: string }) {
               ))}
             </TableBody>
           </Table>
+          </StickyHScroll>
         )}
       </CardContent>
     </Card>

@@ -29,6 +29,7 @@ import {
 import { ClipboardCheck, ExternalLink, X, Sparkles } from "lucide-react"
 import { useRoleNames } from "@/components/role-names-provider"
 import { useMoneyFormat } from "@/components/currency-provider"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 
 const MONTH_SHORT = [
   "",
@@ -343,7 +344,8 @@ function AttendanceItemsTable({
   const roleNames = useRoleNames()
   const formatMoney = useMoneyFormat()
   return (
-    <Table>
+    <StickyHScroll className="rounded-md border">
+      <Table>
       <TableHeader>
         <TableRow>
           <TableHead className="w-[90px]">Дата</TableHead>
@@ -446,6 +448,7 @@ function AttendanceItemsTable({
           </TableRow>
         ))}
       </TableBody>
-    </Table>
+      </Table>
+    </StickyHScroll>
   )
 }

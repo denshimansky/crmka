@@ -7,7 +7,7 @@ import { computeMonthSubscriptionFigures } from "@/lib/finance/subscription-mont
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
-  const { session, dateRange, searchParams } = result.ctx
+  const { session, dateRange, searchParams, scope } = result.ctx
   const { tenantId } = session
   const { dateFrom, dateTo } = dateRange
   const branchId = searchParams.get("branchId")
@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     tenantId,
     year,
     month,
+    scope,
     branchId,
     isPackageOrg: org?.subscriptionType === "package",
   })

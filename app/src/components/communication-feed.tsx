@@ -135,6 +135,11 @@ export function CommunicationFeed({ clientId }: { clientId: string }) {
                 ? [c.employee.lastName, c.employee.firstName].filter(Boolean).join(" ")
                 : null
               const duration = c.metadata?.duration
+              // Для результата обзвона показываем название кампании: «Обзвон «...»».
+              const label =
+                c.type === "call_campaign_result" && c.metadata?.campaignName
+                  ? `${config.label} «${c.metadata.campaignName}»`
+                  : config.label
 
               return (
                 <div key={c.id} className="flex gap-3">
@@ -143,7 +148,7 @@ export function CommunicationFeed({ clientId }: { clientId: string }) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">{config.label}</span>
+                      <span className="font-medium text-foreground">{label}</span>
                       {employeeName && <span>· {employeeName}</span>}
                       <span>{formatDateTime(c.createdAt)}</span>
                       {duration != null && (

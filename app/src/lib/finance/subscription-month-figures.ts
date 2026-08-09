@@ -62,13 +62,18 @@ export async function computeMonthSubscriptionFigures(
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEndDt = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
 
+  // scope (ADM-04) и branchId (?branchId= отчёта) оба фильтруют по group — кладём
+  // их в AND, чтобы второй не затирал первый: эффективный фильтр = scope ∩ branchId.
+  const branchAnd: Prisma.SubscriptionWhereInput[] = []
+  if (opts.scope) branchAnd.push(scopeSubscription(opts.scope))
+  if (opts.branchId) branchAnd.push({ group: { branchId: opts.branchId } })
+
   const where: Prisma.SubscriptionWhereInput = {
     tenantId,
     deletedAt: null,
     // Статус НЕ фильтруем: набор включает и воронку (pending), и действующие
     // (active), и закрытые/выбывшие — их «Сумма» считается по факту.
-    ...(opts.scope ? scopeSubscription(opts.scope) : {}),
-    ...(opts.branchId ? { group: { branchId: opts.branchId } } : {}),
+    ...(branchAnd.length > 0 ? { AND: branchAnd } : {}),
     ...(opts.isPackageOrg
       ? {
           type: "package",

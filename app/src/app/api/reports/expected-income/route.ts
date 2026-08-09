@@ -1,16 +1,24 @@
 import { NextRequest, NextResponse } from "next/server"
+import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { getReportContext, pct } from "@/lib/report-helpers"
+import { scopeSubscription } from "@/lib/branch-scope"
 import { computeMonthSubscriptionFigures } from "@/lib/finance/subscription-month-figures"
 
 /** 5.3. Ожидаемые поступления */
 export async function GET(req: NextRequest) {
   const result = await getReportContext(req)
   if (result.error) return result.error
-  const { session, dateRange, searchParams } = result.ctx
+  const { session, dateRange, searchParams, scope } = result.ctx
   const { tenantId } = session
   const { dateFrom, dateTo } = dateRange
   const branchId = searchParams.get("branchId")
+
+  // ADM-04: филиальный scope (scope ∩ branchId). Применяется и к helper'у, и к
+  // прогнозу на следующий месяц ниже, чтобы филиальный админ не видел всю орг.
+  const branchAnd: Prisma.SubscriptionWhereInput[] = []
+  if (scope) branchAnd.push(scopeSubscription(scope))
+  if (branchId) branchAnd.push({ group: { branchId } })
 
   const year = dateFrom.getUTCFullYear()
   const month = dateFrom.getUTCMonth() + 1
@@ -29,6 +37,7 @@ export async function GET(req: NextRequest) {
     tenantId,
     year,
     month,
+    scope,
     branchId,
     isPackageOrg: isPackage,
   })
@@ -64,7 +73,7 @@ export async function GET(req: NextRequest) {
       deletedAt: null,
       status: { in: ["active", "pending"] },
       client: { clientStatus: "active" },
-      ...(branchId ? { group: { branchId } } : {}),
+      ...(branchAnd.length > 0 ? { AND: branchAnd } : {}),
       ...(isPackage
         ? {
             type: "package",
