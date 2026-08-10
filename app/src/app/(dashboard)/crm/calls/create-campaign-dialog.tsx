@@ -97,14 +97,14 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
   const [name, setName] = useState("")
   const [clientStatus, setClientStatus] = useState("")
   const [branchId, setBranchId] = useState("")
-  const [minAge, setMinAge] = useState("")
-  const [maxAge, setMaxAge] = useState("")
+  const [birthFrom, setBirthFrom] = useState("")
+  const [birthTo, setBirthTo] = useState("")
   const [withdrawnFrom, setWithdrawnFrom] = useState("")
   const [withdrawnTo, setWithdrawnTo] = useState("")
 
   function reset() {
     setName(""); setClientStatus(""); setBranchId("")
-    setMinAge(""); setMaxAge("")
+    setBirthFrom(""); setBirthTo("")
     setWithdrawnFrom(""); setWithdrawnTo("")
     setError(null)
   }
@@ -114,9 +114,10 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
     if (clientStatus) fc.clientStatus = clientStatus
     if (branchId === NO_BRANCH) fc.noBranch = true
     else if (branchId) fc.branchId = branchId
-    // Кламп 0..120 — чтобы и предпросмотр, и создание не падали на zod-валидации.
-    if (minAge !== "" && !Number.isNaN(Number(minAge))) fc.minAge = Math.min(120, Math.max(0, Math.trunc(Number(minAge))))
-    if (maxAge !== "" && !Number.isNaN(Number(maxAge))) fc.maxAge = Math.min(120, Math.max(0, Math.trunc(Number(maxAge))))
+    // Диапазон даты рождения подопечного (YYYY-MM-DD). Формат провалидирует бэкенд
+    // (parseDate игнорирует некорректные значения).
+    if (birthFrom) fc.birthFrom = birthFrom
+    if (birthTo) fc.birthTo = birthTo
     // «Дата выбытия» действует только для «Выбывших» (в UI видна только там) —
     // гейтим и в критериях, чтобы значение не применилось скрыто.
     if (clientStatus === "churned") {
@@ -124,7 +125,7 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
       if (withdrawnTo) fc.withdrawnTo = withdrawnTo
     }
     return fc
-  }, [clientStatus, branchId, minAge, maxAge, withdrawnFrom, withdrawnTo])
+  }, [clientStatus, branchId, birthFrom, birthTo, withdrawnFrom, withdrawnTo])
 
   const preview = useCampaignPreview(open, true, buildFilterCriteria)
 
@@ -192,20 +193,18 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
           </div>
 
           <div className="space-y-1.5">
-            <Label>Возраст подопечного, лет</Label>
-            <div className="flex items-center gap-2">
-              <Input
-                type="number" min={0} max={120} inputMode="numeric"
-                value={minAge} onChange={e => setMinAge(e.target.value)}
-                placeholder="от" className="w-24"
-              />
-              <span className="text-muted-foreground">—</span>
-              <Input
-                type="number" min={0} max={120} inputMode="numeric"
-                value={maxAge} onChange={e => setMaxAge(e.target.value)}
-                placeholder="до" className="w-24"
-              />
+            <Label>Дата рождения подопечного</Label>
+            <div className="flex items-end gap-2">
+              <div className="flex-1 space-y-1">
+                <span className="block text-xs text-muted-foreground">от</span>
+                <Input type="date" value={birthFrom} onChange={e => setBirthFrom(e.target.value)} className="w-full" />
+              </div>
+              <div className="flex-1 space-y-1">
+                <span className="block text-xs text-muted-foreground">до</span>
+                <Input type="date" value={birthTo} onChange={e => setBirthTo(e.target.value)} className="w-full" />
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground">Подопечный с датой рождения в этом диапазоне (включительно).</p>
           </div>
 
           {clientStatus === "churned" && (

@@ -138,17 +138,40 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   ]
 
   // Возрастной фильтр кампании (если был) — чтобы выбрать «того самого» подопечного.
-  const fc = (campaign.filterCriteria ?? {}) as { minAge?: number; maxAge?: number }
+  const fc = (campaign.filterCriteria ?? {}) as {
+    minAge?: number
+    maxAge?: number
+    birthFrom?: string
+    birthTo?: string
+  }
+  // Границы диапазона даты рождения из критериев: новый фильтр (birthFrom/birthTo,
+  // мс от эпохи) — иначе конвертируем legacy-возраст.
+  const birthLoMs = fc.birthFrom ? Date.parse(`${fc.birthFrom}T00:00:00.000Z`) : null
+  const birthHiMs = fc.birthTo ? Date.parse(`${fc.birthTo}T00:00:00.000Z`) : null
+  const hasWardFilter =
+    birthLoMs != null || birthHiMs != null ||
+    typeof fc.minAge === "number" || typeof fc.maxAge === "number"
+
+  function wardMatches(w: { birthDate: Date | null }): boolean {
+    if (!w.birthDate) return false
+    // Новый фильтр — прямой диапазон даты рождения (включительно по дню).
+    if (birthLoMs != null || birthHiMs != null) {
+      const t = w.birthDate.getTime()
+      if (birthLoMs != null && t < birthLoMs) return false
+      if (birthHiMs != null && t > birthHiMs) return false
+      return true
+    }
+    // Legacy — возраст.
+    const a = ageYears(w.birthDate, now)
+    if (typeof fc.minAge === "number" && a < fc.minAge) return false
+    if (typeof fc.maxAge === "number" && a > fc.maxAge) return false
+    return true
+  }
+
   function pickWard(wards: { firstName: string; lastName: string | null; birthDate: Date | null }[]) {
     if (wards.length === 0) return null
-    if (typeof fc.minAge === "number" || typeof fc.maxAge === "number") {
-      const match = wards.find((w) => {
-        if (!w.birthDate) return false
-        const a = ageYears(w.birthDate, now)
-        if (typeof fc.minAge === "number" && a < fc.minAge) return false
-        if (typeof fc.maxAge === "number" && a > fc.maxAge) return false
-        return true
-      })
+    if (hasWardFilter) {
+      const match = wards.find(wardMatches)
       if (match) return match
     }
     return wards[0]

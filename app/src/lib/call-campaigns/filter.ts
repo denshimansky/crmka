@@ -41,9 +41,13 @@ export interface CampaignFilterCriteria {
    * (в UI — один селект). Баг #113.
    */
   noBranch?: boolean
-  /** Возраст подопечного, лет — от. */
+  /** Дата рождения подопечного, YYYY-MM-DD — от (ранняя граница, включительно). */
+  birthFrom?: string
+  /** Дата рождения подопечного, YYYY-MM-DD — по (поздняя граница, включительно). */
+  birthTo?: string
+  /** @deprecated legacy: возраст подопечного, лет — от. Заменён на birthFrom. */
   minAge?: number
-  /** Возраст подопечного, лет — до (включительно). */
+  /** @deprecated legacy: возраст подопечного, лет — до. Заменён на birthTo. */
   maxAge?: number
   /** Дата выбытия (последнее платное занятие), YYYY-MM-DD — от. */
   withdrawnFrom?: string
@@ -77,6 +81,9 @@ export const campaignFilterSchema = z.object({
   ]).optional(),
   branchId: z.string().optional(),
   noBranch: z.boolean().optional(),
+  birthFrom: z.string().optional(),
+  birthTo: z.string().optional(),
+  // legacy старых кампаний — оставлены валидными для «Актуализировать».
   minAge: z.number().int().min(0).max(120).optional(),
   maxAge: z.number().int().min(0).max(120).optional(),
   withdrawnFrom: z.string().optional(),
@@ -148,16 +155,28 @@ export function buildCampaignClientWhere(
     and.push({ OR: [{ clientStatus: null }, { clientStatus: { not: "archived" } }] })
   }
 
-  // --- Возраст подопечного (от/до) ---
-  // age >= minAge ⟺ birthDate <= today − minAge лет;
-  // age <= maxAge ⟺ birthDate > today − (maxAge+1) лет.
-  const hasMin = typeof fc.minAge === "number" && fc.minAge >= 0
-  const hasMax = typeof fc.maxAge === "number" && fc.maxAge >= 0
+  // --- Дата рождения подопечного (от/до) ---
+  // Новый фильтр — прямой диапазон даты рождения (birthFrom/birthTo, включительно
+  // по дню; birthDate — @db.Date). Legacy-кампании хранят возраст (minAge/maxAge) —
+  // конвертируем его в тот же диапазон birthDate ради обратной совместимости
+  // «Актуализировать»:
+  //   age >= minAge ⟺ birthDate <= today − minAge лет;
+  //   age <= maxAge ⟺ birthDate > today − (maxAge+1) лет.
   let birth: Prisma.DateTimeNullableFilter | null = null
-  if (hasMin || hasMax) {
+  const bFrom = parseDate(fc.birthFrom)
+  const bTo = parseDate(fc.birthTo)
+  if (bFrom || bTo) {
     birth = {}
-    if (hasMin) birth.lte = subYears(now, fc.minAge as number)
-    if (hasMax) birth.gt = subYears(now, (fc.maxAge as number) + 1)
+    if (bFrom) birth.gte = bFrom
+    if (bTo) birth.lte = bTo
+  } else {
+    const hasMin = typeof fc.minAge === "number" && fc.minAge >= 0
+    const hasMax = typeof fc.maxAge === "number" && fc.maxAge >= 0
+    if (hasMin || hasMax) {
+      birth = {}
+      if (hasMin) birth.lte = subYears(now, fc.minAge as number)
+      if (hasMax) birth.gt = subYears(now, (fc.maxAge as number) + 1)
+    }
   }
 
   // --- Этап воронки (= вкладки раздела «Продажи») ---
