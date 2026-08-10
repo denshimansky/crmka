@@ -123,8 +123,10 @@ export function EditClientDialog({
           fetch("/api/branches"),
           fetch("/api/employees"),
           fetch("/api/lead-channels"),
-          // Вручную выбирается только постоянная скидка (тип 2), активная.
-          fetch("/api/discount-templates?isActive=true&kind=permanent"),
+          // Вручную выбирается только постоянная скидка (тип 2), активная, и
+          // ТОЛЬКО scope=client: абонементные шаблоны (scope=subscription)
+          // выбираются в форме абонемента, в карточке родителя их быть не должно.
+          fetch("/api/discount-templates?isActive=true&kind=permanent&scope=client"),
         ])
         if (bRes.ok) setBranches(await bRes.json())
         if (eRes.ok) setEmployees(await eRes.json())
