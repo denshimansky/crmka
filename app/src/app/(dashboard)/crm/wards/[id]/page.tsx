@@ -16,25 +16,11 @@ import { ClientHistory } from "../../clients/[id]/client-history"
 import { TrialLessonDialog } from "../../_components/trial-lesson-dialog"
 import { WardSalesStageActions } from "../../_components/ward-sales-stage-actions"
 import { formatWardName } from "@/lib/format-name"
+import { formatAge } from "@/lib/age"
 
 function formatDate(date: Date | null | undefined): string {
   if (!date) return "—"
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
-}
-
-function ageLabel(birth: Date | null): string {
-  if (!birth) return "—"
-  const now = new Date()
-  let years = now.getFullYear() - birth.getFullYear()
-  const m = now.getMonth() - birth.getMonth()
-  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) years--
-  if (years < 0) return "—"
-  const mod10 = years % 10
-  const mod100 = years % 100
-  if (mod100 >= 11 && mod100 <= 19) return `${years} лет`
-  if (mod10 === 1) return `${years} год`
-  if (mod10 >= 2 && mod10 <= 4) return `${years} года`
-  return `${years} лет`
 }
 
 export default async function WardPage({ params }: { params: Promise<{ id: string }> }) {
@@ -150,7 +136,7 @@ export default async function WardPage({ params }: { params: Promise<{ id: strin
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold">{wardName}</h1>
-            <Badge variant="secondary">{ageLabel(ward.birthDate)}</Badge>
+            <Badge variant="secondary">{formatAge(ward.birthDate)}</Badge>
             {activeSubscriptions.length > 0 ? (
               <Badge>Активных абонементов: {activeSubscriptions.length}</Badge>
             ) : (

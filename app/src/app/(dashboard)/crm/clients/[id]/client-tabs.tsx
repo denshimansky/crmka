@@ -33,6 +33,7 @@ import { PayFromBalanceDialog } from "./pay-from-balance-dialog"
 import { CommunicationFeed } from "@/components/communication-feed"
 import { ClientHistory } from "./client-history"
 import { formatWardName } from "@/lib/format-name"
+import { formatAge } from "@/lib/age"
 import { useRoleNames } from "@/components/role-names-provider"
 import { useMoneyFormat, useCurrencySymbol } from "@/components/currency-provider"
 import { EditPackageLessonsDialog } from "@/app/(dashboard)/crm/_components/edit-package-lessons-dialog"
@@ -94,22 +95,6 @@ interface Payment {
     direction: { name: string }
   } | null
   account: { id: string; name: string }
-}
-
-function calculateAge(birthDate: string): string {
-  const birth = new Date(birthDate)
-  const now = new Date()
-  let years = now.getFullYear() - birth.getFullYear()
-  const monthDiff = now.getMonth() - birth.getMonth()
-  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) {
-    years--
-  }
-  const mod10 = years % 10
-  const mod100 = years % 100
-  if (mod100 >= 11 && mod100 <= 19) return `${years} лет`
-  if (mod10 === 1) return `${years} год`
-  if (mod10 >= 2 && mod10 <= 4) return `${years} года`
-  return `${years} лет`
 }
 
 function formatDate(iso: string): string {
@@ -1537,7 +1522,7 @@ export function ClientTabs({
                     </Link>
                     <span className="text-sm text-muted-foreground">
                       {w.birthDate
-                        ? `${formatDate(w.birthDate)} (${calculateAge(w.birthDate)})`
+                        ? `${formatDate(w.birthDate)} (${formatAge(w.birthDate)})`
                         : "Дата рождения не указана"}
                     </span>
                   </div>

@@ -19,6 +19,7 @@ import {
 import { Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 import { EditableTextCell } from "../_components/editable-cell"
 import { formatWardName as fmtWardName } from "@/lib/format-name"
+import { ageYears as ageInYears, formatAge } from "@/lib/age"
 
 export type ChildState =
   | "lead"
@@ -101,28 +102,6 @@ function wardFullName(r: { firstName: string; lastName: string | null }): string
 function fmtDate(iso: string | null): string {
   if (!iso) return "—"
   return new Date(iso).toLocaleDateString("ru-RU")
-}
-
-function ageInYears(iso: string | null): number | null {
-  if (!iso) return null
-  const birth = new Date(iso)
-  const now = new Date()
-  let years = now.getFullYear() - birth.getFullYear()
-  const m = now.getMonth() - birth.getMonth()
-  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) years--
-  if (years < 0) return null
-  return years
-}
-
-function ageLabel(iso: string | null): string {
-  const years = ageInYears(iso)
-  if (years === null) return "—"
-  const mod10 = years % 10
-  const mod100 = years % 100
-  if (mod100 >= 11 && mod100 <= 19) return `${years} лет`
-  if (mod10 === 1) return `${years} год`
-  if (mod10 >= 2 && mod10 <= 4) return `${years} года`
-  return `${years} лет`
 }
 
 // ── Сортировка ──
@@ -403,7 +382,7 @@ export function ChildrenTable({
                     </Link>
                   </TableCell>
                   <TableCell className="text-sm">{r.parentPhone || "—"}</TableCell>
-                  <TableCell className="text-sm">{ageLabel(r.birthDate)}</TableCell>
+                  <TableCell className="text-sm">{formatAge(r.birthDate)}</TableCell>
                   <TableCell className="text-sm">{fmtDate(r.birthDate)}</TableCell>
                   <TableCell className="text-sm">{r.branchName || "—"}</TableCell>
                   <TableCell>

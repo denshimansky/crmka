@@ -16,7 +16,10 @@ export interface CallItem {
   clientName: string
   phone: string
   wardName: string
+  /** Целых лет — для сортировки колонки «Возраст». */
   age: number | null
+  /** Метка возраста с месяцами («5 лет 3 мес.») — для отображения. */
+  ageLabel: string | null
   clientStatusLabel: string
   status: string
   comment: string | null
@@ -63,15 +66,6 @@ export function commentSortKey(item: CallItem): string {
 /** Текст ячейки «Комментарий»: сначала комментарий, иначе метка результата. */
 function commentText(item: CallItem): string {
   return commentSortKey(item) || "—"
-}
-
-/** Русское склонение «год/года/лет» после числа. */
-function ruYears(n: number): string {
-  const m10 = n % 10
-  const m100 = n % 100
-  if (m10 === 1 && m100 !== 11) return `${n} год`
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return `${n} года`
-  return `${n} лет`
 }
 
 const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -158,7 +152,7 @@ export function CallItemRow({
         </TableCell>
         <TableCell className="text-muted-foreground">{item.phone || "—"}</TableCell>
         <TableCell className="text-muted-foreground text-xs">{item.wardName || "—"}</TableCell>
-        <TableCell className="text-muted-foreground text-xs">{item.age != null ? ruYears(item.age) : "—"}</TableCell>
+        <TableCell className="text-muted-foreground text-xs">{item.ageLabel || "—"}</TableCell>
         <TableCell className="text-muted-foreground text-xs">{item.clientStatusLabel || "—"}</TableCell>
         <TableCell>
           <Badge variant={STATUS_VARIANTS[item.status] || "outline"}>
