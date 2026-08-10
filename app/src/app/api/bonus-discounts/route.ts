@@ -7,6 +7,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { logClientNote } from "@/lib/communications/log-note"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -119,6 +120,18 @@ export async function POST(req: NextRequest) {
       comment: `Разовая скидка-бонус: ${data.reason}`,
       createdBy: session.user.employeeId ?? null,
     })
+    // Свободный комментарий (если есть) — отдельной заметкой в ленту коммуникаций
+    // (баг #117). Причину, сумму и автора уже несёт событие «Корректировка
+    // баланса» (ClientBalanceTransaction с createdBy → meta.author в таймлайне),
+    // поэтому в заметке их не дублируем.
+    if (data.comment?.trim()) {
+      await logClientNote(tx, {
+        tenantId: session.user.tenantId,
+        clientId: data.clientId,
+        content: `Комментарий к разовой скидке-бонусу: ${data.comment.trim()}`,
+        employeeId: session.user.employeeId ?? null,
+      })
+    }
     return row
   })
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { logClientNote } from "@/lib/communications/log-note"
 import { z } from "zod"
 
 const createSchema = z.object({
@@ -31,7 +32,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // Абонемент должен принадлежать этому клиенту и арендатору.
   const sub = await db.subscription.findFirst({
     where: { id: subscriptionId, clientId: id, tenantId, deletedAt: null },
-    select: { id: true, periodYear: true, periodMonth: true, expiresAt: true, startDate: true },
+    select: {
+      id: true, periodYear: true, periodMonth: true, expiresAt: true, startDate: true,
+      direction: { select: { name: true } },
+    },
   })
   if (!sub) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
 
@@ -40,23 +44,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const periodYear = sub.periodYear ?? fallback.getUTCFullYear()
   const periodMonth = sub.periodMonth ?? fallback.getUTCMonth() + 1
 
-  const item = await db.unprolongedComment.create({
-    data: {
+  // Комментарий непродления → сразу в ленту коммуникаций клиента (баг #117): даёт
+  // «откуда» (абонемент + период), «когда» (createdAt) и «кто» (employeeId).
+  // Атомарно с самой записью — откат заметки откатывает и комментарий.
+  const periodLabel = `${String(periodMonth).padStart(2, "0")}.${periodYear}`
+  const dirName = sub.direction?.name || "абонемент"
+  const item = await db.$transaction(async (tx) => {
+    const created = await tx.unprolongedComment.create({
+      data: {
+        tenantId,
+        clientId: id,
+        subscriptionId,
+        periodYear,
+        periodMonth,
+        comment: comment.trim(),
+        createdBy: session.user.employeeId,
+      },
+      select: {
+        id: true,
+        subscriptionId: true,
+        comment: true,
+        createdAt: true,
+        creator: { select: { firstName: true, lastName: true } },
+      },
+    })
+    await logClientNote(tx, {
       tenantId,
       clientId: id,
-      subscriptionId,
-      periodYear,
-      periodMonth,
-      comment: comment.trim(),
-      createdBy: session.user.employeeId,
-    },
-    select: {
-      id: true,
-      subscriptionId: true,
-      comment: true,
-      createdAt: true,
-      creator: { select: { firstName: true, lastName: true } },
-    },
+      content: `Непродление абонемента «${dirName}» (${periodLabel}). ${comment.trim()}`,
+      employeeId: session.user.employeeId,
+    })
+    return created
   })
 
   return NextResponse.json(

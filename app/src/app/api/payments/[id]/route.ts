@@ -6,6 +6,7 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { logClientNote } from "@/lib/communications/log-note"
 import { requirePermission } from "@/lib/api-permissions"
 import { branchScopeFromSession, scopePayment } from "@/lib/branch-scope"
 import { currencySymbol } from "@/lib/currency"
@@ -187,7 +188,7 @@ export async function PATCH(
       }
     }
 
-    return tx.payment.update({
+    const updatedRow = await tx.payment.update({
       where: { id },
       data: {
         ...(data.amount !== undefined && { amount: data.amount }),
@@ -206,6 +207,29 @@ export async function PATCH(
         account: { select: { id: true, name: true } },
       },
     })
+
+    // Правка комментария оплаты клиента → заметка в ленту коммуникаций (баг #117):
+    // «откуда» (оплата + сумма/дата), «когда» (createdAt), «кто» (employeeId).
+    // Прочий доход (без clientId) ленты не имеет.
+    if (existing.clientId && data.comment !== undefined) {
+      const oldC = existing.comment?.trim() || ""
+      const newC = (data.comment ?? "").trim()
+      if (oldC !== newC) {
+        const ref = `оплате ${fmtMoney(newAmount, currency)} от ${newDate.toLocaleDateString("ru-RU")}`
+        const content = !oldC
+          ? `Комментарий к ${ref} добавлен:\n${newC}`
+          : !newC
+            ? `Комментарий к ${ref} удалён:\n«${oldC}»`
+            : `Комментарий к ${ref} изменён:\n«${oldC}»\n→ «${newC}»`
+        await logClientNote(tx, {
+          tenantId: session.user.tenantId,
+          clientId: existing.clientId,
+          content,
+          employeeId: session.user.employeeId,
+        })
+      }
+    }
+    return updatedRow
     })
   } catch (e) {
     if (e instanceof InsufficientBalanceError) {

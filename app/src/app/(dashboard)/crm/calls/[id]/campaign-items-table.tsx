@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { CallItemRow, CALL_STATUS_LABELS, commentSortKey, type CallItem } from "./call-item-row"
 
 type SortKey =
@@ -82,7 +83,7 @@ export function CampaignItemsTable({
   }, [rows, sortKey, sortDir])
 
   return (
-    <div className="rounded-md border">
+    <StickyHScroll className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -111,6 +112,6 @@ export function CampaignItemsTable({
           ))}
         </TableBody>
       </Table>
-    </div>
+    </StickyHScroll>
   )
 }

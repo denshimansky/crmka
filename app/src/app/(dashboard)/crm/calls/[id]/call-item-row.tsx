@@ -34,7 +34,9 @@ export const CALL_STATUS_LABELS: Record<string, string> = {
   called: "Обзвонен",
   no_answer: "Не ответил",
   callback: "Перезвонить",
-  completed: "Завершён",
+  // Исход «completed» — это отказ клиента (баг #117). Внутренний код статуса
+  // оставлен прежним (completed), меняется только метка и оформление.
+  completed: "Отказ",
 }
 const STATUS_LABELS = CALL_STATUS_LABELS
 
@@ -77,7 +79,9 @@ const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline" | "des
   called: "secondary",
   no_answer: "destructive",
   callback: "default",
-  completed: "default",
+  // «Отказ» (баг #117) — нейтральное оформление, как у кнопок «Не ответил»/
+  // «Перезвонить» (outline), а не акцентная заливка.
+  completed: "outline",
 }
 
 export function CallItemRow({
@@ -196,7 +200,7 @@ export function CallItemRow({
               <Button size="sm" onClick={() => saveResult("called")} disabled={loading}>Обзвонен</Button>
               <Button size="sm" variant="outline" onClick={() => saveResult("no_answer")} disabled={loading}>Не ответил</Button>
               <Button size="sm" variant={callbackOpen ? "secondary" : "outline"} onClick={openCallback} disabled={loading}>Перезвонить</Button>
-              <Button size="sm" variant="secondary" onClick={() => saveResult("completed")} disabled={loading}>Завершён</Button>
+              <Button size="sm" variant="outline" onClick={() => saveResult("completed")} disabled={loading}>Отказ</Button>
               <span className="mx-1 h-5 w-px bg-border" aria-hidden />
               <CreateApplicationDialog
                 clientId={item.clientId}

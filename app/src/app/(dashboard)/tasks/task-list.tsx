@@ -21,6 +21,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
 import { Trash2 } from "lucide-react"
 import Link from "next/link"
 
@@ -93,15 +95,46 @@ export function TaskList({
   const [confirmTitle, setConfirmTitle] = useState<string>("")
   const [deleting, setDeleting] = useState(false)
   const [detail, setDetail] = useState<TaskRow | null>(null)
+  // Диалог результата при выполнении клиентской задачи (баг #117): результат
+  // уходит в ленту коммуникаций клиента как «Результат задачи».
+  const [completeTarget, setCompleteTarget] = useState<TaskRow | null>(null)
+  const [resultText, setResultText] = useState("")
+  const [completing, setCompleting] = useState(false)
 
-  async function toggleComplete(id: string, currentStatus: string) {
-    const newStatus = currentStatus === "completed" ? "pending" : "completed"
+  async function patchStatus(id: string, status: string, result?: string) {
     await fetch(`/api/tasks/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify({ status, ...(result ? { result } : {}) }),
     })
     router.refresh()
+  }
+
+  function onToggle(t: TaskRow) {
+    // Снять отметку «выполнено» — сразу, без диалога.
+    if (t.status === "completed") {
+      patchStatus(t.id, "pending")
+      return
+    }
+    // Клиентская задача — предложить записать результат в коммуникацию клиента.
+    if (t.clientId) {
+      setResultText("")
+      setCompleteTarget(t)
+      return
+    }
+    // Задача без клиента — результату некуда попасть, закрываем сразу.
+    patchStatus(t.id, "completed")
+  }
+
+  async function confirmComplete() {
+    if (!completeTarget) return
+    setCompleting(true)
+    try {
+      await patchStatus(completeTarget.id, "completed", resultText.trim() || undefined)
+      setCompleteTarget(null)
+    } finally {
+      setCompleting(false)
+    }
   }
 
   function askDelete(t: TaskRow) {
@@ -158,7 +191,7 @@ export function TaskList({
               <TableCell onClick={(e) => e.stopPropagation()}>
                 <Checkbox
                   checked={t.status === "completed"}
-                  onCheckedChange={() => toggleComplete(t.id, t.status)}
+                  onCheckedChange={() => onToggle(t)}
                 />
               </TableCell>
               <TableCell className={`font-medium ${t.status === "completed" ? "line-through" : ""}`}>
@@ -277,6 +310,42 @@ export function TaskList({
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Результат при выполнении клиентской задачи → «Результат задачи» в ленте */}
+      <Dialog
+        open={!!completeTarget}
+        onOpenChange={(o) => { if (!o && !completing) setCompleteTarget(null) }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Выполнить задачу</DialogTitle>
+            <DialogDescription className="break-words text-foreground">
+              {completeTarget?.title}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label>Результат (необязательно)</Label>
+            <Textarea
+              value={resultText}
+              onChange={(e) => setResultText(e.target.value)}
+              placeholder="Например: дозвонились, договорились о продлении…"
+              rows={3}
+              className="resize-none"
+            />
+            <p className="text-xs text-muted-foreground">
+              Сохранится в истории коммуникаций клиента как «Результат задачи».
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setCompleteTarget(null)} disabled={completing}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={confirmComplete} disabled={completing}>
+              {completing ? "Сохранение..." : "Готово"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

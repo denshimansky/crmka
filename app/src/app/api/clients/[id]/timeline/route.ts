@@ -333,6 +333,30 @@ export async function GET(
     }
   }
 
+  // Автор события (кто внёс — баг #117) для сущностей, где сотрудник хранится
+  // «голой» колонкой createdBy/markedBy без Prisma-relation (Payment, Attendance,
+  // TrialLesson, Application, ClientBalanceTransaction). Собираем все id и
+  // подтягиваем имена одним запросом, дальше проставляем в meta.author событий.
+  const authorIds = new Set<string>()
+  for (const p of payments) if (p.createdBy) authorIds.add(p.createdBy)
+  for (const a of attendances) if (a.markedBy) authorIds.add(a.markedBy)
+  for (const t of trials) if (t.createdBy) authorIds.add(t.createdBy)
+  for (const a of applications) if (a.createdBy) authorIds.add(a.createdBy)
+  for (const t of balanceTxns) if (t.createdBy) authorIds.add(t.createdBy)
+  const authorNameById = new Map<string, string>()
+  if (authorIds.size > 0) {
+    const emps = await db.employee.findMany({
+      where: { id: { in: Array.from(authorIds) }, tenantId },
+      select: { id: true, firstName: true, lastName: true },
+    })
+    for (const e of emps) {
+      const n = [e.lastName, e.firstName].filter(Boolean).join(" ").trim()
+      if (n) authorNameById.set(e.id, n)
+    }
+  }
+  const authorName = (empId: string | null | undefined): string | null =>
+    empId ? authorNameById.get(empId) ?? null : null
+
   // Свободные комментарии оператора к занятиям (lesson_student_notes) — вводятся в
   // реестре «Пропуски» и встраиваются в событие «посещение» истории. Ключ —
   // (занятие, подопечный) для этого клиента (wardId || "" — как и прочие ключи).
@@ -398,7 +422,7 @@ export async function GET(
       ]
         .filter(Boolean)
         .join(" · "),
-      meta: { trialId: t.id },
+      meta: { trialId: t.id, author: authorName(t.createdBy) },
     })
 
     // событие итога: пришёл / не пришёл / отменено
@@ -416,6 +440,7 @@ export async function GET(
         date: t.attendedAt.toISOString(),
         title: "Пробное посещено",
         description: trialOutcomeDescription,
+        meta: { author: authorName(t.createdBy) },
       })
     } else if (t.status === "no_show") {
       events.push({
@@ -424,6 +449,7 @@ export async function GET(
         date: t.scheduledDate.toISOString(),
         title: "Не пришёл на пробное",
         description: trialOutcomeDescription,
+        meta: { author: authorName(t.createdBy) },
       })
     }
   }
@@ -532,7 +558,7 @@ export async function GET(
       date: a.createdAt.toISOString(),
       title: "Заявка создана",
       description: [passport, a.comment].filter(Boolean).join(" · ") || null,
-      meta: { applicationId: a.id },
+      meta: { applicationId: a.id, author: authorName(a.createdBy) },
     })
     if (a.processedAt && a.processedToStatus) {
       const processorName = a.processor
@@ -648,7 +674,7 @@ export async function GET(
           ]
             .filter(Boolean)
             .join(" · "),
-      meta: { paymentId: p.id, amount, method: p.method },
+      meta: { paymentId: p.id, amount, method: p.method, author: authorName(p.createdBy) },
     })
   }
 
@@ -707,7 +733,7 @@ export async function GET(
       ]
         .filter(Boolean)
         .join(" · "),
-      meta: { ledgerId: t.id, ledgerType: t.type, amount },
+      meta: { ledgerId: t.id, ledgerType: t.type, amount, author: authorName(t.createdBy) },
     })
   }
 
@@ -740,7 +766,7 @@ export async function GET(
       ]
         .filter(Boolean)
         .join(" · "),
-      meta: { attendanceId: a.id, charge: Number(a.chargeAmount) },
+      meta: { attendanceId: a.id, charge: Number(a.chargeAmount), author: authorName(a.markedBy) },
     })
   }
 

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { logClientNote } from "@/lib/communications/log-note"
 import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 import { removeApplicationFromFunnel } from "@/lib/services/remove-application-from-funnel"
 
@@ -31,6 +32,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const existing = await db.application.findFirst({
     where: { id, tenantId, deletedAt: null },
+    include: { direction: { select: { name: true } } },
   })
   if (!existing) return NextResponse.json({ error: "Заявка не найдена" }, { status: 404 })
   // Филиал/направление обработанной заявки менять нельзя (они уже влияли на
@@ -71,6 +73,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // агрегат для отчётов: пересчитываем по min из заявок и первого платного.
     if (firstPaid !== undefined) {
       await recomputeClientFirstPaidLessonDate(tx, tenantId, existing.clientId)
+    }
+    // Правка комментария заявки → заметка в ленту коммуникаций клиента (баг #117):
+    // «откуда» (заявка + направление), «когда» (createdAt), «кто» (employeeId).
+    // Раньше правку молча писали только в Application.comment + AuditLog, и в
+    // ленте новый текст не появлялся (создание — логировалось, правка — нет).
+    if (data.comment !== undefined) {
+      const oldC = existing.comment?.trim() || ""
+      const newC = data.comment?.trim() || ""
+      if (oldC !== newC) {
+        const dirName = existing.direction?.name || "заявка"
+        const content = !oldC
+          ? `Комментарий к заявке «${dirName}» добавлен:\n${newC}`
+          : !newC
+            ? `Комментарий к заявке «${dirName}» удалён:\n«${oldC}»`
+            : `Комментарий к заявке «${dirName}» изменён:\n«${oldC}»\n→ «${newC}»`
+        await logClientNote(tx, {
+          tenantId,
+          clientId: existing.clientId,
+          content,
+          employeeId: session.user.employeeId,
+        })
+      }
     }
     return updated
   })

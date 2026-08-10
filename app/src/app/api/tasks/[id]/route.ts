@@ -61,13 +61,38 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (body.assignedTo) updateData.assignedTo = body.assignedTo
   }
 
-  const task = await db.task.update({
-    where: { id },
-    data: updateData,
-    include: {
-      assignee: { select: { id: true, firstName: true, lastName: true } },
-      client: { select: { id: true, firstName: true, lastName: true } },
-    },
+  // Результат выполнения задачи (баг #117): при закрытии клиентской задачи с
+  // непустым комментарием пишем его в ленту коммуникаций клиента как
+  // «Результат задачи» (type=task_result) — с автором (кто) и датой (когда).
+  // Раньше тип task_result был объявлен в UI, но не создавался ни одним путём.
+  const willComplete = body.status === "completed" && existing.status !== "completed"
+  const resultText =
+    willComplete && typeof body.result === "string" ? body.result.trim() : ""
+
+  const task = await db.$transaction(async (tx) => {
+    const updated = await tx.task.update({
+      where: { id },
+      data: updateData,
+      include: {
+        assignee: { select: { id: true, firstName: true, lastName: true } },
+        client: { select: { id: true, firstName: true, lastName: true } },
+      },
+    })
+    if (resultText && existing.clientId) {
+      await tx.communication.create({
+        data: {
+          tenantId: session.user.tenantId,
+          clientId: existing.clientId,
+          type: "task_result",
+          channel: "internal",
+          direction: "internal",
+          content: `«${updated.title}» — ${resultText}`,
+          metadata: { taskId: id },
+          employeeId: session.user.employeeId || undefined,
+        },
+      })
+    }
+    return updated
   })
 
   return NextResponse.json(task)

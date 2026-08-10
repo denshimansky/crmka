@@ -114,7 +114,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           called: "Дозвонились",
           no_answer: "Не ответил",
           callback: "Перезвонить",
-          completed: "Завершён",
+          // Исход «completed» = отказ клиента (баг #117).
+          completed: "Отказ",
         }
         // Для «Перезвонить» добавляем в текст дату следующей связи.
         const statusText =
