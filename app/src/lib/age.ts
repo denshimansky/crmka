@@ -42,12 +42,25 @@ export function ageYearsMonths(
   return { years, months }
 }
 
-/** Целых лет на дату `now` (для сортировки и фильтров «возраст от/до»). */
+/** Целых лет на дату `now` (для фильтров «возраст от/до» — они в годах). */
 export function ageYears(
   birth: Date | string | null | undefined,
   now: Date = new Date(),
 ): number | null {
   return ageYearsMonths(birth, now)?.years ?? null
+}
+
+/**
+ * Полных месяцев на дату `now` (годы × 12 + месяцы). Ключ для сортировки по
+ * возрасту с точностью до месяца — иначе дети с одинаковыми годами, но разными
+ * месяцами становились в произвольном порядке.
+ */
+export function ageMonths(
+  birth: Date | string | null | undefined,
+  now: Date = new Date(),
+): number | null {
+  const parts = ageYearsMonths(birth, now)
+  return parts ? parts.years * 12 + parts.months : null
 }
 
 /** Русское склонение «год/года/лет» после числа. */

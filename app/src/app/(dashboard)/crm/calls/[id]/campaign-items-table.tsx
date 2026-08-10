@@ -29,7 +29,7 @@ function sortValue(item: CallItem, key: SortKey): string | number | null {
     case "clientName": return item.clientName
     case "phone": return item.phone
     case "wardName": return item.wardName
-    case "age": return item.age
+    case "age": return item.ageMonths
     case "clientStatusLabel": return item.clientStatusLabel
     case "callStatus": return CALL_STATUS_LABELS[item.status] || item.status
     case "processedAt": return item.processedAt ?? ""

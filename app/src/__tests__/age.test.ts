@@ -4,7 +4,7 @@
  */
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
-import { ageYearsMonths, ageYears, formatAge } from "../lib/age"
+import { ageYearsMonths, ageYears, ageMonths, formatAge } from "../lib/age"
 
 const NOW = new Date("2026-08-10T12:00:00.000Z")
 
@@ -35,6 +35,21 @@ describe("ageYears — целые годы для сортировки/филь�
     assert.equal(ageYears("2018-05-03", NOW), 8)
     assert.equal(ageYears("2025-08-15", NOW), 0)
     assert.equal(ageYears(null, NOW), null)
+  })
+})
+
+describe("ageMonths — ключ сортировки с точностью до месяца", () => {
+  it("годы × 12 + месяцы", () => {
+    assert.equal(ageMonths("2018-05-03", NOW), 8 * 12 + 3) // 99
+    assert.equal(ageMonths("2024-08-10", NOW), 24) // ровно 2 года
+    assert.equal(ageMonths("2025-12-15", NOW), 7)
+    assert.equal(ageMonths(null, NOW), null)
+  })
+  it("различает одинаковые годы по месяцам (порядок сортировки)", () => {
+    // «3 года 4 мес.» < «3 года 11 мес.» — раньше сортировались как равные.
+    const younger = ageMonths("2023-04-27", NOW) // 3 года 3 мес → 39
+    const older = ageMonths("2022-08-22", NOW) // 3 года 11 мес → 47
+    assert.ok(younger !== null && older !== null && younger < older)
   })
 })
 

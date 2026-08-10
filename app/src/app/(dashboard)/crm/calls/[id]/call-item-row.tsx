@@ -16,8 +16,8 @@ export interface CallItem {
   clientName: string
   phone: string
   wardName: string
-  /** Целых лет — для сортировки колонки «Возраст». */
-  age: number | null
+  /** Возраст в полных месяцах — ключ сортировки колонки «Возраст» (с точностью до месяца). */
+  ageMonths: number | null
   /** Метка возраста с месяцами («5 лет 3 мес.») — для отображения. */
   ageLabel: string | null
   clientStatusLabel: string

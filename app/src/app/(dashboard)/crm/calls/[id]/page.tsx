@@ -13,7 +13,7 @@ import { RefreshCampaignButton } from "./refresh-campaign-button"
 import { CampaignStatCards } from "../campaign-stat-cards"
 import { PageHelp } from "@/components/page-help"
 import { clientStateLabel } from "@/lib/clients/state-label"
-import { formatAge } from "@/lib/age"
+import { formatAge, ageMonths } from "@/lib/age"
 
 /** Полных лет на дату `now` по дате рождения. */
 function ageYears(birth: Date, now: Date): number {
@@ -185,9 +185,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     const name = [i.client.lastName, i.client.firstName].filter(Boolean).join(" ") || "Без имени"
     const ward = pickWard(i.client.wards)
     const wardName = ward ? [ward.firstName, ward.lastName].filter(Boolean).join(" ") : ""
-    const age = ward?.birthDate ? ageYears(ward.birthDate, now) : null
-    // Метка возраста с месяцами («5 лет 3 мес.») — для отображения; `age` (целые
-    // годы) остаётся для сортировки колонки.
+    // Возраст: метка с месяцами («5 лет 3 мес.») — для отображения; полные месяцы
+    // — ключ сортировки колонки (с точностью до месяца).
     const ageLabel = ward?.birthDate ? formatAge(ward.birthDate, now) : null
     return {
       id: i.id,
@@ -195,7 +194,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       clientName: name,
       phone: maskPhone(i.client.phone, session.user.role, session.user.instructorsSeePhones) || "",
       wardName,
-      age,
+      ageMonths: ward?.birthDate ? ageMonths(ward.birthDate, now) : null,
       ageLabel,
       // «Статус клиента» — композитная метка (funnelStatus + clientStatus), как
       // в разделе «Клиенты». Раньше читался только clientStatus, который NULL у

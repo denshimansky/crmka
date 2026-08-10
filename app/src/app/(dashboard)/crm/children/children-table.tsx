@@ -19,7 +19,7 @@ import {
 import { Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 import { EditableTextCell } from "../_components/editable-cell"
 import { formatWardName as fmtWardName } from "@/lib/format-name"
-import { ageYears as ageInYears, formatAge } from "@/lib/age"
+import { ageYears as ageInYears, ageMonths, formatAge } from "@/lib/age"
 
 export type ChildState =
   | "lead"
@@ -119,12 +119,14 @@ function compareByKey(a: ChildRow, b: ChildRow, key: SortKey): number {
     case "phone":
       return (a.parentPhone || "").localeCompare(b.parentPhone || "", "ru")
     case "age": {
-      const ya = ageInYears(a.birthDate)
-      const yb = ageInYears(b.birthDate)
-      if (ya === null && yb === null) return 0
-      if (ya === null) return 1
-      if (yb === null) return -1
-      return ya - yb
+      // Сортируем с точностью до месяца (годы × 12 + месяцы), чтобы «3 года
+      // 4 мес.» и «3 года 11 мес.» шли в правильном порядке, а не как «3 = 3».
+      const ma = ageMonths(a.birthDate)
+      const mb = ageMonths(b.birthDate)
+      if (ma === null && mb === null) return 0
+      if (ma === null) return 1
+      if (mb === null) return -1
+      return ma - mb
     }
     case "birthDate":
       return (a.birthDate || "").localeCompare(b.birthDate || "")
