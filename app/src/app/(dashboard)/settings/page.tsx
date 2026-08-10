@@ -25,6 +25,7 @@ import {
   Crown,
   Plug,
   Target,
+  Copy,
 } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
@@ -157,6 +158,12 @@ export default async function SettingsPage() {
       title: "Сегментация клиентов",
       description: "Пороги «Новый/Стандартный/Постоянный/VIP» по сумме или времени",
       icon: Layers,
+    },
+    {
+      href: "/crm/duplicates",
+      title: "Дубликаты",
+      description: "Поиск и объединение клиентов с одинаковым телефоном",
+      icon: Copy,
     },
     {
       href: "/settings/leads-import",

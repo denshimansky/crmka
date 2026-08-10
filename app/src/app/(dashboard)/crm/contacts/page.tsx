@@ -1,9 +1,6 @@
-import Link from "next/link"
-import { Copy } from "lucide-react"
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
-import { Button } from "@/components/ui/button"
 import { PageHelp } from "@/components/page-help"
 import { CreateClientDialog } from "../clients/create-client-dialog"
 import { ContactsTabs, type ContactsTab } from "./contacts-tabs"
@@ -366,10 +363,6 @@ export default async function ContactsPage({
           <PageHelp pageKey="crm/contacts" />
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" render={<Link href="/crm/duplicates" />}>
-            <Copy className="mr-2 size-4" />
-            Дубликаты
-          </Button>
           <CreateClientDialog />
         </div>
       </div>
