@@ -54,9 +54,10 @@ export default function CallEfficiencyReportPage() {
       pageKey="reports/crm/call-efficiency"
     >
       <Tabs defaultValue="by-campaign">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-xl grid-cols-3">
           <TabsTrigger value="by-campaign">По кампаниям</TabsTrigger>
           <TabsTrigger value="by-manager">По менеджерам</TabsTrigger>
+          <TabsTrigger value="by-day">По дням</TabsTrigger>
         </TabsList>
 
         <TabsContent value="by-campaign" className="space-y-4">
@@ -65,6 +66,10 @@ export default function CallEfficiencyReportPage() {
 
         <TabsContent value="by-manager" className="space-y-4">
           <ByManagerTab />
+        </TabsContent>
+
+        <TabsContent value="by-day" className="space-y-4">
+          <ByDayTab />
         </TabsContent>
       </Tabs>
     </ReportShell>
@@ -144,6 +149,10 @@ function cellVal(n: number | undefined): string {
   return n ? String(n) : ""
 }
 
+function emptyCell(): DayCell {
+  return { total: 0, application: 0, completed: 0, callback: 0, noAnswer: 0 }
+}
+
 /**
  * Вкладка 2 — по менеджерам: строки = менеджеры (кто фиксировал результат),
  * столбцы = дни месяца (по МСК). Под каждым менеджером строка «Всего обзвонено»
@@ -218,6 +227,103 @@ function ByManagerTab() {
                       </TableRow>
                     ))}
                   </Fragment>
+                ))}
+              </TableBody>
+            </Table>
+          </StickyHScroll>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Вкладка 3 — по дням: та же матрица, что «по менеджерам», но суммарно по всем
+ * менеджерам. Строки — исходы (Всего обзвонено + разбивка), столбцы — дни месяца
+ * (по МСК). Данные берём из того же эндпоинта by-manager и агрегируем по дням.
+ */
+function ByDayTab() {
+  const { loading, error, data } = useReportObject<ManagerReport>(
+    "/api/reports/call-efficiency/by-manager",
+  )
+
+  const days = data?.days ?? []
+  const managers = data?.managers ?? []
+
+  // Сумма по всем менеджерам: день → ячейка, плюс итог за месяц.
+  const byDay: Record<string, DayCell> = {}
+  const totals = emptyCell()
+  for (const m of managers) {
+    for (const day of days) {
+      const c = m.byDay[day]
+      if (!c) continue
+      const agg = (byDay[day] ??= emptyCell())
+      agg.total += c.total
+      agg.application += c.application
+      agg.completed += c.completed
+      agg.callback += c.callback
+      agg.noAnswer += c.noAnswer
+    }
+    totals.total += m.totals.total
+    totals.application += m.totals.application
+    totals.completed += m.totals.completed
+    totals.callback += m.totals.callback
+    totals.noAnswer += m.totals.noAnswer
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <ReportStatus
+          loading={loading}
+          error={error}
+          empty={!loading && !error && managers.length === 0}
+          emptyText="За месяц зафиксированных звонков нет"
+        />
+        {!loading && !error && managers.length > 0 && (
+          <StickyHScroll>
+            <Table className="min-w-max">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="sticky left-0 z-20 min-w-[170px] bg-card">Исход / день</TableHead>
+                  {days.map((d) => {
+                    const h = dayHeader(d)
+                    return (
+                      <TableHead key={d} className="min-w-[44px] px-2 text-center">
+                        <div className="font-semibold text-foreground">{h.d}</div>
+                        <div className="text-[10px] font-normal text-muted-foreground">{h.wd}</div>
+                      </TableHead>
+                    )
+                  })}
+                  <TableHead className="min-w-[56px] px-2 text-center">Итого</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {/* Всего обзвонено за день */}
+                <TableRow className="bg-muted font-semibold hover:bg-muted">
+                  <TableCell className="sticky left-0 z-10 bg-muted">Всего обзвонено</TableCell>
+                  {days.map((d) => (
+                    <TableCell key={d} className="px-2 text-center">
+                      {cellVal(byDay[d]?.total)}
+                    </TableCell>
+                  ))}
+                  <TableCell className="px-2 text-center">{totals.total}</TableCell>
+                </TableRow>
+                {/* Разбивка по исходам */}
+                {STATUS_ROWS.map((sr) => (
+                  <TableRow key={sr.key} className="hover:bg-transparent">
+                    <TableCell className={`sticky left-0 z-10 bg-card pl-8 text-xs ${sr.color}`}>
+                      {sr.label}
+                    </TableCell>
+                    {days.map((d) => (
+                      <TableCell key={d} className="px-2 text-center text-xs text-muted-foreground">
+                        {cellVal(byDay[d]?.[sr.key])}
+                      </TableCell>
+                    ))}
+                    <TableCell className="px-2 text-center text-xs font-medium">
+                      {totals[sr.key] || ""}
+                    </TableCell>
+                  </TableRow>
                 ))}
               </TableBody>
             </Table>
