@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { reactivateChurnedClient } from "@/lib/clients/reactivate-churned"
 import { churnClientIfNoActiveSubscription } from "@/lib/clients/churn-on-withdrawal"
+import { latestDate } from "@/lib/clients/active-engagement"
 
 export const runtime = "nodejs"
 export const maxDuration = 120
@@ -9,11 +10,16 @@ export const maxDuration = 120
 // POST /api/cron/check-inactive-clients
 //
 // Раз в сутки (GitHub Actions cron) находит активных клиентов всех тенантов,
-// у которых нет активных абонементов уже 30+ дней, и переводит в clientStatus=churned.
+// у которых нет активной платной активности уже 30+ дней, и переводит в
+// clientStatus=churned.
 //
-// «30 дней» отсчитываем от max(withdrawalDate, endDate, startDate) последнего
-// абонемента клиента. Если последний абонемент закончился >= 30 дней назад
-// и сейчас нет активных — клиент уходит в «Выбывшие».
+// «Платная активность» = активный абонемент ИЛИ платное занятие (chargeAmount>0) —
+// те же события, что делают лида клиентом (симметрия с конверсией). «30 дней»
+// отсчитываем от последнего платного события: max(withdrawalDate, endDate,
+// startDate) по абонементам И даты последнего платного занятия. Если оно было
+// >= 30 дней назад и сейчас нет активного абонемента — клиент уходит в «Выбывшие».
+// Клиента без единого платного события (импортная база «активных» без
+// абонементов/занятий) крон НЕ трогает.
 //
 // Авторизация: header Authorization: Bearer ${CRON_SECRET}.
 export async function POST(req: NextRequest) {
@@ -75,23 +81,37 @@ export async function POST(req: NextRequest) {
     },
   })
 
+  // Последнее платное занятие (chargeAmount>0) по каждому кандидату — одним
+  // запросом. Клиент, ставший активным разовым ПЛАТНЫМ ЗАНЯТИЕМ без абонемента,
+  // теперь тоже корректно уходит в отток через 30 дней с последнего платного
+  // события (раньше крон смотрел только на абонементы и таких клиентов не трогал —
+  // асимметрия с конверсией, где актив дают и оплата, и платное занятие).
+  const candidateIds = candidates.map((c) => c.id)
+  const paidRows = candidateIds.length
+    ? await db.$queryRaw<{ client_id: string; last_paid: Date | null }[]>`
+        SELECT a.client_id::text AS client_id, MAX(l.date) AS last_paid
+        FROM attendances a
+        JOIN lessons l ON l.id = a.lesson_id
+        WHERE a.client_id = ANY(${candidateIds}::uuid[]) AND a.charge_amount > 0
+        GROUP BY a.client_id
+      `
+    : []
+  const lastPaidByClient = new Map(
+    paidRows.map((r) => [r.client_id, r.last_paid ? new Date(r.last_paid) : null]),
+  )
+
   const toChurn: string[] = []
   for (const c of candidates) {
-    if (c.subscriptions.length === 0) {
-      // нет ни одного абонемента вообще — не трогаем, может быть лид-импорт
-      continue
-    }
-    const lastDate = c.subscriptions.reduce<Date | null>((acc, s) => {
-      const dates = [s.withdrawalDate, s.endDate, s.startDate].filter(
-        (d): d is Date => d instanceof Date,
-      )
-      if (dates.length === 0) return acc
-      const maxOfSub = new Date(Math.max(...dates.map((d) => d.getTime())))
-      if (!acc || maxOfSub > acc) return maxOfSub
-      return acc
-    }, null)
-    if (!lastDate) continue
-    if (lastDate <= threshold) toChurn.push(c.id)
+    // Последнее платное событие = позднейшая из дат абонементов (выбытие/конец/
+    // старт) и даты последнего платного занятия. null → у клиента вообще не было
+    // платной активности (импортная база «активных» без абонементов/занятий) —
+    // такого не трогаем, как и раньше.
+    const subLastDate = latestDate(
+      c.subscriptions.flatMap((s) => [s.withdrawalDate, s.endDate, s.startDate]),
+    )
+    const lastActivity = latestDate([subLastDate, lastPaidByClient.get(c.id) ?? null])
+    if (!lastActivity) continue
+    if (lastActivity <= threshold) toChurn.push(c.id)
   }
 
   if (toChurn.length === 0) {

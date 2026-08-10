@@ -8,6 +8,7 @@ import { removeApplicationFromFunnel } from "@/lib/services/remove-application-f
 import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
 import { recordClientStatusChange } from "@/lib/clients/status-history"
 import { planFormerClientTransition } from "@/lib/clients/former-client-status"
+import { hasActiveEngagement } from "@/lib/clients/active-engagement"
 import { logClientNote } from "@/lib/communications/log-note"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
 import { z } from "zod"
@@ -163,6 +164,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             `Нельзя перевести в «Выбывшие»: у клиента есть ${activeSubs} активный абонемент(ов). ` +
             "Сначала закройте или отчислите их.",
           activeSubscriptions: activeSubs,
+        },
+        { status: 422 },
+      )
+    }
+  }
+
+  // Зеркало запрета выбытия: вернуть клиента в «Активные» ВРУЧНУЮ можно только
+  // если у него есть текущая платная активность — активный абонемент ИЛИ платное
+  // занятие за последние 30 дней (те же события, что делают лида клиентом).
+  // Иначе «Активный» был бы пустым ярлыком (ни абонемента, ни занятий, ни места в
+  // расписании), а крон оттока всё равно вернул бы клиента в «Выбывшие». Настоящий
+  // возврат к занятиям — через выписку абонемента (она сама переведёт в актив).
+  // Автопути (оплата/платное занятие/reactivateChurnedClient) идут мимо этого
+  // хендлера и не затрагиваются.
+  if (data.clientStatus === "active" && existing.clientStatus !== "active") {
+    const engaged = await hasActiveEngagement(db, session.user.tenantId, id)
+    if (!engaged) {
+      return NextResponse.json(
+        {
+          error:
+            "Нельзя вернуть в «Активные»: у клиента нет активного абонемента или платного занятия за последние 30 дней. " +
+            "Выпишите абонемент — статус сменится автоматически.",
         },
         { status: 422 },
       )
