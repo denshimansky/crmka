@@ -9,6 +9,7 @@ import { FilePlus, PhoneCall, PhoneOff, Users, XCircle } from "lucide-react"
 import Link from "next/link"
 import { CreateCampaignDialog, CreateTaskCampaignDialog } from "./create-campaign-dialog"
 import { CampaignActionsCell } from "./campaign-actions"
+import { CampaignStatCards } from "./campaign-stat-cards"
 import { PageHelp } from "@/components/page-help"
 
 function formatDate(date: Date): string {
@@ -142,27 +143,7 @@ export default async function CallsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {cardStats.map((c) => {
-          const Icon = c.icon
-          return (
-            <Card key={c.key}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2">
-                  <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${c.bg}`}>
-                    <Icon className={`size-4 ${c.color}`} />
-                  </div>
-                  <p className="text-xs text-muted-foreground">{c.label}</p>
-                </div>
-                <p className={`mt-2 text-2xl font-bold ${c.color}`}>{c.total}</p>
-                <p className="text-xs text-muted-foreground">
-                  за сегодня: <span className="font-medium text-foreground">{c.today}</span>
-                </p>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
+      <CampaignStatCards stats={cardStats} />
 
       {campaigns.length === 0 ? (
         <Card>

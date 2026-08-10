@@ -10,6 +10,7 @@ import { notFound } from "next/navigation"
 import { CampaignItemsTable } from "./campaign-items-table"
 import type { CallItem } from "./call-item-row"
 import { RefreshCampaignButton } from "./refresh-campaign-button"
+import { CampaignStatCards } from "../campaign-stat-cards"
 import { PageHelp } from "@/components/page-help"
 import { clientStateLabel } from "@/lib/clients/state-label"
 
@@ -236,28 +237,8 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </div>
       )}
 
-      {/* Показатели: крупное — всего по кампании, мелкое — за сегодня (Аня) */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {cardStats.map((c) => {
-          const Icon = c.icon
-          return (
-            <Card key={c.key}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2">
-                  <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${c.bg}`}>
-                    <Icon className={`size-4 ${c.color}`} />
-                  </div>
-                  <p className="text-xs text-muted-foreground">{c.label}</p>
-                </div>
-                <p className={`mt-2 text-2xl font-bold ${c.color}`}>{c.total}</p>
-                <p className="text-xs text-muted-foreground">
-                  за сегодня: <span className="font-medium text-foreground">{c.today}</span>
-                </p>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
+      {/* Показатели: ряд 1 — всего по кампании, ряд 2 — те же за сегодня (Аня) */}
+      <CampaignStatCards stats={cardStats} />
 
       {/* Прогресс-бар */}
       <div className="space-y-1">
