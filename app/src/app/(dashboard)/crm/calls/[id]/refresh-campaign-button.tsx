@@ -8,7 +8,7 @@ import { RotateCw } from "lucide-react"
 /**
  * «Актуализировать» — пересобирает список контактов кампании под текущее
  * состояние базы (POST /api/call-campaigns/[id]/refresh) и показывает итог
- * «Добавлено N · Убрано M». Крупная заметная кнопка в шапке страницы кампании;
+ * «Добавлено N · Убрано M». Компактная кнопка в шапке страницы кампании;
  * показывается только для активной кампании.
  */
 export function RefreshCampaignButton({ campaignId }: { campaignId: string }) {
@@ -53,9 +53,10 @@ export function RefreshCampaignButton({ campaignId }: { campaignId: string }) {
       <Button
         onClick={actualize}
         disabled={loading}
-        className="h-11 gap-2 px-5 text-base font-semibold shadow-sm"
+        size="sm"
+        className="h-8 gap-1.5 px-3 text-sm font-medium shadow-sm"
       >
-        <RotateCw className={`size-5 ${loading ? "animate-spin" : ""}`} />
+        <RotateCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
         {loading ? "Актуализация…" : "Актуализировать"}
       </Button>
     </>

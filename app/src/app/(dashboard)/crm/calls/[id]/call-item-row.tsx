@@ -197,7 +197,6 @@ export function CallItemRow({
                 onChange={e => setComment(e.target.value)}
                 className="max-w-[200px]"
               />
-              <Button size="sm" onClick={() => saveResult("called")} disabled={loading}>Обзвонен</Button>
               <Button size="sm" variant="outline" onClick={() => saveResult("no_answer")} disabled={loading}>Не ответил</Button>
               <Button size="sm" variant={callbackOpen ? "secondary" : "outline"} onClick={openCallback} disabled={loading}>Перезвонить</Button>
               <Button size="sm" variant="outline" onClick={() => saveResult("completed")} disabled={loading}>Отказ</Button>

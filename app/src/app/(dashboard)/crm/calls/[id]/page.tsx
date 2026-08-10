@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Archive, ArrowLeft, Phone, Users } from "lucide-react"
+import { Archive, ArrowLeft, FilePlus, PhoneCall, PhoneOff, Users, XCircle } from "lucide-react"
 import { BackButton } from "@/components/back-button"
 import { notFound } from "next/navigation"
 import { CampaignItemsTable } from "./campaign-items-table"
@@ -74,9 +74,68 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const readOnly = campaign.status === "archived"
 
   const now = new Date()
-  const pending = items.filter(i => i.status === "pending").length
   const completed = items.filter(i => i.status !== "pending").length
   const percent = items.length > 0 ? Math.round((completed / items.length) * 100) : 0
+
+  // «Сегодня» по московскому времени (бизнес-стандарт РФ): контейнер живёт в UTC,
+  // поэтому дату фиксации результата (calledAt) сравниваем в TZ Europe/Moscow —
+  // иначе у звонков около полуночи «сегодня» уезжает на 3 часа.
+  const mskDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" })
+  const todayMsk = mskDay(now)
+  const isToday = (d: Date | null) => !!d && mskDay(d) === todayMsk
+
+  // Пять карточек-показателей (Аня): «Всего контактов» + 4 исхода обзвона.
+  // В каждой — крупное число ВСЕГО по кампании и мелкое «за сегодня».
+  // «Создано заявок» считаем по result="application" (кнопка «Создать заявку»);
+  // остальные — по статусу позиции. Заявка ставит статус "called", поэтому исходы
+  // «Отказ/Перезвонить/Не ответил» с ней не пересекаются.
+  const cardStats = [
+    {
+      key: "total",
+      label: "Всего контактов",
+      total: items.length,
+      today: items.filter((i) => isToday(i.calledAt)).length,
+      icon: Users,
+      color: "text-blue-600",
+      bg: "bg-blue-50",
+    },
+    {
+      key: "apps",
+      label: "Создано заявок",
+      total: items.filter((i) => i.result === "application").length,
+      today: items.filter((i) => i.result === "application" && isToday(i.calledAt)).length,
+      icon: FilePlus,
+      color: "text-amber-600",
+      bg: "bg-amber-50",
+    },
+    {
+      key: "refused",
+      label: "Отказ",
+      total: items.filter((i) => i.status === "completed").length,
+      today: items.filter((i) => i.status === "completed" && isToday(i.calledAt)).length,
+      icon: XCircle,
+      color: "text-rose-600",
+      bg: "bg-rose-50",
+    },
+    {
+      key: "callback",
+      label: "Перезвонить",
+      total: items.filter((i) => i.status === "callback").length,
+      today: items.filter((i) => i.status === "callback" && isToday(i.calledAt)).length,
+      icon: PhoneCall,
+      color: "text-violet-600",
+      bg: "bg-violet-50",
+    },
+    {
+      key: "noanswer",
+      label: "Не ответил",
+      total: items.filter((i) => i.status === "no_answer").length,
+      today: items.filter((i) => i.status === "no_answer" && isToday(i.calledAt)).length,
+      icon: PhoneOff,
+      color: "text-slate-600",
+      bg: "bg-slate-100",
+    },
+  ]
 
   // Возрастной фильтр кампании (если был) — чтобы выбрать «того самого» подопечного.
   const fc = (campaign.filterCriteria ?? {}) as { minAge?: number; maxAge?: number }
@@ -154,41 +213,27 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         </div>
       )}
 
-      {/* Прогресс */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-blue-50">
-              <Users className="size-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Всего контактов</p>
-              <p className="text-2xl font-bold">{items.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-green-50">
-              <Phone className="size-5 text-green-600" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Обзвонено</p>
-              <p className="text-2xl font-bold text-green-600">{completed}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-orange-50">
-              <Phone className="size-5 text-orange-600" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Осталось</p>
-              <p className="text-2xl font-bold text-orange-600">{pending}</p>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Показатели: крупное — всего по кампании, мелкое — за сегодня (Аня) */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {cardStats.map((c) => {
+          const Icon = c.icon
+          return (
+            <Card key={c.key}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${c.bg}`}>
+                    <Icon className={`size-4 ${c.color}`} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{c.label}</p>
+                </div>
+                <p className={`mt-2 text-2xl font-bold ${c.color}`}>{c.total}</p>
+                <p className="text-xs text-muted-foreground">
+                  за сегодня: <span className="font-medium text-foreground">{c.today}</span>
+                </p>
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
 
       {/* Прогресс-бар */}

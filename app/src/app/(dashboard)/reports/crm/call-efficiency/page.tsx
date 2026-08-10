@@ -1,8 +1,11 @@
 "use client"
 
+import { Fragment } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ReportShell, ReportStatus, useReportData } from "@/components/report-scaffold"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
+import { ReportShell, ReportStatus, useReportData, useReportObject } from "@/components/report-scaffold"
 
 interface Row {
   campaignId: string
@@ -22,24 +25,67 @@ interface Row {
   saleConversion: number
 }
 
-export default function CallEfficiencyReportPage() {
-  const { loading, error, data } = useReportData<Row>("/api/reports/call-efficiency")
+/** Ячейка «менеджер × день»: всего обзвонено и разбивка по исходам. */
+interface DayCell {
+  total: number
+  application: number
+  completed: number
+  callback: number
+  noAnswer: number
+}
 
+interface ManagerRow {
+  employeeId: string
+  name: string
+  byDay: Record<string, DayCell>
+  totals: DayCell
+}
+
+interface ManagerReport {
+  days: string[]
+  managers: ManagerRow[]
+}
+
+export default function CallEfficiencyReportPage() {
   return (
     <ReportShell
       title="Эффективность обзвонов"
-      subtitle="Результативность обзвонных кампаний за месяц (по дате создания кампании)"
+      subtitle="Результативность обзвонных кампаний за месяц"
       pageKey="reports/crm/call-efficiency"
     >
-      <Card>
-        <CardContent className="p-0">
-          <ReportStatus
-            loading={loading}
-            error={error}
-            empty={data.length === 0}
-            emptyText="За месяц обзвонных кампаний нет"
-          />
-          {!loading && !error && data.length > 0 && (
+      <Tabs defaultValue="by-campaign">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="by-campaign">По кампаниям</TabsTrigger>
+          <TabsTrigger value="by-manager">По менеджерам</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="by-campaign" className="space-y-4">
+          <ByCampaignTab />
+        </TabsContent>
+
+        <TabsContent value="by-manager" className="space-y-4">
+          <ByManagerTab />
+        </TabsContent>
+      </Tabs>
+    </ReportShell>
+  )
+}
+
+/** Вкладка 1 — сводка по кампаниям (кампании отбираются по дате создания в месяце). */
+function ByCampaignTab() {
+  const { loading, error, data } = useReportData<Row>("/api/reports/call-efficiency")
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <ReportStatus
+          loading={loading}
+          error={error}
+          empty={data.length === 0}
+          emptyText="За месяц обзвонных кампаний нет"
+        />
+        {!loading && !error && data.length > 0 && (
+          <StickyHScroll>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -72,9 +118,112 @@ export default function CallEfficiencyReportPage() {
                 ))}
               </TableBody>
             </Table>
-          )}
-        </CardContent>
-      </Card>
-    </ReportShell>
+          </StickyHScroll>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// Исходы-подстроки под каждым менеджером (порядок = как в карточке кампании).
+const STATUS_ROWS: { key: keyof DayCell; label: string; color: string }[] = [
+  { key: "application", label: "Создано заявок", color: "text-amber-600" },
+  { key: "completed", label: "Отказ", color: "text-rose-600" },
+  { key: "callback", label: "Перезвонить", color: "text-violet-600" },
+  { key: "noAnswer", label: "Не ответил", color: "text-slate-600" },
+]
+
+/** Заголовок дневного столбца: «12» + короткий день недели. Полдень — чтобы TZ не сдвигал день. */
+function dayHeader(iso: string): { d: string; wd: string } {
+  const dt = new Date(`${iso}T12:00:00`)
+  return { d: iso.slice(8, 10), wd: dt.toLocaleDateString("ru-RU", { weekday: "short" }) }
+}
+
+/** 0/undefined показываем пусто — чтобы матрица не рябила нулями. */
+function cellVal(n: number | undefined): string {
+  return n ? String(n) : ""
+}
+
+/**
+ * Вкладка 2 — по менеджерам: строки = менеджеры (кто фиксировал результат),
+ * столбцы = дни месяца (по МСК). Под каждым менеджером строка «Всего обзвонено»
+ * (за день) и разбивка по исходам результата.
+ */
+function ByManagerTab() {
+  const { loading, error, data } = useReportObject<ManagerReport>(
+    "/api/reports/call-efficiency/by-manager",
+  )
+
+  const days = data?.days ?? []
+  const managers = data?.managers ?? []
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <ReportStatus
+          loading={loading}
+          error={error}
+          empty={!loading && !error && managers.length === 0}
+          emptyText="За месяц зафиксированных звонков нет"
+        />
+        {!loading && !error && managers.length > 0 && (
+          <StickyHScroll>
+            <Table className="min-w-max">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="sticky left-0 z-20 min-w-[170px] bg-card">
+                    Менеджер / исход
+                  </TableHead>
+                  {days.map((d) => {
+                    const h = dayHeader(d)
+                    return (
+                      <TableHead key={d} className="min-w-[44px] px-2 text-center">
+                        <div className="font-semibold text-foreground">{h.d}</div>
+                        <div className="text-[10px] font-normal text-muted-foreground">{h.wd}</div>
+                      </TableHead>
+                    )
+                  })}
+                  <TableHead className="min-w-[56px] px-2 text-center">Итого</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {managers.map((m) => (
+                  <Fragment key={m.employeeId}>
+                    {/* Шапка менеджера = «Всего обзвонено» по дням */}
+                    <TableRow className="bg-muted font-semibold hover:bg-muted">
+                      <TableCell className="sticky left-0 z-10 bg-muted">{m.name}</TableCell>
+                      {days.map((d) => (
+                        <TableCell key={d} className="px-2 text-center">
+                          {cellVal(m.byDay[d]?.total)}
+                        </TableCell>
+                      ))}
+                      <TableCell className="px-2 text-center">{m.totals.total}</TableCell>
+                    </TableRow>
+                    {/* Разбивка по исходам */}
+                    {STATUS_ROWS.map((sr) => (
+                      <TableRow key={sr.key} className="hover:bg-transparent">
+                        <TableCell
+                          className={`sticky left-0 z-10 bg-card pl-8 text-xs ${sr.color}`}
+                        >
+                          {sr.label}
+                        </TableCell>
+                        {days.map((d) => (
+                          <TableCell key={d} className="px-2 text-center text-xs text-muted-foreground">
+                            {cellVal(m.byDay[d]?.[sr.key])}
+                          </TableCell>
+                        ))}
+                        <TableCell className="px-2 text-center text-xs font-medium">
+                          {m.totals[sr.key] || ""}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </Fragment>
+                ))}
+              </TableBody>
+            </Table>
+          </StickyHScroll>
+        )}
+      </CardContent>
+    </Card>
   )
 }

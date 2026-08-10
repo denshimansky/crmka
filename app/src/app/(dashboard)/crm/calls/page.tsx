@@ -1,10 +1,11 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { scopeBranch } from "@/lib/branch-scope"
+import { scopeClientByBranch } from "@/lib/client-segments"
 import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Phone, Users } from "lucide-react"
+import { FilePlus, PhoneCall, PhoneOff, Users, XCircle } from "lucide-react"
 import Link from "next/link"
 import { CreateCampaignDialog, CreateTaskCampaignDialog } from "./create-campaign-dialog"
 import { CampaignActionsCell } from "./campaign-actions"
@@ -31,22 +32,95 @@ export default async function CallsPage() {
   const tenantId = session.user.tenantId
   const scope = await getBranchScope()
 
-  const [campaigns, branches] = await Promise.all([
-    db.callCampaign.findMany({
-      where: { tenantId, deletedAt: null },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
-    db.branch.findMany({
-      where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-  ])
+  // «Сегодня» по московскому времени (UTC+3, фиксированный офсет): контейнер
+  // живёт в UTC, поэтому границы дня для calledAt строим сразу в МСК.
+  const now = new Date()
+  const todayMsk = now.toLocaleDateString("en-CA", { timeZone: "Europe/Moscow" })
+  const todayStart = new Date(`${todayMsk}T00:00:00.000+03:00`)
+  const todayEnd = new Date(`${todayMsk}T23:59:59.999+03:00`)
 
-  const activeCampaigns = campaigns.filter(c => c.status === "active").length
-  const totalContacts = campaigns.reduce((s, c) => s + c.totalItems, 0)
-  const totalCompleted = campaigns.reduce((s, c) => s + c.completedItems, 0)
+  // Позиции обзвона по неудалённым кампаниям, видимые в scope филиалов (ADM-04) —
+  // как на карточке кампании. При полном доступе scopeClientByBranch → {}.
+  const itemWhere = {
+    tenantId,
+    campaign: { deletedAt: null },
+    client: scopeClientByBranch(scope),
+  }
+  const todayWhere = { ...itemWhere, calledAt: { gte: todayStart, lte: todayEnd } }
+
+  const [campaigns, branches, byStatusTotal, byStatusToday, appsTotal, appsToday] =
+    await Promise.all([
+      db.callCampaign.findMany({
+        where: { tenantId, deletedAt: null },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+      db.branch.findMany({
+        where: { tenantId, deletedAt: null, ...scopeBranch(scope) },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+      db.callCampaignItem.groupBy({ by: ["status"], where: itemWhere, _count: true }),
+      db.callCampaignItem.groupBy({ by: ["status"], where: todayWhere, _count: true }),
+      db.callCampaignItem.count({ where: { ...itemWhere, result: "application" } }),
+      db.callCampaignItem.count({ where: { ...todayWhere, result: "application" } }),
+    ])
+
+  // Срезы по статусу → карты «статус → количество» (всего и за сегодня).
+  const totalByStatus: Record<string, number> = {}
+  for (const r of byStatusTotal) totalByStatus[r.status] = r._count
+  const todayByStatus: Record<string, number> = {}
+  for (const r of byStatusToday) todayByStatus[r.status] = r._count
+
+  // Пять карточек-показателей (как на карточке кампании), агрегированные по всем
+  // кампаниям: крупно — всего, мелко — за сегодня.
+  const cardStats = [
+    {
+      key: "total",
+      label: "Всего контактов",
+      total: Object.values(totalByStatus).reduce((s, n) => s + n, 0),
+      today: Object.values(todayByStatus).reduce((s, n) => s + n, 0),
+      icon: Users,
+      color: "text-blue-600",
+      bg: "bg-blue-50",
+    },
+    {
+      key: "apps",
+      label: "Создано заявок",
+      total: appsTotal,
+      today: appsToday,
+      icon: FilePlus,
+      color: "text-amber-600",
+      bg: "bg-amber-50",
+    },
+    {
+      key: "refused",
+      label: "Отказ",
+      total: totalByStatus["completed"] ?? 0,
+      today: todayByStatus["completed"] ?? 0,
+      icon: XCircle,
+      color: "text-rose-600",
+      bg: "bg-rose-50",
+    },
+    {
+      key: "callback",
+      label: "Перезвонить",
+      total: totalByStatus["callback"] ?? 0,
+      today: todayByStatus["callback"] ?? 0,
+      icon: PhoneCall,
+      color: "text-violet-600",
+      bg: "bg-violet-50",
+    },
+    {
+      key: "noanswer",
+      label: "Не ответил",
+      total: totalByStatus["no_answer"] ?? 0,
+      today: todayByStatus["no_answer"] ?? 0,
+      icon: PhoneOff,
+      color: "text-slate-600",
+      bg: "bg-slate-100",
+    },
+  ]
 
   // Архивные кампании — в конец списка (внутри групп сохраняется порядок запроса,
   // createdAt desc).
@@ -68,40 +142,26 @@ export default async function CallsPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-blue-50">
-              <Phone className="size-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Активных кампаний</p>
-              <p className="text-2xl font-bold">{activeCampaigns}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-green-50">
-              <Users className="size-5 text-green-600" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Всего контактов</p>
-              <p className="text-2xl font-bold">{totalContacts}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-purple-50">
-              <Phone className="size-5 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Обзвонено</p>
-              <p className="text-2xl font-bold">{totalCompleted}</p>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {cardStats.map((c) => {
+          const Icon = c.icon
+          return (
+            <Card key={c.key}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${c.bg}`}>
+                    <Icon className={`size-4 ${c.color}`} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{c.label}</p>
+                </div>
+                <p className={`mt-2 text-2xl font-bold ${c.color}`}>{c.total}</p>
+                <p className="text-xs text-muted-foreground">
+                  за сегодня: <span className="font-medium text-foreground">{c.today}</span>
+                </p>
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
 
       {campaigns.length === 0 ? (
