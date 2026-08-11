@@ -8,6 +8,7 @@
 # Node
 app/node_modules/
 app/.next/
+app/tsconfig.tsbuildinfo
 
 # Playwright
 app/test-results/
