@@ -8,8 +8,11 @@ import { Circle, CheckCircle2, Loader2, AlertCircle } from "lucide-react"
 export interface DashboardTaskRow {
   id: string
   title: string
-  /** ISO-строка даты события: даты пробного / ДР / занятия и т.п. */
-  eventDate: string
+  /** ISO-строка даты появления задачи (dueDate). Слева показываем именно её,
+   *  а не дату события — тогда показанная дата совпадает с логикой
+   *  «красная/просрочена» (просрочено = dueDate < сегодня). Дата события
+   *  (пробное / занятие «Не был») остаётся в тексте заголовка. */
+  dueDate: string
   /** Просрочена ли задача (dueDate раньше «сегодня»). */
   isOverdue: boolean
   /** ISO-строка даты создания задачи — для сортировки «новые сверху». */
@@ -129,7 +132,7 @@ function DashboardTaskRow({ task }: { task: DashboardTaskRow }) {
               : ""
           }
         >
-          {fmtDate(task.eventDate)}
+          {fmtDate(task.dueDate)}
         </span>
       </div>
 
@@ -140,13 +143,12 @@ function DashboardTaskRow({ task }: { task: DashboardTaskRow }) {
 
 export function DashboardTasksTable({ tasks }: { tasks: DashboardTaskRow[] }) {
   const sorted = useMemo(() => {
-    // Просроченные сверху (внутри — раньше просроченные = выше). Среди
-    // непросроченных (срок сегодня) — новые сверху, чтобы только что созданная
-    // задача была на виду, а не тонула под авто-задачами «Уточнить „Не был"» со
-    // старыми датами события в заголовке.
+    // Просроченные сверху (внутри — раньше просроченные = выше, по dueDate).
+    // Среди непросроченных (срок сегодня) — новые сверху, чтобы только что
+    // созданная задача была на виду.
     return [...tasks].sort((a, b) => {
       if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1
-      if (a.isOverdue) return a.eventDate.localeCompare(b.eventDate)
+      if (a.isOverdue) return a.dueDate.localeCompare(b.dueDate)
       return b.createdAt.localeCompare(a.createdAt)
     })
   }, [tasks])

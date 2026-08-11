@@ -203,30 +203,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     take: 15,
   })
 
-  // Дата события вытаскивается из заголовка задач, у которых она есть в
-  // скобках (`(YYYY-MM-DD)` для trial_reminder, `(DD.MM.YYYY)` для
-  // no_show_review). Для остальных — dueDate.
+  // Слева в виджете показываем ДАТУ ПОЯВЛЕНИЯ задачи (dueDate = день генерации),
+  // а не дату события. Тогда показанная дата совпадает с логикой «красная/
+  // просрочена» (просрочено = dueDate < сегодня): «Не был» вчера, но задача
+  // появилась сегодня — слева стоит сегодня; не закрыл — завтра та же дата
+  // становится красной. Дату события (пробное / занятие «Не был») оставляем
+  // в заголовке, нормализуя `(YYYY-MM-DD)` и `(DD.MM.YYYY)` к краткой `(DD.MM)`.
   const todayIso = realToday.toISOString().slice(0, 10)
   const todayTaskRows: DashboardTaskRow[] = todayTasks.map((t) => {
-    const iso = t.title.match(/\((\d{4}-\d{2}-\d{2})\)/)
-    const ru = t.title.match(/\((\d{2})\.(\d{2})\.(\d{4})\)/)
-    let eventDateIso: string
-    if (iso) {
-      eventDateIso = iso[1]
-    } else if (ru) {
-      eventDateIso = `${ru[3]}-${ru[2]}-${ru[1]}`
-    } else {
-      eventDateIso = t.dueDate.toISOString().slice(0, 10)
-    }
     const dueIso = t.dueDate.toISOString().slice(0, 10)
     return {
       id: t.id,
-      // Из заголовка убираем дату в скобках — она уйдёт в отдельную колонку.
       title: t.title
-        .replace(/\s*\(\d{4}-\d{2}-\d{2}\)\s*$/, "")
-        .replace(/\s*\(\d{2}\.\d{2}\.\d{4}\)\s*$/, "")
+        .replace(/\((\d{4})-(\d{2})-(\d{2})\)/, (_m, _y, mo, d) => `(${d}.${mo})`)
+        .replace(/\((\d{2})\.(\d{2})\.\d{4}\)/, (_m, d, mo) => `(${d}.${mo})`)
         .trim(),
-      eventDate: eventDateIso,
+      dueDate: dueIso,
       isOverdue: dueIso < todayIso,
       createdAt: t.createdAt.toISOString(),
       clientId: t.clientId,
