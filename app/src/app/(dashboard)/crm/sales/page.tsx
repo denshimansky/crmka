@@ -8,7 +8,6 @@ import { CreateApplicationDialog } from "../_components/create-application-dialo
 import { SalesTabs, type SalesTab } from "./sales-tabs"
 import { SalesTable, type SalesRow, type SalesTabKey } from "./sales-table"
 import { ContactTable, type ContactRow } from "./contact-table"
-import { ContactBranchFilter } from "./contact-filter"
 import { scopeBranch, scopeApplication, type BranchScope, isUnscoped } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
@@ -467,10 +466,12 @@ export default async function SalesPage({
       <SalesTabs tabs={tabs} current={tab} />
 
       {tab === "contact" ? (
-        <>
-          <ContactBranchFilter branches={branches} branchId={branchFilter} />
-          <ContactTable rows={contactRows} canEdit={role !== "readonly"} />
-        </>
+        <ContactTable
+          rows={contactRows}
+          canEdit={role !== "readonly"}
+          branches={branches}
+          branchId={branchFilter}
+        />
       ) : (
         <SalesTable
           tab={tab}
