@@ -9,10 +9,12 @@ import {
 } from "@/components/ui/table"
 import {
   Building2, TrendingUp, TrendingDown, AlertTriangle, Moon, UserPlus, CreditCard, FileWarning,
+  CheckCircle2, Clock, CircleSlash, Ban, PauseCircle, HelpCircle, type LucideIcon,
 } from "lucide-react"
 
 interface DashboardData {
   statusCounts: { total: number; active: number; grace: number; blocked: number }
+  partnerStates: { paying: number; trial: number; zero: number; blocked: number; grace: number; other: number }
   newThisMonth: number
   newLastMonth: number
   topByClients: { id: string; name: string; clients: number; employees: number; branches: number; status: string }[]
@@ -30,6 +32,19 @@ const STATUS_BADGE: Record<string, { label: string; variant: "default" | "second
   grace_period: { label: "Грейс", variant: "secondary" },
   blocked: { label: "Блок", variant: "destructive" },
 }
+
+// Карточки-состояния партнёров (вторая строка). Бакеты взаимоисключающие —
+// сумма равна общему числу партнёров. Грейс и «прочие» показываем только когда
+// они не нулевые, чтобы не плодить пустые карточки.
+type PartnerStateKey = keyof DashboardData["partnerStates"]
+const STATE_CARDS: { key: PartnerStateKey; label: string; icon: LucideIcon; color: string; hint: string; always: boolean }[] = [
+  { key: "paying", label: "Платных", icon: CheckCircle2, color: "text-green-600", hint: "активная подписка, > 0 ₽", always: true },
+  { key: "trial", label: "Триал", icon: Clock, color: "text-blue-600", hint: "14-дневный тест", always: true },
+  { key: "zero", label: "Нулевой тариф", icon: CircleSlash, color: "text-muted-foreground", hint: "служебные / бесплатные", always: true },
+  { key: "blocked", label: "Заблокировано", icon: Ban, color: "text-red-600", hint: "отключены за неоплату", always: true },
+  { key: "grace", label: "Грейс", icon: PauseCircle, color: "text-amber-600", hint: "грейс-период оплаты", always: false },
+  { key: "other", label: "Прочие", icon: HelpCircle, color: "text-muted-foreground", hint: "без активной подписки", always: false },
+]
 
 export default function AdminDashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
@@ -121,6 +136,29 @@ export default function AdminDashboardPage() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Партнёры по состояниям — взаимоисключающие бакеты, сумма = всего партнёров */}
+      <div>
+        <p className="text-sm font-medium text-muted-foreground mb-2">Партнёры по состояниям</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {STATE_CARDS.filter((c) => c.always || data.partnerStates[c.key] > 0).map((c) => {
+            const Icon = c.icon
+            return (
+              <Card key={c.key}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Icon className={`size-4 ${c.color}`} />{c.label}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-3xl font-bold ${c.color}`}>{data.partnerStates[c.key]}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{c.hint}</div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

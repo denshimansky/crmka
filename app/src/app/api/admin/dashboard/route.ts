@@ -12,14 +12,21 @@ export async function GET() {
   const prevMonthStart = new Date(Date.UTC(now.getFullYear(), now.getMonth() - 1, 1))
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
-  // Все организации
+  // Все организации (+ признак нулевого тарифа и последняя подписка — для
+  // разбивки по состояниям)
   const allOrgs = await db.organization.findMany({
     select: {
       id: true,
       name: true,
       billingStatus: true,
+      billingExempt: true,
       onboardingCompleted: true,
       createdAt: true,
+      billingSubscriptions: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { status: true, monthlyAmount: true },
+      },
       _count: {
         select: {
           clients: { where: { deletedAt: null } },
@@ -31,13 +38,33 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   })
 
-  // Подсчёт по статусам
+  // Подсчёт по статусам биллинга (billingStatus организации)
   const statusCounts = {
     total: allOrgs.length,
     active: allOrgs.filter((o) => o.billingStatus === "active").length,
     grace: allOrgs.filter((o) => o.billingStatus === "grace_period").length,
     blocked: allOrgs.filter((o) => o.billingStatus === "blocked").length,
   }
+
+  // Разбивка партнёров по ВЗАИМОИСКЛЮЧАЮЩИМ состояниям на сегодня — сумма всех
+  // бакетов равна total. Приоритет сверху вниз: заблокирован → грейс → нулевой
+  // тариф (служебные billingExempt) → триал → платящий. «Нулевой тариф»
+  // перекрывает статус подписки: служебная/бесплатная база остаётся нулевой,
+  // даже если её подписка формально ещё на триале.
+  function classifyPartner(o: (typeof allOrgs)[number]) {
+    if (o.billingStatus === "blocked") return "blocked" as const
+    if (o.billingStatus === "grace_period") return "grace" as const
+    if (o.billingExempt) return "zero" as const
+    const sub = o.billingSubscriptions[0]
+    if (!sub) return "other" as const
+    if (sub.status === "trial") return "trial" as const
+    if (sub.status === "blocked") return "blocked" as const
+    if (sub.status === "grace_period") return "grace" as const
+    if (sub.status === "active") return Number(sub.monthlyAmount) > 0 ? ("paying" as const) : ("zero" as const)
+    return "other" as const // отменённая/без активной подписки
+  }
+  const partnerStates = { paying: 0, trial: 0, zero: 0, blocked: 0, grace: 0, other: 0 }
+  for (const o of allOrgs) partnerStates[classifyPartner(o)]++
 
   // Новые за этот месяц
   const newThisMonth = allOrgs.filter((o) => new Date(o.createdAt) >= monthStart).length
@@ -105,6 +132,7 @@ export async function GET() {
 
   return NextResponse.json({
     statusCounts,
+    partnerStates,
     newThisMonth,
     newLastMonth,
     topByClients,
