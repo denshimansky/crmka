@@ -1,7 +1,9 @@
 // Движок дат индивидуального SaaS-биллинга (Bug #65).
 //
-// Новый партнёр получает 14 дней теста; счёт выставляется за 10 дней до срока
-// оплаты (= на 4-й день теста), срок оплаты первого счёта = конец теста. Далее
+// Новый партнёр получает 14 дней теста; срок оплаты первого счёта = конец теста.
+// ТРИАЛЬНЫЙ (первый) счёт выставляется за TRIAL_INVOICE_LEAD_DAYS (2) дня до конца
+// теста (= на 12-й день) — чтобы не давить оплатой в начале теста. ПОВТОРНЫЕ счета
+// (после конвертации) выставляются за INVOICE_LEAD_DAYS (10) дней до срока. Далее
 // каждый месяц — «день-якорь» (день месяца от даты старта + 14). Дни 29/30/31
 // переносятся на последний день коротких месяцев БЕЗ дрейфа: день якоря всегда
 // берётся из хранимого billingAnchorDay, а НЕ из дня уже сдвинутой даты (иначе
@@ -11,6 +13,9 @@
 
 export const TRIAL_DAYS = Number(process.env.BILLING_TRIAL_DAYS) || 14
 export const INVOICE_LEAD_DAYS = Number(process.env.BILLING_INVOICE_LEAD_DAYS) || 10
+// Триальный (первый) счёт партнёра выставляется за столько дней до конца теста.
+export const TRIAL_INVOICE_LEAD_DAYS =
+  Number(process.env.BILLING_TRIAL_INVOICE_LEAD_DAYS) || 2
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -63,11 +68,16 @@ export function anchorDayFromTrialEnd(trialEnd: Date): number {
 }
 
 /**
- * Пора ли выставлять anchored-счёт: сегодня не раньше, чем за INVOICE_LEAD_DAYS
- * до срока оплаты. Работает и после срока (просрочка/дозапуск).
+ * Пора ли выставлять anchored-счёт: сегодня не раньше, чем за `leadDays`
+ * до срока оплаты (по умолчанию INVOICE_LEAD_DAYS = 10; для триального счёта
+ * передаём TRIAL_INVOICE_LEAD_DAYS = 2). Работает и после срока (просрочка).
  */
-export function shouldIssueAnchored(now: Date, due: Date): boolean {
-  const issueFrom = new Date(due.getTime() - INVOICE_LEAD_DAYS * DAY_MS)
+export function shouldIssueAnchored(
+  now: Date,
+  due: Date,
+  leadDays: number = INVOICE_LEAD_DAYS,
+): boolean {
+  const issueFrom = new Date(due.getTime() - leadDays * DAY_MS)
   return toUtcDate(now).getTime() >= issueFrom.getTime()
 }
 
@@ -90,15 +100,18 @@ export interface InvoicePlan {
  *
  *  • LEGACY (billingAnchorDay = null): счёт на 1-е число следующего месяца,
  *    только с 20-го; идемпотентность pending/paid (periodStart двигается сам).
- *  • ANCHORED: срок = nextPaymentDate (день-якорь), счёт за 10 дней до срока;
- *    идемпотентность включает overdue (nextPaymentDate двигается лишь при оплате,
- *    иначе после блокировки плодился бы дубль периода).
+ *  • ANCHORED: срок = nextPaymentDate (день-якорь). Триальный (первый) счёт
+ *    (nextPaymentDate === trialEndsAt) выставляется за TRIAL_INVOICE_LEAD_DAYS (2)
+ *    дня; повторные — за INVOICE_LEAD_DAYS (10). Идемпотентность включает overdue
+ *    (nextPaymentDate двигается лишь при оплате, иначе после блокировки плодился
+ *    бы дубль периода).
  */
 export function planInvoice(
   sub: {
     billingAnchorDay: number | null
     nextPaymentDate: Date
     billingPeriodMonths: number | null
+    trialEndsAt: Date | null
   },
   now: Date
 ): InvoicePlan | null {
@@ -120,7 +133,14 @@ export function planInvoice(
     }
   }
 
-  if (!shouldIssueAnchored(now, sub.nextPaymentDate)) return null
+  // Триальный (первый) счёт — тот, чей срок совпадает с концом теста
+  // (nextPaymentDate === trialEndsAt). После оплаты nextPaymentDate уходит вперёд,
+  // поэтому повторные счета сюда уже не попадают и берут обычный lead в 10 дней.
+  const isTrialInvoice =
+    sub.trialEndsAt != null &&
+    toUtcDate(sub.trialEndsAt).getTime() === toUtcDate(sub.nextPaymentDate).getTime()
+  const leadDays = isTrialInvoice ? TRIAL_INVOICE_LEAD_DAYS : INVOICE_LEAD_DAYS
+  if (!shouldIssueAnchored(now, sub.nextPaymentDate, leadDays)) return null
   return {
     periodStart: sub.nextPaymentDate,
     dueDate: sub.nextPaymentDate,

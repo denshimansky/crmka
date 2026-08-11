@@ -100,6 +100,11 @@ describe("shouldIssueAnchored — за 10 дней до срока", () => {
     assert.equal(shouldIssueAnchored(D("2026-08-19"), due), true)
     assert.equal(shouldIssueAnchored(D("2026-08-24"), due), true) // просрочка
   })
+  it("с leadDays=2 (триальный счёт) — раньше -2 нет, с -2 да", () => {
+    assert.equal(shouldIssueAnchored(D("2026-08-16"), due, 2), false) // due-3
+    assert.equal(shouldIssueAnchored(D("2026-08-17"), due, 2), true) // due-2
+    assert.equal(shouldIssueAnchored(D("2026-08-19"), due, 2), true) // due
+  })
 })
 
 describe("planInvoice — LEGACY (billingAnchorDay = null)", () => {
@@ -107,6 +112,7 @@ describe("planInvoice — LEGACY (billingAnchorDay = null)", () => {
     billingAnchorDay: null,
     nextPaymentDate: D(nextPay),
     billingPeriodMonths: months,
+    trialEndsAt: null,
   })
   it("до 20-го не выставляет", () => {
     assert.equal(planInvoice(legacy("2026-09-01"), D("2026-08-19")), null)
@@ -136,10 +142,16 @@ describe("planInvoice — LEGACY (billingAnchorDay = null)", () => {
 })
 
 describe("planInvoice — ANCHORED (billingAnchorDay задан)", () => {
-  const anchored = (anchor: number, nextPay: string, months = 1) => ({
+  const anchored = (
+    anchor: number,
+    nextPay: string,
+    months = 1,
+    trialEnd: string | null = null,
+  ) => ({
     billingAnchorDay: anchor,
     nextPaymentDate: D(nextPay),
     billingPeriodMonths: months,
+    trialEndsAt: trialEnd ? D(trialEnd) : null,
   })
   it("раньше -10 дней — не выставляет, ровно за 10 — выставляет", () => {
     assert.equal(planInvoice(anchored(19, "2026-08-19"), D("2026-08-08")), null)
@@ -160,6 +172,33 @@ describe("planInvoice — ANCHORED (billingAnchorDay задан)", () => {
   it("periodMonths=3 с клампингом якоря 31", () => {
     const p = planInvoice(anchored(31, "2027-01-31", 3), D("2027-01-25"))
     assert.equal(iso(p!.periodEnd), "2027-04-29")
+  })
+})
+
+describe("planInvoice — триальный счёт за 2 дня (nextPay === trialEndsAt)", () => {
+  const trial = (anchor: number, trialEnd: string) => ({
+    billingAnchorDay: anchor,
+    nextPaymentDate: D(trialEnd),
+    billingPeriodMonths: 1,
+    trialEndsAt: D(trialEnd),
+  })
+  it("триальный счёт: раньше -2 дней не выставляет, ровно за 2 — выставляет", () => {
+    // конец теста 19.08, срок = конец теста
+    assert.equal(planInvoice(trial(19, "2026-08-19"), D("2026-08-16")), null) // -3
+    assert.equal(planInvoice(trial(19, "2026-08-19"), D("2026-08-09")), null) // -10 (раньше не выставляем!)
+    const p = planInvoice(trial(19, "2026-08-19"), D("2026-08-17")) // -2
+    assert.ok(p)
+    assert.equal(iso(p!.periodStart), "2026-08-19")
+    assert.equal(iso(p!.dueDate), "2026-08-19")
+    assert.deepEqual(p!.idempotencyStatuses, ["pending", "paid", "overdue"])
+  })
+  it("повторный счёт того же партнёра (nextPay !== trialEndsAt) — снова за 10 дней", () => {
+    // тест закончился 19.08, следующий срок 19.09 — это уже НЕ триальный счёт
+    const sub = { billingAnchorDay: 19, nextPaymentDate: D("2026-09-19"), billingPeriodMonths: 1, trialEndsAt: D("2026-08-19") }
+    assert.equal(planInvoice(sub, D("2026-09-08")), null) // -11 (раньше 10 дней)
+    const p = planInvoice(sub, D("2026-09-09")) // -10 → повторный выставляется за 10 дней
+    assert.ok(p)
+    assert.equal(iso(p!.dueDate), "2026-09-19")
   })
 })
 

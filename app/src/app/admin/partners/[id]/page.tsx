@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  ArrowLeft, Building2, CircleSlash, CreditCard, FileText, KeyRound, LogIn, Pencil, Plus, Users,
+  ArrowLeft, Building2, CalendarClock, CircleSlash, CreditCard, FileText, KeyRound, LogIn, Pencil, Plus, Users,
 } from "lucide-react"
 import { BackButton } from "@/components/back-button"
 
@@ -48,6 +48,7 @@ interface Subscription {
   monthlyAmount: string
   nextPaymentDate: string
   startDate: string
+  trialEndsAt: string | null
   plan: Plan
   invoices: Invoice[]
 }
@@ -99,6 +100,9 @@ export default function PartnerDetailPage() {
   const [subForm, setSubForm] = useState({ planId: "", branchCount: "1", startDate: new Date().toISOString().slice(0, 10) })
   const [changePlanOpen, setChangePlanOpen] = useState(false)
   const [changePlanForm, setChangePlanForm] = useState({ subscriptionId: "", planId: "", branchCount: "1" })
+  const [extendOpen, setExtendOpen] = useState(false)
+  const [extendForm, setExtendForm] = useState({ subscriptionId: "", trialEndsAt: "" })
+  const [extending, setExtending] = useState(false)
   const [zeroing, setZeroing] = useState(false)
   const [invoiceOpen, setInvoiceOpen] = useState(false)
   const [invoiceForm, setInvoiceForm] = useState({ subscriptionId: "", periodStart: "", periodEnd: "", dueDate: "" })
@@ -194,6 +198,34 @@ export default function PartnerDetailPage() {
       fetchPartner()
     } catch { setError("Ошибка сети") }
     finally { setSaving(false) }
+  }
+
+  // Продлить тест: сдвигаем конец теста на новую дату (сервер пересчитает якорь и
+  // срок первой оплаты, отменит неоплаченный триальный счёт). Кнопка есть только
+  // пока подписка в статусе trial.
+  const openExtendTrial = (s: Subscription) => {
+    setExtendForm({
+      subscriptionId: s.id,
+      trialEndsAt: s.trialEndsAt ? s.trialEndsAt.slice(0, 10) : "",
+    })
+    setError("")
+    setExtendOpen(true)
+  }
+
+  const handleExtendTrial = async () => {
+    setError("")
+    setExtending(true)
+    try {
+      const res = await fetch(`/api/admin/partners/${id}/extend-trial`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trialEndsAt: extendForm.trialEndsAt }),
+      })
+      if (!res.ok) { const d = await res.json(); setError(d.error); return }
+      setExtendOpen(false)
+      fetchPartner()
+    } catch { setError("Ошибка сети") }
+    finally { setExtending(false) }
   }
 
   // Обнулить тариф: перевод внутренней/тестовой базы на нулевой план (0 ₽) +
@@ -457,6 +489,12 @@ export default function PartnerDetailPage() {
             <TableBody>
               {partner.billingSubscriptions.map((s) => {
                 const ss = STATUS_MAP[s.status] || { label: s.status, variant: "outline" as const }
+                // Продлевать можно неоплаченный тест (в т.ч. просроченный —
+                // grace/blocked), но не конвертированный (есть оплаченный счёт).
+                const isUnpaidTrial =
+                  !!s.trialEndsAt &&
+                  s.status !== "cancelled" &&
+                  !s.invoices.some((i) => i.status === "paid")
                 return (
                   <TableRow key={s.id}>
                     <TableCell className="font-medium">{s.plan.name}</TableCell>
@@ -466,11 +504,18 @@ export default function PartnerDetailPage() {
                     <TableCell>{new Date(s.startDate).toLocaleDateString("ru")}</TableCell>
                     <TableCell><Badge variant={ss.variant}>{ss.label}</Badge></TableCell>
                     <TableCell className="text-right">
-                      {s.status !== "cancelled" && (
-                        <Button size="sm" variant="outline" onClick={() => openChangePlan(s)}>
-                          <Pencil className="mr-2 size-3.5" />Сменить тариф
-                        </Button>
-                      )}
+                      <div className="flex items-center justify-end gap-2">
+                        {isUnpaidTrial && (
+                          <Button size="sm" variant="outline" onClick={() => openExtendTrial(s)}>
+                            <CalendarClock className="mr-2 size-3.5" />Продлить тест
+                          </Button>
+                        )}
+                        {s.status !== "cancelled" && (
+                          <Button size="sm" variant="outline" onClick={() => openChangePlan(s)}>
+                            <Pencil className="mr-2 size-3.5" />Сменить тариф
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 )
@@ -671,6 +716,35 @@ export default function PartnerDetailPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setChangePlanOpen(false)}>Отмена</Button>
             <Button onClick={handleChangePlan} disabled={saving || !changePlanForm.planId}>{saving ? "Сохранение..." : "Сохранить"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог продления теста */}
+      <Dialog open={extendOpen} onOpenChange={setExtendOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Продлить тестовый период</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Новый конец теста</Label>
+              <Input
+                type="date"
+                value={extendForm.trialEndsAt}
+                onChange={(e) => setExtendForm({ ...extendForm, trialEndsAt: e.target.value })}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              День-якорь и срок первой оплаты сдвинутся на новую дату. Неоплаченный
+              триальный счёт (если уже выставлен) будет отменён — новый выставится
+              автоматически за 2 дня до нового конца теста.
+            </p>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExtendOpen(false)}>Отмена</Button>
+            <Button onClick={handleExtendTrial} disabled={extending || !extendForm.trialEndsAt}>
+              {extending ? "Сохранение..." : "Продлить"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
