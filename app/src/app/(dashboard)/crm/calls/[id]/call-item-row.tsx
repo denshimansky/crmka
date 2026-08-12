@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { TableCell, TableRow } from "@/components/ui/table"
+import { TableCell } from "@/components/ui/table"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Phone, Check } from "lucide-react"
-import Link from "next/link"
 import { CreateApplicationDialog } from "@/app/(dashboard)/crm/_components/create-application-dialog"
 
 export interface CallItem {
@@ -16,7 +16,7 @@ export interface CallItem {
   clientName: string
   phone: string
   wardName: string
-  /** Возраст в полных месяцах — ключ сортировки колонки «Возраст» (с точностью до месяца). */
+  /** Возраст в полных месяцах — на будущее (сортировка колонки убрана). */
   ageMonths: number | null
   /** Метка возраста с месяцами («5 лет 3 мес.») — для отображения. */
   ageLabel: string | null
@@ -28,7 +28,7 @@ export interface CallItem {
   processedAt: string | null
   /** Кто зафиксировал результат — колонка «Ответственный». Пусто, если не обзвонен. */
   responsibleName: string
-  /** Подопечные клиента — для кнопки «Создать заявку» прямо из обзвона. */
+  /** Подопечные для кнопки «Создать заявку» (для строки — обычно один этот подопечный). */
   wards: { id: string; firstName: string; lastName: string | null }[]
 }
 
@@ -41,7 +41,6 @@ export const CALL_STATUS_LABELS: Record<string, string> = {
   // оставлен прежним (completed), меняется только метка и оформление.
   completed: "Отказ",
 }
-const STATUS_LABELS = CALL_STATUS_LABELS
 
 /** Коды результата обзвона → метки для отображения в строке. */
 const RESULT_LABELS: Record<string, string> = {
@@ -54,20 +53,11 @@ const RESULT_LABELS: Record<string, string> = {
   refused: "Отказ",
 }
 
-/**
- * Ключ сортировки колонки «Комментарий» — та же логика, что рисует ячейка
- * (commentText), но без плейсхолдера «—»: чтобы порядок строк совпадал с видимым
- * текстом (метка результата, а не сырой код), а пустые уходили в конец списка.
- */
-export function commentSortKey(item: CallItem): string {
-  if (item.comment) return item.comment
-  if (item.result) return RESULT_LABELS[item.result] ?? item.result
-  return ""
-}
-
 /** Текст ячейки «Комментарий»: сначала комментарий, иначе метка результата. */
 function commentText(item: CallItem): string {
-  return commentSortKey(item) || "—"
+  if (item.comment) return item.comment
+  if (item.result) return RESULT_LABELS[item.result] ?? item.result
+  return "—"
 }
 
 const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -75,12 +65,17 @@ const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline" | "des
   called: "secondary",
   no_answer: "destructive",
   callback: "default",
-  // «Отказ» (баг #117) — нейтральное оформление, как у кнопок «Не ответил»/
-  // «Перезвонить» (outline), а не акцентная заливка.
+  // «Отказ» (баг #117) — нейтральное оформление (outline), а не акцентная заливка.
   completed: "outline",
 }
 
-export function CallItemRow({
+/**
+ * Ячейки строки-подопечного внутри кампании обзвона (без ячеек клиента — их
+ * рисует группа с rowSpan). Каждый подопечный обрабатывается независимо;
+ * фиксация результата — во всплывающем Popover над кнопкой «Результат» (форма
+ * больше НЕ разворачивается отдельной строкой, чтобы не рвать rowSpan клиента).
+ */
+export function WardResultCells({
   item,
   campaignId,
   readOnly = false,
@@ -90,13 +85,15 @@ export function CallItemRow({
   readOnly?: boolean
 }) {
   const router = useRouter()
-  const [showForm, setShowForm] = useState(false)
+  const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [comment, setComment] = useState(item.comment || "")
-  const [result, setResult] = useState("")
   // «Перезвонить» → выбор даты следующей связи (баг #82).
   const [callbackOpen, setCallbackOpen] = useState(false)
   const [callbackDate, setCallbackDate] = useState("")
+
+  const done = item.status !== "pending"
+  const dim = done ? "opacity-60" : ""
 
   async function saveResult(status: string, extra?: Record<string, unknown>) {
     setLoading(true)
@@ -104,9 +101,9 @@ export function CallItemRow({
       await fetch(`/api/call-campaigns/${campaignId}/items`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId: item.id, status, comment, result, ...extra }),
+        body: JSON.stringify({ itemId: item.id, status, comment, ...extra }),
       })
-      setShowForm(false)
+      setOpen(false)
       setCallbackOpen(false)
       router.refresh()
     } catch { /* ignore */ }
@@ -123,8 +120,7 @@ export function CallItemRow({
 
   // Заявка создана прямо из обзвона: помечаем контакт обработанным и ставим
   // result="application" — так звонок попадает в столбец «Заявки» отчёта
-  // «Эффективность обзвонов». Существующий комментарий не трогаем (undefined в
-  // PATCH → Prisma пропускает поле).
+  // «Эффективность обзвонов». Существующий комментарий не трогаем.
   async function markApplicationCreated() {
     setLoading(true)
     try {
@@ -138,7 +134,7 @@ export function CallItemRow({
           result: "application",
         }),
       })
-      setShowForm(false)
+      setOpen(false)
       router.refresh()
     } catch { /* ignore */ }
     finally { setLoading(false) }
@@ -146,101 +142,89 @@ export function CallItemRow({
 
   return (
     <>
-      <TableRow className={item.status !== "pending" ? "opacity-60" : ""}>
-        <TableCell>
-          <Link href={`/crm/clients/${item.clientId}`} className="font-medium text-primary hover:underline">
-            {item.clientName}
-          </Link>
-        </TableCell>
-        <TableCell className="text-muted-foreground">{item.phone || "—"}</TableCell>
-        <TableCell className="text-muted-foreground text-xs">{item.wardName || "—"}</TableCell>
-        <TableCell className="text-muted-foreground text-xs">{item.ageLabel || "—"}</TableCell>
-        <TableCell className="text-muted-foreground text-xs">{item.clientStatusLabel || "—"}</TableCell>
-        <TableCell>
-          <Badge variant={STATUS_VARIANTS[item.status] || "outline"}>
-            {STATUS_LABELS[item.status] || item.status}
-          </Badge>
-        </TableCell>
-        <TableCell className="whitespace-nowrap text-muted-foreground text-xs">
-          {item.processedAt ? new Date(item.processedAt).toLocaleDateString("ru-RU") : "—"}
-        </TableCell>
-        <TableCell className="text-muted-foreground text-xs">{item.responsibleName || "—"}</TableCell>
-        <TableCell className="max-w-[200px] truncate text-muted-foreground">{commentText(item)}</TableCell>
-        <TableCell>
-          {item.status === "pending" ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={readOnly}
-              title={readOnly ? "Кампания в архиве — только просмотр" : undefined}
-              onClick={() => setShowForm(!showForm)}
-            >
+      <TableCell className={`text-muted-foreground text-xs ${dim}`}>{item.wardName || "—"}</TableCell>
+      <TableCell className={`text-muted-foreground text-xs ${dim}`}>{item.ageLabel || "—"}</TableCell>
+      <TableCell className={dim}>
+        <Badge variant={STATUS_VARIANTS[item.status] || "outline"}>
+          {CALL_STATUS_LABELS[item.status] || item.status}
+        </Badge>
+      </TableCell>
+      <TableCell className={`whitespace-nowrap text-muted-foreground text-xs ${dim}`}>
+        {item.processedAt ? new Date(item.processedAt).toLocaleDateString("ru-RU") : "—"}
+      </TableCell>
+      <TableCell className={`text-muted-foreground text-xs ${dim}`}>{item.responsibleName || "—"}</TableCell>
+      <TableCell className={`max-w-[220px] truncate text-muted-foreground ${dim}`}>{commentText(item)}</TableCell>
+      <TableCell>
+        {item.status !== "pending" ? (
+          <Check className="size-4 text-green-500" />
+        ) : readOnly ? (
+          <Button size="sm" variant="outline" disabled title="Кампания в архиве — только просмотр">
+            <Phone className="mr-1 size-3" />
+            Результат
+          </Button>
+        ) : (
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger render={<Button size="sm" variant="outline" />}>
               <Phone className="mr-1 size-3" />
               Результат
-            </Button>
-          ) : (
-            <Check className="size-4 text-green-500" />
-          )}
-        </TableCell>
-      </TableRow>
-      {showForm && (
-        <TableRow>
-          <TableCell colSpan={10}>
-            <div className="flex flex-wrap items-center gap-2 py-1">
-              <Input
-                placeholder="Комментарий"
-                value={comment}
-                onChange={e => setComment(e.target.value)}
-                className="max-w-[200px]"
-              />
-              <Button size="sm" variant="outline" onClick={() => saveResult("no_answer")} disabled={loading}>Не ответил</Button>
-              <Button size="sm" variant={callbackOpen ? "secondary" : "outline"} onClick={openCallback} disabled={loading}>Перезвонить</Button>
-              <Button size="sm" variant="outline" onClick={() => saveResult("completed")} disabled={loading}>Отказ</Button>
-              <span className="mx-1 h-5 w-px bg-border" aria-hidden />
-              <CreateApplicationDialog
-                clientId={item.clientId}
-                wards={item.wards}
-                callCampaignItemId={item.id}
-                variant="default"
-                size="sm"
-                triggerLabel="Создать заявку"
-                onCreated={markApplicationCreated}
-              />
-              {/* Дозвонились, но клиент/ребёнок уже записан — фиксируем как
-                  «Записан ранее» (status=called + result), заявку не создаём. */}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => saveResult("called", { result: "enrolled_earlier" })}
-                disabled={loading}
-              >
-                Записан ранее
-              </Button>
-              {callbackOpen && (
-                <div className="flex w-full flex-wrap items-center gap-2 border-t pt-2">
-                  <span className="text-xs text-muted-foreground">Дата следующей связи:</span>
-                  <Input
-                    type="date"
-                    value={callbackDate}
-                    onChange={e => setCallbackDate(e.target.value)}
-                    className="max-w-[170px]"
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80">
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">
+                  {item.wardName ? `Подопечный: ${item.wardName}` : "Результат звонка"}
+                </div>
+                <Input
+                  placeholder="Комментарий"
+                  value={comment}
+                  onChange={e => setComment(e.target.value)}
+                  className="h-8"
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  <Button size="sm" variant="outline" onClick={() => saveResult("no_answer")} disabled={loading}>Не ответил</Button>
+                  <Button size="sm" variant={callbackOpen ? "secondary" : "outline"} onClick={openCallback} disabled={loading}>Перезвонить</Button>
+                  <Button size="sm" variant="outline" onClick={() => saveResult("completed")} disabled={loading}>Отказ</Button>
+                </div>
+                <div className="flex flex-wrap gap-1.5 border-t pt-2">
+                  <CreateApplicationDialog
+                    clientId={item.clientId}
+                    wards={item.wards}
+                    callCampaignItemId={item.id}
+                    variant="default"
+                    size="sm"
+                    triggerLabel="Создать заявку"
+                    onCreated={markApplicationCreated}
                   />
                   <Button
                     size="sm"
-                    onClick={() => saveResult("callback", { callbackDate })}
-                    disabled={loading || !callbackDate}
+                    variant="outline"
+                    onClick={() => saveResult("called", { result: "enrolled_earlier" })}
+                    disabled={loading}
                   >
-                    Сохранить
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setCallbackOpen(false)} disabled={loading}>
-                    Отмена
+                    Записан ранее
                   </Button>
                 </div>
-              )}
-            </div>
-          </TableCell>
-        </TableRow>
-      )}
+                {callbackOpen && (
+                  <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+                    <span className="text-xs text-muted-foreground">Дата следующей связи:</span>
+                    <Input
+                      type="date"
+                      value={callbackDate}
+                      onChange={e => setCallbackDate(e.target.value)}
+                      className="h-8 max-w-[160px]"
+                    />
+                    <Button size="sm" onClick={() => saveResult("callback", { callbackDate })} disabled={loading || !callbackDate}>
+                      Сохранить
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setCallbackOpen(false)} disabled={loading}>
+                      Отмена
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
+      </TableCell>
     </>
   )
 }
