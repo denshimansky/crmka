@@ -6,6 +6,7 @@ import { z } from "zod"
 import { createTrialLessonForClient } from "@/lib/services/trial-lesson"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { recordClientStatusChange } from "@/lib/clients/status-history"
+import { wasEverClient } from "@/lib/clients/was-ever-client"
 
 const trialPayloadSchema = z.object({
   groupId: z.string().uuid().optional(),
@@ -45,7 +46,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       clientId: true,
       wardId: true,
       status: true,
-      client: { select: { id: true, clientStatus: true, funnelStatus: true } },
+      client: {
+        select: {
+          id: true, clientStatus: true, funnelStatus: true,
+          firstPaymentDate: true, firstPaidLessonDate: true,
+        },
+      },
     },
   })
   if (!application) return NextResponse.json({ error: "Заявка не найдена" }, { status: 404 })
@@ -97,6 +103,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // пока по нему не появится новое событие (заявка, пробное).
   const newFunnelStatus = data.outcome === "lead" ? "new" : "potential"
   const isActiveClient = application.client.clientStatus === "active"
+  // Бывшего клиента НЕ возвращаем в «Потенциальный» (правило 31.07,
+  // planFormerClientTransition R1): обработка заявки как «Потенциал» не должна
+  // перекрывать статус «Выбывший» (иначе всплывёт в обзвоне по потенциалу).
+  // Активного тоже не трогаем. Для outcome=lead поведение прежнее.
+  const skipFunnelUpdate =
+    isActiveClient ||
+    (data.outcome === "potential" && wasEverClient(application.client))
 
   await db.$transaction(async (tx) => {
     await tx.application.update({
@@ -108,7 +121,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         processedBy: employeeId ?? undefined,
       },
     })
-    if (!isActiveClient) {
+    if (!skipFunnelUpdate) {
       await tx.client.update({
         where: { id: application.clientId },
         data: { funnelStatus: newFunnelStatus },

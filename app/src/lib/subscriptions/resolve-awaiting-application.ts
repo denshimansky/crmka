@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { recordClientStatusChange } from "@/lib/clients/status-history"
+import { wasEverClient } from "@/lib/clients/was-ever-client"
 
 /**
  * Закрывает зависшую заявку «Ожидаем оплату» при завершении жизни абонемента
@@ -90,23 +91,27 @@ export async function resolveAwaitingApplicationOnSubscriptionEnd(
   if (updated.count === 0) return
 
   // Не купил — контакт возвращается в «Потенциальные» (зеркально ручной
-  // обработке заявки в process-роуте); активного клиента не трогаем.
-  // clientStatus nullable (у чистых лидов NULL), а SQL `<> 'active'` NULL не
-  // матчит — нужен явный OR с null, иначе основная аудитория (лиды) пропускается.
+  // обработке заявки в process-роуте). В потенциал уходят только лиды/не-клиенты:
+  // бывшего (или текущего активного) клиента НЕ возвращаем в «Потенциальный»
+  // (правило 31.07, planFormerClientTransition R1) — иначе закрытие заявки как
+  // «Потенциал» перекрыло бы статус «Выбывший» и такой клиент всплыл бы в обзвоне
+  // по потенциалу. wasEverClient ловит и active (clientStatus="active"), и
+  // churned, и однажды плативших.
   if (outcome === "potential") {
     const before = await tx.client.findUnique({
       where: { id: sub.clientId },
-      select: { funnelStatus: true },
-    })
-    const res = await tx.client.updateMany({
-      where: {
-        id: sub.clientId,
-        tenantId,
-        OR: [{ clientStatus: null }, { clientStatus: { not: "active" } }],
+      select: {
+        funnelStatus: true,
+        clientStatus: true,
+        firstPaymentDate: true,
+        firstPaidLessonDate: true,
       },
-      data: { funnelStatus: "potential" },
     })
-    if (res.count > 0 && before) {
+    if (before && !wasEverClient(before) && before.funnelStatus !== "potential") {
+      await tx.client.updateMany({
+        where: { id: sub.clientId, tenantId },
+        data: { funnelStatus: "potential" },
+      })
       await recordClientStatusChange(tx, {
         tenantId,
         clientId: sub.clientId,
