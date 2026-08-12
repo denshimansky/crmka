@@ -3,7 +3,12 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
-import { buildScopedCampaignWhere, campaignFilterSchema, wardIdsForClient } from "@/lib/call-campaigns/filter"
+import {
+  applicationStageForWardScope,
+  buildScopedCampaignWhere,
+  campaignFilterSchema,
+  wardIdsForClient,
+} from "@/lib/call-campaigns/filter"
 
 const createSchema = z.object({
   name: z.string().min(1, "Введите название"),
@@ -49,22 +54,36 @@ export async function POST(req: NextRequest) {
   // Лимит на размер кампании снят (баг #82): в обзвон попадают все клиенты,
   // подходящие под критерии, без потолка.
   // Одна строка = один подопечный: разворачиваем клиента в строки по подходящим
-  // подопечным (при фильтре по дате рождения — только попавшим в диапазон).
+  // подопечным (при фильтре по дате рождения — только попавшим в диапазон). Для
+  // этапа-заявки дополнительно подтягиваем заявочных подопечных, чтобы не создать
+  // строки на сиблингов без заявки (см. applicationStageForWardScope).
+  const stage = applicationStageForWardScope(data.filterCriteria)
   const clients = await db.client.findMany({
     where,
     select: {
       id: true,
       wards: { select: { id: true, birthDate: true } },
+      ...(stage
+        ? {
+            applications: {
+              where: { status: "active", deletedAt: null, stage: stage as never },
+              select: { wardId: true },
+            },
+          }
+        : {}),
     },
   })
-  const rows = clients.flatMap((cl) =>
-    wardIdsForClient(cl.wards, data.filterCriteria).map((wardId) => ({
+  const rows = clients.flatMap((cl) => {
+    const appWardIds = stage
+      ? (cl as { applications?: { wardId: string | null }[] }).applications?.map((a) => a.wardId)
+      : undefined
+    return wardIdsForClient(cl.wards, data.filterCriteria, undefined, appWardIds).map((wardId) => ({
       tenantId: session.user.tenantId,
       clientId: cl.id,
       wardId,
       status: "pending" as const,
-    })),
-  )
+    }))
+  })
 
   const campaign = await db.$transaction(async (tx) => {
     const c = await tx.callCampaign.create({

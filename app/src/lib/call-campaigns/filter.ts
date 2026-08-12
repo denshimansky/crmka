@@ -425,10 +425,26 @@ export interface WardForRows {
 }
 
 /**
+ * Этап-заявка, к подопечному которой привязан отбор клиента (application /
+ * trial_scheduled / trial_attended / awaiting_payment). Для таких этапов
+ * buildCampaignClientWhere матчит клиента по подопечному активной ЗАЯВКИ этого
+ * этапа, поэтому и строки обзвона нужно генерировать только по заявочным
+ * подопечным, иначе в кампанию попадут сиблинги без заявки. Возвращает stage или
+ * null (не этап-заявка → генерируем по всем подходящим подопечным). Через UI
+ * base-диалога недостижимо (funnelStatus он не шлёт) — защита для легаси-кампаний
+ * при «Актуализировать» и прямых вызовов API.
+ */
+export function applicationStageForWardScope(fc: CampaignFilterCriteria): string | null {
+  return fc.funnelStatus && APPLICATION_STAGES.has(fc.funnelStatus) ? fc.funnelStatus : null
+}
+
+/**
  * Список wardId, которые дадут строки обзвона для одного клиента.
  *
- *  - есть фильтр по дате рождения → только подходящие подопечные;
+ *  - есть фильтр по дате рождения → только подходящие по возрасту подопечные;
  *  - фильтра нет → все подопечные;
+ *  - этап-заявка (applicationWardIds задан) → пересечение с подопечными активных
+ *    заявок этого этапа (критерий отбора клиента был по заявочному подопечному);
  *  - нет (подходящих) подопечных → одна строка с wardId=null: клиента всё равно
  *    нужно обзвонить (адрес по клиенту, а не по ребёнку).
  */
@@ -436,10 +452,15 @@ export function wardIdsForClient(
   wards: WardForRows[],
   fc: CampaignFilterCriteria,
   now: Date = new Date(),
+  applicationWardIds?: readonly (string | null)[] | null,
 ): (string | null)[] {
-  const use = hasWardBirthFilter(fc)
+  let use = hasWardBirthFilter(fc)
     ? wards.filter((w) => wardMatchesBirthFilter(w.birthDate, fc, now))
     : wards
+  if (applicationStageForWardScope(fc) && applicationWardIds) {
+    const appWards = new Set(applicationWardIds.filter((id): id is string => !!id))
+    use = use.filter((w) => appWards.has(w.id))
+  }
   if (use.length === 0) return [null]
   return use.map((w) => w.id)
 }

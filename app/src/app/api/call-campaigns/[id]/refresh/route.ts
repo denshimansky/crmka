@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { branchScopeFromSession } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import {
+  applicationStageForWardScope,
   buildScopedCampaignWhere,
   wardIdsForClient,
   type CampaignFilterCriteria,
@@ -50,11 +51,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const fc = (campaign.filterCriteria ?? {}) as CampaignFilterCriteria
 
   // Множество клиентов, подходящих под критерии СЕЙЧАС (в рамках scope), вместе с
-  // подопечными — чтобы развернуть новых клиентов в строки-подопечные.
+  // подопечными — чтобы развернуть новых клиентов в строки-подопечные. Для
+  // этапа-заявки подтягиваем заявочных подопечных (сужение, как при создании).
+  const stage = applicationStageForWardScope(fc)
   const where = buildScopedCampaignWhere(tenantId, allowedBranchIds, fc)
   const matching = await db.client.findMany({
     where,
-    select: { id: true, wards: { select: { id: true, birthDate: true } } },
+    select: {
+      id: true,
+      wards: { select: { id: true, birthDate: true } },
+      ...(stage
+        ? {
+            applications: {
+              where: { status: "active", deletedAt: null, stage: stage as never },
+              select: { wardId: true },
+            },
+          }
+        : {}),
+    },
   })
   const matchingIds = new Set(matching.map((c) => c.id))
 
@@ -80,15 +94,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // остаются как есть («старое не трогаем»).
       const toAddRows = matching
         .filter((c) => !existingIds.has(c.id))
-        .flatMap((c) =>
-          wardIdsForClient(c.wards, fc).map((wardId) => ({
+        .flatMap((c) => {
+          const appWardIds = stage
+            ? (c as { applications?: { wardId: string | null }[] }).applications?.map((a) => a.wardId)
+            : undefined
+          return wardIdsForClient(c.wards, fc, undefined, appWardIds).map((wardId) => ({
             tenantId,
             campaignId: id,
             clientId: c.id,
             wardId,
             status: "pending" as const,
-          })),
-        )
+          }))
+        })
 
       // Кандидаты на удаление — только НЕобработанные (pending) позиции, чьи
       // клиенты видны в scope нажавшего и больше не подходят под критерии.

@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { buildScopedCampaignWhere, campaignFilterSchema, wardIdsForClient } from "@/lib/call-campaigns/filter"
+import {
+  applicationStageForWardScope,
+  buildScopedCampaignWhere,
+  campaignFilterSchema,
+  wardIdsForClient,
+} from "@/lib/call-campaigns/filter"
 
 // Предпросмотр размера выборки обзвона по критериям — чтобы оператор видел,
 // сколько клиентов попадёт в кампанию, до её создания (баг #44).
@@ -26,17 +31,30 @@ export async function POST(req: NextRequest) {
 
   // Потолка на размер кампании больше нет (баг #82). Одна строка = один
   // подопечный: считаем строки-подопечные (при фильтре по дате рождения — только
-  // попавших в диапазон), а не клиентов — это реальный размер обзвона.
+  // попавших в диапазон), а не клиентов — это реальный размер обзвона. Для
+  // этапа-заявки сужаем до заявочных подопечных (как и при создании) — чтобы
+  // счётчик совпал с фактическим числом строк.
+  const stage = applicationStageForWardScope(parsed.data)
   const clients = await db.client.findMany({
     where,
     select: {
       id: true,
       wards: { select: { id: true, birthDate: true } },
+      ...(stage
+        ? {
+            applications: {
+              where: { status: "active", deletedAt: null, stage: stage as never },
+              select: { wardId: true },
+            },
+          }
+        : {}),
     },
   })
-  const total = clients.reduce(
-    (sum, cl) => sum + wardIdsForClient(cl.wards, parsed.data).length,
-    0,
-  )
+  const total = clients.reduce((sum, cl) => {
+    const appWardIds = stage
+      ? (cl as { applications?: { wardId: string | null }[] }).applications?.map((a) => a.wardId)
+      : undefined
+    return sum + wardIdsForClient(cl.wards, parsed.data, undefined, appWardIds).length
+  }, 0)
   return NextResponse.json({ count: total })
 }
