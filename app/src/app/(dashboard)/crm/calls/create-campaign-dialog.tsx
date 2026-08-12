@@ -5,15 +5,13 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog"
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@/components/ui/select"
-import { Database, ListChecks } from "lucide-react"
-import { MANAGED_TRIGGERS, TRIGGER_LABEL } from "@/lib/tasks/trigger-settings"
+import { Database } from "lucide-react"
 
 // Статус клиента — единый селект отбора базы. «Связь» (назначена дата следующей
 // связи) перенесён сюда из бывшего «Этапа воронки». Архив / Чёрный список /
@@ -27,10 +25,6 @@ const CLIENT_STATUS_OPTIONS = [
   { value: "potential", label: "Потенциал" },
   { value: "contact", label: "Связь" },
 ]
-
-// unmarked_lesson создаётся без clientId (задача инструктору про занятие) —
-// через Client.tasks клиентов не находит, в обзвоне чекбокс был бы мёртвым.
-const CALL_TRIGGERS = MANAGED_TRIGGERS.filter((t) => t !== "unmarked_lesson")
 
 interface BranchOption {
   id: string
@@ -72,7 +66,8 @@ function useCampaignPreview(
 
 function previewLabel(preview: PreviewState): string {
   if (preview === "error") return "Не удалось оценить выборку"
-  if (preview) return `Найдено: ${preview.count} клиентов`
+  // Размер обзвона считается в строках-подопечных (одна строка = один подопечный).
+  if (preview) return `Найдено: ${preview.count} подопечных`
   return "Подбор выборки…"
 }
 
@@ -224,99 +219,6 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
           <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm text-muted-foreground">{previewLabel(preview)}</span>
             <Button type="submit" disabled={loading}>{loading ? "Создание..." : "Создать обзвон"}</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-/**
- * «Обзвон по задачам» — только открытые автозадачи выбранных типов, поиск по
- * всей базе, кроме «Архива», «Чёрного списка» и «Нецелевых» (без фильтров базы).
- */
-export function CreateTaskCampaignDialog() {
-  const router = useRouter()
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [name, setName] = useState("")
-  const [triggers, setTriggers] = useState<Set<string>>(new Set())
-
-  function reset() {
-    setName("")
-    setTriggers(new Set())
-    setError(null)
-  }
-
-  function toggleTrigger(t: string) {
-    setTriggers((prev) => {
-      const next = new Set(prev)
-      if (next.has(t)) next.delete(t)
-      else next.add(t)
-      return next
-    })
-  }
-
-  const buildFilterCriteria = useCallback((): Record<string, unknown> => {
-    return { mode: "tasks", autoTriggers: Array.from(triggers) }
-  }, [triggers])
-
-  const preview = useCampaignPreview(open, triggers.size > 0, buildFilterCriteria)
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault(); setError(null)
-    if (!name) { setError("Введите название"); return }
-    if (triggers.size === 0) { setError("Выберите хотя бы один тип задач"); return }
-    setLoading(true)
-    try {
-      const err = await createCampaign(name, buildFilterCriteria())
-      if (err) { setError(err); return }
-      reset(); setOpen(false); router.refresh()
-    } catch { setError("Ошибка сети") } finally { setLoading(false) }
-  }
-
-  return (
-    // Пока идёт создание, диалог не закрываем (см. CreateCampaignDialog).
-    <Dialog open={open} onOpenChange={(v) => { if (!v && loading) return; setOpen(v); if (!v) reset() }}>
-      <DialogTrigger render={<Button variant="outline" />}>
-        <ListChecks className="mr-2 size-4" />Обзвон по задачам
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>Новый обзвон по задачам</DialogTitle></DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
-          <div className="space-y-1.5">
-            <Label>Название *</Label>
-            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Например: Обзвон по задачам июль" />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Типы автозадач, включаемых в кампанию</Label>
-            <div className="space-y-1.5 rounded-md border p-3">
-              {CALL_TRIGGERS.map((t) => (
-                <label key={t} className="flex items-center gap-2 cursor-pointer text-sm">
-                  <Checkbox
-                    checked={triggers.has(t)}
-                    onCheckedChange={() => toggleTrigger(t)}
-                  />
-                  <span>{TRIGGER_LABEL[t]}</span>
-                </label>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              В обзвон попадут клиенты с открытыми автозадачами выбранных типов.
-              Поиск по всей базе, кроме «Архива», «Чёрного списка» и «Нецелевых».
-            </p>
-          </div>
-
-          <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm text-muted-foreground">
-              {triggers.size === 0 ? "Выберите типы задач" : previewLabel(preview)}
-            </span>
-            <Button type="submit" disabled={loading || triggers.size === 0}>
-              {loading ? "Создание..." : "Создать обзвон"}
-            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

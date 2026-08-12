@@ -6,13 +6,14 @@ import { getReportContext } from "@/lib/report-helpers"
 interface DayCell {
   total: number
   application: number
+  enrolledEarlier: number
   completed: number
   callback: number
   noAnswer: number
 }
 
 function emptyCell(): DayCell {
-  return { total: 0, application: 0, completed: 0, callback: 0, noAnswer: 0 }
+  return { total: 0, application: 0, enrolledEarlier: 0, completed: 0, callback: 0, noAnswer: 0 }
 }
 
 const MSK_TZ = "Europe/Moscow"
@@ -99,11 +100,14 @@ export async function GET(req: NextRequest) {
 
     cell.total++
     m.totals.total++
-    // Заявка (result="application") имеет статус "called" — считаем её отдельно;
-    // прочие исходы — по статусу. Порядок веток задаёт приоритет «заявки».
+    // Исходы по result (заявка / записан ранее) имеют статус "called" — считаем их
+    // отдельно ДО статусных веток; прочие — по статусу. Порядок задаёт приоритет.
     if (it.result === "application") {
       cell.application++
       m.totals.application++
+    } else if (it.result === "enrolled_earlier") {
+      cell.enrolledEarlier++
+      m.totals.enrolledEarlier++
     } else if (it.status === "completed") {
       cell.completed++
       m.totals.completed++

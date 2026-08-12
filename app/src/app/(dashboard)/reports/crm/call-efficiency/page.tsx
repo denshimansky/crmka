@@ -29,6 +29,7 @@ interface Row {
 interface DayCell {
   total: number
   application: number
+  enrolledEarlier: number
   completed: number
   callback: number
   noAnswer: number
@@ -133,6 +134,7 @@ function ByCampaignTab() {
 // Исходы-подстроки под каждым менеджером (порядок = как в карточке кампании).
 const STATUS_ROWS: { key: keyof DayCell; label: string; color: string }[] = [
   { key: "application", label: "Создано заявок", color: "text-amber-600" },
+  { key: "enrolledEarlier", label: "Записан ранее", color: "text-emerald-600" },
   { key: "completed", label: "Отказ", color: "text-rose-600" },
   { key: "callback", label: "Перезвонить", color: "text-violet-600" },
   { key: "noAnswer", label: "Не ответил", color: "text-slate-600" },
@@ -150,7 +152,7 @@ function cellVal(n: number | undefined): string {
 }
 
 function emptyCell(): DayCell {
-  return { total: 0, application: 0, completed: 0, callback: 0, noAnswer: 0 }
+  return { total: 0, application: 0, enrolledEarlier: 0, completed: 0, callback: 0, noAnswer: 0 }
 }
 
 /**
@@ -260,12 +262,14 @@ function ByDayTab() {
       const agg = (byDay[day] ??= emptyCell())
       agg.total += c.total
       agg.application += c.application
+      agg.enrolledEarlier += c.enrolledEarlier
       agg.completed += c.completed
       agg.callback += c.callback
       agg.noAnswer += c.noAnswer
     }
     totals.total += m.totals.total
     totals.application += m.totals.application
+    totals.enrolledEarlier += m.totals.enrolledEarlier
     totals.completed += m.totals.completed
     totals.callback += m.totals.callback
     totals.noAnswer += m.totals.noAnswer

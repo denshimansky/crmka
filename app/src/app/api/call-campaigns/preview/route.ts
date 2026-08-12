@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { buildScopedCampaignWhere, campaignFilterSchema } from "@/lib/call-campaigns/filter"
+import { buildScopedCampaignWhere, campaignFilterSchema, wardIdsForClient } from "@/lib/call-campaigns/filter"
 
 // Предпросмотр размера выборки обзвона по критериям — чтобы оператор видел,
 // сколько клиентов попадёт в кампанию, до её создания (баг #44).
@@ -24,7 +24,19 @@ export async function POST(req: NextRequest) {
     parsed.data,
   )
 
-  // Потолка на размер кампании больше нет (баг #82) — показываем полную выборку.
-  const total = await db.client.count({ where })
+  // Потолка на размер кампании больше нет (баг #82). Одна строка = один
+  // подопечный: считаем строки-подопечные (при фильтре по дате рождения — только
+  // попавших в диапазон), а не клиентов — это реальный размер обзвона.
+  const clients = await db.client.findMany({
+    where,
+    select: {
+      id: true,
+      wards: { select: { id: true, birthDate: true } },
+    },
+  })
+  const total = clients.reduce(
+    (sum, cl) => sum + wardIdsForClient(cl.wards, parsed.data).length,
+    0,
+  )
   return NextResponse.json({ count: total })
 }

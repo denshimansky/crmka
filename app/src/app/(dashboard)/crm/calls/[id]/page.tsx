@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Archive, ArrowLeft, FilePlus, PhoneCall, PhoneOff, Users, XCircle } from "lucide-react"
+import { Archive, ArrowLeft, CalendarCheck2, FilePlus, PhoneCall, PhoneOff, Users, XCircle } from "lucide-react"
 import { BackButton } from "@/components/back-button"
 import { notFound } from "next/navigation"
 import { CampaignItemsTable } from "./campaign-items-table"
@@ -41,13 +41,15 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const items = await db.callCampaignItem.findMany({
     where: { campaignId: id, tenantId, client: scopeClientByBranch(scope) },
     include: {
+      // Подопечный этой строки (одна строка = один подопечный). Для легаси-строк
+      // (wardId=null) — берём по фоллбэку из client.wards ниже.
+      ward: { select: { id: true, firstName: true, lastName: true, birthDate: true } },
       client: {
         select: {
           id: true, firstName: true, lastName: true, phone: true,
           funnelStatus: true, clientStatus: true,
-          // Все подопечные (детерминированно по дате рождения) — ниже выбираем того,
-          // кто попадает в возрастной фильтр кампании, чтобы возраст в таблице
-          // соответствовал критерию отбора.
+          // Все подопечные (детерминированно по дате рождения) — фоллбэк для
+          // легаси-строк без wardId (кампании до перехода на строку-подопечного).
           wards: {
             select: { id: true, firstName: true, lastName: true, birthDate: true },
             orderBy: { birthDate: "asc" },
@@ -109,6 +111,15 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       icon: FilePlus,
       color: "text-amber-600",
       bg: "bg-amber-50",
+    },
+    {
+      key: "enrolled",
+      label: "Записан ранее",
+      total: items.filter((i) => i.result === "enrolled_earlier").length,
+      today: items.filter((i) => i.result === "enrolled_earlier" && isToday(i.calledAt)).length,
+      icon: CalendarCheck2,
+      color: "text-emerald-600",
+      bg: "bg-emerald-50",
     },
     {
       key: "refused",
@@ -183,7 +194,9 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   // пустые значения, чтобы сортировка корректно отправляла их в конец списка.
   const rows: CallItem[] = items.map(i => {
     const name = [i.client.lastName, i.client.firstName].filter(Boolean).join(" ") || "Без имени"
-    const ward = pickWard(i.client.wards)
+    // Подопечный строки: из привязки (одна строка = один подопечный), для легаси-
+    // строк без wardId — фоллбэк на «того самого» подопечного из client.wards.
+    const ward = i.ward ?? pickWard(i.client.wards)
     const wardName = ward ? [ward.firstName, ward.lastName].filter(Boolean).join(" ") : ""
     // Возраст: метка с месяцами («5 лет 3 мес.») — для отображения; полные месяцы
     // — ключ сортировки колонки (с точностью до месяца).
@@ -207,7 +220,12 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       // чтобы сортировка в таблице шла хронологически; формат — при отображении.
       processedAt: i.calledAt ? i.calledAt.toISOString() : null,
       responsibleName: i.calledBy ? (employeeName.get(i.calledBy) ?? "") : "",
-      wards: i.client.wards.map((w) => ({ id: w.id, firstName: w.firstName, lastName: w.lastName })),
+      // Для «Создать заявку»: если строка привязана к подопечному — предлагаем
+      // только его (заявка сразу подставит нужного ребёнка); для легаси-строк —
+      // весь список подопечных клиента.
+      wards: i.ward
+        ? [{ id: i.ward.id, firstName: i.ward.firstName, lastName: i.ward.lastName }]
+        : i.client.wards.map((w) => ({ id: w.id, firstName: w.firstName, lastName: w.lastName })),
     }
   })
 

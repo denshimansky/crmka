@@ -269,16 +269,16 @@ model Employee {
   // Окладники: фикс в месяц + основное направление для разнесения в ОПИУ.
   // При выборе сотрудника на странице выплаты ЗП «Заполнить» подтянет одну строку
   // (monthlySalary, defaultDirectionId) — преподаватели начисляются по факту посещений.
-  monthlySalary      Decimal? @map("monthly_salary") @db.Decimal(12, 2)
+  monthlySalary      Decimal?  @map("monthly_salary") @db.Decimal(12, 2)
   // Дата, с которой действует оклад. NULL → оклад за весь месяц во всех периодах
   // (обратная совместимость). Иначе оклад не начисляется за месяцы до неё, а
   // первый (неполный) месяц — пропорционально календарным дням (lib/salary/
   // oklad-for-period.ts). Фиксит «окладник заведён в августе → всплыл в июле».
   okladFrom          DateTime? @map("oklad_from") @db.Date
-  defaultDirectionId String?  @map("default_direction_id") @db.Uuid
+  defaultDirectionId String?   @map("default_direction_id") @db.Uuid
   // Филиалы, на которые распространяется оклад (разнесение оклад-твина в ОПИУ).
   // JSON-массив branchId. NULL/пусто → распределяется по всем филиалам ∝ выручке.
-  okladBranchIds     Json?    @map("oklad_branch_ids")
+  okladBranchIds     Json?     @map("oklad_branch_ids")
 
   organization               Organization         @relation(fields: [tenantId], references: [id])
   defaultDirection           Direction?           @relation("EmployeeDefaultDirection", fields: [defaultDirectionId], references: [id])
@@ -440,11 +440,12 @@ model Ward {
   createdAt    DateTime       @default(now()) @map("created_at")
   updatedAt    DateTime       @updatedAt @map("updated_at")
 
-  client        Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  enrollments   GroupEnrollment[]
-  subscriptions Subscription[]
-  trialLessons  TrialLesson[]
-  applications  Application[]
+  client            Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  enrollments       GroupEnrollment[]
+  subscriptions     Subscription[]
+  trialLessons      TrialLesson[]
+  applications      Application[]
+  callCampaignItems CallCampaignItem[]
 
   @@index([tenantId])
   @@index([tenantId, salesStage])
@@ -1227,6 +1228,11 @@ model CallCampaignItem {
   tenantId   String         @map("tenant_id") @db.Uuid
   campaignId String         @map("campaign_id") @db.Uuid
   clientId   String         @map("client_id") @db.Uuid
+  // Подопечный, к которому относится эта строка обзвона: одна строка на каждого
+  // подходящего подопечного клиента (при фильтре по дате рождения — только тех,
+  // кто попал в диапазон). NULL — у клиента нет подопечных ИЛИ строка создана до
+  // перехода на «одна строка = один подопечный» (легаси, по клиенту).
+  wardId     String?        @map("ward_id") @db.Uuid
   status     CallItemStatus @default(pending)
   comment    String?
   result     String?
@@ -1237,10 +1243,12 @@ model CallCampaignItem {
 
   campaign     CallCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   client       Client        @relation(fields: [clientId], references: [id])
+  ward         Ward?         @relation(fields: [wardId], references: [id])
   // Заявки, созданные из этой позиции обзвона (кнопка «Создать заявку»).
   applications Application[]
 
   @@index([campaignId])
+  @@index([wardId])
   @@map("call_campaign_items")
 }
 

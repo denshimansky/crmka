@@ -46,6 +46,8 @@ const STATUS_LABELS = CALL_STATUS_LABELS
 /** Коды результата обзвона → метки для отображения в строке. */
 const RESULT_LABELS: Record<string, string> = {
   application: "Создана заявка",
+  // Дозвонились, но клиент/ребёнок уже записан — новую заявку не оформляем.
+  enrolled_earlier: "Записан ранее",
   trial_scheduled: "Записан на пробное",
   sale: "Продажа",
   no_answer: "Не дозвонились",
@@ -204,6 +206,16 @@ export function CallItemRow({
                 triggerLabel="Создать заявку"
                 onCreated={markApplicationCreated}
               />
+              {/* Дозвонились, но клиент/ребёнок уже записан — фиксируем как
+                  «Записан ранее» (status=called + result), заявку не создаём. */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => saveResult("called", { result: "enrolled_earlier" })}
+                disabled={loading}
+              >
+                Записан ранее
+              </Button>
               {callbackOpen && (
                 <div className="flex w-full flex-wrap items-center gap-2 border-t pt-2">
                   <span className="text-xs text-muted-foreground">Дата следующей связи:</span>

@@ -5,9 +5,9 @@ import { db } from "@/lib/db"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { FilePlus, PhoneCall, PhoneOff, Users, XCircle } from "lucide-react"
+import { CalendarCheck2, FilePlus, PhoneCall, PhoneOff, Users, XCircle } from "lucide-react"
 import Link from "next/link"
-import { CreateCampaignDialog, CreateTaskCampaignDialog } from "./create-campaign-dialog"
+import { CreateCampaignDialog } from "./create-campaign-dialog"
 import { CampaignActionsCell } from "./campaign-actions"
 import { CampaignStatCards } from "./campaign-stat-cards"
 import { PageHelp } from "@/components/page-help"
@@ -49,7 +49,10 @@ export default async function CallsPage() {
   }
   const todayWhere = { ...itemWhere, calledAt: { gte: todayStart, lte: todayEnd } }
 
-  const [campaigns, branches, byStatusTotal, byStatusToday, appsTotal, appsToday] =
+  const [
+    campaigns, branches, byStatusTotal, byStatusToday,
+    appsTotal, appsToday, enrolledTotal, enrolledToday,
+  ] =
     await Promise.all([
       db.callCampaign.findMany({
         where: { tenantId, deletedAt: null },
@@ -65,6 +68,8 @@ export default async function CallsPage() {
       db.callCampaignItem.groupBy({ by: ["status"], where: todayWhere, _count: true }),
       db.callCampaignItem.count({ where: { ...itemWhere, result: "application" } }),
       db.callCampaignItem.count({ where: { ...todayWhere, result: "application" } }),
+      db.callCampaignItem.count({ where: { ...itemWhere, result: "enrolled_earlier" } }),
+      db.callCampaignItem.count({ where: { ...todayWhere, result: "enrolled_earlier" } }),
     ])
 
   // Срезы по статусу → карты «статус → количество» (всего и за сегодня).
@@ -93,6 +98,15 @@ export default async function CallsPage() {
       icon: FilePlus,
       color: "text-amber-600",
       bg: "bg-amber-50",
+    },
+    {
+      key: "enrolled",
+      label: "Записан ранее",
+      total: enrolledTotal,
+      today: enrolledToday,
+      icon: CalendarCheck2,
+      color: "text-emerald-600",
+      bg: "bg-emerald-50",
     },
     {
       key: "refused",
@@ -139,7 +153,6 @@ export default async function CallsPage() {
         </div>
         <div className="flex items-center gap-2">
           <CreateCampaignDialog branches={branches} />
-          <CreateTaskCampaignDialog />
         </div>
       </div>
 

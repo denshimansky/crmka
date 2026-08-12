@@ -108,6 +108,14 @@ function subYears(d: Date, n: number): Date {
   return new Date(Date.UTC(d.getUTCFullYear() - n, d.getUTCMonth(), d.getUTCDate()))
 }
 
+/** Полных лет на дату `now` по дате рождения (по UTC). */
+function ageYears(birth: Date, now: Date): number {
+  let a = now.getUTCFullYear() - birth.getUTCFullYear()
+  const m = now.getUTCMonth() - birth.getUTCMonth()
+  if (m < 0 || (m === 0 && now.getUTCDate() < birth.getUTCDate())) a--
+  return a
+}
+
 function parseDate(s: string | undefined): Date | null {
   if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
   const d = new Date(`${s}T00:00:00.000Z`)
@@ -365,4 +373,73 @@ export function buildScopedCampaignWhere(
       buildCampaignClientWhere(fc, now),
     ],
   }
+}
+
+// ─── Разбивка клиентов на строки-подопечные (одна строка = один подопечный) ───
+
+/** Задан ли в критериях фильтр по подопечному: дата рождения (или legacy-возраст). */
+export function hasWardBirthFilter(fc: CampaignFilterCriteria): boolean {
+  return !!(
+    fc.birthFrom ||
+    fc.birthTo ||
+    typeof fc.minAge === "number" ||
+    typeof fc.maxAge === "number"
+  )
+}
+
+/**
+ * Попадает ли подопечный под фильтр даты рождения кампании (включительно по дню).
+ * Новый фильтр — прямой диапазон birthFrom/birthTo; legacy — возраст minAge/maxAge.
+ * Без фильтра подходит любой подопечный.
+ */
+export function wardMatchesBirthFilter(
+  birthDate: Date | null,
+  fc: CampaignFilterCriteria,
+  now: Date = new Date(),
+): boolean {
+  const bFrom = parseDate(fc.birthFrom)
+  const bTo = parseDate(fc.birthTo)
+  if (bFrom || bTo) {
+    if (!birthDate) return false
+    const t = birthDate.getTime()
+    if (bFrom && t < bFrom.getTime()) return false
+    if (bTo && t > bTo.getTime()) return false
+    return true
+  }
+  const hasMin = typeof fc.minAge === "number"
+  const hasMax = typeof fc.maxAge === "number"
+  if (hasMin || hasMax) {
+    if (!birthDate) return false
+    const a = ageYears(birthDate, now)
+    if (hasMin && a < (fc.minAge as number)) return false
+    if (hasMax && a > (fc.maxAge as number)) return false
+    return true
+  }
+  return true
+}
+
+/** Подопечный для разбивки: минимум полей для отбора и создания строк. */
+export interface WardForRows {
+  id: string
+  birthDate: Date | null
+}
+
+/**
+ * Список wardId, которые дадут строки обзвона для одного клиента.
+ *
+ *  - есть фильтр по дате рождения → только подходящие подопечные;
+ *  - фильтра нет → все подопечные;
+ *  - нет (подходящих) подопечных → одна строка с wardId=null: клиента всё равно
+ *    нужно обзвонить (адрес по клиенту, а не по ребёнку).
+ */
+export function wardIdsForClient(
+  wards: WardForRows[],
+  fc: CampaignFilterCriteria,
+  now: Date = new Date(),
+): (string | null)[] {
+  const use = hasWardBirthFilter(fc)
+    ? wards.filter((w) => wardMatchesBirthFilter(w.birthDate, fc, now))
+    : wards
+  if (use.length === 0) return [null]
+  return use.map((w) => w.id)
 }

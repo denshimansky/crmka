@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
-import { buildScopedCampaignWhere, campaignFilterSchema } from "@/lib/call-campaigns/filter"
+import { buildScopedCampaignWhere, campaignFilterSchema, wardIdsForClient } from "@/lib/call-campaigns/filter"
 
 const createSchema = z.object({
   name: z.string().min(1, "Введите название"),
@@ -48,10 +48,23 @@ export async function POST(req: NextRequest) {
 
   // Лимит на размер кампании снят (баг #82): в обзвон попадают все клиенты,
   // подходящие под критерии, без потолка.
+  // Одна строка = один подопечный: разворачиваем клиента в строки по подходящим
+  // подопечным (при фильтре по дате рождения — только попавшим в диапазон).
   const clients = await db.client.findMany({
     where,
-    select: { id: true },
+    select: {
+      id: true,
+      wards: { select: { id: true, birthDate: true } },
+    },
   })
+  const rows = clients.flatMap((cl) =>
+    wardIdsForClient(cl.wards, data.filterCriteria).map((wardId) => ({
+      tenantId: session.user.tenantId,
+      clientId: cl.id,
+      wardId,
+      status: "pending" as const,
+    })),
+  )
 
   const campaign = await db.$transaction(async (tx) => {
     const c = await tx.callCampaign.create({
@@ -60,20 +73,15 @@ export async function POST(req: NextRequest) {
         name: data.name,
         status: "active",
         filterCriteria: data.filterCriteria,
-        totalItems: clients.length,
+        totalItems: rows.length,
         completedItems: 0,
         createdBy: session.user.employeeId,
       },
     })
 
-    if (clients.length > 0) {
+    if (rows.length > 0) {
       await tx.callCampaignItem.createMany({
-        data: clients.map((cl) => ({
-          tenantId: session.user.tenantId,
-          campaignId: c.id,
-          clientId: cl.id,
-          status: "pending" as const,
-        })),
+        data: rows.map((r) => ({ ...r, campaignId: c.id })),
       })
     }
 

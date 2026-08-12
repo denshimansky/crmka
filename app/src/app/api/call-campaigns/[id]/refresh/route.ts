@@ -6,6 +6,7 @@ import { branchScopeFromSession } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import {
   buildScopedCampaignWhere,
+  wardIdsForClient,
   type CampaignFilterCriteria,
 } from "@/lib/call-campaigns/filter"
 
@@ -48,9 +49,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const scope = branchScopeFromSession(allowedBranchIds)
   const fc = (campaign.filterCriteria ?? {}) as CampaignFilterCriteria
 
-  // Множество клиентов, подходящих под критерии СЕЙЧАС (в рамках scope).
+  // Множество клиентов, подходящих под критерии СЕЙЧАС (в рамках scope), вместе с
+  // подопечными — чтобы развернуть новых клиентов в строки-подопечные.
   const where = buildScopedCampaignWhere(tenantId, allowedBranchIds, fc)
-  const matching = await db.client.findMany({ where, select: { id: true } })
+  const matching = await db.client.findMany({
+    where,
+    select: { id: true, wards: { select: { id: true, birthDate: true } } },
+  })
   const matchingIds = new Set(matching.map((c) => c.id))
 
   const { added, removed } = await db.$transaction(
@@ -69,7 +74,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         select: { clientId: true },
       })
       const existingIds = new Set(existing.map((i) => i.clientId))
-      const toAddIds = [...matchingIds].filter((cid) => !existingIds.has(cid))
+      // Добавляем только НОВЫХ клиентов и сразу разворачиваем их в строки-
+      // подопечные (одна строка = один подопечный). Клиентов, уже присутствующих
+      // в кампании, не пере-разбиваем — легаси-кампании (строка по клиенту)
+      // остаются как есть («старое не трогаем»).
+      const toAddRows = matching
+        .filter((c) => !existingIds.has(c.id))
+        .flatMap((c) =>
+          wardIdsForClient(c.wards, fc).map((wardId) => ({
+            tenantId,
+            campaignId: id,
+            clientId: c.id,
+            wardId,
+            status: "pending" as const,
+          })),
+        )
 
       // Кандидаты на удаление — только НЕобработанные (pending) позиции, чьи
       // клиенты видны в scope нажавшего и больше не подходят под критерии.
@@ -81,15 +100,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .filter((i) => !matchingIds.has(i.clientId))
         .map((i) => i.id)
 
-      if (toAddIds.length > 0) {
-        await tx.callCampaignItem.createMany({
-          data: toAddIds.map((cid) => ({
-            tenantId,
-            campaignId: id,
-            clientId: cid,
-            status: "pending" as const,
-          })),
-        })
+      if (toAddRows.length > 0) {
+        await tx.callCampaignItem.createMany({ data: toAddRows })
       }
 
       // status:"pending" в условии — защита от гонки с PATCH /items: если контакт
@@ -115,7 +127,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         data: { totalItems: total, completedItems: completed },
       })
 
-      return { added: toAddIds.length, removed: removedCount }
+      return { added: toAddRows.length, removed: removedCount }
     },
     // Запас по времени: лок ждёт завершения параллельного refresh, а createMany
     // на большой выборке может быть небыстрым — дефолтных 5 c может не хватить.

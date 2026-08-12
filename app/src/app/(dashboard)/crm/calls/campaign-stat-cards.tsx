@@ -13,20 +13,20 @@ export interface CampaignStat {
 }
 
 /**
- * Показатели обзвона в два ряда по 5 карточек (спека Ани): верхний ряд —
- * «всего», нижний — «за сегодня» те же показатели. Колонки выровнены, поэтому
- * идентичность метрики в нижнем ряду задаёт та же иконка/цвет и позиция.
- * Общий компонент для страницы списка обзвонов и карточки кампании.
+ * Показатели обзвона в два ряда по 6 карточек (спека Ани + «Записан ранее»):
+ * верхний ряд — «всего», нижний — «за сегодня» те же показатели. Колонки
+ * выровнены, поэтому идентичность метрики в нижнем ряду задаёт та же иконка/цвет
+ * и позиция. Общий компонент для страницы списка обзвонов и карточки кампании.
  */
 export function CampaignStatCards({ stats }: { stats: CampaignStat[] }) {
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         {stats.map((c) => (
           <StatCard key={c.key} c={c} label={c.label} value={c.total} />
         ))}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         {stats.map((c) => (
           <StatCard key={c.key} c={c} label="за сегодня" value={c.today} />
         ))}

@@ -125,6 +125,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         // Коды результата → человекочитаемые метки для истории коммуникаций.
         const resultLabels: Record<string, string> = {
           application: "Создана заявка",
+          enrolled_earlier: "Записан ранее",
           trial_scheduled: "Записан на пробное",
           sale: "Продажа",
           no_answer: "Не дозвонились",
