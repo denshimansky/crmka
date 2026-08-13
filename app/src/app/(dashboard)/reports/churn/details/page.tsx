@@ -33,6 +33,10 @@ export default async function ChurnDetailsPage({ searchParams }: { searchParams:
     deletedAt: null,
     status: "withdrawn",
     withdrawalDate: { gte: dateFrom, lt: dateToExclusive },
+    // Абонемент без платных занятий НЕ считается оттоком (правило заказчика): его
+    // дата отчисления = дата создания, ребёнок фактически не был зачислён. Тот же
+    // фильтр, что в churn-details/route.ts и «Оттоке по инструкторам».
+    chargedAmount: { gt: 0 },
   }
 
   const churnedClients = await db.client.findMany({

@@ -53,6 +53,9 @@ export async function GET(req: NextRequest) {
     deletedAt: null,
     status: "withdrawn",
     withdrawalDate: { gte: dateFrom, lte: dateTo },
+    // Абонемент без платных занятий не считается оттоком (правило заказчика) — не
+    // раздуваем ни счётчик выбывших, ни «упущенный доход». Как в остальных churn-отчётах.
+    chargedAmount: { gt: 0 },
   }
   if (branchId) churnedSubWhere.client = { branchId }
   if (directionId) churnedSubWhere.directionId = directionId

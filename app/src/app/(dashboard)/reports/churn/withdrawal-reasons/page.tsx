@@ -68,6 +68,11 @@ export default async function WithdrawalReasonsReportPage({
     deletedAt: null,
     status: "withdrawn",
     withdrawalDate: { gte: dateFrom, lt: dateToExclusive },
+    // Абонемент без платных занятий НЕ считается оттоком (правило заказчика): его
+    // дата отчисления = дата создания (не последнего платного занятия), и в отток
+    // он попадать не должен — ребёнок фактически даже не был зачислён. Тот же
+    // фильтр, что в остальных churn-отчётах (см. churn-details/route.ts).
+    chargedAmount: { gt: 0 },
   }
   if (Object.keys(groupWhere).length > 0) subWhere.group = groupWhere
 
