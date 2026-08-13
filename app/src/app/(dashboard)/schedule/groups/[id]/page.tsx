@@ -142,19 +142,6 @@ export default async function GroupCardPage({
     orderBy: { lastName: "asc" },
   })
 
-  // Все группы для перевода
-  const allGroups = await db.group.findMany({
-    where: { tenantId, deletedAt: null, isActive: true },
-    select: {
-      id: true,
-      name: true,
-      maxStudents: true,
-      direction: { select: { name: true } },
-      _count: { select: { enrollments: { where: { isActive: true } } } },
-    },
-    orderBy: { name: "asc" },
-  })
-
   const instructorName = `${group.instructor.lastName} ${group.instructor.firstName}`
   const enrolled = group._count.enrollments
   const scheduleStr = group.templates
@@ -281,15 +268,6 @@ export default async function GroupCardPage({
             ? group.endDate.toISOString().slice(0, 10)
             : null,
         }}
-        groupsForTransfer={allGroups
-          .filter((g) => g.id !== id)
-          .map((g) => ({
-            id: g.id,
-            name: g.name,
-            directionName: g.direction.name,
-            enrolled: g._count.enrollments,
-            maxStudents: g.maxStudents,
-          }))}
       />
     </div>
   )
