@@ -1,6 +1,6 @@
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
-import { oneOffDebtByClient } from "@/lib/one-off-debt"
+import { balanceDebtBreakdownByClient, balanceDebtLabels } from "@/lib/one-off-debt"
 import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
 import { currencySymbol } from "@/lib/currency"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
@@ -258,14 +258,20 @@ export async function ClientCardContent({
   })
   const subscriptionDebt = Number(subscriptionDebtAgg._sum.balance ?? 0)
 
-  // Долг по балансу: минусовой clientBalance (разовые посещения без оплаты
-  // и/или перенесённый долг с импорта/закрытий) — не входит в «Долг по
-  // абонементам», показываем отдельной строкой.
+  // Долг по балансу: минусовой clientBalance — не входит в «Долг по абонементам»,
+  // показываем отдельной строкой со знаком «−» (это долг клиента) и раскладкой по
+  // источникам: разовые посещения / долг после импорта / перенос-закрытие.
   const balanceDebt = Math.max(0, -Number(client.clientBalance))
-  const oneOffDebt =
+  const balanceDebtParts =
     balanceDebt > 0
-      ? (await oneOffDebtByClient(tenantId, [{ id: client.id, clientBalance: client.clientBalance }])).get(client.id) || 0
-      : 0
+      ? balanceDebtLabels(
+          (
+            await balanceDebtBreakdownByClient(tenantId, [
+              { id: client.id, clientBalance: client.clientBalance },
+            ])
+          ).get(client.id) ?? { oneOff: 0, imported: 0, other: balanceDebt },
+        )
+      : []
 
   const fullName =
     [client.lastName, client.firstName, client.patronymic]
@@ -458,14 +464,8 @@ export async function ClientCardContent({
           </div>
           {balanceDebt > 0 && (
             <div className="text-xs text-red-600">
-              + {formatMoney(balanceDebt)} по балансу (
-              {[
-                oneOffDebt > 0 ? "разовые посещения" : null,
-                balanceDebt - oneOffDebt > 0.001 ? "перенос/закрытие" : null,
-              ]
-                .filter(Boolean)
-                .join(", ")}
-              )
+              − {formatMoney(balanceDebt)} по балансу
+              {balanceDebtParts.length > 0 && ` (${balanceDebtParts.join(", ")})`}
             </div>
           )}
         </div>
