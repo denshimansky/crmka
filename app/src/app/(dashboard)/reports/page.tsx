@@ -74,6 +74,7 @@ const reportGroups: ReportGroup[] = [
     color: "text-red-600",
     reports: [
       { name: "Детализация оттока", href: "/reports/churn/details", description: "Выбывшие клиенты по направлениям и инструкторам", source: "clients" },
+      { name: "Сводный по причинам отчисления", href: "/reports/churn/withdrawal-reasons", description: "Матрица причина × день за месяц + детализация по абонементам", source: "subscriptions" },
       { name: "Непродлённые абонементы", href: "/reports/churn/not-renewed", description: "Активные в прошлом месяце без списаний", source: "subscriptions" },
       { name: "Потенциальный отток", href: "/reports/churn/potential", description: "Ученики с 3+ прогулами за месяц", source: "attendance" },
       { name: "Конверсия оттока по инструкторам", href: "/reports/churn/by-instructor", description: "% оттока = выбывшие / активные абонементы (инструкторы или филиалы)", source: "clients" },
