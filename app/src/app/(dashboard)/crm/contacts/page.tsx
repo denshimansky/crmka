@@ -199,6 +199,7 @@ export default async function ContactsPage({
     include: {
       wards: true,
       branch: { select: { id: true, name: true } },
+      secondBranch: { select: { id: true, name: true } },
       channel: { select: { id: true, name: true } },
       // Все активные абонементы: колонки направления/группы/инструктора берут
       // самый свежий ([0]), а колонка «Филиал» и фильтр по филиалу должны
@@ -254,18 +255,6 @@ export default async function ContactsPage({
     }
   }
 
-  // Словарь имён филиалов для колонки «Филиал»: у lastBranchId нет relation в
-  // схеме, а ярлык должен показываться даже для филиала вне scope админа —
-  // сам клиент уже прошёл сегментную видимость.
-  const branchNames = new Map(
-    (
-      await db.branch.findMany({
-        where: { tenantId },
-        select: { id: true, name: true },
-      })
-    ).map((b) => [b.id, b.name]),
-  )
-
   const rows: ContactRow[] = clients.map((c) => {
     const sub = c.subscriptions[0]
     const instrName = sub?.group?.instructor
@@ -294,24 +283,9 @@ export default async function ContactsPage({
       socialLink: c.socialLink,
       segment,
       channelName: c.channel?.name ?? null,
-      // Филиал строки (баг #79 — мультифилиальность): два последних РАЗНЫХ
-      // филиала абонементов (last, prev) ∪ филиалы всех живых абонементов,
-      // через запятую. Обычно ≤2. Если истории абонементов нет — «домашний»
-      // Client.branchId. Порядок: последний, предыдущий, затем прочие живые.
-      branchName:
-        (() => {
-          const ids = [
-            ...new Set(
-              [
-                c.lastBranchId,
-                c.prevBranchId,
-                ...c.subscriptions.map((s) => s.group?.branch?.id),
-              ].filter((v): v is string => Boolean(v)),
-            ),
-          ]
-          if (ids.length === 0) return c.branch?.name ?? null
-          return ids.map((id) => branchNames.get(id)).filter(Boolean).join(", ") || null
-        })(),
+      // Филиал строки = ручные поля карточки (модель Анны, 13.08.2026):
+      // «Филиал» + «Второй филиал», через запятую. Пусто → «—».
+      branchName: [c.branch?.name, c.secondBranch?.name].filter(Boolean).join(", ") || null,
       funnelStatus: c.funnelStatus,
       clientStatus: c.clientStatus,
       comment: c.comment,

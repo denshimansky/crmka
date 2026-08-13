@@ -82,6 +82,7 @@ export function CreateClientDialog({
   // ADM-04: «Желаемый филиал» лида. Опционально. Влияет на видимость в /crm
   // для админов с ограниченным доступом по филиалам.
   const [branchId, setBranchId] = useState<string>("")
+  const [secondBranchId, setSecondBranchId] = useState<string>("")
   const [branches, setBranches] = useState<BranchOption[]>([])
   const [wards, setWards] = useState<WardInput[]>([])
 
@@ -127,6 +128,7 @@ export function CreateClientDialog({
     setAssignedTo(myEmployeeId || "")
     setComment("")
     setBranchId("")
+    setSecondBranchId("")
     setWards([])
     setError(null)
   }
@@ -182,6 +184,7 @@ export function CreateClientDialog({
           socialLink: socialLink.trim() || undefined,
           channelId: channelId || undefined,
           branchId: branchId || undefined,
+          secondBranchId: secondBranchId || undefined,
           assignedTo: assignedTo || undefined,
           comment: comment.trim() || undefined,
           wards: wards
@@ -388,6 +391,32 @@ export function CreateClientDialog({
                     <SelectContent>
                       <SelectItem value="__none__">Не выбран</SelectItem>
                       {branches.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          {b.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {branches.length > 1 && (
+                <div>
+                  <Label>Второй филиал</Label>
+                  <Select
+                    value={secondBranchId || "__none__"}
+                    onValueChange={(v) => {
+                      if (v === "__none__" || v === null) setSecondBranchId("")
+                      else setSecondBranchId(v)
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      {secondBranchId
+                        ? branches.find((b) => b.id === secondBranchId)?.name ?? "—"
+                        : <span className="text-muted-foreground">Не выбран</span>}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Не выбран</SelectItem>
+                      {branches.filter((b) => b.id !== branchId).map((b) => (
                         <SelectItem key={b.id} value={b.id}>
                           {b.name}
                         </SelectItem>
