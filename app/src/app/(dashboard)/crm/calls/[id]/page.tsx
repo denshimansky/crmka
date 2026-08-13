@@ -96,9 +96,12 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const cardStats = [
     {
       key: "total",
-      label: "Всего контактов",
+      label: "Всего детей",
       total: items.length,
       today: items.filter((i) => isToday(i.calledAt)).length,
+      subLabel: "Всего клиентов",
+      subTotal: new Set(items.map((i) => i.clientId)).size,
+      subToday: new Set(items.filter((i) => isToday(i.calledAt)).map((i) => i.clientId)).size,
       icon: Users,
       color: "text-blue-600",
       bg: "bg-blue-50",

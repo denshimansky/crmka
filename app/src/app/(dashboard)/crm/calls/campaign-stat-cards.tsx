@@ -10,12 +10,19 @@ export interface CampaignStat {
   icon: LucideIcon
   color: string
   bg: string
+  // Опциональный вторичный показатель (мелким шрифтом под основным числом).
+  // Используется только для первой карточки: основное «Всего детей», под ним —
+  // «Всего клиентов». subTotal — за всё время, subToday — за сегодня.
+  subLabel?: string
+  subTotal?: number
+  subToday?: number
 }
 
 /**
  * Показатели обзвона в два ряда по 6 карточек (спека Ани + «Записан ранее»):
  * верхний ряд — «всего» (по кампании), нижний — те же показатели за сегодня, с
- * полным названием и суффиксом «за сегодня» («Всего контактов за сегодня» и т.д.).
+ * полным названием и суффиксом «за сегодня» («Всего детей за сегодня» и т.д.).
+ * Первая карточка дополнительно показывает мелким шрифтом «Всего клиентов».
  * Общий компонент для страницы списка обзвонов и карточки кампании.
  */
 export function CampaignStatCards({ stats }: { stats: CampaignStat[] }) {
@@ -23,19 +30,33 @@ export function CampaignStatCards({ stats }: { stats: CampaignStat[] }) {
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         {stats.map((c) => (
-          <StatCard key={c.key} c={c} label={c.label} value={c.total} />
+          <StatCard
+            key={c.key} c={c} label={c.label} value={c.total}
+            subLabel={c.subLabel} subValue={c.subTotal}
+          />
         ))}
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         {stats.map((c) => (
-          <StatCard key={c.key} c={c} label={`${c.label} за сегодня`} value={c.today} />
+          <StatCard
+            key={c.key} c={c} label={`${c.label} за сегодня`} value={c.today}
+            subLabel={c.subLabel ? `${c.subLabel} за сегодня` : undefined} subValue={c.subToday}
+          />
         ))}
       </div>
     </div>
   )
 }
 
-function StatCard({ c, label, value }: { c: CampaignStat; label: string; value: number }) {
+function StatCard({
+  c, label, value, subLabel, subValue,
+}: {
+  c: CampaignStat
+  label: string
+  value: number
+  subLabel?: string
+  subValue?: number
+}) {
   const Icon = c.icon
   return (
     <Card>
@@ -47,6 +68,12 @@ function StatCard({ c, label, value }: { c: CampaignStat; label: string; value: 
           <p className="text-xs text-muted-foreground">{label}</p>
         </div>
         <p className={`mt-2 text-2xl font-bold ${c.color}`}>{value}</p>
+        {subLabel !== undefined && subValue !== undefined && (
+          <div className="mt-2">
+            <p className="text-xs text-muted-foreground">{subLabel}</p>
+            <p className="text-sm font-semibold text-muted-foreground">{subValue}</p>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

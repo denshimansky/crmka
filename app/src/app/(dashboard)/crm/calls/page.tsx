@@ -42,9 +42,10 @@ export default async function CallsPage() {
 
   // Позиции обзвона по неудалённым кампаниям, видимые в scope филиалов (ADM-04) —
   // как на карточке кампании. При полном доступе scopeClientByBranch → {}.
+  // Архивные кампании в показатели не входят (Аня): считаем только активные/закрытые.
   const itemWhere = {
     tenantId,
-    campaign: { deletedAt: null },
+    campaign: { deletedAt: null, status: { not: "archived" as const } },
     client: scopeClientByBranch(scope),
   }
   const todayWhere = { ...itemWhere, calledAt: { gte: todayStart, lte: todayEnd } }
@@ -52,6 +53,7 @@ export default async function CallsPage() {
   const [
     campaigns, branches, byStatusTotal, byStatusToday,
     appsTotal, appsToday, enrolledTotal, enrolledToday,
+    clientsTotalRows, clientsTodayRows,
   ] =
     await Promise.all([
       db.callCampaign.findMany({
@@ -70,6 +72,9 @@ export default async function CallsPage() {
       db.callCampaignItem.count({ where: { ...todayWhere, result: "application" } }),
       db.callCampaignItem.count({ where: { ...itemWhere, result: "enrolled_earlier" } }),
       db.callCampaignItem.count({ where: { ...todayWhere, result: "enrolled_earlier" } }),
+      // Уникальные клиенты (родители) — «Всего клиентов» на первой карточке.
+      db.callCampaignItem.findMany({ where: itemWhere, distinct: ["clientId"], select: { clientId: true } }),
+      db.callCampaignItem.findMany({ where: todayWhere, distinct: ["clientId"], select: { clientId: true } }),
     ])
 
   // Срезы по статусу → карты «статус → количество» (всего и за сегодня).
@@ -83,9 +88,12 @@ export default async function CallsPage() {
   const cardStats = [
     {
       key: "total",
-      label: "Всего контактов",
+      label: "Всего детей",
       total: Object.values(totalByStatus).reduce((s, n) => s + n, 0),
       today: Object.values(todayByStatus).reduce((s, n) => s + n, 0),
+      subLabel: "Всего клиентов",
+      subTotal: clientsTotalRows.length,
+      subToday: clientsTodayRows.length,
       icon: Users,
       color: "text-blue-600",
       bg: "bg-blue-50",
@@ -171,7 +179,7 @@ export default async function CallsPage() {
               <TableRow>
                 <TableHead>Кампания</TableHead>
                 <TableHead>Дата</TableHead>
-                <TableHead className="text-center">Контакты</TableHead>
+                <TableHead className="text-center">Дети</TableHead>
                 <TableHead className="text-center">Обзвонено</TableHead>
                 <TableHead className="text-center">Осталось</TableHead>
                 <TableHead>Статус</TableHead>
