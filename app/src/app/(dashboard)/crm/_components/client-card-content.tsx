@@ -751,8 +751,8 @@ export async function ClientCardContent({
                 <span
                   className={
                     nextContactOverdue
-                      ? "font-medium text-destructive"
-                      : "text-muted-foreground"
+                      ? "font-medium text-destructive shrink-0"
+                      : "text-muted-foreground shrink-0"
                   }
                 >
                   Дата следующей связи
@@ -770,62 +770,68 @@ export async function ClientCardContent({
                   className="h-8 w-[150px] text-xs"
                 />
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Ответственный</span>
-                <span>{assigneeName}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground shrink-0">Ответственный</span>
+                <span className="text-right">{assigneeName}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Филиал</span>
-                <span>{client.branch?.name || "—"}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground shrink-0">Филиал</span>
+                <span className="text-right">{client.branch?.name || "—"}</span>
               </div>
               {client.secondBranch && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Второй филиал</span>
-                  <span>{client.secondBranch.name}</span>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground shrink-0">Второй филиал</span>
+                  <span className="text-right">{client.secondBranch.name}</span>
                 </div>
               )}
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Канал привлечения</span>
-                <span>{client.channel?.name || "—"}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground shrink-0">
+                  Канал привлечения
+                </span>
+                <span className="text-right">{client.channel?.name || "—"}</span>
               </div>
               {visiblePhone2 && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Телефон 2</span>
-                  <span>{visiblePhone2}</span>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground shrink-0">Телефон 2</span>
+                  <span className="text-right">{visiblePhone2}</span>
                 </div>
               )}
               {client.email && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Email</span>
-                  <span>{client.email}</span>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground shrink-0">Email</span>
+                  <span className="text-right break-all">{client.email}</span>
                 </div>
               )}
               {client.socialLink && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Соцсеть</span>
-                  <span className="truncate max-w-[160px]">{client.socialLink}</span>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground shrink-0">Соцсеть</span>
+                  <span className="truncate max-w-[160px] text-right">
+                    {client.socialLink}
+                  </span>
                 </div>
               )}
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Дата создания</span>
-                <span>{formatDate(client.createdAt)}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground shrink-0">Дата создания</span>
+                <span className="text-right">{formatDate(client.createdAt)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">LTV</span>
-                <span className="font-bold">
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground shrink-0">LTV</span>
+                <span className="font-bold text-right">
                   {moneyLtv > 0 ? formatMoney(moneyLtv) : "—"}
                   {client.monthsLtv > 0 ? ` · ${client.monthsLtv} мес.` : ""}
                 </span>
               </div>
               {/* Сегмент показан кликабельным бейджем в шапке (баг #26); здесь —
                   справочно число купленных абонементов, чтобы не путать с ним. */}
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Куплено абонементов</span>
-                <span>{client.totalSubscriptionsCount}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground shrink-0">
+                  Куплено абонементов
+                </span>
+                <span className="text-right">{client.totalSubscriptionsCount}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Дата продажи</span>
-                <span>{formatDate(client.saleDate)}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground shrink-0">Дата продажи</span>
+                <span className="text-right">{formatDate(client.saleDate)}</span>
               </div>
               {client.comment && (
                 <div>
