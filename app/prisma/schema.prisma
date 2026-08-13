@@ -207,7 +207,8 @@ model Branch {
   organization       Organization         @relation(fields: [tenantId], references: [id])
   rooms              Room[]
   employeeBranches   EmployeeBranch[]
-  clients            Client[]
+  clients             Client[]            @relation("ClientBranch")
+  clientsSecondBranch Client[]            @relation("ClientSecondBranch")
   groups             Group[]
   financialAccounts  FinancialAccount[]
   expenseBranches    ExpenseBranch[]
@@ -349,6 +350,11 @@ model Client {
   channelId               String?           @map("channel_id") @db.Uuid
   assignedTo              String?           @map("assigned_to") @db.Uuid
   branchId                String?           @map("branch_id") @db.Uuid
+  // Второй ручной филиал (модель Анны, 13.08.2026): в карточке — жёсткая ручная
+  // привязка 1–2 филиалов. Видимость клиента админом филиала = branchId ИЛИ
+  // secondBranchId (симметрично, порядок не важен) + страховка по живому
+  // абонементу (см. scopeClientByBranch). NULL = второй филиал не задан.
+  secondBranchId          String?           @map("second_branch_id") @db.Uuid
   // Денормализованный филиал последнего абонемента клиента. Используется
   // для разграничения видимости (ADM-04) при сегментах churned/archived/
   // blacklisted без обращения к подзапросу subscriptions → group.branchId.
@@ -396,7 +402,8 @@ model Client {
   deletedAt               DateTime?         @map("deleted_at")
 
   organization        Organization               @relation(fields: [tenantId], references: [id])
-  branch              Branch?                    @relation(fields: [branchId], references: [id])
+  branch              Branch?                    @relation("ClientBranch", fields: [branchId], references: [id])
+  secondBranch        Branch?                    @relation("ClientSecondBranch", fields: [secondBranchId], references: [id])
   assignee            Employee?                  @relation("AssignedClients", fields: [assignedTo], references: [id])
   channel             LeadChannel?               @relation(fields: [channelId], references: [id])
   discountTemplate    DiscountTemplate?          @relation("ClientDiscountTemplate", fields: [discountTemplateId], references: [id])

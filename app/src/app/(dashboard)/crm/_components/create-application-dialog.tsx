@@ -89,6 +89,12 @@ export function CreateApplicationDialog({
   const [directionId, setDirectionId] = useState("")
   const [comment, setComment] = useState("")
   const [duplicates, setDuplicates] = useState<DuplicateApplication[]>([])
+  // Task 2 (модель Анны): филиалы из карточки клиента — предупреждаем, если
+  // заявку создают в филиал, которого нет в карточке (клиента иначе не увидит
+  // админ этого филиала).
+  const [cardBranchIds, setCardBranchIds] = useState<string[]>([])
+  const [cardLoaded, setCardLoaded] = useState(false)
+  const [addingBranch, setAddingBranch] = useState(false)
 
   const clientId = pickClient ? pickedClientId : fixedClientId
   const wards = pickClient ? pickedWards : (fixedWards ?? [])
@@ -177,6 +183,34 @@ export function CreateApplicationDialog({
     }
   }, [open, wardId, branchId, directionId])
 
+  // Task 2: подгружаем филиалы карточки выбранного клиента (оба режима — карточка
+  // и «Продажи»). GET /api/clients/[id] отдаёт branchId/secondBranchId.
+  useEffect(() => {
+    if (!open || !clientId) {
+      setCardBranchIds([])
+      setCardLoaded(false)
+      return
+    }
+    let cancelled = false
+    setCardLoaded(false)
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/clients/${clientId}`)
+        if (cancelled) return
+        if (res.ok) {
+          const c = await res.json()
+          setCardBranchIds([c.branchId, c.secondBranchId].filter(Boolean) as string[])
+          setCardLoaded(true)
+        }
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, clientId])
+
   // В режиме карточки блокируем кнопку, если у клиента нет подопечных. В режиме
   // поиска кнопка всегда активна — клиента (и его подопечных) выбирают в диалоге.
   const noWards = !pickClient && wards.length === 0
@@ -219,6 +253,29 @@ export function CreateApplicationDialog({
       setError("Ошибка сети")
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Task 2: выбранного филиала нет среди филиалов карточки клиента.
+  const branchNotInCard = cardLoaded && !!branchId && !cardBranchIds.includes(branchId)
+  const cardHasTwo = cardBranchIds.length >= 2
+
+  async function addBranchToCard() {
+    if (!clientId || !branchId) return
+    setAddingBranch(true)
+    try {
+      // Первое свободное поле карточки: пусто → branchId, один занят → secondBranchId.
+      const field = cardBranchIds.length === 0 ? "branchId" : "secondBranchId"
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: branchId }),
+      })
+      if (res.ok) setCardBranchIds((prev) => [...prev, branchId])
+    } catch {
+      /* ignore */
+    } finally {
+      setAddingBranch(false)
     }
   }
 
@@ -318,6 +375,35 @@ export function CreateApplicationDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {branchNotInCard && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200">
+              <div className="flex items-center gap-1.5 font-medium mb-1">
+                <AlertTriangle className="size-4" />
+                Этого филиала нет в карточке клиента
+              </div>
+              <div className="ml-5.5 text-xs">
+                Клиента видят только админы филиалов из его карточки — внесите этот
+                филиал, чтобы он не потерялся у нужного администратора.
+              </div>
+              {cardHasTwo ? (
+                <div className="ml-5.5 mt-1 text-xs">
+                  В карточке уже два филиала — при необходимости измените их вручную.
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="ml-5.5 mt-1.5"
+                  onClick={addBranchToCard}
+                  disabled={addingBranch}
+                >
+                  {addingBranch ? "Добавление..." : "Добавить филиал в карточку"}
+                </Button>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Направление *</Label>

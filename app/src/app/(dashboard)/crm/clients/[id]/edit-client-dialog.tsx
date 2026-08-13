@@ -60,6 +60,7 @@ interface ClientData {
   socialLink: string | null
   channelId: string | null
   branchId: string | null
+  secondBranchId: string | null
   assignedTo: string | null
   comment: string | null
   // Скидки v2: выбор перенесён сюда из шапки карточки (там теперь информационно).
@@ -104,6 +105,7 @@ export function EditClientDialog({
   const [socialLink, setSocialLink] = useState(client.socialLink || "")
   const [channelId, setChannelId] = useState(client.channelId || "")
   const [branchId, setBranchId] = useState(client.branchId || "")
+  const [secondBranchId, setSecondBranchId] = useState(client.secondBranchId || "")
   const [assignedTo, setAssignedTo] = useState(client.assignedTo || "")
   const [comment, setComment] = useState(client.comment || "")
   // Скидка: sentinel-значение поля (templateId | "none" | NO_AUTO | PER_SUB).
@@ -152,6 +154,7 @@ export function EditClientDialog({
     setSocialLink(client.socialLink || "")
     setChannelId(client.channelId || "")
     setBranchId(client.branchId || "")
+    setSecondBranchId(client.secondBranchId || "")
     setAssignedTo(client.assignedTo || "")
     setComment(client.comment || "")
     setDiscountValue(initialDiscountValue)
@@ -202,6 +205,7 @@ export function EditClientDialog({
         socialLink: socialLink.trim() || null,
         channelId: channelId || null,
         branchId: branchId || null,
+        secondBranchId: secondBranchId || null,
         assignedTo: assignedTo || null,
         comment: comment.trim() || null,
       }
@@ -247,6 +251,7 @@ export function EditClientDialog({
   }
 
   const selectedBranch = branches.find((b) => b.id === branchId)
+  const selectedSecondBranch = branches.find((b) => b.id === secondBranchId)
   const selectedChannel = channels.find((c) => c.id === channelId)
   const selectedAssignee = employees.find((e) => e.id === assignedTo)
   const assigneeLabel = selectedAssignee
@@ -439,6 +444,34 @@ export function EditClientDialog({
                       {b.name}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Второй филиал (модель Анны): клиент относится максимум к двум
+              филиалам; поля симметричны. Показываем при ≥2 филиалах в орг. */}
+          {branches.length > 1 && (
+            <div className="space-y-1.5">
+              <Label>Второй филиал</Label>
+              <Select
+                value={secondBranchId}
+                onValueChange={(v) => {
+                  if (v !== null) setSecondBranchId(v)
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  {selectedSecondBranch ? selectedSecondBranch.name : "Не выбран"}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Не выбран</SelectItem>
+                  {branches
+                    .filter((b) => b.id !== branchId)
+                    .map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

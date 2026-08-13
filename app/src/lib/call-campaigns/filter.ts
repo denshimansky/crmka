@@ -285,6 +285,8 @@ export function buildCampaignClientWhere(
     and.push({
       OR: [
         { branchId },
+        // Второе ручное поле филиала карточки (модель Анны, 13.08.2026).
+        { secondBranchId: branchId },
         // Баг #79 — два последних РАЗНЫХ филиала абонементов (мультифилиальность).
         { lastBranchId: branchId },
         { prevBranchId: branchId },

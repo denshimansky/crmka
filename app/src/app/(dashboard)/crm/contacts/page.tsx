@@ -7,7 +7,7 @@ import { ContactsTabs, type ContactsTab } from "./contacts-tabs"
 import { ContactsTable, type ContactRow, type ContactsTabKey } from "./contacts-table"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { scopeBranch, isUnscoped, type BranchScope } from "@/lib/branch-scope"
-import { scopeClientByBranch } from "@/lib/client-segments"
+import { scopeClientByBranch, clientInBranch } from "@/lib/client-segments"
 import {
   computeSegment,
   effectiveSegment,
@@ -66,23 +66,11 @@ const NO_ACTIVE_APP: Prisma.ClientWhereInput = {
   applications: { none: { status: "active", deletedAt: null } },
 }
 
-// Фильтр по филиалу зеркалит колонку «Филиал» таблицы (баг #79 —
-// мультифилиальность): живой абонемент в филиале ИЛИ один из двух последних
-// РАЗНЫХ филиалов абонементов (last/prev) ИЛИ — если истории абонементов нет —
-// «домашний» Client.branchId.
+// Фильтр по филиалу (модель Анны, 13.08.2026): клиент принадлежит филиалу по
+// ручным полям карточки (branchId/secondBranchId) ИЛИ по живому абонементу —
+// единое правило clientInBranch (то же, что видимость админа scopeClientByBranch).
 function branchColumnWhere(branchId: string): Prisma.ClientWhereInput {
-  return {
-    OR: [
-      {
-        subscriptions: {
-          some: { status: "active", deletedAt: null, group: { branchId } },
-        },
-      },
-      { lastBranchId: branchId },
-      { prevBranchId: branchId },
-      { lastBranchId: null, prevBranchId: null, branchId },
-    ],
-  }
+  return clientInBranch([branchId])
 }
 
 function buildWhere(

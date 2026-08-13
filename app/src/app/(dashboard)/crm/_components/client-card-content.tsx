@@ -90,6 +90,7 @@ export async function ClientCardContent({
     include: {
       wards: true,
       branch: true,
+      secondBranch: true,
       channel: { select: { name: true } },
       assignee: { select: { firstName: true, lastName: true } },
       discountTemplate: {
@@ -722,6 +723,7 @@ export async function ClientCardContent({
                     socialLink: client.socialLink,
                     channelId: client.channelId,
                     branchId: client.branchId,
+                    secondBranchId: client.secondBranchId,
                     assignedTo: client.assignedTo,
                     comment: client.comment,
                     discountTemplateId: client.discountTemplateId,
@@ -776,6 +778,12 @@ export async function ClientCardContent({
                 <span className="text-muted-foreground">Филиал</span>
                 <span>{client.branch?.name || "—"}</span>
               </div>
+              {client.secondBranch && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Второй филиал</span>
+                  <span>{client.secondBranch.name}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Канал привлечения</span>
                 <span>{client.channel?.name || "—"}</span>

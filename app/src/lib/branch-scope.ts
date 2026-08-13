@@ -21,7 +21,12 @@ import { scopeClientByBranch } from "@/lib/client-segments"
 
 export type BranchScope =
   | { mode: "all" }
-  | { mode: "limited"; branchIds: string[] }
+  // coversAllBranches: у ограниченного админа отмечены ВСЕ филиалы тенанта.
+  // Проставляется в getBranchScope (session.ts). Для видимости КЛИЕНТОВ такой
+  // scope = «видит всех», включая безфилиальных (решение владельца 13.08.2026);
+  // остальные scope-функции (счета/расходы/ДДС) продолжают жёстко по branchIds,
+  // чтобы общие счета не протекли админу со всеми филиалами.
+  | { mode: "limited"; branchIds: string[]; coversAllBranches?: boolean }
 
 // Строит scope из значения, которое лежит в `session.user.allowedBranchIds`.
 // `null` → "all"; пустой массив → "limited" с пустым списком (т.е. доступа

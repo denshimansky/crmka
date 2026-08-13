@@ -41,6 +41,8 @@ const updateSchema = z.object({
   // Ручной сегмент (баг #26): null — «Авто» (сброс к авто-расчёту по настройкам).
   segmentOverride: z.enum(["new_client", "standard", "regular", "vip"]).nullable().optional(),
   branchId: z.string().uuid().nullable().optional(),
+  // Второй ручной филиал (модель Анны, 13.08.2026). Поля симметричны.
+  secondBranchId: z.string().uuid().nullable().optional(),
   assignedTo: z.string().uuid().nullable().optional(),
   comment: nullableString,
   nextContactDate: nullableString,
@@ -310,6 +312,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(data.clientStatus === "active" &&
           existing.clientStatus === "churned" && { withdrawalDate: null }),
         ...(data.branchId !== undefined && { branchId: data.branchId }),
+        ...(data.secondBranchId !== undefined && { secondBranchId: data.secondBranchId }),
         ...(data.assignedTo !== undefined && { assignedTo: data.assignedTo }),
         ...(data.comment !== undefined && { comment: data.comment }),
         ...(data.nextContactDate !== undefined && { nextContactDate: data.nextContactDate ? new Date(data.nextContactDate) : null }),

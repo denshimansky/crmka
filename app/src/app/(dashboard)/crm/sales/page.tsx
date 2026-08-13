@@ -9,7 +9,7 @@ import { SalesTabs, type SalesTab } from "./sales-tabs"
 import { SalesTable, type SalesRow, type SalesTabKey } from "./sales-table"
 import { ContactTable, type ContactRow } from "./contact-table"
 import { scopeBranch, scopeApplication, type BranchScope, isUnscoped } from "@/lib/branch-scope"
-import { scopeClientByBranch } from "@/lib/client-segments"
+import { scopeClientByBranch, clientInBranch } from "@/lib/client-segments"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { getOrgUiSettings } from "@/lib/role-names"
 
@@ -118,23 +118,17 @@ export default async function SalesPage({
 
   // Вкладка «Связь»: клиенты/лиды с назначенной датой связи (любой этап воронки,
   // кроме архива/ЧС). Тот же клиентский фильтр и scope, что и в остальных вкладках.
-  // Фильтр по филиалу единый для всех вкладок «Продаж» — по заявке (решение
-  // владельца 14.07.2026): клиент попадает в выбранный филиал, если у него есть
-  // активная заявка в нём; клиенты без активных заявок видны при «Все филиалы».
+  // Фильтр по филиалу (модель Анны, 13.08.2026): клиент попадает в выбранный
+  // филиал по ручным полям карточки (branchId/secondBranchId) ИЛИ по живому
+  // абонементу — единое правило clientInBranch (то же, что видимость админа).
+  // Пересматривает прежнее «по активной заявке» (14.07.2026): клиент с домашним
+  // филиалом X, но без активной заявки в X, больше не теряется на «Связи».
   const contactWhere: Prisma.ClientWhereInput = {
     tenantId,
     AND: [
       notArchivedClient(scope),
       { nextContactDate: { not: null } },
-      ...(branchFilter
-        ? [
-            {
-              applications: {
-                some: { status: "active" as const, deletedAt: null, branchId: branchFilter },
-              },
-            },
-          ]
-        : []),
+      ...(branchFilter ? [clientInBranch([branchFilter])] : []),
     ],
   }
 
