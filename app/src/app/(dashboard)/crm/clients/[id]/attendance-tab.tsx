@@ -355,6 +355,7 @@ function AttendanceItemsTable({
           {showWardColumn && <TableHead>Подопечный</TableHead>}
           <TableHead>{roleNames.instructor}</TableHead>
           <TableHead>Вид</TableHead>
+          <TableHead>Причина</TableHead>
           <TableHead>Период абонемента</TableHead>
           <TableHead className="text-right">Списание</TableHead>
           <TableHead className="w-10" />
@@ -422,6 +423,13 @@ function AttendanceItemsTable({
                 >
                   {a.attendanceType.name}
                 </Badge>
+              )}
+            </TableCell>
+            <TableCell>
+              {a.absenceReason ? (
+                a.absenceReason
+              ) : (
+                <span className="text-muted-foreground">—</span>
               )}
             </TableCell>
             <TableCell className="text-muted-foreground">
