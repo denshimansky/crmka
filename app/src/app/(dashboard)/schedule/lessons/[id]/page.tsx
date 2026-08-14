@@ -710,11 +710,10 @@ export default async function LessonCardPage({
     where: { id: session.user.tenantId },
     select: { rolePermissions: true },
   })
-  const canViewClients = hasPermission(
-    currentRole,
-    "clients.view",
-    (orgForPerms?.rolePermissions as RolePermissions | null) ?? null,
-  )
+  const orgPerms = (orgForPerms?.rolePermissions as RolePermissions | null) ?? null
+  const canViewClients = hasPermission(currentRole, "clients.view", orgPerms)
+  // Право на кнопку «Добавить ученика» (настраивается в матрице ролей).
+  const canAddStudent = hasPermission(currentRole, "attendance.addStudent", orgPerms)
 
   const salaryRateData = salaryRate
     ? {
@@ -855,6 +854,7 @@ export default async function LessonCardPage({
         instructors={instructorsData}
         currentUserRole={currentUserRole}
         canViewClients={canViewClients}
+        canAddStudent={canAddStudent}
         groupIsOneTime={lesson.group.isOneTime}
       />
     </div>

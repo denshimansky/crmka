@@ -29,6 +29,10 @@ export const PERMISSIONS = [
   { key: "schedule.view", label: "Просмотр расписания", group: "Расписание" },
   { key: "schedule.edit", label: "Управление группами и расписанием", group: "Расписание" },
   { key: "attendance.mark", label: "Отметка посещений", group: "Расписание" },
+  // Кнопка «Добавить ученика» в карточке занятия (разовое посещение). Дефолт
+  // совпадает с прежним хардкодом (owner/manager/admin), но теперь настраивается
+  // в матрице прав — см. api/lessons/[id]/add-student.
+  { key: "attendance.addStudent", label: "Добавление ученика на занятие (кнопка «Добавить ученика»)", group: "Расписание" },
 
   // Склад — отдельное право, чтобы скрыть склад у ролей, у которых есть
   // расписание, но нет склада (инструктор).
@@ -116,6 +120,7 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
     "schedule.view": true,
     "schedule.edit": false,
     "attendance.mark": true,
+    "attendance.addStudent": true, // админ и раньше мог добавлять ученика (хардкод owner/manager/admin)
     "warehouse.view": true,
     "warehouse.edit": true, // админ и раньше делал операции склада (хардкод owner/manager/admin)
     "finance.view": true,

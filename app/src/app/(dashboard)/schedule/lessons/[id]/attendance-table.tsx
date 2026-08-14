@@ -257,6 +257,9 @@ interface AttendanceTableProps {
   /** Может ли пользователь открывать карточки клиентов/подопечных (/crm).
    *  Инструктор — нет: имена ростера показываем текстом, без ссылок в закрытый раздел. */
   canViewClients?: boolean
+  /** Право «Добавление ученика на занятие» (матрица ролей) — показывать ли кнопку
+   *  «Добавить ученика». Дефолт owner/manager/admin; инструктор/только-чтение — нет. */
+  canAddStudent?: boolean
   /** Скрытая разовая группа (Group.isOneTime=true) — для модалки «Добавить ученика». */
   groupIsOneTime?: boolean
 }
@@ -283,6 +286,7 @@ export function AttendanceTable({
   instructors = [],
   currentUserRole,
   canViewClients = true,
+  canAddStudent = false,
   groupIsOneTime = false,
 }: AttendanceTableProps) {
   const roleNames = useRoleNames()
@@ -1109,7 +1113,7 @@ export function AttendanceTable({
               Посещаемость ({totalMarkedCount}/{totalStudentsCount})
             </CardTitle>
             <div className="flex flex-wrap items-center gap-2">
-              {currentUserRole !== "instructor" && (
+              {canAddStudent && (
                 <AddStudentDialog
                   lessonId={lessonId}
                   groupIsOneTime={groupIsOneTime}

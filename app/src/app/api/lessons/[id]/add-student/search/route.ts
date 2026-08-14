@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { db } from "@/lib/db"
 import {
   effectiveRosterDate,
@@ -26,6 +27,11 @@ import {
  * доступен вариант «баланс родителя» / разовое посещение.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  // Поиск учеников для кнопки «Добавить ученика» — под тем же правом, что и само
+  // добавление (attendance.addStudent), чтобы эндпоинт не отдавал ФИО/телефоны
+  // ролям без права.
+  const guard = await requirePermission("attendance.addStudent")
+  if (!guard.ok) return guard.response
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

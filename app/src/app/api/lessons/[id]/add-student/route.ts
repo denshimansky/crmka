@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { db } from "@/lib/db"
 import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
@@ -30,14 +31,15 @@ const schema = z.object({
  * через POST /api/lessons/[id]/attendance, когда оператор отмечает «Был».
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  // Право «Добавление ученика на занятие» — настраивается в матрице ролей
+  // (/settings/role-permissions). Дефолт: owner/manager/admin (как прежний
+  // хардкод), инструктор/только-чтение — нет.
+  const guard = await requirePermission("attendance.addStudent")
+  if (!guard.ok) return guard.response
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const role = session.user.role
-  if (role !== "admin" && role !== "manager" && role !== "owner") {
-    return NextResponse.json({ error: "Недостаточно прав для добавления ученика" }, { status: 403 })
-  }
-
   const { id: lessonId } = await params
   const tenantId = session.user.tenantId
   const employeeId = session.user.employeeId
