@@ -35,6 +35,14 @@ interface NoContactsRow {
   child: string
 }
 
+interface ActiveStatusRow {
+  rowIdx: number
+  parent: string
+  child: string
+  phone: string
+  status: string
+}
+
 interface MultiRowBalanceClient {
   parent: string
   phone: string
@@ -73,12 +81,13 @@ export function ImportTemplateButton() {
   const [needsReview, setNeedsReview] = useState<NeedsReview[] | null>(null)
   const [branchNotFound, setBranchNotFound] = useState<BranchNotFound[] | null>(null)
   const [noContacts, setNoContacts] = useState<NoContactsRow[] | null>(null)
+  const [activeStatus, setActiveStatus] = useState<ActiveStatusRow[] | null>(null)
   const [report, setReport] = useState<SyncReport | null>(null)
 
   function reset() {
     setLeadsFile(null)
     setError(null); setDetectedHeaders(null); setNeedsReview(null)
-    setBranchNotFound(null); setNoContacts(null); setReport(null)
+    setBranchNotFound(null); setNoContacts(null); setActiveStatus(null); setReport(null)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -87,7 +96,7 @@ export function ImportTemplateButton() {
       setError(`Выберите заполненный шаблон «${TEMPLATE_FILENAME}»`); return
     }
     setLoading(true); setError(null); setDetectedHeaders(null); setNeedsReview(null)
-    setBranchNotFound(null); setNoContacts(null); setReport(null)
+    setBranchNotFound(null); setNoContacts(null); setActiveStatus(null); setReport(null)
 
     try {
       const fd = new FormData()
@@ -104,6 +113,11 @@ export function ImportTemplateButton() {
         if (Array.isArray(data.branchNotFound)) {
           setBranchNotFound(data.branchNotFound)
           setError(data.error ?? "Есть филиалы, которых нет в CRM")
+          return
+        }
+        if (Array.isArray(data.activeStatus)) {
+          setActiveStatus(data.activeStatus)
+          setError(data.error ?? "Есть клиенты в статусе «Активный»")
           return
         }
         setNeedsReview(data.needsReview ?? [])
@@ -228,6 +242,28 @@ export function ImportTemplateButton() {
                       <span className="font-medium">{b.name}</span> · строк: {b.count}
                     </li>
                   ))}
+                </ul>
+              </div>
+            )}
+
+            {activeStatus && activeStatus.length > 0 && (
+              <div className="space-y-2 max-h-64 overflow-y-auto rounded-md border bg-muted/30 p-3 text-sm">
+                <div className="font-medium">В статусе «Активный»/«Продажа»: {activeStatus.length}</div>
+                <div className="text-xs text-muted-foreground">
+                  Импорт не заводит активных клиентов — активным клиент становится только
+                  после выписки абонемента. Поменяйте статус у этих строк в файле (например,
+                  «Выбыл» или «Потенциал») и загрузите снова.
+                </div>
+                <ul className="space-y-1">
+                  {activeStatus.slice(0, 50).map((r, i) => (
+                    <li key={i} className="text-xs">
+                      Строка {r.rowIdx}: <span className="font-medium">{r.parent || "(без имени)"}</span>
+                      {" — "}«{r.child}» · {r.phone || "(нет телефона)"} · {r.status}
+                    </li>
+                  ))}
+                  {activeStatus.length > 50 && (
+                    <li className="text-xs text-muted-foreground">… и ещё {activeStatus.length - 50}</li>
+                  )}
                 </ul>
               </div>
             )}

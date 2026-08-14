@@ -95,6 +95,23 @@ export interface SyncNoContacts {
   rows: NoContactsRow[]
 }
 
+export interface ActiveStatusRow {
+  rowIdx: number
+  parent: string
+  child: string
+  phone: string
+  status: string
+}
+
+// Импорт не заводит АКТИВНЫХ клиентов (решение владельца): активным клиент
+// становится только после выписки абонемента. Строки со статусом «Активный»/
+// «Продажа» блокируют импорт — владелец меняет им статус в файле и грузит снова.
+export interface SyncActiveBlocked {
+  ok: false
+  reason: "active_not_allowed"
+  rows: ActiveStatusRow[]
+}
+
 export interface SyncBranchNotFound {
   ok: false
   reason: "branch_not_found"
@@ -160,7 +177,7 @@ export interface SyncOptions {
 
 export async function syncLeads(
   opts: SyncOptions,
-): Promise<SyncReport | SyncBlocked | SyncEmpty | SyncBranchNotFound | SyncNoContacts> {
+): Promise<SyncReport | SyncBlocked | SyncEmpty | SyncBranchNotFound | SyncNoContacts | SyncActiveBlocked> {
   const parsedLeads = loadLeadsFile(opts.leadsBuffer)
   const rawRowCount = parsedLeads.rows.length
   // Схлопываем дубли «один ребёнок в нескольких строках» ДО всех проверок и
@@ -196,6 +213,28 @@ export async function syncLeads(
       ok: false,
       reason: "needs_review",
       rows: reviewBlocked.map((r) => ({ rowIdx: r.rowIdx, fio: r.child, phone: r.phone })),
+    }
+  }
+
+  // Активным клиента делает только выписка абонемента (актив = платная
+  // активность), поэтому импорт не заливает клиентов в статусе «Активный»/
+  // «Продажа» (→ clientStatus=active). Нашли такие — блокируем импорт целиком и
+  // отдаём список: владелец меняет им статус в файле (напр. «Выбыл» или
+  // «Потенциал») и загружает снова.
+  const activeBlocked = leads.filter(
+    (r) => r.status != null && toDbStatus(r.status).clientStatus === "active",
+  )
+  if (activeBlocked.length > 0) {
+    return {
+      ok: false,
+      reason: "active_not_allowed",
+      rows: activeBlocked.map((r) => ({
+        rowIdx: r.rowIdx,
+        parent: r.parent,
+        child: r.child,
+        phone: r.phone,
+        status: r.status as string,
+      })),
     }
   }
 

@@ -77,6 +77,19 @@ export async function POST(req: NextRequest) {
       { status: 422 },
     )
   }
+  if (!result.ok && result.reason === "active_not_allowed") {
+    return NextResponse.json(
+      {
+        error:
+          `Найдено ${result.rows.length} строк со статусом «Активный»/«Продажа». ` +
+          "Импорт не заводит активных клиентов — активным клиент становится только после " +
+          "выписки абонемента. Поменяйте у этих строк статус в файле (например, «Выбыл» " +
+          "или «Потенциал») и загрузите снова. Импорт не выполнен.",
+        activeStatus: result.rows,
+      },
+      { status: 422 },
+    )
+  }
   if (!result.ok) {
     return NextResponse.json(
       {

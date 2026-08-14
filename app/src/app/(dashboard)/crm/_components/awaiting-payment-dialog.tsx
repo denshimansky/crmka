@@ -282,6 +282,13 @@ export function AwaitingPaymentDialog({
     )
   }, [groups, branchId, directionId])
 
+  // Филиал и направление берутся из заявки/пробного и на этом шаге не меняются —
+  // допустима только смена группы (решение владельца). Блокируем поля, у которых
+  // дефолт задан; если дефолт пуст (заявки/пробного без филиала-направления нет) —
+  // оставляем выбор, иначе перевод в «Ожидание оплаты» упёрся бы в тупик.
+  const branchLocked = !!defaultBranchId
+  const directionLocked = !!defaultDirectionId
+
   // Пакетным орг пакет выбирается ЗДЕСЬ (заявка создаётся без пакета), поэтому
   // он обязателен для перехода — сервер иначе ответит «Выберите пакет». Плюс для
   // пакета с выбором нужно отметить ровно N занятий.
@@ -350,6 +357,13 @@ export function AwaitingPaymentDialog({
           оплату».
         </p>
 
+        {(branchLocked || directionLocked) && (
+          <p className="text-xs text-muted-foreground">
+            Филиал и направление берутся из заявки и здесь не меняются — выберите
+            только группу.
+          </p>
+        )}
+
         {error && (
           <div className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
             <AlertCircle className="size-4 shrink-0 mt-0.5" />
@@ -374,6 +388,7 @@ export function AwaitingPaymentDialog({
                     setGroupId("")
                   }
                 }}
+                disabled={branchLocked}
               >
                 <SelectTrigger className="w-full">
                   {branchId
@@ -400,7 +415,7 @@ export function AwaitingPaymentDialog({
                     setGroupId("")
                   }
                 }}
-                disabled={!branchId}
+                disabled={directionLocked || !branchId}
               >
                 <SelectTrigger className="w-full">
                   {directionId

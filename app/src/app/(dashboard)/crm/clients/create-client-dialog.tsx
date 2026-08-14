@@ -9,6 +9,7 @@ import {
   DialogDescription, DialogFooter, DialogClose,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { BirthDateInput } from "@/components/birth-date-input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -490,10 +491,9 @@ export function CreateClientDialog({
                       </div>
                       <div className="w-36">
                         <Label>Дата рождения</Label>
-                        <Input
-                          type="date"
+                        <BirthDateInput
                           value={w.birthDate}
-                          onChange={(e) => updateWard(i, "birthDate", e.target.value)}
+                          onChange={(v) => updateWard(i, "birthDate", v)}
                         />
                       </div>
                       <Button

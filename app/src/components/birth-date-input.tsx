@@ -57,31 +57,54 @@ export function parseFlexibleDateISO(input: string): string | null {
 
 interface BirthDateInputProps
   extends Omit<React.ComponentProps<typeof Input>, "value" | "onChange" | "type"> {
+  /** Значение в ISO (YYYY-MM-DD) или "" — как хранит/шлёт форма. */
   value: string
   onChange: (value: string) => void
 }
 
+/** ISO (YYYY-MM-DD) → отображение ДД.ММ.ГГГГ; прочее возвращаем как есть. */
+function isoToDisplay(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso
+}
+
 /**
- * <input type="date"> с поддержкой вставки даты в любом распространённом формате
- * (Ctrl+V из Excel/Word/чатов): «23.05.2020», «23/05/2020», «23-05-20» и т.п.
+ * Ввод даты рождения как ТЕКСТ (ДД.ММ.ГГГГ), а не <input type="date">. Причина:
+ * нативный date-пикер на macOS при пустом value показывал сегодняшнюю дату
+ * (на Windows — ок), и админ, не зная даты, вынужденно сохранял некорректную.
+ * Текстовое поле стартует гарантированно пустым на всех платформах, а гибкий
+ * парсинг (parseFlexibleDateISO) сохраняет и ручной ввод, и вставку из
+ * Excel/чатов в любом формате: «23.05.2020», «23/05/2020», «23-05-20», ISO.
+ * Наружу отдаём ISO (YYYY-MM-DD) или "" — контракт value/onChange не изменился.
  */
 export function BirthDateInput({ value, onChange, ...props }: BirthDateInputProps) {
-  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
-    const text = e.clipboardData.getData("text/plain")
-    const iso = parseFlexibleDateISO(text)
-    if (iso) {
-      e.preventDefault()
-      onChange(iso)
-    }
+  // Локальный текст ввода (в формате отображения). Наружу — ISO.
+  const [text, setText] = React.useState(() => isoToDisplay(value))
+
+  // Внешняя смена value (сброс формы, подстановка при загрузке карточки) →
+  // синхронизируем текст. Только если ISO реально отличается от уже введённого —
+  // иначе перебивали бы набор пользователя на каждый ре-рендер.
+  React.useEffect(() => {
+    const currentIso = parseFlexibleDateISO(text) ?? ""
+    if (value !== currentIso) setText(isoToDisplay(value))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+
+  function handleChange(next: string) {
+    setText(next)
+    // Пусто → ""; распознанная дата → ISO; недобранная (ещё печатают) → "" наружу,
+    // но текст сохраняем, чтобы ввод не сбрасывался.
+    onChange(next.trim() ? parseFlexibleDateISO(next.trim()) ?? "" : "")
   }
 
   return (
     <Input
       {...props}
-      type="date"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onPaste={handlePaste}
+      type="text"
+      inputMode="numeric"
+      placeholder="ДД.ММ.ГГГГ"
+      value={text}
+      onChange={(e) => handleChange(e.target.value)}
     />
   )
 }
