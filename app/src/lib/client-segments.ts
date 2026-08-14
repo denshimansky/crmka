@@ -51,6 +51,27 @@ export function clientInBranch(branchIds: string[]): Prisma.ClientWhereInput {
 }
 
 /**
+ * Предикат «клиент НЕ принадлежит НИ ОДНОМУ филиалу» — точное отрицание
+ * clientInBranch по всем филиалам: нет ни ручной привязки (branchId/
+ * secondBranchId), ни живого (pending/active) абонемента. Group.branchId
+ * обязателен, поэтому любой живой абонемент = принадлежность какому-то филиалу.
+ *
+ * Единая точка для фильтра «Без филиала» обзвона (баг #113): гарантирует, что
+ * «в филиале X» (clientInBranch) и «без филиала» ВЗАИМОИСКЛЮЧАЮЩИ и в сумме
+ * покрывают всю базу — ни один клиент не попадёт и в филиальную кампанию, и в
+ * «др филиалы» одновременно.
+ */
+export function clientHasNoBranch(): Prisma.ClientWhereInput {
+  return {
+    branchId: null,
+    secondBranchId: null,
+    subscriptions: {
+      none: { status: { in: ["pending", "active"] }, deletedAt: null },
+    },
+  }
+}
+
+/**
  * Видимость клиента для текущего scope (ADM-04, модель Анны):
  *   • владелец/управляющий/админ без привязок (mode "all") → {} (видят всех);
  *   • админ, у кого отмечены ВСЕ филиалы (coversAllBranches) → {} (видит всех,

@@ -1,7 +1,7 @@
 import type { Prisma, TaskAutoTrigger } from "@prisma/client"
 import { z } from "zod"
 import { branchScopeFromSession } from "@/lib/branch-scope"
-import { scopeClientByBranch } from "@/lib/client-segments"
+import { clientHasNoBranch, clientInBranch, scopeClientByBranch } from "@/lib/client-segments"
 import { MANAGED_TRIGGERS } from "@/lib/tasks/trigger-settings"
 
 /**
@@ -276,39 +276,30 @@ export function buildCampaignClientWhere(
   }
 
   // --- Филиал ---
-  // Выбывший — куда ходил (branchId/lastBranchId/зачисления);
-  // потенциальный — куда записывался/пробное (через группу или кабинет пробного);
-  // лид с заявкой — филиал активной заявки (фильтр «Продаж» единый по заявке,
-  // решение владельца 14.07.2026; Client.branchId у свежего лида часто NULL).
+  // ЕДИНОЕ правило принадлежности филиалу — clientInBranch (модель Анны,
+  // 13.08.2026): ручная привязка branchId/secondBranchId ИЛИ живой (pending/
+  // active) абонемент в группе филиала. Тот же предикат использует вкладка
+  // «Клиенты» (/crm/contacts) и «Продажи» — поэтому число в обзвоне по филиалу
+  // теперь СХОДИТСЯ со списком «Клиенты» по тому же филиалу.
+  //
+  // Раньше обзвон матчил филиал СВОЕЙ широкой деривацией (lastBranchId/
+  // prevBranchId/активная заявка/зачисления/пробные) — из-за неё «Обзвон по
+  // филиалу» был шире списка: клиент с прошлым/производным филиалом X, но ручной
+  // привязкой к другому, попадал в обзвон, но не в список (напр. выбывший с
+  // last_branch_id=X и зачислениями в X, привязанный руками к Y).
   if (fc.branchId) {
-    const branchId = fc.branchId
-    and.push({
-      OR: [
-        { branchId },
-        // Второе ручное поле филиала карточки (модель Анны, 13.08.2026).
-        { secondBranchId: branchId },
-        // Баг #79 — два последних РАЗНЫХ филиала абонементов (мультифилиальность).
-        { lastBranchId: branchId },
-        { prevBranchId: branchId },
-        { applications: { some: { status: "active", deletedAt: null, branchId } } },
-        { enrollments: { some: { deletedAt: null, group: { branchId } } } },
-        {
-          trialLessons: {
-            some: { OR: [{ group: { branchId } }, { room: { branchId } }] },
-          },
-        },
-      ],
-    })
+    and.push(clientInBranch([fc.branchId]))
   }
 
   // --- Без филиала (баг #113) ---
-  // Клиент, у которого филиал не проставлен на карточке: branchId, lastBranchId и
-  // prevBranchId — все NULL. Именно эти три поля показывает столбец «Филиал» в
-  // списках; производный филиал (по заявкам/зачислениям/пробным) здесь не
-  // учитываем — «филиал не указан» означает пустое поле филиала клиента. В UI
-  // взаимоисключающе с выбором конкретного филиала (один селект).
+  // Точное отрицание clientInBranch по всем филиалам (см. clientHasNoBranch): ни
+  // ручной привязки (branchId/secondBranchId), ни живого абонемента. Прежнее
+  // условие (branchId/lastBranchId/prevBranchId = NULL) игнорировало
+  // secondBranchId и держалось за устаревшие поля деривации — из-за чего клиент
+  // мог попасть и в филиальную кампанию, и в «др филиалы». Теперь «в филиале» и
+  // «без филиала» взаимоисключающи.
   if (fc.noBranch) {
-    and.push({ branchId: null, lastBranchId: null, prevBranchId: null })
+    and.push(clientHasNoBranch())
   }
 
   // --- Дата выбытия (от/до) ---
