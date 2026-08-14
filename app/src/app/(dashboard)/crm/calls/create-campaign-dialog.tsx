@@ -15,11 +15,11 @@ import { Database } from "lucide-react"
 
 // Статус клиента — единый селект отбора базы. «Связь» (назначена дата следующей
 // связи) перенесён сюда из бывшего «Этапа воронки». Архив / Чёрный список /
-// Нецелевой убраны: обзвон по базам их не таргетирует — они глобально
-// исключаются в base-режиме (см. lib/call-campaigns/filter.ts).
+// Нецелевой / Лиды убраны: обзвон по базам их не таргетирует — они глобально
+// исключаются в base-режиме (см. lib/call-campaigns/filter.ts). Свежих лидов
+// ведут в «Продажах», а не через обзвон базы.
 const CLIENT_STATUS_OPTIONS = [
   { value: "", label: "Все" },
-  { value: "leads", label: "Лиды" },
   { value: "active", label: "Активные" },
   { value: "churned", label: "Выбывшие" },
   { value: "potential", label: "Потенциал" },
@@ -149,7 +149,7 @@ export function CreateCampaignDialog({ branches }: { branches: BranchOption[] })
           {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
           <div className="space-y-1.5">
             <Label>Название *</Label>
-            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Например: Обзвон лидов март" />
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Например: Обзвон выбывших март" />
           </div>
 
           <div className="space-y-1.5">

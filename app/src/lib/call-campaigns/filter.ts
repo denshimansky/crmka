@@ -147,15 +147,17 @@ export function buildCampaignClientWhere(
     }
   }
 
-  // --- База: не звоним в архив / чёрный список / нецелевых ---
+  // --- База: не звоним в архив / чёрный список / нецелевых / ЛИДОВ ---
   // Эти статусы убраны из селектора «Статус клиента» (обзвон по базам их больше
-  // не таргетирует). Глобально исключаем их из ЛЮБОЙ base-выборки: «Все»,
+  // не таргетирует). Лиды (funnelStatus="new") — тоже НЕ цель обзвона по базам:
+  // свежих лидов ведут в «Продажах» (воронка заявка→пробное→оплата), а не через
+  // обзвон базы. Глобально исключаем всё это из ЛЮБОЙ base-выборки: «Все»,
   // «Связь», а также фильтры только по возрасту/филиалу/дате. Пропускаем только
-  // когда старая кампания явно выбрала один из этих терминальных статусов
-  // (legacy-значения ниже), чтобы её актуализация не превратилась в пустую.
-  const TERMINAL_CLIENT_STATUSES = new Set(["archived", "blacklist", "nontarget", "not_active"])
+  // когда старая кампания явно выбрала один из этих статусов (legacy-значения,
+  // включая "leads"), чтобы её актуализация не превратилась в пустую.
+  const TERMINAL_CLIENT_STATUSES = new Set(["archived", "blacklist", "nontarget", "not_active", "leads"])
   if (fc.mode !== "tasks" && !TERMINAL_CLIENT_STATUSES.has(fc.clientStatus ?? "")) {
-    and.push({ funnelStatus: { notIn: ["archived", "blacklisted", "non_target"] } })
+    and.push({ funnelStatus: { notIn: ["archived", "blacklisted", "non_target", "new"] } })
     // «Архив» может жить и в clientStatus (наследие импорта: clientStatus="archived"
     // при неархивном funnelStatus — именно поэтому case "archived" ниже ловит оба
     // поля). Исключаем и его, но СОХРАНЯЯ клиентов с clientStatus=NULL: иначе
