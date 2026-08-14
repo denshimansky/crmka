@@ -119,7 +119,7 @@ export function QuickRenewSubscriptionDialog({
         }
       >
         <FileText className="mr-2 size-4" />
-        Абонемент
+        Продление абонемента
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
