@@ -23,12 +23,6 @@ import { ClientCombobox } from "@/components/client-combobox"
 import { useMoneyFormat } from "@/components/currency-provider"
 import { Undo2 } from "lucide-react"
 
-interface ClientOption {
-  id: string
-  name: string
-  phone?: string
-}
-
 interface AccountOption {
   id: string
   name: string
@@ -52,10 +46,8 @@ function accountsForMethod(method: string, accounts: AccountOption[]): AccountOp
 }
 
 export function RefundPaymentDialog({
-  clients,
   accounts,
 }: {
-  clients: ClientOption[]
   accounts: AccountOption[]
 }) {
   const router = useRouter()
@@ -66,6 +58,9 @@ export function RefundPaymentDialog({
   const [step, setStep] = useState<"form" | "confirm">("form")
 
   const [clientId, setClientId] = useState("")
+  // Имя выбранного клиента — для экрана подтверждения (серверный режим комбобокса
+  // не держит полный список, имя берём из выбранной опции).
+  const [selectedClientName, setSelectedClientName] = useState("")
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState("")
   const [accountId, setAccountId] = useState("")
@@ -76,6 +71,7 @@ export function RefundPaymentDialog({
 
   function reset() {
     setClientId("")
+    setSelectedClientName("")
     setAmount("")
     setMethod("")
     setAccountId("")
@@ -163,7 +159,6 @@ export function RefundPaymentDialog({
   }
 
   const selectedMethod = METHOD_OPTIONS.find(m => m.value === method)
-  const selectedClient = clients.find(c => c.id === clientId)
   const selectedAccount = accounts.find(a => a.id === accountId)
   const selectedSub = clientSubs.find(s => s.id === subscriptionId)
 
@@ -189,9 +184,10 @@ export function RefundPaymentDialog({
             <div className="space-y-1.5">
               <Label>Клиент *</Label>
               <ClientCombobox
-                options={clients}
+                serverSearch={{ status: "payable", withPhone: true }}
                 value={clientId}
                 onChange={(id) => loadClientSubs(id)}
+                onSelect={(opt) => setSelectedClientName(opt?.name ?? "")}
                 placeholder="Начните вводить ФИО или телефон..."
               />
             </div>
@@ -310,7 +306,7 @@ export function RefundPaymentDialog({
               <div className="space-y-1">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Клиент:</span>
-                  <span className="font-medium">{selectedClient?.name}</span>
+                  <span className="font-medium">{selectedClientName}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Сумма возврата:</span>

@@ -3,7 +3,6 @@ import { getMonthFromParams } from "@/lib/month-params"
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { scopePayment, scopeBookableAccount } from "@/lib/branch-scope"
-import { scopeClientByBranch } from "@/lib/client-segments"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -41,7 +40,6 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
   // хотя его баланс/карточка на «Кассе» скрыты.
   const paymentScope = scopePayment(scope)
   const accountScope = scopeBookableAccount(scope)
-  const clientScope = scopeClientByBranch(scope)
 
   // Начало и конец месяца (UTC для корректного сравнения с DATE)
   const { year, month } = getMonthFromParams(await searchParams)
@@ -92,30 +90,10 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
     { title: "Безнал / Эквайринг", value: byAcquiring, icon: CreditCard, color: "text-blue-600", bg: "bg-blue-50" },
   ]
 
-  // Данные для диалога. Скрываем только архив и ЧС — им оплачивать незачем.
-  // Выбывших (clientStatus=churned) оставляем: их баланс пополнять можно.
-  // take большой намеренно: комбобокс ищет по подстроке на клиенте, а
-  // алфавитный срез на 500 прятал всех, чья фамилия дальше «К–Л».
-  const clients = await db.client.findMany({
-    where: {
-      tenantId,
-      deletedAt: null,
-      funnelStatus: { notIn: ["archived", "blacklisted"] },
-      ...(Object.keys(clientScope).length > 0 ? clientScope : {}),
-    },
-    select: { id: true, firstName: true, lastName: true, phone: true },
-    orderBy: { lastName: "asc" },
-    take: 10000,
-  })
-
-  // Клиенты для комбобоксов оплаты/возврата: ФИО + телефон (поиск по телефону и
-  // показ номера в выпадашке для точной идентификации).
-  const clientOptions = clients.map((c) => ({
-    id: c.id,
-    name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
-    phone: c.phone ?? undefined,
-  }))
-
+  // Клиентов в браузер не отдаём: комбобоксы оплаты/возврата ищут по мере ввода
+  // через /api/clients/search (серверный режим, status=payable + телефон) —
+  // фильтр «не архив/ЧС» и branch-scope применяются на сервере. Раньше грузили
+  // всю базу (take:10000) только ради подстрочного поиска в форме.
   const accounts = await db.financialAccount.findMany({
     where: { tenantId, deletedAt: null, ...accountScope },
     select: { id: true, name: true, type: true },
@@ -162,11 +140,9 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
         </div>
         <div className="flex flex-wrap gap-2">
           <RefundPaymentDialog
-            clients={clientOptions}
             accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
           />
           <AddPaymentDialog
-            clients={clientOptions}
             accounts={accounts.map(a => ({ id: a.id, name: a.name, type: a.type }))}
             incomeCategories={incomeCategories.map(c => ({ id: c.id, name: c.name }))}
           />

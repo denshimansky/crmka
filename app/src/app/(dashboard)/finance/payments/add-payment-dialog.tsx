@@ -54,13 +54,11 @@ function accountsForMethod(method: string, accounts: AccountOption[]): AccountOp
 }
 
 export function AddPaymentDialog({
-  clients,
   accounts,
   incomeCategories,
   lockedClient,
   triggerButton,
 }: {
-  clients: ClientOption[]
   accounts: AccountOption[]
   incomeCategories: IncomeCategoryOption[]
   /** Если задан — диалог открывается из карточки конкретного клиента:
@@ -218,7 +216,7 @@ export function AddPaymentDialog({
             <div className="space-y-1.5">
               <Label>Клиент *</Label>
               <ClientCombobox
-                options={clients}
+                serverSearch={{ status: "payable", withPhone: true }}
                 value={clientId}
                 onChange={setClientId}
                 placeholder="Начните вводить ФИО или телефон..."

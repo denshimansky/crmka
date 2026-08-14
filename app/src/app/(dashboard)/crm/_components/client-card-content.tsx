@@ -540,7 +540,6 @@ export async function ClientCardContent({
                 абонемента (на любую сумму) или первое платное занятие.
                 Баг #77 — раньше кнопка пряталась под client.clientStatus. */}
             <AddPaymentDialog
-              clients={[]}
               incomeCategories={[]}
               accounts={accounts.map((a) => ({ id: a.id, name: a.name, type: a.type }))}
               lockedClient={{

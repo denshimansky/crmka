@@ -135,7 +135,6 @@ export default async function SalesPage({
   const [
     branches,
     directions,
-    clientsForApplication,
     employees,
     countApplication,
     countTrial,
@@ -153,13 +152,9 @@ export default async function SalesPage({
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
-    // Список клиентов для диалога «Создать заявку» (поиск по подстроке на клиенте).
-    db.client.findMany({
-      where: { tenantId, ...notArchivedClient(scope) },
-      select: { id: true, firstName: true, lastName: true },
-      orderBy: { lastName: "asc" },
-      take: 10000,
-    }),
+    // Клиентов для диалога «Создать заявку» больше не грузим — комбобокс ищет по
+    // мере ввода через /api/clients/search (status=payable, тот же фильтр, что
+    // notArchivedClient) вместо загрузки всей базы в браузер.
     db.employee.findMany({
       where: { tenantId, deletedAt: null, role: { not: "readonly" } },
       select: { id: true, firstName: true, lastName: true },
@@ -446,13 +441,7 @@ export default async function SalesPage({
           <PageHelp pageKey="crm/sales" />
         </div>
         <div className="flex items-center gap-2">
-          <CreateApplicationDialog
-            clients={clientsForApplication.map((c) => ({
-              id: c.id,
-              name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени",
-            }))}
-            size="sm"
-          />
+          <CreateApplicationDialog size="sm" />
           <CreateClientDialog />
         </div>
       </div>

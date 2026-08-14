@@ -15,7 +15,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
-import { ClientCombobox, type ClientComboboxOption } from "@/components/client-combobox"
+import { ClientCombobox } from "@/components/client-combobox"
 import { AlertTriangle, ClipboardPlus } from "lucide-react"
 import { formatWardName } from "@/lib/format-name"
 
@@ -48,7 +48,6 @@ const wardName = formatWardName
 export function CreateApplicationDialog({
   clientId: fixedClientId,
   wards: fixedWards,
-  clients,
   variant = "outline",
   size = "sm",
   buttonClassName,
@@ -62,8 +61,6 @@ export function CreateApplicationDialog({
   wards?: WardLite[]
   /** Создание из обзвона: привязать заявку к позиции обзвона (атрибуция воронки). */
   callCampaignItemId?: string
-  /** Режим «Продажи»: клиент не задан, выбираем поиском из этого списка. */
-  clients?: ClientComboboxOption[]
   variant?: "default" | "outline" | "ghost" | "secondary"
   size?: "sm" | "default"
   buttonClassName?: string
@@ -326,7 +323,7 @@ export function CreateApplicationDialog({
             <div className="space-y-1.5">
               <Label>Клиент *</Label>
               <ClientCombobox
-                options={clients ?? []}
+                serverSearch={{ status: "payable" }}
                 value={pickedClientId}
                 onChange={setPickedClientId}
                 placeholder="Начните вводить ФИО..."

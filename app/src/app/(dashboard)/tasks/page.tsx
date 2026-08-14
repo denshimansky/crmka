@@ -117,22 +117,17 @@ export default async function TasksPage() {
     clientName: t.client ? ([t.client.lastName, t.client.firstName].filter(Boolean).join(" ") || "Без имени") : null,
   }))
 
-  // Списки сотрудников и клиентов нужны только для формы создания задачи.
-  // Не грузим их (и не отдаём в браузер клиентскую базу) тем, кто не создаёт задачи.
+  // Список сотрудников нужен для формы создания задачи (исполнитель).
+  // Не грузим тем, кто не создаёт задачи.
+  // Клиентов в браузер НЕ отдаём: комбобокс клиента в форме ищет по мере ввода
+  // через /api/clients/search (серверный режим) — вся база доступна, но payload
+  // не раздувается. Раньше грузили take:500 и хвост алфавита (напр. «Плаксина»,
+  // ~2458-я в базе Dream из 3896) до формы не доходил.
   const employees = canManageTasks
     ? await db.employee.findMany({
         where: { tenantId, deletedAt: null, isActive: true },
         select: { id: true, firstName: true, lastName: true },
         orderBy: { lastName: "asc" },
-      })
-    : []
-
-  const clients = canManageTasks
-    ? await db.client.findMany({
-        where: { tenantId, deletedAt: null },
-        select: { id: true, firstName: true, lastName: true },
-        orderBy: { lastName: "asc" },
-        take: 500,
       })
     : []
 
@@ -148,7 +143,6 @@ export default async function TasksPage() {
           <GenerateTasksButton />
           <AddTaskDialog
             employees={employees.map(e => ({ id: e.id, name: [e.lastName, e.firstName].filter(Boolean).join(" ") || "Без имени" }))}
-            clients={clients.map(c => ({ id: c.id, name: [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени" }))}
           />
           </div>
         )}

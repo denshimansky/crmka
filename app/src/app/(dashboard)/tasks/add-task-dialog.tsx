@@ -14,9 +14,8 @@ import { ClientCombobox } from "@/components/client-combobox"
 import { Plus, X } from "lucide-react"
 
 interface EmployeeOption { id: string; name: string }
-interface ClientOption { id: string; name: string }
 
-export function AddTaskDialog({ employees, clients }: { employees: EmployeeOption[]; clients: ClientOption[] }) {
+export function AddTaskDialog({ employees }: { employees: EmployeeOption[] }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -80,7 +79,7 @@ export function AddTaskDialog({ employees, clients }: { employees: EmployeeOptio
             <Label>Клиент</Label>
             <div className="flex items-center gap-2">
               <ClientCombobox
-                options={clients}
+                serverSearch={{ status: "all" }}
                 value={clientId}
                 onChange={setClientId}
                 placeholder="Без привязки — начните вводить фамилию"
