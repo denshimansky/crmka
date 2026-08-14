@@ -23,6 +23,9 @@ export interface TrialCardInfo {
   clientId: string
   wardId: string | null
   applicationId: string | null
+  /** Статус пробного: «Не отмечен» / «Был» / «Не пришёл». Отмеченное остаётся в
+   *  расписании (не исчезает), но переносить его нельзя. */
+  status: "scheduled" | "attended" | "no_show"
   clientName: string
   wardName: string | null
   date: string // YYYY-MM-DD
@@ -56,6 +59,12 @@ interface RoomOption {
 function fmtDate(iso: string): string {
   const d = new Date(iso + "T00:00:00")
   return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })
+}
+
+const STATUS_LABEL: Record<TrialCardInfo["status"], string> = {
+  scheduled: "Не отмечен",
+  attended: "Был",
+  no_show: "Не пришёл",
 }
 
 /**
@@ -145,8 +154,11 @@ export function TrialDetailsDialog({
   }
 
   // Перенос возможен, только если есть из чего собрать новое пробное
-  // (у старых/импортированных записей ward/direction могут отсутствовать).
-  const reschedulable = canReschedule && !!trial.wardId && !!trial.directionId
+  // (у старых/импортированных записей ward/direction могут отсутствовать) И
+  // пробное ещё не отмечено: перенос отменяет старое и создаёт новое, поэтому для
+  // «Был»/«Не пришёл» он бессмысленен (стёр бы отметку и продвижение по воронке).
+  const reschedulable =
+    canReschedule && !!trial.wardId && !!trial.directionId && trial.status === "scheduled"
 
   async function handleReschedule(e: React.FormEvent) {
     e.preventDefault()
@@ -198,9 +210,10 @@ export function TrialDetailsDialog({
 
   // Отметка статуса — тот же эндпоинт, что в сетке посещений и карточке
   // занятия: PATCH двигает этап заявки, воронку подопечного и автозадачи.
-  // Расписание показывает только status=scheduled, поэтому после отметки
-  // карточка пробного уходит из сетки (как проведённое).
-  async function handleMark(status: "attended" | "no_show") {
+  // Отмеченное индивидуальное пробное ОСТАЁТСЯ в расписании (карточка меняет вид
+  // на «был»/«не пришёл»), поэтому отсюда же можно переотметить или сбросить
+  // отметку («scheduled» — обратно в «Не отмечен»).
+  async function handleMark(status: "attended" | "no_show" | "scheduled") {
     setError(null)
     setMarking(true)
     try {
@@ -283,6 +296,20 @@ export function TrialDetailsDialog({
             <div className="flex justify-between gap-3">
               <span className="text-muted-foreground">Кабинет</span>
               <span className="text-right">{trial.roomName}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">Статус</span>
+              <span
+                className={`text-right font-medium ${
+                  trial.status === "attended"
+                    ? "text-green-700 dark:text-green-400"
+                    : trial.status === "no_show"
+                      ? "text-red-700 dark:text-red-400"
+                      : ""
+                }`}
+              >
+                {STATUS_LABEL[trial.status]}
+              </span>
             </div>
           </div>
 
@@ -375,11 +402,23 @@ export function TrialDetailsDialog({
 
           {!rescheduling && canMark && (
             <div className="flex items-center gap-2 border-t pt-3">
-              <span className="mr-auto text-sm text-muted-foreground">Отметить:</span>
+              <span className="mr-auto text-sm text-muted-foreground">
+                {trial.status === "scheduled" ? "Отметить:" : "Изменить отметку:"}
+              </span>
+              {trial.status !== "scheduled" && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={marking}
+                  onClick={() => handleMark("scheduled")}
+                >
+                  Сбросить
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
-                disabled={marking}
+                disabled={marking || trial.status === "attended"}
                 className="border-green-300 text-green-700 hover:bg-green-50 hover:text-green-800 dark:border-green-800 dark:text-green-400 dark:hover:bg-green-950/30"
                 onClick={() => handleMark("attended")}
               >
@@ -388,7 +427,7 @@ export function TrialDetailsDialog({
               <Button
                 type="button"
                 variant="outline"
-                disabled={marking}
+                disabled={marking || trial.status === "no_show"}
                 className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
                 onClick={() => handleMark("no_show")}
               >

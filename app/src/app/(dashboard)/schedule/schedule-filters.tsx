@@ -730,9 +730,19 @@ function WeekRoomsView({
                         {lesson.isTrial && (
                           <Badge
                             variant="outline"
-                            className="h-3.5 px-1 text-[9px] border-blue-300 text-blue-700 dark:text-blue-400"
+                            className={`h-3.5 px-1 text-[9px] ${
+                              lesson.trial?.status === "attended"
+                                ? "border-green-300 text-green-700 dark:text-green-400"
+                                : lesson.trial?.status === "no_show"
+                                  ? "border-red-300 text-red-700 dark:text-red-400"
+                                  : "border-blue-300 text-blue-700 dark:text-blue-400"
+                            }`}
                           >
-                            проб
+                            {lesson.trial?.status === "attended"
+                              ? "был"
+                              : lesson.trial?.status === "no_show"
+                                ? "н/п"
+                                : "проб"}
                           </Badge>
                         )}
                       </div>

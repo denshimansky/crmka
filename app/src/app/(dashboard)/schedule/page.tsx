@@ -335,7 +335,12 @@ export default async function SchedulePage({
     where: {
       tenantId,
       scheduledDate: { gte: dateRange.start, lte: dateRange.end },
-      status: "scheduled",
+      // У индивидуального пробного нет сущности занятия (Lesson), поэтому оно САМО
+      // является строкой расписания. Показываем и отмеченные (Был/Не пришёл) —
+      // иначе после отметки строка исчезала бы из сетки (в отличие от группового
+      // пробного, чьё занятие остаётся). «cancelled» не показываем — отменённое
+      // пробное уходит из расписания, как отменённое занятие.
+      status: { in: ["scheduled", "attended", "no_show"] },
       groupId: null,
       lessonId: null,
       // Пробные выведенной из воронки заявки (soft-deleted) не показываем.
@@ -350,6 +355,7 @@ export default async function SchedulePage({
       scheduledDate: true,
       startTime: true,
       durationMinutes: true,
+      status: true,
       clientId: true,
       wardId: true,
       applicationId: true,
@@ -505,6 +511,9 @@ export default async function SchedulePage({
         clientId: t.clientId,
         wardId: t.wardId,
         applicationId: t.applicationId,
+        // Статус для карточки/модалки: отмеченное пробное показываем как «был»/
+        // «не пришёл» и не даём переносить (перенос осмыслен только для «Не отмечен»).
+        status: t.status as "scheduled" | "attended" | "no_show",
         clientName,
         wardName,
         date: t.scheduledDate.toISOString().slice(0, 10),

@@ -95,9 +95,19 @@ export function MonthCalendarView({
                       {lesson.isTrial && (
                         <Badge
                           variant="outline"
-                          className="ml-auto h-3.5 shrink-0 px-1 text-[9px]"
+                          className={`ml-auto h-3.5 shrink-0 px-1 text-[9px] ${
+                            lesson.trial?.status === "attended"
+                              ? "border-green-300 text-green-700 dark:text-green-400"
+                              : lesson.trial?.status === "no_show"
+                                ? "border-red-300 text-red-700 dark:text-red-400"
+                                : ""
+                          }`}
                         >
-                          проб
+                          {lesson.trial?.status === "attended"
+                            ? "был"
+                            : lesson.trial?.status === "no_show"
+                              ? "н/п"
+                              : "проб"}
                         </Badge>
                       )}
                     </>
