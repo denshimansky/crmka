@@ -413,6 +413,11 @@ export function AttendanceTable({
           setStudents(updateFn)
         }
         router.refresh()
+      } else {
+        // Показываем причину отказа (напр. замок отчисленного/закрытого абонемента),
+        // иначе снятие отметки «молча не срабатывает» и оператор не понимает почему.
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || "Не удалось снять отметку")
       }
     } catch {
       // silently fail

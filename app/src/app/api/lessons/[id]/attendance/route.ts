@@ -52,6 +52,43 @@ const bulkSchema = z.object({
   attendanceTypeId: z.string().uuid("Некорректный тип посещения"),
 })
 
+// Замок «отработанного» абонемента (решение владельца 14.08.2026). Отчисленный
+// (withdrawn) или закрытый (closed) абонемент полностью отработан, и деньги по
+// нему уже сведены при закрытии/отчислении (долг/возврат разнесены). Правка или
+// удаление его отметок финансы заново НЕ пересчитывает → рассинхрон: двойное
+// списание, фантомный долг (кейс Валеевой, Class: отметку удалили на отчисленном
+// абонементе — долг не вернулся, потом занятие переотметили под новым и списали
+// повторно). Поэтому отметки в таком абонементе заблокированы для ВСЕХ ролей
+// (ошибку сделал владелец — role-based замок не спас бы): исправлять нужно сам
+// абонемент (восстановить/выписать новый), а не отметку.
+async function lockedSubWord(
+  tenantId: string,
+  subscriptionIds: (string | null | undefined)[],
+): Promise<"отчислён" | "закрыт" | null> {
+  const ids = [...new Set(subscriptionIds.filter((v): v is string => !!v))]
+  if (ids.length === 0) return null
+  const sub = await db.subscription.findFirst({
+    where: { tenantId, id: { in: ids }, status: { in: ["withdrawn", "closed"] } },
+    select: { status: true },
+    orderBy: { status: "asc" }, // детерминированно при совпадении: closed < withdrawn
+  })
+  if (!sub) return null
+  return sub.status === "withdrawn" ? "отчислён" : "закрыт"
+}
+
+function lockedMarkResponse(word: "отчислён" | "закрыт") {
+  return NextResponse.json(
+    {
+      error:
+        `Абонемент ${word} — он полностью отработан, отметки в нём заблокированы. ` +
+        `Изменять или удалять их нельзя: иначе разъедутся деньги (двойное списание или ` +
+        `фантомный долг). Чтобы исправить, работайте с самим абонементом — восстановите ` +
+        `его или выпишите новый.`,
+    },
+    { status: 409 },
+  )
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -283,6 +320,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Переключаем subscriptionId на исходное (L1) — списания/откаты пойдут
     // с абонемента группы пропущенного занятия, а не текущей.
     data.subscriptionId = virtualMakeup.subscriptionId
+  }
+
+  // Замок отработанного абонемента: если ученик на этом занятии уже отмечен по
+  // отчисленному/закрытому абонементу (или его явно передали) — менять состав
+  // отметок нельзя. Проверяем и переданный subscriptionId, и все уже стоящие
+  // отметки ученика на занятии (по любому абонементу) — иначе блок обходился бы
+  // через сетку (subscriptionId=null) или переотметку под новым абонементом.
+  // Отработки (isMakeupArrival) не трогаем: у них своя логика списания со слота L1.
+  if (!isMakeupArrival) {
+    const priorSubIds = (
+      await db.attendance.findMany({
+        where: {
+          tenantId,
+          lessonId,
+          clientId: data.clientId,
+          wardId: data.wardId,
+          subscriptionId: { not: null },
+        },
+        select: { subscriptionId: true },
+      })
+    ).map((m) => m.subscriptionId)
+    const word = await lockedSubWord(tenantId, [data.subscriptionId, ...priorSubIds])
+    if (word) return lockedMarkResponse(word)
   }
 
   // Fetch org setting for subscription type.
@@ -1555,6 +1615,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     )
   }
 
+  // Замок отработанного абонемента: удалять отметку на отчисленном/закрытом
+  // абонементе нельзя — деньги по нему сведены при закрытии, а откат списания
+  // здесь их не вернёт корректно (кейс Валеевой: долг остался, занятие переотметили).
+  const delWord = await lockedSubWord(tenantId, [existing.subscriptionId])
+  if (delWord) return lockedMarkResponse(delWord)
+
   // Снятие отметки «Был» на отработке — только админ+.
   // ЗП могла быть уже выплачена инструктору; решение об откате принимает старший.
   if (
@@ -1810,6 +1876,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     where: { id: parsed.data.attendanceId, lessonId, tenantId },
   })
   if (!existing) return NextResponse.json({ error: "Отметка не найдена" }, { status: 404 })
+
+  // Замок отработанного абонемента: отметку в отчисленном/закрытом абонементе
+  // не трогаем (в т.ч. причину пропуска) — он полностью отработан и заблокирован.
+  const patchWord = await lockedSubWord(tenantId, [existing.subscriptionId])
+  if (patchWord) return lockedMarkResponse(patchWord)
 
   const updated = await db.attendance.update({
     where: { id: parsed.data.attendanceId },
