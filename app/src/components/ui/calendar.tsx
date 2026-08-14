@@ -4,6 +4,12 @@ import * as React from "react"
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select"
 
 // Простой month-grid календарь. Если задан availableDates — только эти даты
 // кликабельны, остальные приглушены. Используется для выбора даты пробного
@@ -38,6 +44,15 @@ export interface CalendarProps {
   className?: string
   /** Текст под календарём при пустом availableDates. */
   emptyHint?: string
+  /**
+   * Показывать выпадающие списки месяца и года вместо статичной подписи —
+   * быстрый прыжок для дальних дат (дата рождения). По умолчанию выключено,
+   * чтобы пикер даты пробного/занятия (навигация стрелками) не менялся.
+   */
+  monthYearNav?: boolean
+  /** Диапазон лет для monthYearNav (по умолчанию текущий−100 … текущий+1). */
+  fromYear?: number
+  toYear?: number
 }
 
 export function Calendar({
@@ -47,6 +62,9 @@ export function Calendar({
   disabled,
   className,
   emptyHint,
+  monthYearNav,
+  fromYear,
+  toYear,
 }: CalendarProps) {
   const initial = value ? parseIso(value) : new Date()
   const [viewYear, setViewYear] = React.useState(initial.getFullYear())
@@ -105,15 +123,52 @@ export function Calendar({
   const hasAvailableFilter = !!availableDates
   const noneAvailable = hasAvailableFilter && availableDates!.size === 0
 
+  const curY = new Date().getFullYear()
+  const yFrom = fromYear ?? curY - 100
+  const yTo = toYear ?? curY + 1
+  const years: number[] = []
+  if (monthYearNav) for (let y = yTo; y >= yFrom; y--) years.push(y)
+
   return (
     <div className={cn("rounded-md border bg-card p-2", className)}>
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-1">
         <Button type="button" variant="ghost" size="icon-sm" onClick={prev}>
           <ChevronLeftIcon />
         </Button>
-        <div className="text-sm font-medium">
-          {MONTHS[viewMonth]} {viewYear}
-        </div>
+        {monthYearNav ? (
+          <div className="flex items-center gap-1">
+            <Select
+              value={String(viewMonth)}
+              onValueChange={(v) => v && setViewMonth(Number(v))}
+            >
+              <SelectTrigger className="h-7 gap-1 px-2 text-sm font-medium">
+                {MONTHS[viewMonth]}
+              </SelectTrigger>
+              <SelectContent>
+                {MONTHS.map((m, i) => (
+                  <SelectItem key={m} value={String(i)}>{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={String(viewYear)}
+              onValueChange={(v) => v && setViewYear(Number(v))}
+            >
+              <SelectTrigger className="h-7 gap-1 px-2 text-sm font-medium">
+                {viewYear}
+              </SelectTrigger>
+              <SelectContent className="max-h-60">
+                {years.map((y) => (
+                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : (
+          <div className="text-sm font-medium">
+            {MONTHS[viewMonth]} {viewYear}
+          </div>
+        )}
         <Button type="button" variant="ghost" size="icon-sm" onClick={next}>
           <ChevronRightIcon />
         </Button>
@@ -143,7 +198,10 @@ export function Calendar({
                 isCurMonth ? "text-foreground" : "text-muted-foreground/40",
                 isSelected
                   ? "bg-primary text-primary-foreground font-semibold"
-                  : isAvailable && isCurMonth
+                  : // Зелёная подсветка «доступной» даты — только когда задан фильтр
+                    // availableDates (пикер даты пробного/занятия). Без фильтра (напр.
+                    // дата рождения) кликабельны все дни — обычный нейтральный вид.
+                    hasAvailableFilter && isAvailable && isCurMonth
                     ? "bg-emerald-100 text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-100 dark:hover:bg-emerald-900/60"
                     : "hover:bg-accent",
                 cellDisabled && !isSelected && "cursor-not-allowed opacity-50 hover:bg-transparent",
