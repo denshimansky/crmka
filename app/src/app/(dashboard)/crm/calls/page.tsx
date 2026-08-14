@@ -54,6 +54,7 @@ export default async function CallsPage() {
     campaigns, branches, byStatusTotal, byStatusToday,
     appsTotal, appsToday, enrolledTotal, enrolledToday,
     clientsTotalRows, clientsTodayRows,
+    childrenTotal, childrenToday,
   ] =
     await Promise.all([
       db.callCampaign.findMany({
@@ -75,6 +76,10 @@ export default async function CallsPage() {
       // Уникальные клиенты (родители) — «Всего клиентов» на первой карточке.
       db.callCampaignItem.findMany({ where: itemWhere, distinct: ["clientId"], select: { clientId: true } }),
       db.callCampaignItem.findMany({ where: todayWhere, distinct: ["clientId"], select: { clientId: true } }),
+      // «Всего детей» = строки с реальным подопечным (без null-плейсхолдеров
+      // бездетных клиентов), иначе бездетные завышали бы число детей.
+      db.callCampaignItem.count({ where: { ...itemWhere, wardId: { not: null } } }),
+      db.callCampaignItem.count({ where: { ...todayWhere, wardId: { not: null } } }),
     ])
 
   // Срезы по статусу → карты «статус → количество» (всего и за сегодня).
@@ -89,8 +94,8 @@ export default async function CallsPage() {
     {
       key: "total",
       label: "Всего детей",
-      total: Object.values(totalByStatus).reduce((s, n) => s + n, 0),
-      today: Object.values(todayByStatus).reduce((s, n) => s + n, 0),
+      total: childrenTotal,
+      today: childrenToday,
       subLabel: "Всего клиентов",
       subTotal: clientsTotalRows.length,
       subToday: clientsTodayRows.length,
@@ -179,7 +184,7 @@ export default async function CallsPage() {
               <TableRow>
                 <TableHead>Кампания</TableHead>
                 <TableHead>Дата</TableHead>
-                <TableHead className="text-center">Дети</TableHead>
+                <TableHead className="text-center">Всего</TableHead>
                 <TableHead className="text-center">Обзвонено</TableHead>
                 <TableHead className="text-center">Осталось</TableHead>
                 <TableHead>Статус</TableHead>

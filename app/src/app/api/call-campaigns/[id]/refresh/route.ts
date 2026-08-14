@@ -17,8 +17,11 @@ import {
  *
  *  - Новые подходящие клиенты, которых ещё нет в кампании → добавляются как
  *    pending («Не обзвонен»).
- *  - Необработанные (pending) позиции, переставшие подходить под критерии →
- *    удаляются.
+ *  - Существующие клиенты пере-разворачиваются на их ТЕКУЩИХ подопечных: детям,
+ *    появившимся после создания кампании, заводятся строки (снимок «оживает»).
+ *  - Необработанные (pending) позиции, переставшие подходить → удаляются: клиент
+ *    выпал из критериев ЛИБО подопечный строки больше не актуален (ребёнок удалён,
+ *    либо плейсхолдер ward=null заменяется строками появившихся детей).
  *  - Обработанные позиции (любой статус кроме pending) сохраняются ВСЕГДА, даже
  *    если клиент больше не подходит — прогресс и результаты не теряются.
  *
@@ -80,41 +83,60 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // нет). Advisory-lock уровня транзакции снимается автоматически на commit.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id})::bigint)`
 
-      // Клиенты, уже присутствующие в кампании (любой scope) — дедуп добавления.
-      // Читаем ВНУТРИ транзакции под локом, чтобы второй refresh увидел вставки
-      // первого и не задвоил клиента.
+      // Все текущие позиции кампании (любой scope) — читаем ВНУТРИ транзакции под
+      // локом, чтобы параллельный refresh увидел вставки и не задвоил. wardId нужен,
+      // чтобы синхронизировать ПОДОПЕЧНЫХ существующих клиентов (не только добавлять
+      // новых клиентов): у клиента, созданного бездетным или пополнившего состав
+      // после создания кампании, новые дети раньше не попадали в обзвон.
       const existing = await tx.callCampaignItem.findMany({
         where: { campaignId: id, tenantId },
-        select: { clientId: true },
+        select: { id: true, clientId: true, wardId: true, status: true },
       })
-      const existingIds = new Set(existing.map((i) => i.clientId))
-      // Добавляем только НОВЫХ клиентов и сразу разворачиваем их в строки-
-      // подопечные (одна строка = один подопечный). Клиентов, уже присутствующих
-      // в кампании, не пере-разбиваем — легаси-кампании (строка по клиенту)
-      // остаются как есть («старое не трогаем»).
-      const toAddRows = matching
-        .filter((c) => !existingIds.has(c.id))
-        .flatMap((c) => {
-          const appWardIds = stage
-            ? (c as { applications?: { wardId: string | null }[] }).applications?.map((a) => a.wardId)
-            : undefined
-          return wardIdsForClient(c.wards, fc, undefined, appWardIds).map((wardId) => ({
-            tenantId,
-            campaignId: id,
-            clientId: c.id,
-            wardId,
-            status: "pending" as const,
-          }))
-        })
+      // clientId → набор уже присутствующих wardId (включая null-плейсхолдер).
+      const existingWardsByClient = new Map<string, Set<string | null>>()
+      for (const it of existing) {
+        let s = existingWardsByClient.get(it.clientId)
+        if (!s) { s = new Set(); existingWardsByClient.set(it.clientId, s) }
+        s.add(it.wardId)
+      }
 
-      // Кандидаты на удаление — только НЕобработанные (pending) позиции, чьи
-      // клиенты видны в scope нажавшего и больше не подходят под критерии.
+      // Желаемое разложение по подопечным для КАЖДОГО подходящего клиента (по его
+      // ТЕКУЩИМ детям). Разворачиваем и уже присутствующих клиентов — так снимок
+      // «оживает»: новым детям заводятся строки, обработанные строки сохраняются.
+      const desiredWardsByClient = new Map<string, Set<string | null>>()
+      const toAddRows: {
+        tenantId: string; campaignId: string; clientId: string
+        wardId: string | null; status: "pending"
+      }[] = []
+      for (const c of matching) {
+        const appWardIds = stage
+          ? (c as { applications?: { wardId: string | null }[] }).applications?.map((a) => a.wardId)
+          : undefined
+        const desired = wardIdsForClient(c.wards, fc, undefined, appWardIds)
+        desiredWardsByClient.set(c.id, new Set(desired))
+        const have = existingWardsByClient.get(c.id) ?? new Set<string | null>()
+        for (const wardId of desired) {
+          if (!have.has(wardId)) {
+            toAddRows.push({ tenantId, campaignId: id, clientId: c.id, wardId, status: "pending" })
+          }
+        }
+      }
+
+      // Кандидаты на удаление — только НЕобработанные (pending) позиции в scope
+      // нажавшего, которые больше не нужны: клиент выпал из критериев ЛИБО
+      // подопечный строки больше не в желаемом наборе (ребёнок удалён; либо у
+      // бывшего бездетного клиента появились дети — плейсхолдер ward=null заменяем
+      // строками-детьми). Обработанные позиции сохраняются ВСЕГДА.
       const pendingInScope = await tx.callCampaignItem.findMany({
         where: { campaignId: id, tenantId, status: "pending", client: scopeClientByBranch(scope) },
-        select: { id: true, clientId: true },
+        select: { id: true, clientId: true, wardId: true },
       })
       const toRemoveIds = pendingInScope
-        .filter((i) => !matchingIds.has(i.clientId))
+        .filter((i) => {
+          if (!matchingIds.has(i.clientId)) return true
+          const desired = desiredWardsByClient.get(i.clientId)
+          return !!desired && !desired.has(i.wardId)
+        })
         .map((i) => i.id)
 
       if (toAddRows.length > 0) {

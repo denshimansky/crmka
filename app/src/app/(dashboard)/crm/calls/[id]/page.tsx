@@ -96,9 +96,12 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const cardStats = [
     {
       key: "total",
+      // «Всего детей» = строки с реальным подопечным. Строка клиента без детей
+      // (wardId=null) — это контакт для обзвона, но НЕ ребёнок: она считается
+      // только в «Всего клиентов», иначе бездетные клиенты завышали бы число детей.
       label: "Всего детей",
-      total: items.length,
-      today: items.filter((i) => isToday(i.calledAt)).length,
+      total: items.filter((i) => i.wardId).length,
+      today: items.filter((i) => i.wardId && isToday(i.calledAt)).length,
       subLabel: "Всего клиентов",
       subTotal: new Set(items.map((i) => i.clientId)).size,
       subToday: new Set(items.filter((i) => isToday(i.calledAt)).map((i) => i.clientId)).size,
