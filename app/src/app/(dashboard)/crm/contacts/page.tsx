@@ -62,10 +62,6 @@ const TAB_ORDER: ContactsTabKey[] = [
   "all",
 ]
 
-const NO_ACTIVE_APP: Prisma.ClientWhereInput = {
-  applications: { none: { status: "active", deletedAt: null } },
-}
-
 // Фильтр по филиалу (модель Анны, 13.08.2026): клиент принадлежит филиалу по
 // ручным полям карточки (branchId/secondBranchId) ИЛИ по живому абонементу —
 // единое правило clientInBranch (то же, что видимость админа scopeClientByBranch).
@@ -104,8 +100,13 @@ function buildWhere(
       },
     ]
   } else if (tab === "potential") {
+    // Потенциал = funnelStatus. Клиент с активной заявкой ОСТАЁТСЯ здесь с баджем
+    // «Заявка» — как в «Лидах» (см. выше). Прежняя модель (6925fa1) прятала
+    // родителя с активным pipeline из статус-вкладок, оставляя его только в
+    // «Продажах» и «Все» (NO_ACTIVE_APP). Для «Лидов» это уже отменили, а для
+    // «Потенциала» — нет: клиент funnel=potential с новой заявкой пропадал из
+    // своей вкладки (виден только во «Все»). Убрано — вкладка снова полная.
     base.funnelStatus = "potential"
-    base.AND = [NO_ACTIVE_APP]
   } else if (tab === "nontarget") {
     base.funnelStatus = "non_target"
   } else if (tab === "active") {
