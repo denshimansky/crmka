@@ -1,7 +1,10 @@
 import { db } from "@/lib/db"
-import { rateLimit } from "@/lib/rate-limit"
+import { peekRateLimit, rateLimit } from "@/lib/rate-limit"
 
-const LOGIN_MAX_ATTEMPTS = 5
+// В лимит попадают ТОЛЬКО неуспешные попытки (см. recordFailedLogin): успешные
+// входы не считаются, иначе два легитимных пользователя за одним IP/NAT (офис —
+// напр. владелец + управляющий с разных ПК) блокировали бы друг друга как брутфорс.
+const LOGIN_MAX_ATTEMPTS = 30
 const LOGIN_WINDOW_MS = 15 * 60 * 1000 // 15 минут
 
 interface LoginContext {
@@ -11,18 +14,27 @@ interface LoginContext {
 }
 
 /**
- * Проверяет rate limit по IP перед попыткой входа.
+ * Проверяет rate limit по IP перед попыткой входа — БЕЗ инкремента (peek).
+ * Счётчик растят только неуспешные попытки (recordFailedLogin).
  * Возвращает null если можно продолжать, или строку с причиной блокировки.
  */
 export function checkLoginRateLimit(ip: string): string | null {
-  const result = rateLimit(`login:${ip}`, {
-    maxRequests: LOGIN_MAX_ATTEMPTS,
-    windowMs: LOGIN_WINDOW_MS,
-  })
+  const result = peekRateLimit(`login:${ip}`, { maxRequests: LOGIN_MAX_ATTEMPTS })
   if (!result.ok) {
     return `blocked_brute_force:${result.retryAfter}s`
   }
   return null
+}
+
+/**
+ * Инкремент счётчика брутфорса по IP — вызывать ТОЛЬКО при НЕУСПЕШНОЙ попытке
+ * (неверный пароль / неизвестный пользователь). Успешный вход счётчик не трогает.
+ */
+export function recordFailedLogin(ip: string): void {
+  rateLimit(`login:${ip}`, {
+    maxRequests: LOGIN_MAX_ATTEMPTS,
+    windowMs: LOGIN_WINDOW_MS,
+  })
 }
 
 /**

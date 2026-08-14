@@ -37,6 +37,29 @@ export function rateLimit(
 }
 
 /**
+ * Проверка лимита БЕЗ инкремента счётчика (read-only «peek»). Возвращает
+ * { ok:false } только если в текущем окне УЖЕ накоплено >= maxRequests хитов.
+ *
+ * Нужна для входа, где в лимит должны попадать ТОЛЬКО неуспешные попытки: на
+ * старте авторизации проверяем лимит этой функцией (сама проверка ничего не
+ * прибавляет), а инкремент делаем отдельно (rateLimit) лишь при провале пароля.
+ * Иначе успешные входы считались бы как брутфорс — и два пользователя за одним
+ * IP/NAT (офис) блокировали бы друг друга.
+ */
+export function peekRateLimit(
+  key: string,
+  { maxRequests = 10 }: { maxRequests?: number } = {}
+): { ok: boolean; retryAfter?: number } {
+  const now = Date.now()
+  const entry = hits.get(key)
+  if (!entry || entry.resetAt < now) return { ok: true }
+  if (entry.count >= maxRequests) {
+    return { ok: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) }
+  }
+  return { ok: true }
+}
+
+/**
  * Tenant-level rate limiter (L-1 audit fix).
  * Limits total requests per tenant to prevent one tenant from overloading the system.
  * Default: 100 requests per minute per tenant.

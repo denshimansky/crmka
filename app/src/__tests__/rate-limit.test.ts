@@ -1,6 +1,6 @@
 import { describe, it, before } from "node:test"
 import assert from "node:assert/strict"
-import { rateLimit, getClientIp } from "@/lib/rate-limit"
+import { rateLimit, peekRateLimit, getClientIp } from "@/lib/rate-limit"
 
 describe("rateLimit", () => {
   it("разрешает запросы в пределах лимита", () => {
@@ -47,6 +47,30 @@ describe("rateLimit", () => {
     }
     const blocked = rateLimit(key)
     assert.equal(blocked.ok, false)
+  })
+})
+
+describe("peekRateLimit", () => {
+  it("не инкрементит счётчик (успешные проверки не копятся)", () => {
+    const key = `test-peek-noinc-${Date.now()}`
+    // Сколько ни «подглядывай» — лимит не расходуется.
+    for (let i = 0; i < 100; i++) {
+      assert.equal(peekRateLimit(key, { maxRequests: 3 }).ok, true)
+    }
+    // Реальные хиты по-прежнему считаются rateLimit.
+    for (let i = 0; i < 3; i++) rateLimit(key, { maxRequests: 3, windowMs: 60_000 })
+    assert.equal(peekRateLimit(key, { maxRequests: 3 }).ok, false, "после 3 хитов — блок")
+  })
+
+  it("блокирует только когда счётчик УЖЕ достиг лимита", () => {
+    const key = `test-peek-thresh-${Date.now()}`
+    rateLimit(key, { maxRequests: 3, windowMs: 60_000 }) // 1
+    rateLimit(key, { maxRequests: 3, windowMs: 60_000 }) // 2
+    assert.equal(peekRateLimit(key, { maxRequests: 3 }).ok, true, "2 < 3 — ещё можно")
+    rateLimit(key, { maxRequests: 3, windowMs: 60_000 }) // 3
+    const blocked = peekRateLimit(key, { maxRequests: 3 })
+    assert.equal(blocked.ok, false, "3 >= 3 — блок")
+    assert.ok(blocked.retryAfter! > 0)
   })
 })
 

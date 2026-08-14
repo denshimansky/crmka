@@ -3,7 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import { PrismaAdapter } from "@next-auth/prisma-adapter"
 import bcrypt from "bcryptjs"
 import { db } from "@/lib/db"
-import { checkLoginRateLimit, logLoginAttempt } from "@/lib/login-guard"
+import { checkLoginRateLimit, logLoginAttempt, recordFailedLogin } from "@/lib/login-guard"
 import { getClientIp } from "@/lib/rate-limit"
 
 export const authOptions: NextAuthOptions = {
@@ -72,12 +72,16 @@ export const authOptions: NextAuthOptions = {
         const employee = matches[0] || null
 
         if (!employee) {
+          // Неизвестный логин — засчитываем в лимит брутфорса.
+          recordFailedLogin(ip)
           logLoginAttempt({ ...loginCtx, success: false, reason: "user_not_found" })
           return null
         }
 
         const valid = await bcrypt.compare(credentials.password, employee.passwordHash)
         if (!valid) {
+          // Неверный пароль — засчитываем в лимит брутфорса.
+          recordFailedLogin(ip)
           logLoginAttempt({
             ...loginCtx,
             success: false,
