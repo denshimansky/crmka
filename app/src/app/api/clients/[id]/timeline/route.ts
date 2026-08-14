@@ -113,6 +113,7 @@ type EventKind =
   | "attendance_other"
   | "status_change"
   | "template_discount_removed"
+  | "discount_mode_changed"
   | "application_created"
   | "application_stage"
   | "application_processed"
@@ -806,6 +807,26 @@ export async function GET(
           `${who}${directionName}. Условие шаблона больше не выполняется ` +
           `(было −${prev.toLocaleString("ru-RU")} ${sym}).`,
         meta: { subscriptionId: subId, templateName: tplName, previousAmount: prev },
+      })
+      continue
+    }
+
+    // Смена типа скидки клиента (ручное переключение в карточке): «Авто (за второй)»
+    // / «Постоянная скидка: …» / «Без скидки» / «Скидки на абонементы» → с автором.
+    if (log.action === "discount_mode_changed") {
+      const dm = changes.discountMode as { old?: unknown; new?: unknown } | undefined
+      const oldLabel = typeof dm?.old === "string" ? dm.old : "—"
+      const newLabel = typeof dm?.new === "string" ? dm.new : "—"
+      const who = log.employee
+        ? [log.employee.lastName, log.employee.firstName].filter(Boolean).join(" ")
+        : "Система"
+      events.push({
+        id: `audit-${log.id}-discount-mode`,
+        kind: "discount_mode_changed",
+        date: log.createdAt.toISOString(),
+        title: "Изменён тип скидки",
+        description: `${oldLabel} → ${newLabel}`,
+        meta: { author: who },
       })
       continue
     }

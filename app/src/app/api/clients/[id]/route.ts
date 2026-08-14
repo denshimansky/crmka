@@ -354,6 +354,67 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     }
 
+    // История карточки: смена ТИПА скидки клиента (инцидент 14.08.2026 — переключения
+    // скидки двигали деньги строками «Возврат по скидке», но кто и когда переключил,
+    // в истории не отражалось). Пишем аудит при любом изменении клиентского режима
+    // скидки: «Авто (за второй абонемент)» / «Постоянная скидка: <шаблон>» / «Без
+    // скидки» / «Скидки на абонементы». Гейт old != new обязателен — форма карточки
+    // шлёт эти поля на каждом сохранении, без гейта плодился бы шум на каждую правку.
+    const oldDiscount = {
+      autoDiscountDisabled: existing.autoDiscountDisabled,
+      discountTemplateId: existing.discountTemplateId,
+      perSubDiscountMode: existing.perSubDiscountMode,
+    }
+    const newDiscount = {
+      autoDiscountDisabled: data.autoDiscountDisabled ?? existing.autoDiscountDisabled,
+      discountTemplateId:
+        data.discountTemplateId !== undefined ? data.discountTemplateId : existing.discountTemplateId,
+      perSubDiscountMode: data.perSubDiscountMode ?? existing.perSubDiscountMode,
+    }
+    const discountModeChanged =
+      oldDiscount.autoDiscountDisabled !== newDiscount.autoDiscountDisabled ||
+      oldDiscount.discountTemplateId !== newDiscount.discountTemplateId ||
+      oldDiscount.perSubDiscountMode !== newDiscount.perSubDiscountMode
+    if (discountModeChanged) {
+      // Имена шаблонов фиксируем на момент события (снимок): при переименовании
+      // шаблона позже историческая подпись не «поедет».
+      const tplIds = [oldDiscount.discountTemplateId, newDiscount.discountTemplateId].filter(
+        (v): v is string => !!v,
+      )
+      const tplNames = new Map<string, string>()
+      if (tplIds.length > 0) {
+        const tpls = await tx.discountTemplate.findMany({
+          where: { id: { in: tplIds }, tenantId: session.user.tenantId },
+          select: { id: true, name: true },
+        })
+        for (const tpl of tpls) tplNames.set(tpl.id, tpl.name)
+      }
+      const discountModeLabel = (m: typeof oldDiscount): string =>
+        m.perSubDiscountMode
+          ? "Скидки на абонементы"
+          : m.autoDiscountDisabled
+            ? "Без скидки"
+            : m.discountTemplateId
+              ? `Постоянная скидка: ${tplNames.get(m.discountTemplateId) ?? "шаблон"}`
+              : "Авто (за второй абонемент)"
+      await tx.auditLog.create({
+        data: {
+          tenantId: session.user.tenantId,
+          // NULL → в ленте «Система» (как у смены статуса); ручной путь — здесь всегда сотрудник.
+          employeeId: session.user.employeeId ?? null,
+          action: "discount_mode_changed",
+          entityType: "Client",
+          entityId: id,
+          changes: {
+            discountMode: {
+              old: discountModeLabel(oldDiscount),
+              new: discountModeLabel(newDiscount),
+            },
+          },
+        },
+      })
+    }
+
     if (movingToTerminal) {
       const activeApps = await tx.application.findMany({
         where: {

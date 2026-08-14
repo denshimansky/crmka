@@ -20,6 +20,7 @@ import {
   FileText,
   TrendingUp,
   Trophy,
+  Percent,
 } from "lucide-react"
 
 interface TimelineEvent {
@@ -45,7 +46,7 @@ const FILTERS: FilterDef[] = [
   { key: "pay", label: "Оплаты", kinds: ["payment_in", "payment_refund", "subscription_paid_from_balance", "balance_credit", "balance_debit"] },
   { key: "att", label: "Посещения", kinds: ["attendance_present", "attendance_absent", "attendance_other"] },
   { key: "status", label: "Статусы", kinds: ["status_change"] },
-  { key: "discount", label: "Скидки", kinds: ["template_discount_removed"] },
+  { key: "discount", label: "Скидки", kinds: ["template_discount_removed", "discount_mode_changed"] },
 ]
 
 // Фильтры, недоступные в режиме «история ребёнка» — оплаты/коммуникации/статусы
@@ -72,6 +73,7 @@ const KIND_CONFIG: Record<
   attendance_other: { icon: CalendarDays, color: "text-gray-600", bg: "bg-gray-100 dark:bg-gray-800" },
   status_change: { icon: History, color: "text-indigo-600", bg: "bg-indigo-100 dark:bg-indigo-900/30" },
   template_discount_removed: { icon: Tag, color: "text-amber-700", bg: "bg-amber-100 dark:bg-amber-900/30" },
+  discount_mode_changed: { icon: Percent, color: "text-violet-700", bg: "bg-violet-100 dark:bg-violet-900/30" },
   application_created: { icon: FileText, color: "text-blue-600", bg: "bg-blue-100 dark:bg-blue-900/30" },
   application_stage: { icon: TrendingUp, color: "text-indigo-600", bg: "bg-indigo-100 dark:bg-indigo-900/30" },
   application_processed: { icon: Trophy, color: "text-emerald-700", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
