@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
+import { ensureSystemWithdrawalReasons } from "@/lib/withdrawal-reasons/seed-system-reasons"
 
 // GET /api/withdrawal-reasons — список причин отчисления
 export async function GET() {
@@ -10,6 +11,10 @@ export async function GET() {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const tenantId = (session.user as any).tenantId
+
+  // Гарантируем дефолтный системный набор: у центров без seeding справочник был
+  // пуст, а причина при отчислении обязательна. Идемпотентно (см. хелпер).
+  await ensureSystemWithdrawalReasons(tenantId)
 
   const reasons = await db.withdrawalReason.findMany({
     where: { tenantId },

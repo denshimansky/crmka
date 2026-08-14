@@ -11,6 +11,7 @@ import { generateUniquePortalSlug } from "@/lib/portal-slug"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
 import { isLoginTaken, LOGIN_TAKEN_MSG, uniqueViolationMessage } from "@/lib/employee-identity"
+import { ensureSystemWithdrawalReasons } from "@/lib/withdrawal-reasons/seed-system-reasons"
 
 // GET /api/admin/partners — список партнёров
 export async function GET() {
@@ -165,6 +166,15 @@ export async function POST(req: NextRequest) {
     const msg = uniqueViolationMessage(e)
     if (msg) return NextResponse.json({ error: msg }, { status: 409 })
     throw e
+  }
+
+  // Дефолтный справочник причин отчисления — сразу при создании центра, чтобы он
+  // был «со старта». Best-effort: орг уже создана и закоммичена, ошибка seeding
+  // не должна валить ответ — набор всё равно досеется лениво при первом GET.
+  try {
+    await ensureSystemWithdrawalReasons(org.id)
+  } catch {
+    /* лениво добьётся в GET /api/withdrawal-reasons */
   }
 
   return NextResponse.json({ ...org, owner: owner ? { id: owner.id, login: owner.login } : null }, { status: 201 })
