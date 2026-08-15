@@ -6,6 +6,7 @@ import {
   expenseFetchWindow,
 } from "@/lib/expense-amortization"
 import { buildCellRevenue, resolveTargets, distribute, NO_BRANCH_ID } from "@/lib/pnl-allocation"
+import { loadPieceRatioMap, makeRatioLookup, ymKeyOf } from "@/lib/salary/recognized-piece"
 
 /** 7.3. P&L на уровне группы */
 export async function GET(req: NextRequest) {
@@ -44,9 +45,18 @@ export async function GET(req: NextRequest) {
       chargeAmount: true,
       instructorPayAmount: true,
       instructorPayEnabled: true,
-      lesson: { select: { id: true, groupId: true, durationMinutes: true, group: { select: { branchId: true, directionId: true } } } },
+      lesson: { select: { id: true, date: true, groupId: true, durationMinutes: true, instructorId: true, substituteInstructorId: true, group: { select: { branchId: true, directionId: true } } } },
     },
   })
+
+  // Сделка в ОПИУ — «по выплате, в месяц работы» (FIFO). См. lib/salary/recognized-piece.
+  const pieceRatio = makeRatioLookup(
+    await loadPieceRatioMap(
+      tenantId,
+      ymKeyOf(dateFrom.getUTCFullYear(), dateFrom.getUTCMonth() + 1),
+      ymKeyOf(dateTo.getUTCFullYear(), dateTo.getUTCMonth() + 1),
+    ),
+  )
 
   const groupRevenue = new Map<string, number>()
   const groupSalary = new Map<string, number>()
@@ -56,7 +66,12 @@ export async function GET(req: NextRequest) {
     const gId = a.lesson.groupId
     groupRevenue.set(gId, (groupRevenue.get(gId) || 0) + Number(a.chargeAmount))
     if (a.instructorPayEnabled) {
-      groupSalary.set(gId, (groupSalary.get(gId) || 0) + Number(a.instructorPayAmount))
+      groupSalary.set(
+        gId,
+        (groupSalary.get(gId) || 0) +
+          Number(a.instructorPayAmount) *
+            pieceRatio(a.lesson.substituteInstructorId ?? a.lesson.instructorId, a.lesson.date),
+      )
     }
     if (!groupLessons.has(gId)) groupLessons.set(gId, new Set())
     groupLessons.get(gId)!.add(a.lesson.id)

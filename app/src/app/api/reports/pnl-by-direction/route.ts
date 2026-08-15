@@ -7,6 +7,7 @@ import {
 } from "@/lib/expense-amortization"
 import { branchShare } from "@/lib/pnl-allocation"
 import { fetchCellRevenue } from "@/lib/pnl-cell-revenue"
+import { loadPieceRatioMap, makeRatioLookup, ymKeyOf } from "@/lib/salary/recognized-piece"
 
 /** FIN-15: P&L по направлениям */
 export async function GET(req: NextRequest) {
@@ -33,6 +34,9 @@ export async function GET(req: NextRequest) {
       instructorPayEnabled: true,
       lesson: {
         select: {
+          date: true,
+          instructorId: true,
+          substituteInstructorId: true,
           group: {
             select: {
               direction: { select: { id: true, name: true } },
@@ -42,6 +46,16 @@ export async function GET(req: NextRequest) {
       },
     },
   })
+
+  // Сделка в ОПИУ — «по выплате, в месяц работы»: домножаем на коэффициент оплаченной
+  // части (FIFO). См. lib/salary/recognized-piece.
+  const pieceRatio = makeRatioLookup(
+    await loadPieceRatioMap(
+      tenantId,
+      ymKeyOf(dateFrom.getUTCFullYear(), dateFrom.getUTCMonth() + 1),
+      ymKeyOf(dateTo.getUTCFullYear(), dateTo.getUTCMonth() + 1),
+    ),
+  )
 
   // Group by direction
   const dirMap = new Map<
@@ -55,7 +69,9 @@ export async function GET(req: NextRequest) {
     const prev = dirMap.get(dirId) || { name: dirName, revenue: 0, salary: 0 }
     prev.revenue += Number(a.chargeAmount)
     if (a.instructorPayEnabled) {
-      prev.salary += Number(a.instructorPayAmount)
+      prev.salary +=
+        Number(a.instructorPayAmount) *
+        pieceRatio(a.lesson.substituteInstructorId ?? a.lesson.instructorId, a.lesson.date)
     }
     dirMap.set(dirId, prev)
   }

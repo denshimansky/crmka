@@ -8,6 +8,7 @@ import {
 } from "@/lib/expense-amortization"
 import { branchShare } from "@/lib/pnl-allocation"
 import { fetchCellRevenue } from "@/lib/pnl-cell-revenue"
+import { loadPieceRatioMap, makeRatioLookup, ymKeyOf } from "@/lib/salary/recognized-piece"
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -282,6 +283,8 @@ export async function GET(req: NextRequest) {
           lesson: {
             select: {
               date: true,
+              instructorId: true,
+              substituteInstructorId: true,
               group: { select: { name: true, direction: { select: { name: true } } } },
               instructor: { select: { firstName: true, lastName: true } },
               substituteInstructor: { select: { firstName: true, lastName: true } },
@@ -292,6 +295,12 @@ export async function GET(req: NextRequest) {
         take: 500,
       })
 
+      // Сделка — «по выплате, в месяц работы» (FIFO): показываем ПРИЗНАННУЮ (оплаченную)
+      // сумму, чтобы строка «ЗП инструкторов» и её drill-down совпадали.
+      const pieceRatio = makeRatioLookup(
+        await loadPieceRatioMap(tenantId, ymKeyOf(fromYm.year, fromYm.month), ymKeyOf(toYm.year, toYm.month)),
+      )
+
       // Группируем по сотруднику + направлению (как в новом P&L).
       const byKey = new Map<string, { employee: string; direction: string; lessons: number; amount: number }>()
       for (const a of attendances) {
@@ -301,7 +310,9 @@ export async function GET(req: NextRequest) {
         const key = `${name}__${dir}`
         const prev = byKey.get(key) || { employee: name, direction: dir, lessons: 0, amount: 0 }
         prev.lessons += 1
-        prev.amount += Number(a.instructorPayAmount)
+        prev.amount +=
+          Number(a.instructorPayAmount) *
+          pieceRatio(a.lesson.substituteInstructorId ?? a.lesson.instructorId, a.lesson.date)
         byKey.set(key, prev)
       }
 

@@ -19,6 +19,7 @@ import { BackButton } from "@/components/back-button"
 import { ReportExport } from "@/components/report-export"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { expenseAmountInWindow, expenseFetchWindow } from "@/lib/expense-amortization"
+import { loadPieceRatioMap, makeRatioLookup, ymKeyOf } from "@/lib/salary/recognized-piece"
 
 function formatMoney(amount: number): string {
   return new Intl.NumberFormat("ru-RU").format(Math.round(amount)) + " \u20BD"
@@ -62,6 +63,9 @@ export default async function PnlDirectionsPage({
       instructorPayEnabled: true,
       lesson: {
         select: {
+          date: true,
+          instructorId: true,
+          substituteInstructorId: true,
           group: {
             select: {
               direction: { select: { id: true, name: true } },
@@ -71,6 +75,11 @@ export default async function PnlDirectionsPage({
       },
     },
   })
+
+  // Сделка в ОПИУ — «по выплате, в месяц работы» (FIFO). См. lib/salary/recognized-piece.
+  const pieceRatio = makeRatioLookup(
+    await loadPieceRatioMap(tenantId, ymKeyOf(year, month), ymKeyOf(year, month)),
+  )
 
   const dirMap = new Map<
     string,
@@ -83,7 +92,9 @@ export default async function PnlDirectionsPage({
     const prev = dirMap.get(dirId) || { name: dirName, revenue: 0, salary: 0 }
     prev.revenue += Number(a.chargeAmount)
     if (a.instructorPayEnabled) {
-      prev.salary += Number(a.instructorPayAmount)
+      prev.salary +=
+        Number(a.instructorPayAmount) *
+        pieceRatio(a.lesson.substituteInstructorId ?? a.lesson.instructorId, a.lesson.date)
     }
     dirMap.set(dirId, prev)
   }

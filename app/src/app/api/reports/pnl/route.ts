@@ -9,6 +9,7 @@ import {
 import { branchShare } from "@/lib/pnl-allocation"
 import { fetchCellRevenue } from "@/lib/pnl-cell-revenue"
 import { isUnscoped, scopeExpense, scopePaymentByAccount } from "@/lib/branch-scope"
+import { loadPieceRatioMap, makeRatioLookup, ymKeyOf } from "@/lib/salary/recognized-piece"
 
 /** 7.2. Финансовый результат (P&L) с учётом периода признания расхода. */
 export async function GET(req: NextRequest) {
@@ -186,6 +187,8 @@ export async function GET(req: NextRequest) {
   // расходом (категория «Зарплата окладников», твин выплаты) и уже учтён в totalExpenses.
   // Премии/штрафы окладников также приходят суммой выплаты (в твине), поэтому
   // SalaryAdjustment в ОПИУ здесь не суммируется — иначе двойной счёт.
+  // Сделка признаётся в ОПИУ «по выплате, в месяц работы»: начисление по дате занятия
+  // домножается на коэффициент оплаченной части (FIFO). См. lib/salary/recognized-piece.
   const salaryAtt = await db.attendance.findMany({
     where: {
       tenantId,
@@ -193,9 +196,25 @@ export async function GET(req: NextRequest) {
       instructorPayEnabled: true,
       ...(branchId ? { lesson: { date: { gte: dateFrom, lte: dateTo }, group: { branchId } } } : {}),
     },
-    select: { instructorPayAmount: true },
+    select: {
+      instructorPayAmount: true,
+      lesson: { select: { date: true, instructorId: true, substituteInstructorId: true } },
+    },
   })
-  const totalSalaryAccrued = salaryAtt.reduce((s, a) => s + Number(a.instructorPayAmount), 0)
+  const pieceRatio = makeRatioLookup(
+    await loadPieceRatioMap(
+      tenantId,
+      ymKeyOf(dateFrom.getUTCFullYear(), dateFrom.getUTCMonth() + 1),
+      ymKeyOf(dateTo.getUTCFullYear(), dateTo.getUTCMonth() + 1),
+    ),
+  )
+  const totalSalaryAccrued = salaryAtt.reduce(
+    (s, a) =>
+      s +
+      Number(a.instructorPayAmount) *
+        pieceRatio(a.lesson.substituteInstructorId ?? a.lesson.instructorId, a.lesson.date),
+    0,
+  )
 
   // По категориям.
   const byCategory: Record<string, { amount: number; isSalary: boolean; isVariable: boolean }> = {}

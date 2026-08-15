@@ -21,6 +21,7 @@ import {
   type PnlView,
 } from "@/lib/pnl-view"
 import { computePnlDecomposition, type PnlDecompRawData, type DecompView } from "@/lib/pnl-decomposition"
+import { loadPieceRatioMap, makeRatioLookup } from "@/lib/salary/recognized-piece"
 import { PnlDecompositionTree } from "@/components/pnl-decomposition-tree"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
@@ -87,7 +88,9 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     },
   })
 
-  // ЗП инструкторов (начислено из посещений) по дате занятия.
+  // ЗП инструкторов: сделка признаётся в ОПИУ «по выплате, в месяц работы» — берём
+  // начисление по дате занятия, но домножаем на коэффициент оплаченной части (FIFO).
+  // См. lib/salary/recognized-piece. payee = замена ?? основной инструктор.
   const salaryAttendances = await db.attendance.findMany({
     where: {
       tenantId,
@@ -96,9 +99,22 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     },
     select: {
       instructorPayAmount: true,
-      lesson: { select: { date: true, group: { select: { branchId: true, directionId: true } } } },
+      lesson: {
+        select: {
+          date: true,
+          instructorId: true,
+          substituteInstructorId: true,
+          group: { select: { branchId: true, directionId: true } },
+        },
+      },
     },
   })
+  const pieceRatio = makeRatioLookup(
+    await loadPieceRatioMap(tenantId, monthKey(fromYm.year, fromYm.month), monthKey(toYm.year, toYm.month)),
+  )
+  const recognizedPiece = (s: (typeof salaryAttendances)[number]): number =>
+    Number(s.instructorPayAmount) *
+    pieceRatio(s.lesson.substituteInstructorId ?? s.lesson.instructorId, s.lesson.date)
 
   // Прочие доходы вне абонементов (Payment без subscriptionId, с incomeCategoryId).
   // В срезе филиала разносятся ∝ выручке (как общий расход) — тянем всегда.
@@ -143,7 +159,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
       directionName: a.lesson.group.direction.name,
     })),
     salary: salaryAttendances.map((s) => ({
-      amount: Number(s.instructorPayAmount),
+      amount: recognizedPiece(s),
       ymKey: monthKeyOfDate(s.lesson.date),
       branchId: s.lesson.group.branchId,
     })),
@@ -182,7 +198,7 @@ export default async function PnlReportPage({ searchParams }: { searchParams: Pr
     salary: salaryAttendances.map((s) => ({
       branchId: s.lesson.group.branchId,
       directionId: s.lesson.group.directionId,
-      amount: Number(s.instructorPayAmount),
+      amount: recognizedPiece(s),
       ymKey: monthKeyOfDate(s.lesson.date),
     })),
     otherIncome: otherIncomePayments.flatMap((p) =>
