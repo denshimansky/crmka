@@ -2,10 +2,10 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
-import { scopeExpense, scopeBranch, scopeBookableAccount } from "@/lib/branch-scope"
+import { scopeExpense, scopeBranch, scopeBookableAccount, scopeEmployee } from "@/lib/branch-scope"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { TrendingDown, Repeat, BarChart3 } from "lucide-react"
+import { TrendingDown, Wallet, BarChart3 } from "lucide-react"
 import { AddExpenseDialog } from "./add-expense-dialog"
 // CopyMonthButton временно скрыт — флаг «Повторяющийся» в формах тоже спрятан,
 // без него кнопка ничего не находит. Возвращаем оба элемента одновременно.
@@ -27,11 +27,20 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
   const monthStart = new Date(Date.UTC(year, month - 1, 1))
   const monthEnd = new Date(Date.UTC(year, month, 0))
 
+  // «По факту ДДС»: показываем только реальные движения денег со счёта
+  // (accountId != null — исключает оклад-твины и списания склада, они денег не двигают)
+  // и без пометки «не учитывать в финрезе» (recognitionMode=not_in_pnl). Зарплата на
+  // странице — ТОЛЬКО фактические выплаты через модуль (запрос salaryPayments ниже),
+  // поэтому ручные расходы в зарплатных категориях (category.isSalary) исключаем —
+  // иначе задвоение с выплатами модуля.
   const expenses = await db.expense.findMany({
     where: {
       tenantId,
       deletedAt: null,
       date: { gte: monthStart, lte: monthEnd },
+      accountId: { not: null },
+      recognitionMode: { not: "not_in_pnl" },
+      category: { isSalary: false },
       ...scopeExpense(scope),
     },
     include: {
@@ -49,17 +58,34 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     take: 500,
   })
 
-  // Суммы
-  const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount), 0)
+  // Фактические выплаты ЗП за месяц (по дате выплаты) — как расходная строка в ДДС.
+  const salaryPayments = await db.salaryPayment.findMany({
+    where: {
+      tenantId,
+      date: { gte: monthStart, lte: monthEnd },
+      employee: scopeEmployee(scope),
+    },
+    include: {
+      employee: { select: { firstName: true, lastName: true } },
+      account: { select: { name: true } },
+    },
+    orderBy: { date: "desc" },
+    take: 500,
+  })
+  const totalSalaryPayments = salaryPayments.reduce((sum, p) => sum + Number(p.amount), 0)
+
+  // Суммы. «Расходы за месяц» = расходы со счёта + фактические выплаты ЗП (по факту ДДС),
+  // поэтому Total = Постоянные + Переменные + Зарплата.
+  const expensesTotal = expenses.reduce((sum, e) => sum + Number(e.amount), 0)
   const variableExpenses = expenses.filter(e => e.isVariable).reduce((sum, e) => sum + Number(e.amount), 0)
-  const fixedExpenses = totalExpenses - variableExpenses
-  const recurringCount = expenses.filter(e => e.isRecurring).length
+  const fixedExpenses = expensesTotal - variableExpenses
+  const grandTotal = expensesTotal + totalSalaryPayments
 
   const summary = [
-    { title: "Расходы за месяц", value: formatMoney(totalExpenses), icon: TrendingDown, color: "text-red-600", bg: "bg-red-50" },
+    { title: "Расходы за месяц", value: formatMoney(grandTotal), icon: TrendingDown, color: "text-red-600", bg: "bg-red-50" },
     { title: "Постоянные", value: formatMoney(fixedExpenses), icon: BarChart3, color: "text-orange-600", bg: "bg-orange-50" },
     { title: "Переменные", value: formatMoney(variableExpenses), icon: BarChart3, color: "text-yellow-600", bg: "bg-yellow-50" },
-    { title: "Повторяющиеся", value: String(recurringCount), icon: Repeat, color: "text-blue-600", bg: "bg-blue-50" },
+    { title: "Зарплата (выплаты)", value: formatMoney(totalSalaryPayments), icon: Wallet, color: "text-blue-600", bg: "bg-blue-50" },
   ]
 
   // Данные для диалогов. Системную «Зарплата окладников» скрываем из ручного ввода:
@@ -141,12 +167,23 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     }
   })
 
-  // Итоги по статьям
+  // Строки фактических выплат ЗП для таблицы (read-only, редактируются в «Зарплата»).
+  const salaryRows = salaryPayments.map((p) => ({
+    id: p.id,
+    date: p.date.toISOString().slice(0, 10),
+    employeeName: [p.employee.lastName, p.employee.firstName].filter(Boolean).join(" ").trim() || "—",
+    accountName: p.account?.name ?? "—",
+    amount: Number(p.amount),
+    periodLabel: `за ${String(p.periodMonth).padStart(2, "0")}.${p.periodYear}`,
+  }))
+
+  // Итоги по статьям (+ отдельной строкой выплаты ЗП).
   const categoryTotals = new Map<string, number>()
   for (const e of expenses) {
     const prev = categoryTotals.get(e.category.name) || 0
     categoryTotals.set(e.category.name, prev + Number(e.amount))
   }
+  if (totalSalaryPayments > 0) categoryTotals.set("Зарплата (выплаты)", totalSalaryPayments)
   const sortedCategoryTotals = Array.from(categoryTotals.entries())
     .sort((a, b) => b[1] - a[1])
 
@@ -207,7 +244,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
         </Card>
       )}
 
-      {expenses.length === 0 ? (
+      {expenses.length === 0 && salaryRows.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center gap-2 p-12 text-muted-foreground">
             <p>Нет расходов за текущий месяц</p>
@@ -217,6 +254,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       ) : (
         <ExpensesTable
           expenses={tableExpenses}
+          salaryPayments={salaryRows}
           categories={categories}
           accounts={accounts}
           branches={allBranches}

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
@@ -29,6 +30,16 @@ interface ExpenseRow {
   directionName: string | null
   leadChannelId: string | null
   leadChannelName: string | null
+}
+
+/** Read-only строка фактической выплаты ЗП (SalaryPayment) — деньги по факту ДДС. */
+interface SalaryPaymentRow {
+  id: string
+  date: string
+  employeeName: string
+  accountName: string
+  amount: number
+  periodLabel: string
 }
 
 interface CategoryOption {
@@ -65,6 +76,7 @@ function formatDate(dateStr: string): string {
 
 export function ExpensesTable({
   expenses,
+  salaryPayments = [],
   categories,
   accounts,
   branches,
@@ -72,6 +84,7 @@ export function ExpensesTable({
   leadChannels,
 }: {
   expenses: ExpenseRow[]
+  salaryPayments?: SalaryPaymentRow[]
   categories: CategoryOption[]
   accounts: AccountOption[]
   branches: BranchOption[]
@@ -80,6 +93,17 @@ export function ExpensesTable({
 }) {
   const [editingExpense, setEditingExpense] = useState<ExpenseRow | null>(null)
   const formatMoney = useMoneyFormat()
+  const router = useRouter()
+
+  // Единый поток «по факту ДДС»: расходы со счёта + фактические выплаты ЗП, по дате (убыв.).
+  const rows: ({ kind: "expense"; e: ExpenseRow } | { kind: "salary"; s: SalaryPaymentRow })[] = [
+    ...expenses.map((e) => ({ kind: "expense" as const, e })),
+    ...salaryPayments.map((s) => ({ kind: "salary" as const, s })),
+  ].sort((a, b) => {
+    const da = a.kind === "expense" ? a.e.date : a.s.date
+    const db = b.kind === "expense" ? b.e.date : b.s.date
+    return db.localeCompare(da)
+  })
 
   return (
     <>
@@ -99,46 +123,81 @@ export function ExpensesTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {expenses.map((exp) => (
-              <TableRow
-                key={exp.id}
-                className="cursor-pointer hover:bg-muted/50"
-                onClick={() => setEditingExpense(exp)}
-              >
-                <TableCell className="text-muted-foreground">{formatDate(exp.date)}</TableCell>
-                <TableCell className="font-medium">
-                  {exp.categoryName}
-                  {exp.isRecurring && (
-                    <Badge variant="outline" className="ml-2 text-xs">повтор</Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-right font-medium text-red-600">
-                  {formatMoney(exp.amount)}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {exp.branchNames.length > 0 ? exp.branchNames.join(", ") : "Все"}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {exp.directionName ?? "—"}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {exp.leadChannelName ?? "—"}
-                </TableCell>
-                <TableCell className="text-muted-foreground">{exp.accountName}</TableCell>
-                <TableCell className="text-muted-foreground text-xs">
-                  {exp.recognitionMode === "not_in_pnl"
-                    ? "Не в финрезе"
-                    : exp.recognitionMode === "single_period" && exp.amortizationStartDate
-                    ? `1 мес. с ${formatDate(exp.amortizationStartDate)}`
-                    : exp.recognitionMode === "amortized" && exp.amortizationMonths && exp.amortizationStartDate
-                      ? `${exp.amortizationMonths} мес. с ${formatDate(exp.amortizationStartDate)}`
-                      : "По дате платежа"}
-                </TableCell>
-                <TableCell className="max-w-[200px] truncate text-muted-foreground">
-                  {exp.comment || "—"}
-                </TableCell>
-              </TableRow>
-            ))}
+            {rows.map((row) =>
+              row.kind === "expense" ? (
+                (() => {
+                  const exp = row.e
+                  return (
+                    <TableRow
+                      key={`e-${exp.id}`}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => setEditingExpense(exp)}
+                    >
+                      <TableCell className="text-muted-foreground">{formatDate(exp.date)}</TableCell>
+                      <TableCell className="font-medium">
+                        {exp.categoryName}
+                        {exp.isRecurring && (
+                          <Badge variant="outline" className="ml-2 text-xs">повтор</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-red-600">
+                        {formatMoney(exp.amount)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {exp.branchNames.length > 0 ? exp.branchNames.join(", ") : "Все"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {exp.directionName ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {exp.leadChannelName ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{exp.accountName}</TableCell>
+                      <TableCell className="text-muted-foreground text-xs">
+                        {exp.recognitionMode === "not_in_pnl"
+                          ? "Не в финрезе"
+                          : exp.recognitionMode === "single_period" && exp.amortizationStartDate
+                          ? `1 мес. с ${formatDate(exp.amortizationStartDate)}`
+                          : exp.recognitionMode === "amortized" && exp.amortizationMonths && exp.amortizationStartDate
+                            ? `${exp.amortizationMonths} мес. с ${formatDate(exp.amortizationStartDate)}`
+                            : "По дате платежа"}
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                        {exp.comment || "—"}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })()
+              ) : (
+                (() => {
+                  const s = row.s
+                  return (
+                    <TableRow
+                      key={`s-${s.id}`}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => router.push("/salary")}
+                    >
+                      <TableCell className="text-muted-foreground">{formatDate(s.date)}</TableCell>
+                      <TableCell className="font-medium">
+                        Зарплата
+                        <Badge variant="outline" className="ml-2 text-xs">выплата</Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-red-600">
+                        {formatMoney(s.amount)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">—</TableCell>
+                      <TableCell className="text-muted-foreground">—</TableCell>
+                      <TableCell className="text-muted-foreground">—</TableCell>
+                      <TableCell className="text-muted-foreground">{s.accountName}</TableCell>
+                      <TableCell className="text-muted-foreground text-xs">По дате выплаты</TableCell>
+                      <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                        {s.employeeName}{s.periodLabel ? ` · ${s.periodLabel}` : ""}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })()
+              ),
+            )}
           </TableBody>
         </Table>
       </StickyHScroll>
