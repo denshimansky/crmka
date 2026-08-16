@@ -57,7 +57,7 @@ export const DASHBOARD_WIDGET_GATES: Record<string, WidgetGate> = {
  * при finance.result (см. DASHBOARD_WIDGET_GATES.stats).
  */
 export const STAT_CARD_PERMISSIONS = {
-  activeSubscriptions: "clients.view", // /crm/contacts?tab=active
+  activeSubscriptions: "clients.view", // /crm/subscriptions (тоже под /crm → clients.view)
   income: "finance.result", // /finance/dds?kind=income
   expenses: "finance.view", // /finance/expenses
   debtors: "finance.view", // /finance/debtors
