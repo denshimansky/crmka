@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CalendarCheck2, FilePlus, PhoneCall, PhoneOff, Users, XCircle } from "lucide-react"
 import Link from "next/link"
 import { CreateCampaignDialog } from "./create-campaign-dialog"
+import { CreateNoAnswerCampaignDialog } from "./create-no-answer-campaign-dialog"
 import { CampaignActionsCell } from "./campaign-actions"
 import { CampaignStatCards } from "./campaign-stat-cards"
 import { PageHelp } from "@/components/page-help"
@@ -165,6 +166,7 @@ export default async function CallsPage() {
           <PageHelp pageKey="crm/calls" />
         </div>
         <div className="flex items-center gap-2">
+          <CreateNoAnswerCampaignDialog />
           <CreateCampaignDialog branches={branches} />
         </div>
       </div>

@@ -9,6 +9,8 @@ import {
   campaignFilterSchema,
   wardIdsForClient,
 } from "@/lib/call-campaigns/filter"
+import { loadNoAnswerDesiredRows } from "@/lib/call-campaigns/no-answer-source"
+import { branchScopeFromSession } from "@/lib/branch-scope"
 
 const createSchema = z.object({
   name: z.string().min(1, "Введите название"),
@@ -45,45 +47,60 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Выберите хотя бы один тип задач" }, { status: 400 })
   }
 
-  const where = buildScopedCampaignWhere(
-    session.user.tenantId,
-    (session.user as { allowedBranchIds?: string[] | null }).allowedBranchIds ?? null,
-    data.filterCriteria,
-  )
+  const allowedBranchIds =
+    (session.user as { allowedBranchIds?: string[] | null }).allowedBranchIds ?? null
 
   // Лимит на размер кампании снят (баг #82): в обзвон попадают все клиенты,
   // подходящие под критерии, без потолка.
-  // Одна строка = один подопечный: разворачиваем клиента в строки по подходящим
-  // подопечным (при фильтре по дате рождения — только попавшим в диапазон). Для
-  // этапа-заявки дополнительно подтягиваем заявочных подопечных, чтобы не создать
-  // строки на сиблингов без заявки (см. applicationStageForWardScope).
-  const stage = applicationStageForWardScope(data.filterCriteria)
-  const clients = await db.client.findMany({
-    where,
-    select: {
-      id: true,
-      wards: { select: { id: true, birthDate: true } },
-      ...(stage
-        ? {
-            applications: {
-              where: { status: "active", deletedAt: null, stage: stage as never },
-              select: { wardId: true },
-            },
-          }
-        : {}),
-    },
-  })
-  const rows = clients.flatMap((cl) => {
-    const appWardIds = stage
-      ? (cl as { applications?: { wardId: string | null }[] }).applications?.map((a) => a.wardId)
-      : undefined
-    return wardIdsForClient(cl.wards, data.filterCriteria, undefined, appWardIds).map((wardId) => ({
-      tenantId: session.user.tenantId,
-      clientId: cl.id,
-      wardId,
-      status: "pending" as const,
-    }))
-  })
+  let rows: { tenantId: string; clientId: string; wardId: string | null; status: "pending" }[]
+
+  if (fc.mode === "no_answer") {
+    // «Обзвон по не ответившим»: источник — позиции других кампаний со
+    // status=no_answer (в scope), уже разложенные по подопечным.
+    const scope = branchScopeFromSession(allowedBranchIds)
+    const desired = await loadNoAnswerDesiredRows(db, session.user.tenantId, scope)
+    rows = [...desired].flatMap(([clientId, wards]) =>
+      [...wards].map((wardId) => ({
+        tenantId: session.user.tenantId,
+        clientId,
+        wardId,
+        status: "pending" as const,
+      })),
+    )
+  } else {
+    const where = buildScopedCampaignWhere(session.user.tenantId, allowedBranchIds, data.filterCriteria)
+    // Одна строка = один подопечный: разворачиваем клиента в строки по подходящим
+    // подопечным (при фильтре по дате рождения — только попавшим в диапазон). Для
+    // этапа-заявки дополнительно подтягиваем заявочных подопечных, чтобы не создать
+    // строки на сиблингов без заявки (см. applicationStageForWardScope).
+    const stage = applicationStageForWardScope(data.filterCriteria)
+    const clients = await db.client.findMany({
+      where,
+      select: {
+        id: true,
+        wards: { select: { id: true, birthDate: true } },
+        ...(stage
+          ? {
+              applications: {
+                where: { status: "active", deletedAt: null, stage: stage as never },
+                select: { wardId: true },
+              },
+            }
+          : {}),
+      },
+    })
+    rows = clients.flatMap((cl) => {
+      const appWardIds = stage
+        ? (cl as { applications?: { wardId: string | null }[] }).applications?.map((a) => a.wardId)
+        : undefined
+      return wardIdsForClient(cl.wards, data.filterCriteria, undefined, appWardIds).map((wardId) => ({
+        tenantId: session.user.tenantId,
+        clientId: cl.id,
+        wardId,
+        status: "pending" as const,
+      }))
+    })
+  }
 
   const campaign = await db.$transaction(async (tx) => {
     const c = await tx.callCampaign.create({

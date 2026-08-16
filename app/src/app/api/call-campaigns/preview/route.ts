@@ -8,6 +8,8 @@ import {
   campaignFilterSchema,
   wardIdsForClient,
 } from "@/lib/call-campaigns/filter"
+import { loadNoAnswerDesiredRows } from "@/lib/call-campaigns/no-answer-source"
+import { branchScopeFromSession } from "@/lib/branch-scope"
 
 // Предпросмотр размера выборки обзвона по критериям — чтобы оператор видел,
 // сколько клиентов попадёт в кампанию, до её создания (баг #44).
@@ -23,11 +25,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ошибка валидации" }, { status: 400 })
   }
 
-  const where = buildScopedCampaignWhere(
-    session.user.tenantId,
-    (session.user as { allowedBranchIds?: string[] | null }).allowedBranchIds ?? null,
-    parsed.data,
-  )
+  const allowedBranchIds =
+    (session.user as { allowedBranchIds?: string[] | null }).allowedBranchIds ?? null
+
+  // «Обзвон по не ответившим»: размер = число строк-подопечных из no_answer-позиций
+  // других кампаний в scope (тот же источник, что при создании).
+  if (parsed.data.mode === "no_answer") {
+    const scope = branchScopeFromSession(allowedBranchIds)
+    const desired = await loadNoAnswerDesiredRows(db, session.user.tenantId, scope)
+    let count = 0
+    for (const wards of desired.values()) count += wards.size
+    return NextResponse.json({ count })
+  }
+
+  const where = buildScopedCampaignWhere(session.user.tenantId, allowedBranchIds, parsed.data)
 
   // Потолка на размер кампании больше нет (баг #82). Одна строка = один
   // подопечный: считаем строки-подопечные (при фильтре по дате рождения — только

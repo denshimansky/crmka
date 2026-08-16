@@ -10,6 +10,7 @@ import {
   wardIdsForClient,
   type CampaignFilterCriteria,
 } from "@/lib/call-campaigns/filter"
+import { loadNoAnswerDesiredRows } from "@/lib/call-campaigns/no-answer-source"
 
 /**
  * «Актуализировать» — пересобрать список контактов кампании под текущее
@@ -53,27 +54,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const scope = branchScopeFromSession(allowedBranchIds)
   const fc = (campaign.filterCriteria ?? {}) as CampaignFilterCriteria
 
+  const isNoAnswer = fc.mode === "no_answer"
+
   // Множество клиентов, подходящих под критерии СЕЙЧАС (в рамках scope), вместе с
   // подопечными — чтобы развернуть новых клиентов в строки-подопечные. Для
   // этапа-заявки подтягиваем заявочных подопечных (сужение, как при создании).
-  const stage = applicationStageForWardScope(fc)
-  const where = buildScopedCampaignWhere(tenantId, allowedBranchIds, fc)
-  const matching = await db.client.findMany({
-    where,
-    select: {
-      id: true,
-      wards: { select: { id: true, birthDate: true } },
-      ...(stage
-        ? {
-            applications: {
-              where: { status: "active", deletedAt: null, stage: stage as never },
-              select: { wardId: true },
-            },
-          }
-        : {}),
-    },
-  })
-  const matchingIds = new Set(matching.map((c) => c.id))
+  // Режим «Обзвон по не ответившим» источник берёт не из базы, а из no_answer-
+  // позиций других кампаний — его грузим ВНУТРИ транзакции под локом (ниже).
+  const stage = isNoAnswer ? null : applicationStageForWardScope(fc)
+  const matching = isNoAnswer
+    ? []
+    : await db.client.findMany({
+        where: buildScopedCampaignWhere(tenantId, allowedBranchIds, fc),
+        select: {
+          id: true,
+          wards: { select: { id: true, birthDate: true } },
+          ...(stage
+            ? {
+                applications: {
+                  where: { status: "active", deletedAt: null, stage: stage as never },
+                  select: { wardId: true },
+                },
+              }
+            : {}),
+        },
+      })
 
   const { added, removed } = await db.$transaction(
     async (tx) => {
@@ -100,24 +105,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         s.add(it.wardId)
       }
 
-      // Желаемое разложение по подопечным для КАЖДОГО подходящего клиента (по его
-      // ТЕКУЩИМ детям). Разворачиваем и уже присутствующих клиентов — так снимок
-      // «оживает»: новым детям заводятся строки, обработанные строки сохраняются.
-      const desiredWardsByClient = new Map<string, Set<string | null>>()
+      // Желаемое разложение по подопечным для КАЖДОГО нужного клиента.
+      //  - base/tasks: по ТЕКУЩИМ детям подходящих клиентов (снимок «оживает»);
+      //  - no_answer: пары (клиент, подопечный) из no_answer-позиций других кампаний
+      //    (грузим здесь, под advisory-локом, в scope нажавшего, исключая себя).
+      let desiredWardsByClient: Map<string, Set<string | null>>
+      if (isNoAnswer) {
+        desiredWardsByClient = await loadNoAnswerDesiredRows(tx, tenantId, scope, id)
+      } else {
+        desiredWardsByClient = new Map<string, Set<string | null>>()
+        for (const c of matching) {
+          const appWardIds = stage
+            ? (c as { applications?: { wardId: string | null }[] }).applications?.map((a) => a.wardId)
+            : undefined
+          desiredWardsByClient.set(c.id, new Set(wardIdsForClient(c.wards, fc, undefined, appWardIds)))
+        }
+      }
+      const matchingIds = new Set(desiredWardsByClient.keys())
+
       const toAddRows: {
         tenantId: string; campaignId: string; clientId: string
         wardId: string | null; status: "pending"
       }[] = []
-      for (const c of matching) {
-        const appWardIds = stage
-          ? (c as { applications?: { wardId: string | null }[] }).applications?.map((a) => a.wardId)
-          : undefined
-        const desired = wardIdsForClient(c.wards, fc, undefined, appWardIds)
-        desiredWardsByClient.set(c.id, new Set(desired))
-        const have = existingWardsByClient.get(c.id) ?? new Set<string | null>()
+      for (const [clientId, desired] of desiredWardsByClient) {
+        const have = existingWardsByClient.get(clientId) ?? new Set<string | null>()
         for (const wardId of desired) {
           if (!have.has(wardId)) {
-            toAddRows.push({ tenantId, campaignId: id, clientId: c.id, wardId, status: "pending" })
+            toAddRows.push({ tenantId, campaignId: id, clientId, wardId, status: "pending" })
           }
         }
       }

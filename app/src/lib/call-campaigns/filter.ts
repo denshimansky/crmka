@@ -18,8 +18,16 @@ import { MANAGED_TRIGGERS } from "@/lib/tasks/trigger-settings"
  *    базе, кроме архива, чёрного списка и нецелевых.
  */
 export interface CampaignFilterCriteria {
-  /** Режим кампании: по базам (дефолт) или по автозадачам. */
-  mode?: "base" | "tasks"
+  /**
+   * Режим кампании:
+   *  - "base" (дефолт) — отбор по фильтрам базы;
+   *  - "tasks" — по открытым автозадачам;
+   *  - "no_answer" — «Обзвон по не ответившим»: источник не база, а позиции
+   *    ДРУГИХ кампаний со status=no_answer (см. lib/call-campaigns/no-answer-source).
+   *    Для этого режима buildCampaignClientWhere НЕ используется (create/refresh/
+   *    preview branch'атся заранее); здесь он возвращает пустую выборку как защиту.
+   */
+  mode?: "base" | "tasks" | "no_answer"
   /**
    * Этап воронки — вкладки раздела «Продажи»: application | trial_scheduled |
    * trial_attended | awaiting_payment (по активной заявке) | contact
@@ -67,7 +75,7 @@ export interface CampaignFilterCriteria {
  * до Prisma-enum и уронила бы роут 500-кой вместо 400 (PrismaClientValidationError).
  */
 export const campaignFilterSchema = z.object({
-  mode: z.enum(["base", "tasks"]).optional(),
+  mode: z.enum(["base", "tasks", "no_answer"]).optional(),
   funnelStatus: z.enum([
     "application", "trial_scheduled", "trial_attended", "awaiting_payment", "contact",
     // legacy-значения старых кампаний (валидные Client.funnelStatus)
@@ -134,6 +142,15 @@ export function buildCampaignClientWhere(
   now: Date = new Date(),
 ): Prisma.ClientWhereInput {
   const and: Prisma.ClientWhereInput[] = []
+
+  // --- Режим «Обзвон по не ответившим» ---
+  // Источник этого режима — не база клиентов, а позиции других кампаний со
+  // status=no_answer (lib/call-campaigns/no-answer-source). Клиентский where здесь
+  // не применяется; возвращаем заведомо пустую выборку, чтобы забытый branch на
+  // вызывающей стороне не превратился в «обзвон всей базы».
+  if (fc.mode === "no_answer") {
+    return { AND: [{ id: { in: [] } }] }
+  }
 
   // --- Режим «Обзвон по задачам» ---
   // Только открытые автозадачи выбранных типов (блок autoTriggers ниже),
