@@ -40,6 +40,8 @@ interface SalaryPaymentRow {
   accountName: string
   amount: number
   periodLabel: string
+  /** Филиал доли выплаты — раскладка «как в финрезе» (оклад-твин + сделка). */
+  branchName: string
 }
 
 interface CategoryOption {
@@ -185,7 +187,7 @@ export function ExpensesTable({
                       <TableCell className="text-right font-medium text-red-600">
                         {formatMoney(s.amount)}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">—</TableCell>
+                      <TableCell className="text-muted-foreground">{s.branchName}</TableCell>
                       <TableCell className="text-muted-foreground">—</TableCell>
                       <TableCell className="text-muted-foreground">—</TableCell>
                       <TableCell className="text-muted-foreground">{s.accountName}</TableCell>

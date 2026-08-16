@@ -2,7 +2,8 @@ import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
 import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
-import { scopeExpense, scopeBranch, scopeBookableAccount, scopeEmployee } from "@/lib/branch-scope"
+import { scopeExpense, scopeBranch, scopeBookableAccount, scopeEmployee, isUnscoped } from "@/lib/branch-scope"
+import { allocateSalaryPaymentsByBranch } from "@/lib/salary/allocate-payment-branches"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { TrendingDown, Wallet, BarChart3 } from "lucide-react"
@@ -72,7 +73,33 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     orderBy: { date: "desc" },
     take: 500,
   })
-  const totalSalaryPayments = salaryPayments.reduce((sum, p) => sum + Number(p.amount), 0)
+
+  // Раскладка каждой выплаты по филиалам «как в финрезе» (оклад-твин ∝ выручке +
+  // сделка по реальному филиалу занятий). Скоуп-админ видит только доли своих филиалов
+  // (общесетевую/чужую долю режем — как для общих счетов/расходов).
+  const salaryBranchAlloc = await allocateSalaryPaymentsByBranch(
+    tenantId,
+    salaryPayments.map((p) => ({
+      id: p.id,
+      employeeId: p.employeeId,
+      amount: Number(p.amount),
+      periodYear: p.periodYear,
+      periodMonth: p.periodMonth,
+    })),
+  )
+  const partInScope = (branchId: string | null): boolean =>
+    isUnscoped(scope) ? true : branchId !== null && scope.branchIds.includes(branchId)
+  const salaryPartsById = new Map<string, { branchId: string | null; amount: number }[]>()
+  for (const p of salaryPayments) {
+    const parts = (salaryBranchAlloc.get(p.id) ?? [{ branchId: null, amount: Number(p.amount) }]).filter((pt) =>
+      partInScope(pt.branchId),
+    )
+    salaryPartsById.set(p.id, parts)
+  }
+  const totalSalaryPayments = salaryPayments.reduce(
+    (sum, p) => sum + (salaryPartsById.get(p.id) ?? []).reduce((s, pt) => s + pt.amount, 0),
+    0,
+  )
 
   // Суммы. «Расходы за месяц» = расходы со счёта + фактические выплаты ЗП (по факту ДДС),
   // поэтому Total = Постоянные + Переменные + Зарплата.
@@ -168,14 +195,25 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
   })
 
   // Строки фактических выплат ЗП для таблицы (read-only, редактируются в «Зарплата»).
-  const salaryRows = salaryPayments.map((p) => ({
-    id: p.id,
-    date: p.date.toISOString().slice(0, 10),
-    employeeName: [p.employee.lastName, p.employee.firstName].filter(Boolean).join(" ").trim() || "—",
-    accountName: p.account?.name ?? "—",
-    amount: Number(p.amount),
-    periodLabel: `за ${String(p.periodMonth).padStart(2, "0")}.${p.periodYear}`,
-  }))
+  // Раскладка по филиалам «как в финрезе»: выплата с несколькими филиалами разворачивается
+  // в несколько строк (сумма дробится ∝ оклад-твину + сделке); Σ строк = сумма выплаты.
+  const branchNameById = new Map(allBranches.map((b) => [b.id, b.name]))
+  const salaryRows = salaryPayments.flatMap((p) => {
+    const parts = salaryPartsById.get(p.id) ?? []
+    const employeeName = [p.employee.lastName, p.employee.firstName].filter(Boolean).join(" ").trim() || "—"
+    const accountName = p.account?.name ?? "—"
+    const date = p.date.toISOString().slice(0, 10)
+    const periodLabel = `за ${String(p.periodMonth).padStart(2, "0")}.${p.periodYear}`
+    return parts.map((pt, idx) => ({
+      id: parts.length > 1 ? `${p.id}:${idx}` : p.id,
+      date,
+      employeeName,
+      accountName,
+      amount: pt.amount,
+      periodLabel,
+      branchName: pt.branchId ? branchNameById.get(pt.branchId) ?? "—" : "Без филиала",
+    }))
+  })
 
   // Итоги по статьям (+ отдельной строкой выплаты ЗП).
   const categoryTotals = new Map<string, number>()
