@@ -162,10 +162,23 @@ export function scopeBookableAccount(
 // денежно-потоковая семантика (движения по видимым счетам), а не «мои клиенты».
 export function scopePayment(scope: BranchScope): Prisma.PaymentWhereInput {
   if (isUnscoped(scope)) return {}
+  const clientScope = scopeClientByBranch(scope)
+  // coversAllBranches → scopeClientByBranch возвращает {} («видны все клиенты»).
+  // Пустой фильтр to-one связи { client: {} } НЕЛЬЗЯ класть отдельным плечом в
+  // OR: Prisma роняет это плечо целиком (проверено на проде: { OR:[{client:{}},…] }
+  // → 0 строк). Тогда остаются только оплаты с абонементом в scope-филиале, а
+  // оплаты без абонемента (пополнения баланса, разовые) исчезают. Триггерится,
+  // когда у админа отмечены ВСЕ живые филиалы (напр. остальные филиалы удалили).
+  // Берём явное { client: { isNot: null } } = «любая оплата с клиентом»; прочий
+  // доход без клиента остаётся скрыт от скоуп-админа, как и в частичном scope.
+  const clientArm: Prisma.PaymentWhereInput =
+    Object.keys(clientScope).length === 0
+      ? { client: { isNot: null } }
+      : { client: clientScope }
   return {
     OR: [
       // Клиент оплаты — в «моих» филиалах (сегментная видимость, баг #79).
-      { client: scopeClientByBranch(scope) },
+      clientArm,
       // Страховка: оплата абонемента в группе scope-филиала. У оплаты обычно
       // есть clientId (правило выше её и покроет), но привязка через абонемент
       // надёжнее для исторических/пограничных записей.
@@ -292,10 +305,19 @@ export function scopeTaskByBranch(
 ): Prisma.TaskWhereInput {
   if (isUnscoped(scope)) return {}
   const meId = employeeId ?? "00000000-0000-0000-0000-000000000000"
+  const clientScope = scopeClientByBranch(scope)
+  // Тот же Prisma-нюанс, что и в scopePayment: при coversAllBranches clientScope
+  // = {}, а пустое плечо { client: {} } в OR роняется (тогда терялись бы задачи о
+  // клиентах без явного Task.branchId). { client: { isNot: null } } = «задача о
+  // любом клиенте» — все клиенты видны админу со всеми филиалами.
+  const clientArm: Prisma.TaskWhereInput =
+    Object.keys(clientScope).length === 0
+      ? { client: { isNot: null } }
+      : { client: clientScope }
   return {
     OR: [
       { assignedTo: meId },
-      { client: scopeClientByBranch(scope) },
+      clientArm,
       { branchId: { in: scope.branchIds } },
     ],
   }

@@ -17,6 +17,7 @@ import {
   scopeSubscription,
   scopeApplication,
   scopePayment,
+  scopeTaskByBranch,
   scopePaymentByAccount,
   scopeExpense,
   scopeFinancialAccount,
@@ -305,5 +306,40 @@ describe("scopeClientByBranch (модель Анны — 1–2 ручных фи
     const result = clientInBranch([]) as { OR: any[] }
     assert.equal(result.OR.length, 3)
     assert.deepEqual(result.OR[0], { branchId: { in: [] } })
+  })
+})
+
+// Регресс: coversAllBranches (админ со всеми живыми филиалами — напр. остальные
+// филиалы удалили) → scopeClientByBranch = {}. Пустое плечо { client: {} } в OR
+// Prisma роняет целиком → у скоуп-админа пропадали оплаты/задачи без абонемента.
+// scopePayment/scopeTaskByBranch должны отдавать { client: { isNot: null } }.
+describe("coversAllBranches: плечо client в OR не пустое (баг «админ не видит оплаты»)", () => {
+  const scope = {
+    mode: "limited" as const,
+    branchIds: [BR_A],
+    coversAllBranches: true,
+  }
+
+  it("scopePayment — плечо client = { isNot: null }, НЕ { client: {} }", () => {
+    const result = scopePayment(scope) as { OR: any[] }
+    const clientArm = result.OR.find((c) => "client" in c)
+    assert.ok(clientArm, "должно быть плечо по client")
+    assert.deepEqual(clientArm.client, { isNot: null })
+    // Гарантия, что пустой фильтр связи не просочился.
+    assert.notDeepEqual(clientArm.client, {})
+  })
+
+  it("scopeTaskByBranch — плечо client = { isNot: null }, НЕ { client: {} }", () => {
+    const result = scopeTaskByBranch(scope, EMP_INSTRUCTOR) as { OR: any[] }
+    const clientArm = result.OR.find((c) => "client" in c)
+    assert.ok(clientArm, "должно быть плечо по client")
+    assert.deepEqual(clientArm.client, { isNot: null })
+  })
+
+  it("частичный scope (не coversAll) — плечо client остаётся сегментным (не { isNot: null })", () => {
+    const partial = branchScopeFromSession([BR_A])
+    const result = scopePayment(partial) as { OR: any[] }
+    const clientArm = result.OR.find((c) => "client" in c)
+    assert.deepEqual(clientArm.client, scopeClientByBranch(partial))
   })
 })
