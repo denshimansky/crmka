@@ -20,6 +20,7 @@ import {
   ArrowLeft, Building2, CalendarClock, CircleSlash, CreditCard, FileText, KeyRound, LogIn, Pencil, Plus, Users,
 } from "lucide-react"
 import { BackButton } from "@/components/back-button"
+import { DEFAULT_ROLE_DISPLAY_NAMES } from "@/lib/roles"
 
 interface Plan {
   id: string
@@ -108,7 +109,8 @@ export default function PartnerDetailPage() {
   const [invoiceForm, setInvoiceForm] = useState({ subscriptionId: "", periodStart: "", periodEnd: "", dueDate: "" })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
-  const [impersonating, setImpersonating] = useState(false)
+  // null = не входим; "owner" = вход владельцем; иначе — id сотрудника
+  const [impersonating, setImpersonating] = useState<string | null>(null)
   const [resetInfo, setResetInfo] = useState<{ url: string; name: string; emailSent: boolean } | null>(null)
   const [resetOpen, setResetOpen] = useState(false)
   const [resetCopied, setResetCopied] = useState(false)
@@ -319,11 +321,18 @@ export default function PartnerDetailPage() {
     fetchPartner()
   }
 
-  const handleImpersonate = async () => {
-    setImpersonating(true)
+  // employeeId не передан → вход под владельцем (кнопка в шапке).
+  // Передан → вход под конкретным сотрудником (кнопки в списке) для проверки
+  // зон видимости и прав его роли.
+  const handleImpersonate = async (employeeId?: string) => {
+    setImpersonating(employeeId || "owner")
     setError("")
     try {
-      const res = await fetch(`/api/admin/partners/${id}/impersonate`, { method: "POST" })
+      const res = await fetch(`/api/admin/partners/${id}/impersonate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(employeeId ? { employeeId } : {}),
+      })
       const d = await res.json()
       if (!res.ok) {
         setError(d.error || `Ошибка impersonation: HTTP ${res.status}`)
@@ -334,7 +343,7 @@ export default function PartnerDetailPage() {
     } catch (e) {
       setError(`Ошибка сети: ${e instanceof Error ? e.message : "неизвестная"}`)
     } finally {
-      setImpersonating(false)
+      setImpersonating(null)
     }
   }
 
@@ -359,8 +368,8 @@ export default function PartnerDetailPage() {
           </div>
           {partner.legalName && <p className="text-sm text-muted-foreground">{partner.legalName}</p>}
         </div>
-        <Button variant="secondary" size="sm" onClick={handleImpersonate} disabled={impersonating}>
-          <LogIn className="mr-2 size-4" />{impersonating ? "Вход..." : "Войти как партнёр"}
+        <Button variant="secondary" size="sm" onClick={() => handleImpersonate()} disabled={!!impersonating}>
+          <LogIn className="mr-2 size-4" />{impersonating === "owner" ? "Вход..." : "Войти как владелец"}
         </Button>
         <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
           <Pencil className="mr-2 size-4" />Редактировать
@@ -443,18 +452,33 @@ export default function PartnerDetailPage() {
                 <div key={e.id} className="flex items-center justify-between">
                   <span>{e.lastName} {e.firstName}</span>
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">{e.role}</Badge>
+                    <Badge variant="outline" className="text-xs">
+                      {DEFAULT_ROLE_DISPLAY_NAMES[e.role as keyof typeof DEFAULT_ROLE_DISPLAY_NAMES] || e.role}
+                    </Badge>
                     {!e.isActive && <Badge variant="destructive" className="text-xs">Неактивен</Badge>}
                     {e.isActive && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 px-1.5"
-                        title="Ссылка для сброса пароля"
-                        onClick={() => handleResetPassword(e.id)}
-                      >
-                        <KeyRound className="size-3.5" />
-                      </Button>
+                      <>
+                        <Button
+                          size="sm"
+                          variant={e.role === "owner" ? "secondary" : "ghost"}
+                          className="h-6 px-1.5"
+                          title="Войти под этим сотрудником — проверить его зоны видимости и права"
+                          onClick={() => handleImpersonate(e.id)}
+                          disabled={!!impersonating}
+                        >
+                          <LogIn className="size-3.5" />
+                          {e.role === "owner" && <span className="ml-1">Войти</span>}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-1.5"
+                          title="Ссылка для сброса пароля"
+                          onClick={() => handleResetPassword(e.id)}
+                        >
+                          <KeyRound className="size-3.5" />
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>

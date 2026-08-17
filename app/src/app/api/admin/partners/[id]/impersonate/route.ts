@@ -3,8 +3,10 @@ import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
 import { encode } from "next-auth/jwt"
 
-// POST /api/admin/partners/[id]/impersonate — войти как owner партнёра
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// POST /api/admin/partners/[id]/impersonate — войти под сотрудником партнёра.
+// Тело { employeeId } — войти под конкретным сотрудником (для проверки зон
+// видимости и прав других ролей). Без тела — фолбэк на владельца (owner).
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (session.role !== "superadmin" && session.role !== "support") {
@@ -13,49 +15,77 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
 
   const { id } = await params
 
+  // employeeId необязателен: если тела нет/битое — входим под владельцем.
+  let employeeId: string | undefined
+  try {
+    const body = await req.json()
+    if (body && typeof body.employeeId === "string" && body.employeeId) {
+      employeeId = body.employeeId
+    }
+  } catch {
+    // тело не передано — фолбэк на owner ниже
+  }
+
   // Найти организацию
   const org = await db.organization.findUnique({
     where: { id },
-    select: { id: true, name: true, billingStatus: true },
+    select: { id: true, name: true, billingStatus: true, instructorsSeePhones: true },
   })
   if (!org) {
     return NextResponse.json({ error: "Организация не найдена" }, { status: 404 })
   }
 
-  // Найти owner-сотрудника этой организации
-  const owner = await db.employee.findFirst({
+  // Найти целевого сотрудника: конкретного по employeeId либо владельца.
+  const employee = await db.employee.findFirst({
     where: {
       tenantId: id,
-      role: "owner",
       isActive: true,
       deletedAt: null,
+      ...(employeeId ? { id: employeeId } : { role: "owner" }),
     },
     select: { id: true, firstName: true, lastName: true, email: true, role: true },
   })
 
-  if (!owner) {
-    return NextResponse.json({ error: "У партнёра нет активного владельца" }, { status: 404 })
+  if (!employee) {
+    return NextResponse.json(
+      { error: employeeId ? "Сотрудник не найден или неактивен" : "У партнёра нет активного владельца" },
+      { status: 404 },
+    )
+  }
+
+  // Зоны видимости по филиалам (ADM-04): owner/manager видят все (null),
+  // admin/instructor/readonly — по привязкам EmployeeBranch (пусто = все).
+  // Повторяет логику jwt-колбэка в lib/auth.ts, чтобы CRM открылась сразу
+  // с корректными филиалами, а не после первого рефреша токена.
+  let allowedBranchIds: string[] | null = null
+  if (employee.role !== "owner" && employee.role !== "manager") {
+    const links = await db.employeeBranch.findMany({
+      where: { tenantId: id, employeeId: employee.id },
+      select: { branchId: true },
+    })
+    allowedBranchIds = links.length === 0 ? null : links.map((l) => l.branchId)
   }
 
   // Записать в AuditLog
   await db.auditLog.create({
     data: {
       tenantId: id,
-      employeeId: owner.id,
+      employeeId: employee.id,
       action: "impersonate",
       entityType: "employee",
-      entityId: owner.id,
+      entityId: employee.id,
       changes: {
         adminEmail: session.email,
         adminName: session.name,
         adminRole: session.role,
         targetOrg: org.name,
-        targetOwner: `${owner.lastName} ${owner.firstName}`,
+        targetEmployee: `${employee.lastName} ${employee.firstName}`,
+        targetRole: employee.role,
       },
     },
   })
 
-  // Создать NextAuth JWT-токен для owner
+  // Создать NextAuth JWT-токен для сотрудника
   const secret = process.env.NEXTAUTH_SECRET
   if (!secret) {
     return NextResponse.json({ error: "NEXTAUTH_SECRET not configured" }, { status: 500 })
@@ -64,16 +94,17 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const token = await encode({
     secret,
     token: {
-      sub: owner.id,
-      name: `${owner.lastName} ${owner.firstName}`,
-      email: owner.email,
-      role: owner.role,
+      sub: employee.id,
+      name: `${employee.lastName} ${employee.firstName}`,
+      email: employee.email,
+      role: employee.role,
       tenantId: id,
-      employeeId: owner.id,
+      employeeId: employee.id,
       orgName: org.name,
       billingStatus: org.billingStatus,
-      // ADM-04: owner всегда видит все филиалы.
-      allowedBranchIds: null,
+      instructorsSeePhones: org.instructorsSeePhones,
+      // Зоны видимости по филиалам под ролью сотрудника (ADM-04).
+      allowedBranchIds,
       // Маркер impersonation — чтобы показать плашку
       impersonatedBy: session.email,
       impersonatedAt: new Date().toISOString(),
@@ -89,7 +120,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const response = NextResponse.json({
     ok: true,
     org: org.name,
-    owner: `${owner.lastName} ${owner.firstName}`,
+    employee: `${employee.lastName} ${employee.firstName}`,
+    role: employee.role,
   })
 
   response.cookies.set(cookieName, token, {
