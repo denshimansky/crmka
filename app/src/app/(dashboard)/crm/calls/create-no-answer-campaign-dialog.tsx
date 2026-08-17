@@ -29,11 +29,10 @@ export function CreateNoAnswerCampaignDialog() {
   const [name, setName] = useState("")
   const [preview, setPreview] = useState<PreviewState>(null)
 
-  // При открытии — префилл имени датой и разовый предпросмотр размера выборки.
+  // При открытии — разовый предпросмотр размера выборки. Название НЕ префиллим:
+  // авто-подстановку даты в имя убрали (оператор задаёт название сам).
   useEffect(() => {
     if (!open) return
-    const today = new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
-    setName((prev) => prev || `Не ответившие · ${today}`)
     setPreview(null)
     let cancelled = false
     fetch("/api/call-campaigns/preview", {
@@ -83,14 +82,16 @@ export function CreateNoAnswerCampaignDialog() {
           <DialogDescription>
             В кампанию попадут все, у кого в уже созданных обзвонах результат «Не
             ответил». Позже кнопкой «Актуализировать» внутри кампании список можно
-            обновить: добавятся новые не ответившие, а дозвонившиеся уберутся.
+            обновить: добавятся новые не ответившие, а те, кому с тех пор
+            дозвонились, исчезнут из списка (их результат останется в исходном
+            обзвоне).
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
           <div className="space-y-1.5">
             <Label>Название *</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например: Не ответившие · март" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например: Не ответившие" />
           </div>
           <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm text-muted-foreground">{previewLabel()}</span>
