@@ -55,6 +55,35 @@ describe("taskVisibilityWhere — филиальный scope", () => {
   })
 })
 
+// Регресс (баг «Исаева видит 1 задачу вместо 12», 17.08.2026): админ, у которого
+// отмечены ВСЕ живые филиалы (coversAllBranches), для видимости клиентов = «видит
+// всех», включая безфилиальных. Плечо client в OR должно быть { isNot: null }
+// (любая задача с клиентом), а НЕ сегментное clientInBranch. Баг был не в этой
+// функции, а в вызовах (sync branchScopeFromSession не считал coversAllBranches) —
+// тест фиксирует ожидаемое поведение при корректно посчитанном scope.
+describe("taskVisibilityWhere/scopeTaskByBranch — coversAllBranches (админ со всеми филиалами)", () => {
+  const coversAll = {
+    mode: "limited" as const,
+    branchIds: ["b1", "b2"],
+    coversAllBranches: true,
+  }
+
+  it("админ со всеми филиалами → плечо client = { isNot: null } (видит задачи о любом клиенте)", () => {
+    const w = scopeTaskByBranch(coversAll, "e1") as { OR: any[] }
+    const clientArm = w.OR.find((c) => "client" in c)
+    assert.ok(clientArm, "должно быть плечо по client")
+    assert.deepEqual(clientArm.client, { isNot: null })
+    assert.notDeepEqual(clientArm.client, {}, "пустой фильтр связи роняется Prisma")
+  })
+
+  it("taskVisibilityWhere(admin, coversAll) → чистый OR, плечо client = { isNot: null }", () => {
+    const w = taskVisibilityWhere(role("admin"), "e1", coversAll) as { OR: any[] }
+    assert.ok("OR" in w, "роль admin видит все → без AND-обёртки, только branch-OR")
+    const clientArm = w.OR.find((c) => "client" in c)
+    assert.deepEqual(clientArm.client, { isNot: null })
+  })
+})
+
 describe("scopeTaskByBranch — структура правил", () => {
   it("scope='all' → {} (no-op)", () => {
     assert.deepEqual(scopeTaskByBranch(allScope, "e1"), {})

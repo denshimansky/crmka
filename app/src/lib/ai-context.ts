@@ -20,7 +20,7 @@ import {
   type ClientSegmentKey,
 } from "./segmentation"
 import type { Role } from "@prisma/client"
-import { branchScopeFromSession } from "./branch-scope"
+import { resolveBranchScope } from "./session"
 import { taskVisibilityWhere } from "./tasks/task-visibility"
 import { expenseAmountInWindow, expenseFetchWindow } from "./expense-amortization"
 
@@ -445,11 +445,14 @@ export async function buildBaseContext(
   // дашборде): управленцы видят все задачи тенанта, инструктор/«только чтение» —
   // только назначенные лично; админ с привязкой к филиалу — только свои филиалы.
   // Применяется и к счётчику, и к перечню — чтобы ИИ не раскрывал чужие задачи.
+  // resolveBranchScope (async) считает coversAllBranches — админ со всеми
+  // филиалами видит и задачи о безфилиальных клиентах (как на дашборде/странице).
+  const taskScope = await resolveBranchScope(tenantId, allowedBranchIds)
   const taskWhere = {
     tenantId,
     deletedAt: null,
     completedAt: null,
-    ...taskVisibilityWhere(role as Role, employeeId ?? null, branchScopeFromSession(allowedBranchIds)),
+    ...taskVisibilityWhere(role as Role, employeeId ?? null, taskScope),
   }
 
   const [

@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { AddTaskDialog } from "./add-task-dialog"
 import { GenerateTasksButton } from "./generate-tasks-button"
@@ -6,7 +6,6 @@ import { TasksBoard } from "./tasks-board"
 import { PageHelp } from "@/components/page-help"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
 import { taskVisibilityWhere } from "@/lib/tasks/task-visibility"
-import { branchScopeFromSession } from "@/lib/branch-scope"
 
 export default async function TasksPage() {
   const session = await getSession()
@@ -49,7 +48,10 @@ export default async function TasksPage() {
   // управленцы — все задачи организации. См. lib/tasks/task-visibility.ts.
   // ADM-04: админ с привязкой к филиалу видит только задачи своих филиалов
   // (тот же scope, что на дашборде) — согласовано с task-visibility.
-  const scope = branchScopeFromSession(session.user.allowedBranchIds)
+  // getBranchScope (async) — считает coversAllBranches: админ со ВСЕМИ живыми
+  // филиалами видит и задачи о безфилиальных клиентах (иначе вкладка
+  // «Актуальные» недосчитывала, как и виджет на дашборде).
+  const scope = await getBranchScope()
   const visibilityWhere = {
     tenantId,
     deletedAt: null,

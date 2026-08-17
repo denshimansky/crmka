@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
-import { branchScopeFromSession } from "@/lib/branch-scope"
+import { resolveBranchScope } from "@/lib/session"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { phoneMatchKey } from "@/lib/phone"
@@ -61,13 +61,7 @@ export async function GET(req: NextRequest) {
 
   // Branch scope (как getBranchScope, но без redirect — тут API): для видимости
   // клиентов админ со ВСЕМИ филиалами = «видит всех» (coversAllBranches).
-  let scope = branchScopeFromSession(session.user.allowedBranchIds)
-  if (scope.mode === "limited" && scope.branchIds.length > 0) {
-    const missing = await db.branch.count({
-      where: { tenantId, deletedAt: null, id: { notIn: scope.branchIds } },
-    })
-    scope = { ...scope, coversAllBranches: missing === 0 }
-  }
+  const scope = await resolveBranchScope(tenantId, session.user.allowedBranchIds)
 
   const and: Prisma.ClientWhereInput[] = []
   const scopeWhere = scopeClientByBranch(scope)

@@ -4,7 +4,7 @@ import { z } from "zod"
 import { Prisma, type Role } from "@prisma/client"
 import { requirePermission } from "@/lib/api-permissions"
 import { taskVisibilityWhere } from "@/lib/tasks/task-visibility"
-import { branchScopeFromSession } from "@/lib/branch-scope"
+import { resolveBranchScope } from "@/lib/session"
 
 const createSchema = z.object({
   title: z.string().min(1, "Введите заголовок").max(60, "Заголовок — не более 60 символов"),
@@ -25,13 +25,17 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const status = searchParams.get("status") || "pending"
 
+  // resolveBranchScope (async) — считает coversAllBranches, чтобы админ со ВСЕМИ
+  // живыми филиалами видел и задачи о безфилиальных клиентах (единый scope с
+  // дашбордом и страницей «Задачи»).
+  const scope = await resolveBranchScope(user.tenantId, user.allowedBranchIds)
   const where: Prisma.TaskWhereInput = {
     tenantId: user.tenantId,
     deletedAt: null,
     status: status as any,
     // Инструктор/«только чтение» — только свои задачи; админ с привязкой к
     // филиалу — только задачи своих филиалов (ADM-04). См. lib/tasks/task-visibility.ts.
-    ...taskVisibilityWhere(user.role, user.employeeId, branchScopeFromSession(user.allowedBranchIds)),
+    ...taskVisibilityWhere(user.role, user.employeeId, scope),
   }
 
   const tasks = await db.task.findMany({

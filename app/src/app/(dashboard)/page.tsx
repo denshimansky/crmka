@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { MonthPicker } from "@/components/month-picker"
 import { getMonthFromParams } from "@/lib/month-params"
-import { getSession } from "@/lib/session"
+import { getSession, getBranchScope } from "@/lib/session"
 import { db } from "@/lib/db"
 import { hasPermission, type PermissionKey, type RolePermissions } from "@/lib/permissions"
 import { getOrgUiSettings } from "@/lib/role-names"
@@ -37,7 +37,6 @@ import { computeSalesFunnel, summarizeSalesFunnel } from "@/lib/reports/sales-fu
 import { computeMonthSubscriptionFigures } from "@/lib/finance/subscription-month-figures"
 import { lessonsWithRoster } from "@/lib/subscriptions/roster-filter"
 import {
-  branchScopeFromSession,
   scopeFinancialAccount,
   scopeLesson,
   scopeTrialLesson,
@@ -106,7 +105,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // привязкой к филиалу(-ам) — ограничение по его филиалам. Применяется КО ВСЕМ
   // виджетам ниже, чтобы скоуп-админ не видел задачи/занятия/пробники/абонементы
   // чужих филиалов.
-  const scope = branchScopeFromSession(session.user.allowedBranchIds)
+  // ВАЖНО: getBranchScope (async), а НЕ branchScopeFromSession — только он
+  // считает coversAllBranches (админ отметил ВСЕ живые филиалы → видит клиентов
+  // и задачи о них без проставленного филиала, решение 13.08.2026). С sync-
+  // версией виджет «Задачи на сегодня» терял безфилиальных клиентов у такого
+  // админа (видел 1 из 12 вместо всех).
+  const scope = await getBranchScope()
 
   // Валюта расчёта организации (отображение символа/формата). Локальный
   // formatMoney теперь форматирует в валюте организации.
@@ -179,34 +183,44 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // тенанта; админ с привязкой к филиалу — только задачи своих филиалов (по
   // клиенту/исполнителю/назначенные лично, ADM-04); инструктор/readonly — только
   // свои. Единое правило видимости — lib/tasks/task-visibility.ts.
-  const todayTasks = await db.task.findMany({
-    where: {
-      tenantId,
-      deletedAt: null,
-      status: "pending",
-      dueDate: { lte: realToday },
-      ...taskVisibilityWhere(session.user.role, session.user.employeeId ?? null, scope),
-    },
-    select: {
-      id: true,
-      title: true,
-      dueDate: true,
-      createdAt: true,
-      clientId: true,
-      client: { select: { firstName: true, lastName: true } },
-    },
-    // Сортируем по сроку (старые сверху): при take виджет удерживает
-    // СТАРЕЙШИЕ просроченные, а не свежесозданные. На базе с большим бэклогом
-    // (напр. 200 просроченных) виджет показывает именно долги — «сначала
-    // просроченные, от старых к новым» (решение 12.08.2026). Компромисс принят
-    // осознанно: пока просроченных ≥ лимита, сегодняшние и только что созданные
-    // задачи в виджет не попадают — их место в полном списке /tasks (вкладки
-    // «Актуальные»/«Просроченные»). Вторичный ключ createdAt asc — детерминизм
-    // среди задач одной даты. Порядок отображения (просроченные сверху)
-    // дублирует DashboardTasksTable.
-    orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
-    take: 15,
-  })
+  const TASKS_WIDGET_LIMIT = 15
+  const todayTasksWhere = {
+    tenantId,
+    deletedAt: null,
+    status: "pending" as const,
+    dueDate: { lte: realToday },
+    ...taskVisibilityWhere(session.user.role, session.user.employeeId ?? null, scope),
+  }
+  // Счётчик на плашке — РЕАЛЬНОЕ число задач «сегодня + просрочено» (отдельный
+  // count), а не длина показанного списка: список ограничен TASKS_WIDGET_LIMIT
+  // строками, и раньше badge = todayTasks.length упирался в лимит (при 16 задачах
+  // показывал 15). Строк по-прежнему максимум TASKS_WIDGET_LIMIT — счётчик может
+  // быть больше (напр. «15 строк, 23 в счётчике»).
+  const [todayTasks, todayTasksCount] = await Promise.all([
+    db.task.findMany({
+      where: todayTasksWhere,
+      select: {
+        id: true,
+        title: true,
+        dueDate: true,
+        createdAt: true,
+        clientId: true,
+        client: { select: { firstName: true, lastName: true } },
+      },
+      // Сортируем по сроку (старые сверху): при take виджет удерживает
+      // СТАРЕЙШИЕ просроченные, а не свежесозданные. На базе с большим бэклогом
+      // (напр. 200 просроченных) виджет показывает именно долги — «сначала
+      // просроченные, от старых к новым» (решение 12.08.2026). Компромисс принят
+      // осознанно: пока просроченных ≥ лимита, сегодняшние и только что созданные
+      // задачи в виджет не попадают — их место в полном списке /tasks (вкладки
+      // «Актуальные»/«Просроченные»). Вторичный ключ createdAt asc — детерминизм
+      // среди задач одной даты. Порядок отображения (просроченные сверху)
+      // дублирует DashboardTasksTable.
+      orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+      take: TASKS_WIDGET_LIMIT,
+    }),
+    db.task.count({ where: todayTasksWhere }),
+  ])
 
   // Слева в виджете показываем ДАТУ ПОЯВЛЕНИЯ задачи (dueDate = день генерации),
   // а не дату события. Тогда показанная дата совпадает с логикой «красная/
@@ -644,7 +658,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between text-base">
           <Link href="/tasks" className="hover:underline">Задачи на сегодня</Link>
-          <Badge variant="secondary">{todayTaskRows.length}</Badge>
+          <Badge variant="secondary">{todayTasksCount}</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent>

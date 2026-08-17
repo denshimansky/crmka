@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { requirePermission } from "@/lib/api-permissions"
 import { seesAllTasks } from "@/lib/tasks/task-visibility"
-import { branchScopeFromSession, scopeTaskByBranch } from "@/lib/branch-scope"
+import { scopeTaskByBranch } from "@/lib/branch-scope"
+import { resolveBranchScope } from "@/lib/session"
 import type { Role } from "@prisma/client"
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -16,8 +17,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // ADM-04: скоуп-админ может работать только с задачами своих филиалов — задача
   // чужого филиала для него «не найдена» (как и в скоуп-списках). Для владельца/
-  // управляющего scope="all" → фрагмент пустой, поведение прежнее.
-  const scope = branchScopeFromSession(session.user.allowedBranchIds)
+  // управляющего scope="all" → фрагмент пустой, поведение прежнее. resolveBranchScope
+  // (async) считает coversAllBranches — иначе админ со всеми филиалами не смог бы
+  // закрыть задачу о безфилиальном клиенте, показанную ему на дашборде (404).
+  const scope = await resolveBranchScope(session.user.tenantId, session.user.allowedBranchIds)
   const existing = await db.task.findFirst({
     where: {
       id,
@@ -109,7 +112,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params
 
   // ADM-04: удалить чужой филиал нельзя — задача вне scope «не найдена».
-  const scope = branchScopeFromSession(user.allowedBranchIds)
+  // resolveBranchScope (async) считает coversAllBranches (см. PATCH выше).
+  const scope = await resolveBranchScope(user.tenantId, user.allowedBranchIds)
   const existing = await db.task.findFirst({
     where: {
       id,
