@@ -25,6 +25,9 @@ import { loadNoAnswerDesiredRows } from "@/lib/call-campaigns/no-answer-source"
  *    либо плейсхолдер ward=null заменяется строками появившихся детей).
  *  - Обработанные позиции (любой статус кроме pending) сохраняются ВСЕГДА, даже
  *    если клиент больше не подходит — прогресс и результаты не теряются.
+ *  - «Обзвон по не ответившим» (mode="no_answer") — только ДОБАВЛЯЕТ: refresh не
+ *    удаляет никого, даже если контакту с тех пор дозвонились в исходном обзвоне.
+ *    Он остаётся в кампании со статусом, который поставит оператор.
  *
  * Scope-safe (ADM-04): выборка и удаление ограничены филиальным scope того, кто
  * нажал. Скоуп-админ не добавит и не удалит контакты по клиентам вне своих
@@ -158,17 +161,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // подопечный строки больше не в желаемом наборе (ребёнок удалён; либо у
       // бывшего бездетного клиента появились дети — плейсхолдер ward=null заменяем
       // строками-детьми). Обработанные позиции сохраняются ВСЕГДА.
-      const pendingInScope = await tx.callCampaignItem.findMany({
-        where: { campaignId: id, tenantId, status: "pending", client: scopeClientByBranch(scope) },
-        select: { id: true, clientId: true, wardId: true },
-      })
-      const toRemoveIds = pendingInScope
-        .filter((i) => {
-          if (!matchingIds.has(i.clientId)) return true
-          const desired = desiredWardsByClient.get(i.clientId)
-          return !!desired && !desired.has(i.wardId)
+      //
+      // «Обзвон по не ответившим» (isNoAnswer) — ИСКЛЮЧЕНИЕ: refresh только ДОБАВЛЯЕТ
+      // новых не ответивших и НИКОГО не удаляет (Денис, 17.08). Тех, кому с тех пор
+      // дозвонились в исходном обзвоне (выпали из источника no_answer), из этой
+      // кампании НЕ убираем — они остаются со статусом, который им поставит оператор.
+      // Удаление pending-«переставших подходить» осмысленно только для обзвона по
+      // базам/задачам (выпадение из критериев), не для среза не ответивших.
+      let toRemoveIds: string[] = []
+      if (!isNoAnswer) {
+        const pendingInScope = await tx.callCampaignItem.findMany({
+          where: { campaignId: id, tenantId, status: "pending", client: scopeClientByBranch(scope) },
+          select: { id: true, clientId: true, wardId: true },
         })
-        .map((i) => i.id)
+        toRemoveIds = pendingInScope
+          .filter((i) => {
+            if (!matchingIds.has(i.clientId)) return true
+            const desired = desiredWardsByClient.get(i.clientId)
+            return !!desired && !desired.has(i.wardId)
+          })
+          .map((i) => i.id)
+      }
 
       if (toAddRows.length > 0) {
         await tx.callCampaignItem.createMany({ data: toAddRows })
