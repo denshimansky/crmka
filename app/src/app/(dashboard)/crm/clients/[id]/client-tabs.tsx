@@ -1075,11 +1075,9 @@ function BalanceOperationsTab({ clientId }: { clientId: string }) {
   const [refundError, setRefundError] = useState<string | null>(null)
   const [refundStep, setRefundStep] = useState<"form" | "confirm">("form")
   const [refundAccounts, setRefundAccounts] = useState<{ id: string; name: string; type: string }[]>([])
-  const [refundSubs, setRefundSubs] = useState<{ id: string; label: string }[]>([])
   const [refundAmount, setRefundAmount] = useState("")
   const [refundMethod, setRefundMethod] = useState("")
   const [refundAccountId, setRefundAccountId] = useState("")
-  const [refundSubId, setRefundSubId] = useState("")
   const [refundComment, setRefundComment] = useState("")
   const [refundDate, setRefundDate] = useState(new Date().toISOString().slice(0, 10))
 
@@ -1109,25 +1107,14 @@ function BalanceOperationsTab({ clientId }: { clientId: string }) {
     setRefundAmount("")
     setRefundMethod("")
     setRefundAccountId("")
-    setRefundSubId("")
     setRefundComment("")
     setRefundDate(new Date().toISOString().slice(0, 10))
     try {
-      const [accRes, subRes] = await Promise.all([
-        fetch("/api/accounts"),
-        fetch(`/api/subscriptions?clientId=${clientId}`),
-      ])
+      // Возврат идёт ТОЛЬКО с баланса клиента, без привязки к абонементу — форму
+      // не грузим абонементами (поле «Абонемент» убрано: привязка возврата к
+      // абонементу раздувала его долг, см. project_refund_linked_to_subscription).
+      const accRes = await fetch("/api/accounts")
       if (accRes.ok) setRefundAccounts(await accRes.json())
-      if (subRes.ok) {
-        const subs = await subRes.json()
-        const MN = ["", "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
-        setRefundSubs(
-          subs.filter((s: any) => s.status !== "withdrawn").map((s: any) => ({
-            id: s.id,
-            label: `${s.direction?.name || "?"} — ${MN[s.periodMonth]} ${s.periodYear}`,
-          }))
-        )
-      }
     } catch { /* ignore */ }
   }
 
@@ -1154,7 +1141,6 @@ function BalanceOperationsTab({ clientId }: { clientId: string }) {
           amount: Number(refundAmount),
           method: refundMethod,
           date: refundDate,
-          subscriptionId: refundSubId || undefined,
           comment: refundComment || undefined,
         }),
       })
@@ -1177,7 +1163,6 @@ function BalanceOperationsTab({ clientId }: { clientId: string }) {
 
   const selMethod = REFUND_METHODS.find(m => m.value === refundMethod)
   const selAccount = refundAccounts.find(a => a.id === refundAccountId)
-  const selSub = refundSubs.find(s => s.id === refundSubId)
 
   return (
     <Card>
@@ -1284,23 +1269,6 @@ function BalanceOperationsTab({ clientId }: { clientId: string }) {
                 </div>
               </div>
 
-              {refundSubs.length > 0 && (
-                <div className="space-y-1.5">
-                  <Label>Абонемент</Label>
-                  <Select value={refundSubId} onValueChange={(v) => { if (v !== null) setRefundSubId(v) }}>
-                    <SelectTrigger className="w-full">
-                      {selSub ? selSub.label : "Без привязки"}
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">Без привязки</SelectItem>
-                      {refundSubs.map(s => (
-                        <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
               <div className="space-y-1.5">
                 <Label>Комментарий</Label>
                 <Input value={refundComment} onChange={e => setRefundComment(e.target.value)} placeholder="Причина возврата" />
@@ -1334,12 +1302,6 @@ function BalanceOperationsTab({ clientId }: { clientId: string }) {
                     <span className="text-muted-foreground">Дата:</span>
                     <span>{new Date(refundDate).toLocaleDateString("ru-RU")}</span>
                   </div>
-                  {selSub && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Абонемент:</span>
-                      <span>{selSub.label}</span>
-                    </div>
-                  )}
                   {refundComment && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Комментарий:</span>
