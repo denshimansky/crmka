@@ -6,8 +6,10 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { logClientNote } from "@/lib/communications/log-note"
 import { currencySymbol } from "@/lib/currency"
+import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
 const refundSchema = z.object({
@@ -78,6 +80,24 @@ export async function POST(req: NextRequest) {
       where: { id: data.subscriptionId, tenantId: session.user.tenantId, clientId: data.clientId, deletedAt: null },
     })
     if (!sub) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
+
+    // Возврат, ПРИВЯЗАННЫЙ к абонементу, не может превышать нетто-оплаченное по нему
+    // (transfer_in минус прежние возвраты). balance абонемента = finalAmount − netPaid;
+    // отрицательный refund уводит netPaid в минус, и долг раздувается ВЫШЕ цены
+    // (кейс Глобенко: возврат 7400 ₽ на абонемент, куда завели 3600 ₽ → долг 7500 при
+    // цене 3700 — те же деньги списались и с абонемента, и с баланса родителя).
+    // Условие amount ≤ netPaid ⇔ netPaid после возврата ≥ 0 ⇔ balance ≤ finalAmount.
+    // Общий возврат на баланс (не связанный с конкретным абонементом) оформляется
+    // без выбора абонемента и под этот лимит не попадает.
+    const netPaid = await netPaidToSubscription(db, session.user.tenantId, data.subscriptionId)
+    if (new Prisma.Decimal(data.amount).gt(netPaid)) {
+      return NextResponse.json({
+        error:
+          `Возврат по абонементу (${data.amount.toFixed(2)} ${sym}) больше, чем на него ` +
+          `заведено (${netPaid.toFixed(2)} ${sym}). Уменьшите сумму или оформите возврат ` +
+          `без привязки к абонементу.`,
+      }, { status: 400 })
+    }
   }
 
   // Создаём возврат в транзакции
