@@ -105,6 +105,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         s.add(it.wardId)
       }
 
+      // Клиенты с ОБРАБОТАННОЙ легаси-строкой (wardId=null, статус ≠ pending): их
+      // «контакт по клиенту» уже завершён в эпоху обзвона по клиенту (одна строка =
+      // один клиент). НЕ разворачиваем их заново в pending-строки по детям — иначе
+      // ребёнок, которого фоллбэк NULL-строки показывает на детали кампании
+      // (pickWard в page.tsx), задвоится с новой pending-строкой: «один ребёнок —
+      // две строки, одна обработанная, вторая нет». Прогресс закрытого контакта
+      // при этом сохраняется (обработанные строки удаляются/меняются ниже — нет).
+      const clientsWithProcessedNullRow = new Set<string>()
+      for (const it of existing) {
+        if (it.wardId === null && it.status !== "pending") {
+          clientsWithProcessedNullRow.add(it.clientId)
+        }
+      }
+
       // Желаемое разложение по подопечным для КАЖДОГО нужного клиента.
       //  - base/tasks: по ТЕКУЩИМ детям подходящих клиентов (снимок «оживает»);
       //  - no_answer: пары (клиент, подопечный) из no_answer-позиций других кампаний
@@ -128,6 +142,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         wardId: string | null; status: "pending"
       }[] = []
       for (const [clientId, desired] of desiredWardsByClient) {
+        // Обработанного легаси-клиента (NULL-строка с результатом) не дораскрываем
+        // в детей — см. clientsWithProcessedNullRow: иначе задвоение строки ребёнка.
+        if (clientsWithProcessedNullRow.has(clientId)) continue
         const have = existingWardsByClient.get(clientId) ?? new Set<string | null>()
         for (const wardId of desired) {
           if (!have.has(wardId)) {
