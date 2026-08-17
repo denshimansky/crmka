@@ -34,3 +34,39 @@ export async function logClientNote(
     },
   })
 }
+
+/**
+ * Логирует в ленту клиента добавление нового подопечного — «кто и когда» берётся
+ * из employeeId и created_at заметки. Единый формат для ручного добавления в
+ * карточке (POST /api/clients/[id]/wards) и создания клиента с детьми
+ * (POST /api/clients). Импорт базы намеренно НЕ логируем — это массовая
+ * системная заливка, а не действие сотрудника «завёл подопечного».
+ */
+export async function logWardAdded(
+  tx: Tx,
+  params: {
+    tenantId: string
+    clientId: string
+    ward: { firstName: string; lastName?: string | null; birthDate?: Date | null }
+    employeeId?: string | null
+  },
+): Promise<void> {
+  const name =
+    [params.ward.lastName, params.ward.firstName].filter(Boolean).join(" ").trim() ||
+    "(без имени)"
+  // Дату рождения форматируем из UTC-частей: birthDate хранится как @db.Date
+  // (полночь UTC), а toLocaleDateString в TZ сервера может сдвинуть день.
+  let suffix = ""
+  const bd = params.ward.birthDate
+  if (bd) {
+    const dd = String(bd.getUTCDate()).padStart(2, "0")
+    const mm = String(bd.getUTCMonth() + 1).padStart(2, "0")
+    suffix = `, д.р. ${dd}.${mm}.${bd.getUTCFullYear()}`
+  }
+  await logClientNote(tx, {
+    tenantId: params.tenantId,
+    clientId: params.clientId,
+    content: `Добавлен подопечный: ${name}${suffix}`,
+    employeeId: params.employeeId,
+  })
+}

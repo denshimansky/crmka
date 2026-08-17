@@ -9,7 +9,7 @@ import { Prisma } from "@prisma/client"
 import { branchScopeFromSession, isUnscoped } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { ensureContactDateTaskForClient } from "@/lib/tasks/contact-date-task"
-import { logClientNote } from "@/lib/communications/log-note"
+import { logClientNote, logWardAdded } from "@/lib/communications/log-note"
 import { findClientsByPhone } from "@/lib/clients/find-by-phone"
 
 const createSchema = z.object({
@@ -241,6 +241,20 @@ export async function POST(req: NextRequest) {
   // автозадачу «Позвонить» немедленно (как при инлайн-редактировании даты).
   if (data.nextContactDate) {
     await ensureContactDateTaskForClient(session.user.tenantId, client.id)
+  }
+
+  // История клиента: кто и когда завёл каждого подопечного (best-effort).
+  if (client.wards.length) {
+    for (const w of client.wards) {
+      try {
+        await logWardAdded(db, {
+          tenantId: session.user.tenantId,
+          clientId: client.id,
+          ward: { firstName: w.firstName, lastName: w.lastName, birthDate: w.birthDate },
+          employeeId: session.user.employeeId,
+        })
+      } catch { /* заметка не критична */ }
+    }
   }
 
   // Комментарий, указанный при создании, → заметка в ленту коммуникаций

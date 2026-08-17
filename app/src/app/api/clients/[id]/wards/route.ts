@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { logWardAdded } from "@/lib/communications/log-note"
 import { z } from "zod"
 
 const createWardSchema = z.object({
@@ -64,6 +65,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       notes: data.notes,
     },
   })
+
+  // История клиента: кто и когда завёл подопечного (best-effort — заметка не
+  // критична, подопечный уже создан).
+  try {
+    await logWardAdded(db, {
+      tenantId: session.user.tenantId,
+      clientId: id,
+      ward: { firstName: ward.firstName, lastName: ward.lastName, birthDate: ward.birthDate },
+      employeeId: session.user.employeeId,
+    })
+  } catch { /* заметка не критична */ }
 
   return NextResponse.json(ward, { status: 201 })
 }
