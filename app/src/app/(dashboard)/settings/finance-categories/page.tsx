@@ -34,7 +34,6 @@ interface ExpenseCategory {
   isSystem: boolean
   isActive: boolean
   isVariable: boolean
-  isSalary: boolean
   sortOrder: number
 }
 
@@ -56,7 +55,6 @@ interface CategoryFormState {
   // Для новых категорий стартуем с null, чтобы выбор был осознанным;
   // у существующих подставляем фактическое значение из БД.
   isVariable: boolean | null
-  isSalary: boolean
 }
 
 export default function FinanceCategoriesPage() {
@@ -73,7 +71,6 @@ export default function FinanceCategoriesPage() {
     name: "",
     isActive: true,
     isVariable: null,
-    isSalary: false,
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,7 +99,7 @@ export default function FinanceCategoriesPage() {
     setDialogKind(kind)
     setEditingId(null)
     setEditingIsSystem(false)
-    setForm({ name: "", isActive: true, isVariable: null, isSalary: false })
+    setForm({ name: "", isActive: true, isVariable: null })
     setError(null)
     setDialogOpen(true)
   }
@@ -115,7 +112,6 @@ export default function FinanceCategoriesPage() {
       name: c.name,
       isActive: c.isActive,
       isVariable: c.isVariable,
-      isSalary: c.isSalary,
     })
     setError(null)
     setDialogOpen(true)
@@ -129,7 +125,6 @@ export default function FinanceCategoriesPage() {
       name: c.name,
       isActive: c.isActive,
       isVariable: null,
-      isSalary: false,
     })
     setError(null)
     setDialogOpen(true)
@@ -158,7 +153,6 @@ export default function FinanceCategoriesPage() {
     if (!editingIsSystem) body.name = form.name.trim()
     if (dialogKind === "expense") {
       body.isVariable = form.isVariable
-      body.isSalary = form.isSalary
     }
 
     try {
@@ -237,7 +231,6 @@ export default function FinanceCategoriesPage() {
                 <TableRow>
                   <TableHead>Название</TableHead>
                   <TableHead>Источник</TableHead>
-                  <TableHead>ЗП</TableHead>
                   <TableHead>Тип затрат</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead className="w-[80px]" />
@@ -253,9 +246,6 @@ export default function FinanceCategoriesPage() {
                       ) : (
                         <Badge variant="secondary">Пользовательская</Badge>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      {c.isSalary && <Badge variant="outline">ЗП</Badge>}
                     </TableCell>
                     <TableCell>
                       <Badge variant={c.isVariable ? "default" : "outline"}>
@@ -452,18 +442,6 @@ export default function FinanceCategoriesPage() {
                       </span>
                     </Label>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <Label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.isSalary}
-                      onChange={(e) => setForm({ ...form, isSalary: e.target.checked })}
-                      className="size-4 rounded border"
-                    />
-                    <span>Категория ЗП</span>
-                  </Label>
                 </div>
               </>
             )}
