@@ -21,6 +21,7 @@ import {
   TrendingUp,
   Trophy,
   Percent,
+  Calculator,
 } from "lucide-react"
 
 interface TimelineEvent {
@@ -42,7 +43,7 @@ const FILTERS: FilterDef[] = [
   { key: "comm", label: "Коммуникации", kinds: ["communication"] },
   { key: "sales", label: "Продажи", kinds: ["application_created", "application_stage", "application_processed", "application_removed"] },
   { key: "trial", label: "Пробные", kinds: ["trial_scheduled", "trial_attended", "trial_no_show"] },
-  { key: "sub", label: "Абонементы", kinds: ["subscription_created", "subscription_closed"] },
+  { key: "sub", label: "Абонементы", kinds: ["subscription_created", "subscription_recalculated", "subscription_closed"] },
   { key: "pay", label: "Оплаты", kinds: ["payment_in", "payment_refund", "subscription_paid_from_balance", "balance_credit", "balance_debit"] },
   { key: "att", label: "Посещения", kinds: ["attendance_present", "attendance_absent", "attendance_other"] },
   { key: "status", label: "Статусы", kinds: ["status_change"] },
@@ -62,6 +63,7 @@ const KIND_CONFIG: Record<
   trial_attended: { icon: GraduationCap, color: "text-emerald-600", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
   trial_no_show: { icon: X, color: "text-red-600", bg: "bg-red-100 dark:bg-red-900/30" },
   subscription_created: { icon: Tag, color: "text-violet-600", bg: "bg-violet-100 dark:bg-violet-900/30" },
+  subscription_recalculated: { icon: Calculator, color: "text-amber-700", bg: "bg-amber-100 dark:bg-amber-900/30" },
   subscription_closed: { icon: Tag, color: "text-gray-600", bg: "bg-gray-100 dark:bg-gray-800" },
   payment_in: { icon: CreditCard, color: "text-green-600", bg: "bg-green-100 dark:bg-green-900/30" },
   payment_refund: { icon: RotateCcw, color: "text-orange-600", bg: "bg-orange-100 dark:bg-orange-900/30" },

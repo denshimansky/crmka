@@ -8,6 +8,7 @@ import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
 import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
+import { logSubscriptionIssued } from "@/lib/subscriptions/audit-price"
 import { packageLessonPrice } from "@/lib/subscriptions/package-price"
 import { directionPriceAt, toUtcDay } from "@/lib/subscriptions/direction-price"
 import {
@@ -362,6 +363,19 @@ export async function POST(
       clientId: ward.clientId,
       createdBy: session.user.employeeId ?? null,
       newSubscriptionIds: [subscription.id],
+    })
+
+    // История клиента: сумма, НА КОТОРУЮ выписан абонемент — перечитываем после
+    // recalc, т.к. скидка могла уменьшить finalAmount.
+    const issued = await tx.subscription.findUnique({
+      where: { id: subscription.id },
+      select: { finalAmount: true },
+    })
+    await logSubscriptionIssued(tx, {
+      tenantId,
+      subscriptionId: subscription.id,
+      finalAmount: issued?.finalAmount ?? finalAmount,
+      employeeId: session.user.employeeId ?? null,
     })
 
     // ADM-04 + баг #79: денормализуем два последних РАЗНЫХ филиала абонементов

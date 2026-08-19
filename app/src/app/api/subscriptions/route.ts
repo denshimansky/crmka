@@ -15,6 +15,7 @@ import {
   SelectionConflictError,
 } from "@/lib/subscriptions/subscription-lessons"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
+import { logSubscriptionIssued } from "@/lib/subscriptions/audit-price"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
 import { z } from "zod"
@@ -394,6 +395,7 @@ export async function POST(req: NextRequest) {
         subscriptionId: sub.id,
         templateId: data.discountTemplateId,
         createdBy: session.user.employeeId ?? null,
+        isNewSubscription: true,
       })
     }
     await recalcClientDiscounts(tx, {
@@ -414,6 +416,16 @@ export async function POST(req: NextRequest) {
         ward: { select: { id: true, firstName: true, lastName: true } },
       },
     })
+    // История клиента: сумма, НА КОТОРУЮ выписан абонемент — берём после
+    // recalc, т.е. уже со скидкой. Дальнейшие пересчёты пишут свои события и
+    // эту сумму не переписывают.
+    await logSubscriptionIssued(tx, {
+      tenantId: session.user.tenantId,
+      subscriptionId: sub.id,
+      finalAmount: (fresh ?? sub).finalAmount,
+      employeeId: session.user.employeeId ?? null,
+    })
+
     return fresh ?? sub
    })
   } catch (e) {

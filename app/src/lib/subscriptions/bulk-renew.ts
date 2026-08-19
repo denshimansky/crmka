@@ -32,6 +32,7 @@ import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { directionPriceAt, toUtcDay } from "@/lib/subscriptions/direction-price"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { netPaidBySubscriptions } from "@/lib/subscriptions/net-paid"
+import { logSubscriptionsIssued } from "@/lib/subscriptions/audit-price"
 
 export interface BulkRenewInput {
   tenantId: string
@@ -699,6 +700,7 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
           subscriptionId: sub.id,
           templateId: c.discountTemplateId,
           createdBy: opts.createdBy ?? null,
+          isNewSubscription: true,
         })
       }
       // ADM-04 + баг #79: денормализуем два последних РАЗНЫХ филиала абонементов
@@ -768,11 +770,21 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
 
     // «Выписано на сумму» — по фактическим finalAmount ПОСЛЕ применения скидок.
     if (createdSubs.length > 0) {
-      const issuedAgg = await tx.subscription.aggregate({
+      const issuedRows = await tx.subscription.findMany({
         where: { id: { in: createdSubs.map((c) => c.subId) } },
-        _sum: { finalAmount: true },
+        select: { id: true, finalAmount: true },
       })
-      totalIssuedAmount = new Prisma.Decimal(issuedAgg._sum.finalAmount ?? 0)
+      totalIssuedAmount = issuedRows.reduce(
+        (acc, r) => acc.plus(r.finalAmount),
+        new Prisma.Decimal(0),
+      )
+      // История клиента: у каждого выписанного абонемента — событие с суммой,
+      // на которую его выписали (одним INSERT на всю пачку).
+      await logSubscriptionsIssued(tx, {
+        tenantId: opts.tenantId,
+        employeeId: opts.createdBy ?? null,
+        items: issuedRows.map((r) => ({ subscriptionId: r.id, finalAmount: r.finalAmount })),
+      })
     }
   }, {
     // Массовая выписка по всей базе: на крупном тенанте цикл (create абонемента +

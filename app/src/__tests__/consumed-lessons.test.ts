@@ -76,6 +76,7 @@ function makeTx(opts: MockOpts) {
     paymentCreate: [] as any[],
     balanceTx: [] as any[],
     countWheres: [] as any[],
+    auditLog: [] as any[],
   }
   const sub =
     opts.sub === undefined
@@ -95,9 +96,15 @@ function makeTx(opts: MockOpts) {
           discountSource: "none",
         }
       : opts.sub
+  // finalAmount — цена ДО пересчёта (нужна recomputeMoney для события «пересчитан»).
+  // В фикстурах её опускают: у свежевыписанного абонемента она равна номиналу.
+  const subRow =
+    sub === null || sub === undefined
+      ? sub
+      : { finalAmount: (sub as any).totalAmount, ...(sub as any) }
   const tx = {
     subscription: {
-      findFirst: async (_args: any) => sub,
+      findFirst: async (_args: any) => subRow,
       update: async (args: any) => {
         calls.subUpdate.push(args)
         return { id: args.where.id }
@@ -138,6 +145,16 @@ function makeTx(opts: MockOpts) {
     },
     groupEnrollment: {
       updateMany: async (_args: any) => ({ count: 1 }),
+    },
+    auditLog: {
+      create: async (args: any) => {
+        calls.auditLog.push(args)
+        return { id: "audit1" }
+      },
+      createMany: async (args: any) => {
+        calls.auditLog.push(args)
+        return { count: args.data.length }
+      },
     },
   }
   return { tx, calls }
@@ -245,6 +262,47 @@ describe("repriceSubscription — consumed-семантика", () => {
     await repriceSubscription(tx as any, { tenantId: "t", subscriptionId: "s1" })
     const activated = calls.subUpdate.some((u) => u.data?.status === "active")
     assert.equal(activated, true, "оплата есть, долга нет → активация")
+  })
+
+  it("смена цены пишет событие в историю (было → стало, причина, возврат)", async () => {
+    const { tx, calls } = makeTx({
+      sub: {
+        id: "s1", clientId: "c1", wardId: null, groupId: "g1", directionId: "d1",
+        type: "calendar", status: "active",
+        lessonPrice: D(950), totalLessons: 4, totalAmount: D(3800),
+        chargedAmount: D(2850), discountPerLesson: D(0), discountSource: "none",
+      },
+      consumedCount: 4,
+      chargedCount: 3,
+      paid: 3800,
+    })
+    await repriceSubscription(tx as any, { tenantId: "t", subscriptionId: "s1" })
+    assert.equal(calls.auditLog.length, 1, "одно событие пересчёта")
+    const rec = calls.auditLog[0].data
+    assert.equal(rec.entityType, "Subscription")
+    assert.equal(rec.entityId, "s1")
+    assert.equal(rec.action, "update")
+    assert.equal(rec.changes.finalAmount.old, "3800.00")
+    assert.equal(rec.changes.finalAmount.new, "2850.00")
+    assert.equal(rec.changes.reason.new, "занятия без списания (уваж. пропуск / перерасчёт)")
+    assert.equal(rec.changes.refunded.new, "950.00", "переплата вернулась на баланс")
+  })
+
+  it("цена не изменилась — события в истории нет", async () => {
+    const { tx, calls } = makeTx({
+      sub: {
+        id: "s1", clientId: "c1", wardId: null, groupId: "g1", directionId: "d1",
+        type: "calendar", status: "active",
+        lessonPrice: D(950), totalLessons: 4, totalAmount: D(3800),
+        finalAmount: D(3800),
+        chargedAmount: D(0), discountPerLesson: D(0), discountSource: "none",
+      },
+      consumedCount: 0,
+      chargedCount: 0,
+      paid: 0,
+    })
+    await repriceSubscription(tx as any, { tenantId: "t", subscriptionId: "s1" })
+    assert.equal(calls.auditLog.length, 0)
   })
 
   it("guard: закрытый/отчисленный/legacy не пересчитываются", async () => {

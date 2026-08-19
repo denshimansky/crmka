@@ -29,6 +29,7 @@ import { Prisma, type PrismaClient } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { activateSubscription } from "@/lib/subscriptions/activate-subscription"
 import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
+import { logSubscriptionRepriced } from "@/lib/subscriptions/audit-price"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -86,6 +87,9 @@ interface SubMoney {
   totalLessons: number
   totalAmount: Prisma.Decimal
   chargedAmount: Prisma.Decimal
+  // Цена и скидка ДО пересчёта — только для записи «было → стало» в аудит.
+  finalAmount: Prisma.Decimal
+  discountPerLesson: Prisma.Decimal
 }
 
 function monthIndex(year: number, month: number): number {
@@ -169,6 +173,12 @@ async function recomputeMoney(
     perLesson: Prisma.Decimal
     source: "none" | "type1" | "type2" | "legacy"
     createdBy?: string | null
+    /**
+     * Абонемент выписывается прямо сейчас (та же транзакция): скидка, которую
+     * кладёт recalc сразу после create, — часть выписки, а не «пересчёт». Событие
+     * смены цены не пишем, итоговую сумму запишет событие создания абонемента.
+     */
+    skipPriceAudit?: boolean
   },
 ): Promise<Prisma.Decimal> {
   const { tenantId, sub, attended, consumedNoCharge, perLesson, source, createdBy } = input
@@ -311,6 +321,35 @@ async function recomputeMoney(
     },
   })
 
+  // История цены абонемента (карточка клиента → «История» → фильтр «Абонементы»).
+  // Пишем в аудит внутри той же транзакции, поэтому откат пересчёта уносит и
+  // запись. Без этого «Абонемент создан» показывал ЖИВОЙ finalAmount и задним
+  // числом переписывал сумму, на которую абонемент выписывали, а сам факт
+  // пересчёта в истории не отражался вовсе.
+  const oldFinal = new Prisma.Decimal(sub.finalAmount)
+  if (!input.skipPriceAudit && !oldFinal.equals(newFinal)) {
+    // Причина — из данных самого пересчёта: триггеров много (отметка посещения,
+    // правка занятия/абонемента, смена шаблона скидки, крон), но в историю важно
+    // «почему цена стала такой», а не какой хендлер это вызвал.
+    let reason: string
+    if (!perLesson.equals(new Prisma.Decimal(sub.discountPerLesson))) {
+      reason = "изменена скидка"
+    } else if (consumedNoCharge > 0) {
+      reason = "занятия без списания (уваж. пропуск / перерасчёт)"
+    } else {
+      reason = "изменился состав занятий"
+    }
+    await logSubscriptionRepriced(t, {
+      tenantId,
+      subscriptionId: sub.id,
+      oldAmount: oldFinal,
+      newAmount: newFinal,
+      reason,
+      refunded,
+      employeeId: createdBy,
+    })
+  }
+
   // Автоактивация: долга не осталось (100% скидка или возврат «доплатил»).
   // Guard: ноль должен быть достигнут деньгами (paid > 0) или бесплатностью
   // занятий (100% скидка), а НЕ прощёнными пропусками — иначе неоплаченный
@@ -360,6 +399,7 @@ export async function repriceSubscription(
       totalLessons: true,
       totalAmount: true,
       chargedAmount: true,
+      finalAmount: true,
       discountPerLesson: true,
       discountSource: true,
     },
@@ -500,6 +540,7 @@ export async function recalcClientDiscounts(
       totalLessons: true,
       totalAmount: true,
       chargedAmount: true,
+      finalAmount: true,
       discountPerLesson: true,
       discountSource: true,
       discountTemplateId: true,
@@ -591,6 +632,10 @@ export async function recalcClientDiscounts(
       perLesson: newPerLesson,
       source: newSource,
       createdBy: input.createdBy,
+      // Только что выписанный абонемент — скидка входит в его стартовую цену.
+      // Остальные абонементы клиента (их мог задеть инвариант «за второй»)
+      // пересчитываются по-настоящему и событие получают.
+      skipPriceAudit: newIds.has(sub.id),
     })
 
     // История применений: активную запись закрываем, новую создаём при выдаче.
@@ -775,6 +820,8 @@ export async function setSubscriptionManualDiscount(
     subscriptionId: string
     templateId: string | null
     createdBy?: string | null
+    /** Вызов из выписки абонемента — см. skipPriceAudit в recomputeMoney. */
+    isNewSubscription?: boolean
   },
 ): Promise<void> {
   const sub = await t.subscription.findFirst({
@@ -791,6 +838,7 @@ export async function setSubscriptionManualDiscount(
       totalLessons: true,
       totalAmount: true,
       chargedAmount: true,
+      finalAmount: true,
       discountPerLesson: true,
       discountSource: true,
       discountTemplateId: true,
@@ -868,6 +916,7 @@ export async function setSubscriptionManualDiscount(
       perLesson: newPerLesson,
       source: newSource,
       createdBy: input.createdBy,
+      skipPriceAudit: input.isNewSubscription,
     })
   }
 

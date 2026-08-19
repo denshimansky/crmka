@@ -42,6 +42,7 @@ function twoEqualSubs() {
       lessonPrice: 650,
       totalLessons: 8,
       totalAmount: 5200,
+      finalAmount: 5200,
       chargedAmount: 0,
       discountPerLesson: 0,
       discountSource: "none",
@@ -60,6 +61,7 @@ function twoEqualSubs() {
       lessonPrice: 650,
       totalLessons: 8,
       totalAmount: 5200,
+      finalAmount: 5200,
       chargedAmount: 0,
       discountPerLesson: 0,
       discountSource: "none",
@@ -110,6 +112,11 @@ function makeRecalcTx(opts: { perSubDiscountMode: boolean; subs: any[] }) {
       create: async () => ({}),
     },
     financialAccount: { findFirst: async () => ({ id: "acc1" }) },
+    auditLog: {
+      // recomputeMoney пишет сюда событие смены цены (история клиента).
+      create: async () => ({ id: "audit1" }),
+      createMany: async (args: any) => ({ count: args.data.length }),
+    },
   }
   return { tx, calls }
 }
@@ -169,6 +176,11 @@ function makeManualTx(sub: any) {
       },
     },
     financialAccount: { findFirst: async () => ({ id: "acc1" }) },
+    auditLog: {
+      // recomputeMoney пишет сюда событие смены цены (история клиента).
+      create: async () => ({ id: "audit1" }),
+      createMany: async (args: any) => ({ count: args.data.length }),
+    },
     client: { findUnique: async () => ({ clientBalance: 0 }) },
   }
   return { tx, calls }
@@ -186,6 +198,7 @@ function baseSub(over: Record<string, unknown> = {}) {
     lessonPrice: 1000,
     totalLessons: 8,
     totalAmount: 8000,
+    finalAmount: 8000,
     chargedAmount: 0,
     discountPerLesson: 0,
     discountSource: "none",

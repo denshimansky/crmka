@@ -1,6 +1,9 @@
 import { db } from "@/lib/db"
+import type { Prisma, PrismaClient } from "@prisma/client"
 
 type AuditAction = "create" | "update" | "delete"
+
+type AuditTx = Prisma.TransactionClient | PrismaClient
 
 interface AuditParams {
   tenantId: string
@@ -47,6 +50,41 @@ export async function logAudit(params: AuditParams): Promise<void> {
     // Аудит не должен ломать основную операцию
     console.error("[audit] Failed to log:", e)
   }
+}
+
+/**
+ * Аудит ВНУТРИ транзакции: пишет ту же строку audit_logs, но клиентом `tx`,
+ * поэтому запись живёт и умирает вместе с основной мутацией. Нужен там, где
+ * событие не имеет смысла без неё — например смена цены абонемента при
+ * пересчёте: аудит от откатившегося пересчёта показал бы несуществующее
+ * изменение цены.
+ *
+ * В отличие от logAudit ошибку НЕ глотаем: в PostgreSQL упавший запрос рушит
+ * всю транзакцию, и «проглоченная» ошибка всё равно свалила бы основную
+ * операцию — но уже с непонятным сообщением. ip/user-agent недоступны (вызов
+ * идёт из сервисов, не из route-хендлера).
+ */
+export async function logAuditTx(
+  tx: AuditTx,
+  params: {
+    tenantId: string
+    employeeId?: string | null
+    action: AuditAction
+    entityType: string
+    entityId: string
+    changes?: Record<string, { old?: any; new?: any }> | null
+  },
+): Promise<void> {
+  await tx.auditLog.create({
+    data: {
+      tenantId: params.tenantId,
+      employeeId: params.employeeId ?? null,
+      action: params.action,
+      entityType: params.entityType,
+      entityId: params.entityId,
+      changes: params.changes ?? undefined,
+    },
+  })
 }
 
 /**

@@ -102,6 +102,7 @@ type EventKind =
   | "trial_attended"
   | "trial_no_show"
   | "subscription_created"
+  | "subscription_recalculated"
   | "subscription_closed"
   | "payment_in"
   | "payment_refund"
@@ -317,6 +318,31 @@ export async function GET(
       })
     : []
 
+  // Аудит абонементов: выписка (action=create, сумма выписки) и пересчёты цены
+  // (action=update, было → стало). Пишутся в lib/subscriptions/audit-price.ts.
+  // Тянем отдельным запросом по id абонементов клиента — как аудит заявок выше.
+  const subAuditLogs = subscriptions.length > 0
+    ? await db.auditLog.findMany({
+        where: {
+          tenantId,
+          entityType: "Subscription",
+          entityId: { in: subscriptions.map((s) => s.id) },
+        },
+        include: { employee: { select: { firstName: true, lastName: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      })
+    : []
+
+  // Сумма выписки: у абонементов, выписанных до появления этого аудита, записи
+  // нет — там остаётся живой finalAmount (как было раньше).
+  const issuedAmountBySub = new Map<string, string>()
+  for (const log of subAuditLogs) {
+    if (log.action !== "create") continue
+    const c = (log.changes as Record<string, any> | null)?.finalAmount
+    if (c && c.new != null) issuedAmountBySub.set(log.entityId, String(c.new))
+  }
+
   // Имена детей для посещений и операций баланса: Attendance.wardId — голая
   // колонка без Prisma-relation, поэтому подтягиваем батчем.
   const wardIds = new Set<string>()
@@ -463,13 +489,19 @@ export async function GET(
     const period = periodLabel(s)
     // Общий «паспорт» абонемента — чтобы из любого события было понятно,
     // о каком именно абонементе речь (на семью их может быть много).
-    const subDescription = [
+    // Паспорт без суммы — сумма у каждого события своя: «создан» показывает, на
+    // что выписывали, «закрыт» — актуальную цену.
+    const subPassport = [
       directionName,
       wardName ? `подопечный: ${wardName}` : null,
       s.group ? `группа: ${s.group.name}` : null,
       period ? `период: ${period}` : null,
-      `сумма: ${amount.toLocaleString("ru-RU")} ${sym}`,
     ].filter(Boolean)
+    const money = (v: number) => `${v.toLocaleString("ru-RU")} ${sym}`
+    const subDescription = [...subPassport, `сумма: ${money(amount)}`]
+    // Сумма на момент выписки: из аудита, иначе (легаси) — живая.
+    const issuedRaw = issuedAmountBySub.get(s.id)
+    const issuedAmount = issuedRaw != null ? Number(issuedRaw) : amount
 
     // Строка о применённой скидке (только для события создания). discountSource
     // однозначно определяет тип: type1 — авто «за второй абонемент», type2 —
@@ -505,9 +537,44 @@ export async function GET(
       kind: "subscription_created",
       date: s.createdAt.toISOString(),
       title: "Абонемент создан",
-      description: [...subDescription, discountLine].filter(Boolean).join(" · "),
-      meta: { subscriptionId: s.id, amount },
+      description: [
+        ...subPassport,
+        `выписан на: ${money(issuedAmount)}`,
+        discountLine,
+      ].filter(Boolean).join(" · "),
+      meta: { subscriptionId: s.id, amount: issuedAmount },
     })
+
+    // Пересчёты цены этого абонемента: скидка, прощённые занятия, правка состава.
+    for (const log of subAuditLogs) {
+      if (log.entityId !== s.id || log.action !== "update") continue
+      const ch = (log.changes as Record<string, any> | null) || {}
+      const fa = ch.finalAmount as { old?: unknown; new?: unknown } | undefined
+      if (!fa || fa.old == null || fa.new == null) continue
+      const reason = typeof ch.reason?.new === "string" ? ch.reason.new : null
+      const refunded = ch.refunded?.new != null ? Number(ch.refunded.new) : 0
+      const who = log.employee
+        ? [log.employee.lastName, log.employee.firstName].filter(Boolean).join(" ")
+        : "Система"
+      events.push({
+        id: `audit-${log.id}-sub-repriced`,
+        kind: "subscription_recalculated",
+        date: log.createdAt.toISOString(),
+        title: `Абонемент пересчитан — теперь ${money(Number(fa.new))}`,
+        description: [
+          ...subPassport,
+          `было: ${money(Number(fa.old))}`,
+          reason ? `причина: ${reason}` : null,
+          refunded > 0 ? `возврат на баланс: ${money(refunded)}` : null,
+        ].filter(Boolean).join(" · "),
+        meta: {
+          subscriptionId: s.id,
+          amount: Number(fa.new),
+          previousAmount: Number(fa.old),
+          author: who,
+        },
+      })
+    }
 
     if ((s.status === "closed" || s.status === "withdrawn") && s.withdrawalDate) {
       // withdrawalDate — @db.Date (без времени) → читается как 00:00 UTC → 03:00 МСК.
