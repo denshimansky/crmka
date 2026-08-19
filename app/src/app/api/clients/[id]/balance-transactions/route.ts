@@ -58,8 +58,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       lesson: { select: { date: true, startTime: true } },
       payment: { select: { date: true } },
     },
-    // id как вторичный ключ — детерминированный порядок для операций одной транзакции
-    // (общий createdAt), иначе строки одной мс шли бы недетерминированно.
+    // Забираем 300 последних ПО ВВОДУ, а отдаём отсортированными по дате
+    // документа (см. ниже). id как вторичный ключ — детерминированный порядок
+    // для операций одной транзакции (общий createdAt), иначе строки одной мс
+    // шли бы недетерминированно.
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: 300,
   })
@@ -84,8 +86,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       amount: Number(t.amount),
       date: opDate.toISOString(),
       detail,
+      // Момент ввода записи — только для сортировки, наружу не отдаём.
+      _enteredAt: t.createdAt.getTime(),
     }
   })
 
-  return NextResponse.json(rows)
+  // Сортируем по ТОЙ ЖЕ дате, что показываем в колонке «Дата». Раньше порядок
+  // шёл по createdAt (момент ввода), а в таблице стоит бухгалтерская дата
+  // платежа — её ставят задним числом, и список выглядел перемешанным
+  // (18.08 → 06.08 → 11.08 → 06.08…). При равной дате документа выше идут
+  // введённые позже — операции одного дня читаются в обратном порядке ввода.
+  rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b._enteredAt - a._enteredAt))
+
+  return NextResponse.json(rows.map(({ _enteredAt, ...r }) => r))
 }

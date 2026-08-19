@@ -74,6 +74,22 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
+  // Возврат не может увести баланс родителя в минус: деньги, уже перенесённые в
+  // абонемент, на балансе НЕ лежат, и возврат «поверх нуля» создаёт фантомный
+  // долг клиента (кейс Сызрановой: дубль прихода вернули после переноса в
+  // абонемент → баланс −3250 ₽ при фактическом плюсе). Симметрично проверке
+  // «Недостаточно средств на балансе родителя» в lib/subscriptions/pay-from-balance.
+  const clientBalance = new Prisma.Decimal(client.clientBalance)
+  if (new Prisma.Decimal(data.amount).gt(clientBalance)) {
+    return NextResponse.json({
+      error:
+        `Недостаточно средств на балансе клиента (${clientBalance.toFixed(2)} ${sym}), ` +
+        `возврат: ${data.amount.toFixed(2)} ${sym}. Деньги, перенесённые в абонемент, ` +
+        `на балансе не лежат — сначала верните их на баланс (закрытие/отчисление ` +
+        `абонемента или перенос остатка), затем оформите возврат.`,
+    }, { status: 400 })
+  }
+
   // Проверяем абонемент если указан
   if (data.subscriptionId) {
     const sub = await db.subscription.findFirst({
