@@ -6,7 +6,6 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { logAudit } from "@/lib/audit"
 import { rateLimitTenant } from "@/lib/rate-limit"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
-import { netPaidToSubscription } from "@/lib/subscriptions/net-paid"
 import { logClientNote } from "@/lib/communications/log-note"
 import { currencySymbol } from "@/lib/currency"
 import { Prisma } from "@prisma/client"
@@ -20,7 +19,13 @@ const refundSchema = z.object({
     errorMap: () => ({ message: "Выберите способ возврата" }),
   }),
   date: z.string().min(1, "Укажите дату"),
-  subscriptionId: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  // subscriptionId сознательно НЕ принимаем: возврат идёт только с баланса
+  // родителя. Привязка к абонементу списывала одни и те же деньги дважды — и с
+  // баланса (applyBalanceDelta), и с «оплачено» абонемента (netPaid считает
+  // отрицательные refund), из-за чего у оплаченного абонемента появлялся долг
+  // из воздуха (кейсы Глобенко и Сызрановой). Чтобы вернуть деньги, лежащие в
+  // абонементе, их сперва возвращают на баланс — отчислением/закрытием
+  // абонемента или переносом остатка, — и только потом оформляют возврат.
   comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
 })
 
@@ -90,32 +95,6 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
-  // Проверяем абонемент если указан
-  if (data.subscriptionId) {
-    const sub = await db.subscription.findFirst({
-      where: { id: data.subscriptionId, tenantId: session.user.tenantId, clientId: data.clientId, deletedAt: null },
-    })
-    if (!sub) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
-
-    // Возврат, ПРИВЯЗАННЫЙ к абонементу, не может превышать нетто-оплаченное по нему
-    // (transfer_in минус прежние возвраты). balance абонемента = finalAmount − netPaid;
-    // отрицательный refund уводит netPaid в минус, и долг раздувается ВЫШЕ цены
-    // (кейс Глобенко: возврат 7400 ₽ на абонемент, куда завели 3600 ₽ → долг 7500 при
-    // цене 3700 — те же деньги списались и с абонемента, и с баланса родителя).
-    // Условие amount ≤ netPaid ⇔ netPaid после возврата ≥ 0 ⇔ balance ≤ finalAmount.
-    // Общий возврат на баланс (не связанный с конкретным абонементом) оформляется
-    // без выбора абонемента и под этот лимит не попадает.
-    const netPaid = await netPaidToSubscription(db, session.user.tenantId, data.subscriptionId)
-    if (new Prisma.Decimal(data.amount).gt(netPaid)) {
-      return NextResponse.json({
-        error:
-          `Возврат по абонементу (${data.amount.toFixed(2)} ${sym}) больше, чем на него ` +
-          `заведено (${netPaid.toFixed(2)} ${sym}). Уменьшите сумму или оформите возврат ` +
-          `без привязки к абонементу.`,
-      }, { status: 400 })
-    }
-  }
-
   // Создаём возврат в транзакции
   const payment = await db.$transaction(async (tx) => {
     // Создаём оплату с типом refund и отрицательной суммой
@@ -124,7 +103,6 @@ export async function POST(req: NextRequest) {
         tenantId: session.user.tenantId,
         clientId: data.clientId,
         accountId: data.accountId,
-        subscriptionId: data.subscriptionId,
         amount: -data.amount,
         type: "refund",
         method: data.method,
@@ -134,14 +112,6 @@ export async function POST(req: NextRequest) {
       },
       include: {
         client: { select: { id: true, firstName: true, lastName: true } },
-        subscription: {
-          select: {
-            id: true,
-            periodYear: true,
-            periodMonth: true,
-            direction: { select: { name: true } },
-          },
-        },
         account: { select: { id: true, name: true } },
       },
     })
@@ -158,7 +128,7 @@ export async function POST(req: NextRequest) {
       clientId: data.clientId,
       delta: -data.amount,
       type: "refund",
-      refs: { paymentId: p.id, subscriptionId: data.subscriptionId ?? null },
+      refs: { paymentId: p.id, subscriptionId: null },
       createdBy: session.user.employeeId,
     })
 

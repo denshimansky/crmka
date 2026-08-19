@@ -29,11 +29,6 @@ interface AccountOption {
   type: string
 }
 
-interface SubOption {
-  id: string
-  label: string
-}
-
 const METHOD_OPTIONS = [
   { value: "cash", label: "Наличные" },
   { value: "bank_transfer", label: "Безнал" },
@@ -64,10 +59,8 @@ export function RefundPaymentDialog({
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState("")
   const [accountId, setAccountId] = useState("")
-  const [subscriptionId, setSubscriptionId] = useState("")
   const [comment, setComment] = useState("")
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
-  const [clientSubs, setClientSubs] = useState<SubOption[]>([])
 
   function reset() {
     setClientId("")
@@ -75,38 +68,10 @@ export function RefundPaymentDialog({
     setAmount("")
     setMethod("")
     setAccountId("")
-    setSubscriptionId("")
     setComment("")
     setDate(new Date().toISOString().slice(0, 10))
-    setClientSubs([])
     setError(null)
     setStep("form")
-  }
-
-  async function loadClientSubs(cid: string) {
-    setClientId(cid)
-    setSubscriptionId("")
-    if (!cid) {
-      setClientSubs([])
-      return
-    }
-    try {
-      const res = await fetch(`/api/subscriptions?clientId=${cid}`)
-      if (res.ok) {
-        const subs = await res.json()
-        const MONTH_NAMES = ["", "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
-        setClientSubs(
-          subs
-            .filter((s: any) => s.status !== "withdrawn")
-            .map((s: any) => ({
-              id: s.id,
-              label: `${s.direction?.name || "?"} — ${MONTH_NAMES[s.periodMonth]} ${s.periodYear}`,
-            }))
-        )
-      }
-    } catch {
-      // ignore
-    }
   }
 
   function handleShowConfirm(e: React.FormEvent) {
@@ -135,7 +100,6 @@ export function RefundPaymentDialog({
           amount: Number(amount),
           method,
           date,
-          subscriptionId: subscriptionId || undefined,
           comment: comment || undefined,
         }),
       })
@@ -160,7 +124,6 @@ export function RefundPaymentDialog({
 
   const selectedMethod = METHOD_OPTIONS.find(m => m.value === method)
   const selectedAccount = accounts.find(a => a.id === accountId)
-  const selectedSub = clientSubs.find(s => s.id === subscriptionId)
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
@@ -186,7 +149,7 @@ export function RefundPaymentDialog({
               <ClientCombobox
                 serverSearch={{ status: "payable", withPhone: true }}
                 value={clientId}
-                onChange={(id) => loadClientSubs(id)}
+                onChange={(id) => setClientId(id)}
                 onSelect={(opt) => setSelectedClientName(opt?.name ?? "")}
                 placeholder="Начните вводить ФИО или телефон..."
               />
@@ -261,23 +224,6 @@ export function RefundPaymentDialog({
               </div>
             </div>
 
-            {clientId && clientSubs.length > 0 && (
-              <div className="space-y-1.5">
-                <Label>Абонемент (привязка)</Label>
-                <Select value={subscriptionId} onValueChange={(v) => { if (v !== null) setSubscriptionId(v) }}>
-                  <SelectTrigger className="w-full">
-                    {selectedSub ? selectedSub.label : "Без привязки к абонементу"}
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">Без привязки</SelectItem>
-                    {clientSubs.map(s => (
-                      <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
             <div className="space-y-1.5">
               <Label>Комментарий</Label>
               <Input
@@ -324,12 +270,6 @@ export function RefundPaymentDialog({
                   <span className="text-muted-foreground">Дата:</span>
                   <span>{new Date(date).toLocaleDateString("ru-RU")}</span>
                 </div>
-                {selectedSub && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Абонемент:</span>
-                    <span>{selectedSub.label}</span>
-                  </div>
-                )}
                 {comment && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Комментарий:</span>
