@@ -366,22 +366,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
       updateData.balance = 0
 
-      // Ребёнок уходит из группы → исчезает из расписания (Lessons остаются
-      // объектами, но без зачисления = без посещения). НО только если у него не
-      // осталось другого живого (pending/active) абонемента в этой же группе:
-      // календарный тип создаёт новый абонемент каждый месяц при одном общем
-      // GroupEnrollment, поэтому отчисление одного месяца не должно выкидывать
-      // ребёнка с оплаченным другим месяцем той же группы.
-      // withdrawnAt = дата отчисления + 1 день: ученик остаётся в составе на
-      // последнем платном занятии (D), но выпадает из всех более поздних
-      // (фильтр состава — withdrawnAt > дата занятия).
-      await deactivateGroupEnrollmentOnWithdrawal(tx, {
-        tenantId: session.user.tenantId,
-        groupId: existing.groupId,
-        clientId: existing.clientId,
-        wardId: existing.wardId,
-        excludeSubscriptionId: id,
-      })
+      // Деактивация зачисления перенесена НИЖЕ, строго после subscription.update:
+      // чистка «висящих» пустых отметок внутри неё зовёт repriceSubscription, а
+      // тот пропускает только уже closed/withdrawn. Пока абонемент числился
+      // active, пересчёт видел его живым на весь период, насчитывал фантомный
+      // долг за неотходенные занятия и «покрывал» его с баланса родителя —
+      // забирая назад часть только что возвращённых денег (кейс Ильясовой,
+      // 19.08.2026: возврат 1950 ₽ и тут же −650 ₽ обратно в абонемент).
 
       // Баг #62: заявка «Ожидаем оплату» по этому абонементу не должна зависать
       // в воронке после отчисления (платил → won, не платил → potential).
@@ -482,6 +473,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // активных. effectiveWithdrawalDate при withdrawn гарантированно задан
     // (валидируется до транзакции), фоллбэк на now — на всякий случай.
     if (data.status === "withdrawn" && existing.status !== "withdrawn") {
+      // Ребёнок уходит из группы → исчезает из расписания (Lessons остаются
+      // объектами, но без зачисления = без посещения). НО только если у него не
+      // осталось другого живого (pending/active) абонемента в этой же группе:
+      // календарный тип создаёт новый абонемент каждый месяц при одном общем
+      // GroupEnrollment, поэтому отчисление одного месяца не должно выкидывать
+      // ребёнка с оплаченным другим месяцем той же группы.
+      // withdrawnAt = дата отчисления + 1 день: ученик остаётся в составе на
+      // последнем платном занятии (D), но выпадает из всех более поздних
+      // (фильтр состава — withdrawnAt > дата занятия).
+      // ПОСЛЕ update — тот же порядок, что в /refund и closeSubscription.
+      await deactivateGroupEnrollmentOnWithdrawal(tx, {
+        tenantId: session.user.tenantId,
+        groupId: existing.groupId,
+        clientId: existing.clientId,
+        wardId: existing.wardId,
+        excludeSubscriptionId: id,
+      })
+
       await churnClientIfNoActiveSubscription(
         tx,
         session.user.tenantId,

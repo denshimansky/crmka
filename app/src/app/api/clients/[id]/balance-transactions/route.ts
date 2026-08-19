@@ -19,7 +19,10 @@ const TYPE_LABELS: Record<string, string> = {
   lesson_refund: "Возврат за занятие",
   personal_lesson_charge: "Разовое посещение",
   attendance_revert: "Отмена посещения",
-  discount_refund: "Возврат по скидке",
+  // Не «возврат по скидке»: пересчёт абонемента бывает и по скидке, и по
+  // занятию без списания (Уваж. пропуск/Перерасчёт), и по смене состава занятий.
+  // Конкретная причина — в comment транзакции, занятие-триггер — в lessonId.
+  discount_refund: "Перерасчёт абонемента",
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -55,7 +58,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         },
       },
       direction: { select: { name: true } },
-      lesson: { select: { date: true, startTime: true } },
+      lesson: { select: { id: true, date: true, startTime: true } },
       payment: { select: { date: true } },
     },
     // Забираем 300 последних ПО ВВОДУ, а отдаём отсортированными по дате
@@ -75,7 +78,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const lessonLabel = t.lesson
       ? `занятие ${t.lesson.date.toLocaleDateString("ru-RU")}${t.lesson.startTime ? ` ${t.lesson.startTime}` : ""}`
       : null
-    const detail = [subLabel, lessonLabel, t.comment].filter(Boolean).join(" · ")
+    // Занятие идёт отдельным полем (а не только текстом в detail) — карточка
+    // делает из него ссылку на занятие: без неё «перерасчёт» в журнале нечем
+    // объяснить, а искать занятие руками по дате долго.
+    const detail = [subLabel, t.comment].filter(Boolean).join(" · ")
     // Дата операции: у зеркальных Payment-строк берём бухгалтерскую дату платежа
     // (её можно задать задним числом), иначе — дату записи в журнал.
     const opDate = t.payment?.date ?? t.createdAt
@@ -86,6 +92,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       amount: Number(t.amount),
       date: opDate.toISOString(),
       detail,
+      lessonId: t.lessonId,
+      lessonLabel,
       // Момент ввода записи — только для сортировки, наружу не отдаём.
       _enteredAt: t.createdAt.getTime(),
     }

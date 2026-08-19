@@ -1063,6 +1063,9 @@ interface BalanceTxnRow {
   amount: number
   date: string
   detail: string
+  /** Занятие-триггер операции (перерасчёт, возврат за занятие) — ссылкой. */
+  lessonId?: string | null
+  lessonLabel?: string | null
 }
 
 function BalanceOperationsTab({ clientId }: { clientId: string }) {
@@ -1199,7 +1202,26 @@ function BalanceOperationsTab({ clientId }: { clientId: string }) {
                     <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(t.date)}</TableCell>
                     <TableCell>
                       <div className="font-medium">{t.label}</div>
-                      {t.detail && <div className="text-xs text-muted-foreground">{t.detail}</div>}
+                      {(t.detail || t.lessonLabel) && (
+                        <div className="text-xs text-muted-foreground">
+                          {t.detail}
+                          {t.lessonLabel && (
+                            <>
+                              {t.detail ? " · " : null}
+                              {t.lessonId ? (
+                                <Link
+                                  href={`/schedule/lessons/${t.lessonId}`}
+                                  className="text-primary hover:underline"
+                                >
+                                  {t.lessonLabel}
+                                </Link>
+                              ) : (
+                                t.lessonLabel
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className={`whitespace-nowrap text-right font-medium ${credit ? "text-green-600" : "text-red-600"}`}>
                       {credit ? "+" : "−"}{formatMoney(Math.abs(t.amount))}

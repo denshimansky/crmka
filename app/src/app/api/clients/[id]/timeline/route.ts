@@ -784,7 +784,7 @@ export async function GET(
             : t.type === "lesson_refund"
               ? `Возврат за занятие: +${amount.toLocaleString("ru-RU")} ${sym}`
               : t.type === "discount_refund"
-                ? `Возврат по скидке: +${amount.toLocaleString("ru-RU")} ${sym}`
+                ? `Перерасчёт абонемента: +${amount.toLocaleString("ru-RU")} ${sym} на баланс`
                 : t.type === "attendance_revert"
                   ? `Отмена посещения: +${amount.toLocaleString("ru-RU")} ${sym}`
                   : `Операция (${t.type}) ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`

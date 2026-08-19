@@ -28,7 +28,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { activateSubscription } from "@/lib/subscriptions/activate-subscription"
-import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
+import { consumedTypeWhereFor, NON_CONSUMING_CODES } from "@/lib/subscriptions/consumed-lessons"
 import { logSubscriptionRepriced } from "@/lib/subscriptions/audit-price"
 
 type Tx = Prisma.TransactionClient | PrismaClient
@@ -152,6 +152,78 @@ export function debtCoverageFromBalance(
   return Prisma.Decimal.min(newBalance, clientBalance)
 }
 
+interface RepriceReason {
+  /** Короткая причина для журнала баланса: занятие там показано отдельной ссылкой. */
+  reasonShort: string
+  /** Самодостаточная причина (с датой занятия) — для платежа и истории цены. */
+  reasonFull: string
+  lessonId: string | null
+  attendanceId: string | null
+}
+
+/**
+ * Почему абонемент пересчитан — по данным самого пересчёта, а не по хендлеру.
+ * Главный (и самый непонятный для пользователя) случай — занятие, израсходованное
+ * БЕЗ списания («Уваж. пропуск»/«Перерасчёт»): называем и вид отметки, и само
+ * занятие, а ссылку на него (lessonId/attendanceId) кладём в транзакцию баланса,
+ * чтобы в журнале строка вела на занятие.
+ */
+async function resolveRepriceReason(
+  t: Tx,
+  input: {
+    tenantId: string
+    sub: SubMoney
+    consumedNoCharge: number
+    perLesson: Prisma.Decimal
+  },
+): Promise<RepriceReason> {
+  const { tenantId, sub, consumedNoCharge, perLesson } = input
+
+  if (!perLesson.equals(new Prisma.Decimal(sub.discountPerLesson))) {
+    const changed = perLesson.greaterThan(new Prisma.Decimal(sub.discountPerLesson))
+      ? "увеличена скидка"
+      : "уменьшена скидка"
+    const text = `${changed} — ${perLesson.toFixed(0)} ₽ за занятие`
+    return { reasonShort: text, reasonFull: text, lessonId: null, attendanceId: null }
+  }
+
+  if (consumedNoCharge > 0) {
+    // Занятие-триггер: последняя несписывающая отметка, израсходовавшая слот.
+    const mark = await t.attendance.findFirst({
+      where: {
+        tenantId,
+        subscriptionId: sub.id,
+        isPending: false,
+        attendanceType: { chargesSubscription: false, code: { notIn: NON_CONSUMING_CODES } },
+      },
+      orderBy: { lesson: { date: "desc" } },
+      select: {
+        id: true,
+        lessonId: true,
+        attendanceType: { select: { name: true } },
+        lesson: { select: { date: true, startTime: true } },
+      },
+    })
+    if (mark) {
+      const when =
+        `${mark.lesson.date.toLocaleDateString("ru-RU", { timeZone: "UTC" })}` +
+        (mark.lesson.startTime ? ` ${mark.lesson.startTime}` : "")
+      const more = consumedNoCharge > 1 ? ` (и ещё ${consumedNoCharge - 1} — без списания)` : ""
+      return {
+        reasonShort: `отметка «${mark.attendanceType.name}» — занятие не списывается${more}`,
+        reasonFull: `занятие ${when} отмечено «${mark.attendanceType.name}» — без списания${more}`,
+        lessonId: mark.lessonId,
+        attendanceId: mark.id,
+      }
+    }
+    const text = "занятия без списания (уваж. пропуск / перерасчёт)"
+    return { reasonShort: text, reasonFull: text, lessonId: null, attendanceId: null }
+  }
+
+  const text = "изменился состав занятий"
+  return { reasonShort: text, reasonFull: text, lessonId: null, attendanceId: null }
+}
+
 /**
  * Денежный пересчёт абонемента под заданную скидку за занятие:
  * finalAmount = снимок списаний + остаток × эффективная цена; переплата →
@@ -203,6 +275,21 @@ async function recomputeMoney(
   const paid = new Prisma.Decimal(paidAgg._sum.amount ?? 0)
 
   let newBalance = newFinal.minus(paid)
+
+  // Причина пересчёта — из данных самого пересчёта: триггеров много (отметка
+  // посещения, правка занятия/абонемента, смена шаблона скидки, крон), но в
+  // историю и в журнал баланса важно «почему цена стала такой», а не какой
+  // хендлер это вызвал. Считаем ДО движения денег: тот же текст идёт и в
+  // возврат на баланс, и в сторно-платёж, и в событие смены цены. Запрос
+  // делаем, только если пересчёт что-то изменил (возврат или новая цена) —
+  // иначе массовые прогоны (выписка, кроны) платили бы за него на каждом
+  // абонементе впустую.
+  const oldFinal = new Prisma.Decimal(sub.finalAmount)
+  const trigger: RepriceReason =
+    newBalance.isNegative() || (!input.skipPriceAudit && !oldFinal.equals(newFinal))
+      ? await resolveRepriceReason(t, { tenantId, sub, consumedNoCharge, perLesson })
+      : { reasonShort: "", reasonFull: "", lessonId: null, attendanceId: null }
+
   let refunded = new Prisma.Decimal(0)
   if (newBalance.isNegative()) {
     refunded = newBalance.abs()
@@ -218,11 +305,15 @@ async function recomputeMoney(
     if (!account) {
       // Возврат без счёта невозможен — откатываем транзакцию пересчёта,
       // иначе переплата клиента молча исчезла бы из учёта.
-      throw new Error("Возврат по скидке невозможен: нет активного счёта (кассы)")
+      throw new Error("Перерасчёт абонемента невозможен: нет активного счёта (кассы)")
     }
     if (account) {
-      // Комментарий нейтральный: сюда попадают и пересчёт по скидке, и возврат
-      // за занятия, израсходованные без списания (Уваж. пропуск/Перерасчёт).
+      // Это НЕ «возврат по скидке»: сюда попадают и пересчёт по скидке, и
+      // возврат за занятия, израсходованные без списания (Уваж. пропуск/
+      // Перерасчёт), и изменение состава занятий. Поэтому и заголовок, и
+      // комментарий говорят «перерасчёт» + называют причину; занятие-триггер
+      // уходит ссылкой (lessonId/attendanceId) — в журнале баланса оно
+      // показывается кликабельной строкой «занятие ДД.ММ.ГГГГ ЧЧ:ММ».
       const storno = await t.payment.create({
         data: {
           tenantId,
@@ -233,7 +324,7 @@ async function recomputeMoney(
           type: "transfer_in",
           method: "bank_transfer",
           date: new Date(),
-          comment: "Возврат по перерасчёту абонемента",
+          comment: `Перерасчёт абонемента: ${trigger.reasonFull}`,
           createdBy: createdBy ?? null,
         },
         select: { id: true },
@@ -243,8 +334,14 @@ async function recomputeMoney(
         clientId: sub.clientId,
         delta: refunded,
         type: "discount_refund",
-        refs: { subscriptionId: sub.id, paymentId: storno.id, directionId: sub.directionId },
-        comment: "Возврат по перерасчёту абонемента",
+        refs: {
+          subscriptionId: sub.id,
+          paymentId: storno.id,
+          directionId: sub.directionId,
+          lessonId: trigger.lessonId,
+          attendanceId: trigger.attendanceId,
+        },
+        comment: trigger.reasonShort,
         createdBy,
       })
     }
@@ -326,19 +423,8 @@ async function recomputeMoney(
   // запись. Без этого «Абонемент создан» показывал ЖИВОЙ finalAmount и задним
   // числом переписывал сумму, на которую абонемент выписывали, а сам факт
   // пересчёта в истории не отражался вовсе.
-  const oldFinal = new Prisma.Decimal(sub.finalAmount)
   if (!input.skipPriceAudit && !oldFinal.equals(newFinal)) {
-    // Причина — из данных самого пересчёта: триггеров много (отметка посещения,
-    // правка занятия/абонемента, смена шаблона скидки, крон), но в историю важно
-    // «почему цена стала такой», а не какой хендлер это вызвал.
-    let reason: string
-    if (!perLesson.equals(new Prisma.Decimal(sub.discountPerLesson))) {
-      reason = "изменена скидка"
-    } else if (consumedNoCharge > 0) {
-      reason = "занятия без списания (уваж. пропуск / перерасчёт)"
-    } else {
-      reason = "изменился состав занятий"
-    }
+    const reason = trigger.reasonFull
     await logSubscriptionRepriced(t, {
       tenantId,
       subscriptionId: sub.id,

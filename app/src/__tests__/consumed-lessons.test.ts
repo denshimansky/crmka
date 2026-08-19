@@ -68,6 +68,14 @@ interface MockOpts {
   paid?: number
   /** Баланс родителя (для варианта A — автопокрытие долга active-абонемента). */
   clientBalance?: number
+  /** Занятие-триггер пересчёта (несписывающая отметка) — для причины в возврате. */
+  noChargeMark?: {
+    id: string
+    lessonId: string
+    typeName: string
+    date: Date
+    startTime: string | null
+  } | null
 }
 
 function makeTx(opts: MockOpts) {
@@ -117,6 +125,24 @@ function makeTx(opts: MockOpts) {
         const isChargingOnly =
           args.where.attendanceType && args.where.attendanceType.chargesSubscription === true
         return isChargingOnly ? (opts.chargedCount ?? 0) : (opts.consumedCount ?? 0)
+      },
+      // resolveRepriceReason: занятие-триггер (последняя несписывающая отметка).
+      findFirst: async (_args: any) => {
+        const m = opts.noChargeMark
+        if (m === null) return null
+        const mark = m ?? {
+          id: "att-nc",
+          lessonId: "l-nc",
+          typeName: "Уваж. пропуск",
+          date: new Date(Date.UTC(2026, 6, 14)),
+          startTime: "10:00",
+        }
+        return {
+          id: mark.id,
+          lessonId: mark.lessonId,
+          attendanceType: { name: mark.typeName },
+          lesson: { date: mark.date, startTime: mark.startTime },
+        }
       },
     },
     payment: {
@@ -193,14 +219,23 @@ describe("repriceSubscription — consumed-семантика", () => {
     assert.equal(Number(data.balance), 0)
     assert.equal(calls.paymentCreate.length, 1, "сторно-платёж создан")
     assert.equal(Number(calls.paymentCreate[0].data.amount), -950)
+    // Это пересчёт, а не «возврат по скидке»: комментарий называет причину и
+    // занятие-триггер, а транзакция баланса несёт ссылку на него (в журнале
+    // карточки клиента строка ведёт на занятие).
     assert.equal(
       calls.paymentCreate[0].data.comment,
-      "Возврат по перерасчёту абонемента",
+      "Перерасчёт абонемента: занятие 14.07.2026 10:00 отмечено «Уваж. пропуск» — без списания",
     )
     // Возврат на баланс родителя (discount_refund) на 950.
     const refundTx = calls.balanceTx.find((b) => b.data?.type === "discount_refund")
     assert.ok(refundTx, "discount_refund создан")
     assert.equal(Number(refundTx.data.amount), 950)
+    assert.equal(
+      refundTx.data.comment,
+      "отметка «Уваж. пропуск» — занятие не списывается",
+    )
+    assert.equal(refundTx.data.lessonId, "l-nc", "ссылка на занятие-триггер")
+    assert.equal(refundTx.data.attendanceId, "att-nc", "ссылка на отметку-триггер")
     assert.equal(Number(data.discountAmount), 0, "возврат за пропуск — не скидка")
   })
 
@@ -284,7 +319,10 @@ describe("repriceSubscription — consumed-семантика", () => {
     assert.equal(rec.action, "update")
     assert.equal(rec.changes.finalAmount.old, "3800.00")
     assert.equal(rec.changes.finalAmount.new, "2850.00")
-    assert.equal(rec.changes.reason.new, "занятия без списания (уваж. пропуск / перерасчёт)")
+    assert.equal(
+      rec.changes.reason.new,
+      "занятие 14.07.2026 10:00 отмечено «Уваж. пропуск» — без списания",
+    )
     assert.equal(rec.changes.refunded.new, "950.00", "переплата вернулась на баланс")
   })
 
