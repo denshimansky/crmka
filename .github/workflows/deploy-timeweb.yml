@@ -16,6 +16,20 @@ on:
       - '.github/workflows/deploy-timeweb.yml'
   workflow_dispatch:
 
+
+# Две выкатки на один и тот же сервер одновременно ломают друг друга: docker
+# compose переименовывает старый контейнер под замену, и параллельный compose up
+# падает с «container name ... is already in use», а живым остаётся образ того
+# рана, который дошёл до up последним (19.08.2026: пуш ea8a0cd4 стартовал, пока
+# ещё катился f2b20b4c → ран упал, а на msk1 осталась предыдущая сборка).
+# Группа сериализует выкатки: новый пуш ждёт текущую. cancel-in-progress: false —
+# прерывать деплой на полпути нельзя; GitHub сам отменит лишь ПРЕДЫДУЩИЙ
+# ожидающий ран, так что из очереди выкатится самый свежий коммит (деплой и так
+# делает git pull на актуальный main).
+concurrency:
+  group: deploy-timeweb
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
