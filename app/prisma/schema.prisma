@@ -546,6 +546,14 @@ model Group {
   // расписания группы). Такие группы скрываются из списка групп и из отчётов
   // с группировкой по группам — в UI пользователь их не видит.
   isOneTime    Boolean   @default(false) @map("is_one_time")
+  // Технический флаг: группа-держатель ИНДИВИДУАЛЬНОГО пробного (пробное без
+  // группы). Такому пробному нужно собственное занятие: ЗП инструктора живёт
+  // только в Attendance у Lesson, иначе за пробное без группы начислить нечем.
+  // Идёт всегда вместе с isOneTime=true (скрыта из реестров групп и отчётов по
+  // группам) и дополнительно прячется из сетки расписания: там пробное рисуется
+  // собственной карточкой (TrialDetailsDialog), и занятие-держатель дало бы
+  // дубль строки. Само пробное при этом хранит groupId=null — «группы нет».
+  isTrialHolder Boolean  @default(false) @map("is_trial_holder")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")

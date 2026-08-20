@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { logAudit } from "@/lib/audit"
+import { computeTrialPay } from "@/lib/salary/trial-pay"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -170,7 +171,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         where: { tenantId, wardId: id, status: "scheduled" },
         orderBy: { scheduledDate: "desc" },
         include: {
-          lesson: { select: { id: true } },
+          lesson: {
+            select: {
+              id: true,
+              groupId: true,
+              instructorId: true,
+              substituteInstructorId: true,
+              group: { select: { directionId: true } },
+            },
+          },
         },
       })
       if (scheduled) {
@@ -179,9 +188,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           data: { status: "attended", attendedAt: now },
         })
 
-        // Создаём Attendance(isTrial=true) — как в PATCH /api/trial-lessons/[id].
-        // Salary за пробное не считаем здесь: его проще будет пересчитать через
-        // обычный flow при необходимости. Делаем минимальный корректный набор.
+        // Создаём Attendance(isTrial=true) — как в PATCH /api/trial-lessons/[id],
+        // включая ЗП инструктора: сумма не должна зависеть от того, откуда
+        // отметили пробное (раньше здесь писался жёсткий 0, и отметка через
+        // карточку подопечного молча лишала педагога начисления).
         if (scheduled.lesson) {
           const presentType = await tx.attendanceType.findFirst({
             where: { OR: [{ tenantId: null }, { tenantId }], code: "present", isActive: true },
@@ -197,6 +207,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
               },
             })
             if (!existingAtt) {
+              const payAmount = await computeTrialPay(tx, {
+                tenantId,
+                lessonId: scheduled.lesson.id,
+                groupId: scheduled.lesson.groupId,
+                clientId: existing.clientId,
+                instructorId:
+                  scheduled.lesson.substituteInstructorId || scheduled.lesson.instructorId,
+                directionId: scheduled.lesson.group.directionId,
+                instructorPayEnabled: scheduled.instructorPayEnabled,
+                atDate: scheduled.scheduledDate,
+              })
               await tx.attendance.create({
                 data: {
                   tenantId,
@@ -205,7 +226,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
                   wardId: id,
                   attendanceTypeId: presentType.id,
                   chargeAmount: new Prisma.Decimal(0),
-                  instructorPayAmount: new Prisma.Decimal(0),
+                  instructorPayAmount: payAmount,
                   instructorPayEnabled: scheduled.instructorPayEnabled,
                   isTrial: true,
                   markedBy: session.user.employeeId ?? undefined,

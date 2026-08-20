@@ -4,6 +4,11 @@ import { getRoleNames } from "@/lib/role-names"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { findRoomOccupant, roomOccupiedMessage } from "@/lib/schedule/room-conflict"
 import { resolveTrialPayMode } from "@/lib/salary/resolve-rate"
+import {
+  createTrialHolderLesson,
+  setTrialHolderLessonStatus,
+  type TrialHolderLessonInput,
+} from "@/lib/services/trial-holder-lesson"
 
 export type CreateTrialLessonInput = {
   clientId: string
@@ -52,7 +57,7 @@ export async function createTrialLessonForClient(
 
   const ward = await db.ward.findFirst({
     where: { id: input.wardId, clientId: input.clientId, tenantId },
-    select: { id: true },
+    select: { id: true, firstName: true, lastName: true },
   })
   if (!ward) return { ok: false, error: "Подопечный не найден", status: 404 }
 
@@ -63,6 +68,8 @@ export async function createTrialLessonForClient(
     comment: string | null
     confirmed: boolean
     instructorPayEnabled: boolean
+    /** Техническое занятие старого ИНДИВИДУАЛЬНОГО пробного (null у группового). */
+    holderLessonId: string | null
   } | null = null
   if (options.rescheduleOfTrialLessonId) {
     const old = await db.trialLesson.findFirst({
@@ -73,6 +80,7 @@ export async function createTrialLessonForClient(
         comment: true,
         confirmed: true,
         instructorPayEnabled: true,
+        lesson: { select: { id: true, group: { select: { isTrialHolder: true } } } },
       },
     })
     if (!old) return { ok: false, error: "Пробное для переноса не найдено", status: 404 }
@@ -83,7 +91,17 @@ export async function createTrialLessonForClient(
         status: 409,
       }
     }
-    rescheduleOld = old
+    rescheduleOld = {
+      id: old.id,
+      comment: old.comment,
+      confirmed: old.confirmed,
+      instructorPayEnabled: old.instructorPayEnabled,
+      // Занятие-держатель старого пробного: его надо и исключить из проверки
+      // занятости кабинета (иначе пробное конфликтует само с собой при переносе
+      // внутри того же кабинета), и погасить вместе с отменой старого пробного.
+      // У группового пробного lesson — занятие настоящей группы, его не трогаем.
+      holderLessonId: old.lesson?.group.isTrialHolder ? old.lesson.id : null,
+    }
   }
 
   const date = new Date(input.scheduledDate)
@@ -100,6 +118,10 @@ export async function createTrialLessonForClient(
   // Направление пробного (из группы или индивидуальное) — по нему подбираем заявку,
   // если applicationId не передан явно.
   let effectiveDirectionId: string | null = null
+  // Заготовка технического занятия для индивидуального пробного (создаётся в
+  // транзакции вместе с самим пробным). null — пробное записано в группу и
+  // едет пассажиром в её занятии.
+  let holderInput: TrialHolderLessonInput | null = null
 
   if (input.groupId) {
     const group = await db.group.findFirst({
@@ -225,7 +247,7 @@ export async function createTrialLessonForClient(
 
     const room = await db.room.findFirst({
       where: { id: input.roomId, tenantId, deletedAt: null },
-      select: { id: true, name: true },
+      select: { id: true, name: true, branchId: true },
     })
     if (!room) return { ok: false, error: "Кабинет не найден", status: 404 }
     storedRoomId = input.roomId
@@ -240,6 +262,9 @@ export async function createTrialLessonForClient(
       startTime: input.startTime,
       durationMinutes: input.durationMinutes ?? direction.lessonDuration ?? 60,
       excludeTrialLessonId: rescheduleOld?.id,
+      // Переносимое пробное уже держит кабинет своим техническим занятием —
+      // само себе не конфликт (старое занятие гасится в той же транзакции).
+      excludeLessonId: rescheduleOld?.holderLessonId ?? undefined,
     })
     if (occupant) {
       return { ok: false, error: roomOccupiedMessage(room.name, occupant), status: 409 }
@@ -267,6 +292,24 @@ export async function createTrialLessonForClient(
     storedDuration = input.durationMinutes ?? direction.lessonDuration ?? 60
     effectiveDirectionId = input.directionId
     trialInstructorId = input.instructorId
+
+    // Индивидуальному пробному заводим собственное техническое занятие: ЗП
+    // инструктора считается только по Attendance у Lesson, без занятия за
+    // проведённое пробное начислить нечем (см. lib/services/trial-holder-lesson).
+    holderInput = {
+      tenantId,
+      directionId: input.directionId,
+      branchId: room.branchId,
+      roomId: input.roomId,
+      instructorId: input.instructorId,
+      date,
+      startTime: input.startTime,
+      durationMinutes: storedDuration,
+      label:
+        [ward.lastName, ward.firstName].filter(Boolean).join(" ") ||
+        [client.lastName, client.firstName].filter(Boolean).join(" ") ||
+        "лид",
+    }
   }
 
   let reminderAssigneeId: string | null = client.assignedTo ?? userEmployeeId ?? null
@@ -380,6 +423,11 @@ export async function createTrialLessonForClient(
         where: { id: rescheduleOld.id },
         data: { status: "cancelled" },
       })
+      // Старое индивидуальное пробное уносит с собой своё техническое занятие —
+      // иначе оно останется висеть в кабинете и заблокирует новый слот.
+      if (rescheduleOld.holderLessonId) {
+        await setTrialHolderLessonStatus(tx, tenantId, rescheduleOld.holderLessonId, "cancelled")
+      }
       await tx.task.updateMany({
         where: {
           tenantId,
@@ -396,14 +444,20 @@ export async function createTrialLessonForClient(
       })
     }
 
+    // Техническое занятие индивидуального пробного — в той же транзакции:
+    // если создание пробного упадёт, занятие и скрытая группа откатятся.
+    const holder = holderInput ? await createTrialHolderLesson(tx, holderInput) : null
+
     const created = await tx.trialLesson.create({
       data: {
         tenantId,
         clientId: input.clientId,
         wardId: input.wardId,
         applicationId: targetApplicationId,
+        // groupId остаётся null и у индивидуального пробного: «группы нет» —
+        // связь с техническим занятием только через lessonId.
         groupId: input.groupId ?? null,
-        lessonId,
+        lessonId: lessonId ?? holder?.lessonId ?? null,
         directionId: storedDirectionId,
         instructorId: storedInstructorId,
         roomId: storedRoomId,

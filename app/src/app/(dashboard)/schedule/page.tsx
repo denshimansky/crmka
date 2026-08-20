@@ -190,7 +190,12 @@ export default async function SchedulePage({
 
   // scope и фильтр по wardId оба используют ключ `group` — собираем через AND,
   // чтобы не перезаписывать друг друга.
-  const lessonExtraConditions: Prisma.LessonWhereInput[] = []
+  // Занятие-держатель индивидуального пробного в сетке не показываем: само
+  // пробное уже нарисовано отдельной карточкой ниже (иначе дубль строки).
+  // Разовые занятия (isOneTime без держателя) показываем как раньше.
+  const lessonExtraConditions: Prisma.LessonWhereInput[] = [
+    { group: { isTrialHolder: false } },
+  ]
   if (Object.keys(lessonScope).length > 0) lessonExtraConditions.push(lessonScope)
   if (wardIdFilter) {
     lessonExtraConditions.push({
@@ -335,14 +340,14 @@ export default async function SchedulePage({
     where: {
       tenantId,
       scheduledDate: { gte: dateRange.start, lte: dateRange.end },
-      // У индивидуального пробного нет сущности занятия (Lesson), поэтому оно САМО
-      // является строкой расписания. Показываем и отмеченные (Был/Не пришёл) —
-      // иначе после отметки строка исчезала бы из сетки (в отличие от группового
-      // пробного, чьё занятие остаётся). «cancelled» не показываем — отменённое
-      // пробное уходит из расписания, как отменённое занятие.
+      // Индивидуальное пробное САМО является строкой расписания: его техническое
+      // занятие (группа-держатель) из сетки исключено выше, чтобы не задваивать.
+      // Показываем и отмеченные (Был/Не пришёл) — иначе после отметки строка
+      // исчезала бы из сетки (в отличие от группового пробного, чьё занятие
+      // остаётся). «cancelled» не показываем — отменённое пробное уходит из
+      // расписания, как отменённое занятие.
       status: { in: ["scheduled", "attended", "no_show"] },
       groupId: null,
-      lessonId: null,
       // Пробные выведенной из воронки заявки (soft-deleted) не показываем.
       NOT: { application: { deletedAt: { not: null } } },
       ...(wardIdFilter ? { wardId: wardIdFilter } : {}),
@@ -359,11 +364,22 @@ export default async function SchedulePage({
       clientId: true,
       wardId: true,
       applicationId: true,
+      instructorPayEnabled: true,
       client: { select: { firstName: true, lastName: true } },
       ward: { select: { firstName: true, lastName: true } },
       direction: { select: { id: true, name: true } },
       instructor: { select: { id: true, firstName: true, lastName: true } },
       room: { select: { id: true, name: true, branchId: true } },
+      // Начисленная педагогу сумма — из отметки на техническом занятии
+      // пробного (появляется после «Был»); показываем её в диалоге пробного.
+      lesson: {
+        select: {
+          attendances: {
+            where: { isTrial: true },
+            select: { instructorPayAmount: true, instructorPayEnabled: true },
+          },
+        },
+      },
     },
     orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
   })
@@ -527,6 +543,11 @@ export default async function SchedulePage({
         roomId: t.room?.id ?? null,
         roomName: room.name,
         branchId: t.room?.branchId ?? null,
+        instructorPayEnabled: t.instructorPayEnabled,
+        instructorPayAmount: (t.lesson?.attendances ?? []).reduce(
+          (sum, a) => (a.instructorPayEnabled ? sum + Number(a.instructorPayAmount) : sum),
+          0,
+        ),
       },
       group: {
         name: `Пробное: ${wardName || clientName}`,

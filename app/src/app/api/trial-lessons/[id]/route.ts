@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { resolveRate } from "@/lib/salary/resolve-rate"
-import { calcPay } from "@/lib/salary/calc-pay"
+import { computeTrialPay } from "@/lib/salary/trial-pay"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
+import {
+  createTrialHolderLesson,
+  setTrialHolderLessonStatus,
+} from "@/lib/services/trial-holder-lesson"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -21,41 +24,6 @@ const updateSchema = z
       d.confirmed !== undefined,
     { message: "Нечего обновлять" },
   )
-
-// Расчёт ставки инструктора за пробное через единые утилиты.
-// Для пробных currentChargeAmount=0 (пробное не списывает с абонемента),
-// поэтому для percent_of_payments выйдет 0 — это совпадает со старым поведением.
-async function computeTrialPay(
-  tx: Prisma.TransactionClient,
-  args: {
-    tenantId: string
-    lessonId: string
-    groupId: string
-    clientId: string
-    instructorId: string
-    directionId: string
-    instructorPayEnabled: boolean
-    atDate: Date
-  }
-): Promise<Prisma.Decimal> {
-  if (!args.instructorPayEnabled) return new Prisma.Decimal(0)
-
-  const rate = await resolveRate(tx, {
-    tenantId: args.tenantId,
-    groupId: args.groupId,
-    employeeId: args.instructorId,
-    directionId: args.directionId,
-  }, args.atDate)
-  if (!rate) return new Prisma.Decimal(0)
-
-  return calcPay(tx, {
-    rate,
-    lessonId: args.lessonId,
-    tenantId: args.tenantId,
-    currentClientId: args.clientId,
-    currentChargeAmount: 0,
-  })
-}
 
 // PATCH /api/trial-lessons/[id] — изменить статус, флаг оплаты инструктору
 // или отметку «подтвердили пробное» (confirmed — без побочных эффектов)
@@ -87,7 +55,11 @@ export async function PATCH(
   const trial = await db.trialLesson.findFirst({
     where: { id, tenantId },
     include: {
-      ward: { select: { id: true, salesStage: true } },
+      ward: { select: { id: true, salesStage: true, firstName: true, lastName: true } },
+      client: { select: { firstName: true, lastName: true } },
+      // Филиал кабинета — для скрытой группы-держателя, если занятие придётся
+      // досоздавать (индивидуальные пробные, записанные до этого механизма).
+      room: { select: { branchId: true } },
       lesson: {
         select: {
           id: true,
@@ -113,6 +85,12 @@ export async function PATCH(
       isActive: true,
     },
   })
+
+  // Итог отметки для клиента API: занятие пробного (у индивидуального оно
+  // могло быть создано прямо сейчас) и начисленная инструктору сумма — UI
+  // показывает её сразу, не дожидаясь перезагрузки страницы.
+  let resolvedLessonId: string | null = trial.lessonId
+  let accruedPay = 0
 
   const updated = await db.$transaction(async (tx) => {
     const t = await tx.trialLesson.update({
@@ -245,10 +223,63 @@ export async function PATCH(
     }
 
     // --- Управление Attendance только для пробных, привязанных к Lesson ---
-    if (!trial.lesson) return t
+    // Индивидуальное пробное (без группы) держит собственное техническое
+    // занятие — оно создаётся вместе с пробным. У записей, сделанных до
+    // появления этого механизма, занятия нет: заводим его лениво при первой
+    // отметке, иначе за проведённое пробное педагогу начислить нечего
+    // (вся ЗП считается по Attendance занятия).
+    let lesson = trial.lesson
+    if (
+      !lesson &&
+      effectiveStatus === "attended" &&
+      trial.groupId === null &&
+      trial.directionId &&
+      trial.instructorId &&
+      trial.roomId &&
+      trial.room &&
+      trial.startTime
+    ) {
+      const holder = await createTrialHolderLesson(tx, {
+        tenantId,
+        directionId: trial.directionId,
+        branchId: trial.room.branchId,
+        roomId: trial.roomId,
+        instructorId: trial.instructorId,
+        date: trial.scheduledDate,
+        startTime: trial.startTime,
+        durationMinutes: trial.durationMinutes ?? 60,
+        label:
+          [trial.ward?.lastName, trial.ward?.firstName].filter(Boolean).join(" ") ||
+          [trial.client.lastName, trial.client.firstName].filter(Boolean).join(" ") ||
+          "лид",
+      })
+      await tx.trialLesson.update({
+        where: { id },
+        data: { lessonId: holder.lessonId },
+      })
+      lesson = {
+        id: holder.lessonId,
+        groupId: holder.groupId,
+        instructorId: trial.instructorId,
+        substituteInstructorId: null,
+        group: { directionId: trial.directionId },
+      }
+    }
+    if (!lesson) return t
+    resolvedLessonId = lesson.id
+
+    // Статус занятия-держателя идёт следом за пробным: отменённое пробное не
+    // должно держать кабинет (findRoomOccupant считает занятие занятостью),
+    // возвращённое в работу — снова занимает свой слот. Занятия настоящих
+    // групп функция не трогает (фильтр по group.isTrialHolder).
+    if (status === "cancelled") {
+      await setTrialHolderLessonStatus(tx, tenantId, lesson.id, "cancelled")
+    } else if (status !== undefined) {
+      await setTrialHolderLessonStatus(tx, tenantId, lesson.id, "scheduled")
+    }
 
     const lessonInstructorId =
-      trial.lesson.substituteInstructorId || trial.lesson.instructorId
+      lesson.substituteInstructorId || lesson.instructorId
 
     if (effectiveStatus === "attended") {
       // Attendance пробного общая для дублей TrialLesson на одном занятии (ключ —
@@ -259,7 +290,7 @@ export async function PATCH(
         where: {
           tenantId,
           id: { not: id },
-          lessonId: trial.lesson.id,
+          lessonId: lesson.id,
           clientId: trial.clientId,
           wardId: trial.wardId,
           status: "attended",
@@ -270,21 +301,22 @@ export async function PATCH(
       const payAmount = presentType
         ? await computeTrialPay(tx, {
             tenantId,
-            lessonId: trial.lesson.id,
-            groupId: trial.lesson.groupId,
+            lessonId: lesson.id,
+            groupId: lesson.groupId,
             clientId: trial.clientId,
             instructorId: lessonInstructorId,
-            directionId: trial.lesson.group.directionId,
+            directionId: lesson.group.directionId,
             instructorPayEnabled: attendancePayEnabled,
             atDate: trial.scheduledDate,
           })
         : new Prisma.Decimal(0)
+      accruedPay = attendancePayEnabled ? Number(payAmount) : 0
 
       if (presentType) {
         const existingAtt = await tx.attendance.findFirst({
           where: {
             tenantId,
-            lessonId: trial.lesson.id,
+            lessonId: lesson.id,
             clientId: trial.clientId,
             wardId: trial.wardId,
             isTrial: true,
@@ -306,7 +338,7 @@ export async function PATCH(
           await tx.attendance.create({
             data: {
               tenantId,
-              lessonId: trial.lesson.id,
+              lessonId: lesson.id,
               clientId: trial.clientId,
               wardId: trial.wardId,
               attendanceTypeId: presentType.id,
@@ -336,7 +368,7 @@ export async function PATCH(
         where: {
           tenantId,
           id: { not: id },
-          lessonId: trial.lesson.id,
+          lessonId: lesson.id,
           clientId: trial.clientId,
           wardId: trial.wardId,
           status: "attended",
@@ -347,7 +379,7 @@ export async function PATCH(
         await tx.attendance.deleteMany({
           where: {
             tenantId,
-            lessonId: trial.lesson.id,
+            lessonId: lesson.id,
             clientId: trial.clientId,
             wardId: trial.wardId,
             isTrial: true,
@@ -360,18 +392,18 @@ export async function PATCH(
         const survivorPayEnabled = otherAttendedSameLesson.some((s) => s.instructorPayEnabled)
         const survivorPay = await computeTrialPay(tx, {
           tenantId,
-          lessonId: trial.lesson.id,
-          groupId: trial.lesson.groupId,
+          lessonId: lesson.id,
+          groupId: lesson.groupId,
           clientId: trial.clientId,
           instructorId: lessonInstructorId,
-          directionId: trial.lesson.group.directionId,
+          directionId: lesson.group.directionId,
           instructorPayEnabled: survivorPayEnabled,
           atDate: trial.scheduledDate,
         })
         await tx.attendance.updateMany({
           where: {
             tenantId,
-            lessonId: trial.lesson.id,
+            lessonId: lesson.id,
             clientId: trial.clientId,
             wardId: trial.wardId,
             isTrial: true,
@@ -389,5 +421,9 @@ export async function PATCH(
     return t
   })
 
-  return NextResponse.json(updated)
+  return NextResponse.json({
+    ...updated,
+    lessonId: resolvedLessonId,
+    instructorPayAmount: accruedPay,
+  })
 }

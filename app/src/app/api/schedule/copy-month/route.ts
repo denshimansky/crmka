@@ -35,12 +35,17 @@ export async function POST(req: NextRequest) {
   const sourceEnd = new Date(sourceYear, sourceM, 0) // last day of source month
   sourceEnd.setHours(23, 59, 59, 999)
 
-  // Fetch all non-cancelled lessons in source month
+  // Fetch all non-cancelled lessons in source month.
+  // Занятия скрытых одноразовых групп (isOneTime) не копируем: разовое занятие
+  // и техническое занятие индивидуального пробного — события конкретной даты,
+  // в следующем месяце они превратились бы в фантомы (в сетке не видны, но
+  // занимают кабинет и висят нулевыми строками в отчётах по ЗП).
   const sourceLessons = await db.lesson.findMany({
     where: {
       tenantId,
       date: { gte: sourceStart, lte: sourceEnd },
       status: { not: "cancelled" },
+      group: { isOneTime: false },
     },
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
   })

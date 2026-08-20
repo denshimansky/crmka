@@ -11,8 +11,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useMoneyFormat } from "@/components/currency-provider"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { useRoleNames } from "@/components/role-names-provider"
 import { filterEmployeesByBranch, isEmployeeAvailableInBranch } from "@/lib/employee-branch-filter"
@@ -39,6 +41,10 @@ export interface TrialCardInfo {
   roomName: string
   /** Филиал кабинета пробного — по нему фильтруются кабинеты/инструкторы при переносе. */
   branchId: string | null
+  /** Платим ли инструктору за это пробное (дефолт — из режима «Оплата за пробное» в его ставке). */
+  instructorPayEnabled: boolean
+  /** Начислено инструктору по отметке (0, пока пробное не отмечено «Был»). */
+  instructorPayAmount: number
 }
 
 interface InstructorOption {
@@ -95,11 +101,21 @@ export function TrialDetailsDialog({
 }) {
   const router = useRouter()
   const roleNames = useRoleNames()
+  const formatMoney = useMoneyFormat()
   const [open, setOpen] = useState(false)
   const [rescheduling, setRescheduling] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [marking, setMarking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Оплата инструктору за пробное — тот же флаг, что чекбокс в карточке
+  // группового занятия. Держим локально для мгновенной реакции чекбокса,
+  // синхронизируясь с сервером после router.refresh().
+  const [payEnabled, setPayEnabled] = useState(trial.instructorPayEnabled)
+  const [payPending, setPayPending] = useState(false)
+  useEffect(() => {
+    setPayEnabled(trial.instructorPayEnabled)
+  }, [trial.instructorPayEnabled])
 
   const [date, setDate] = useState(trial.date)
   const [time, setTime] = useState(trial.startTime || "10:00")
@@ -236,6 +252,34 @@ export function TrialDetailsDialog({
     }
   }
 
+  // Флаг оплаты инструктору. Пробное бесплатно для клиента в любом случае
+  // (списания нет), меняется только начисление педагогу: при отмеченном
+  // пробном сервер тут же пересчитывает сумму в отметке.
+  async function handleTogglePay(next: boolean) {
+    setError(null)
+    setPayPending(true)
+    setPayEnabled(next)
+    try {
+      const res = await fetch(`/api/trial-lessons/${trial.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instructorPayEnabled: next }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setError(d.error || "Не удалось изменить оплату")
+        setPayEnabled(!next)
+        return
+      }
+      router.refresh()
+    } catch {
+      setError("Сетевая ошибка")
+      setPayEnabled(!next)
+    } finally {
+      setPayPending(false)
+    }
+  }
+
   const childName = trial.wardName || trial.clientName
 
   return (
@@ -312,6 +356,31 @@ export function TrialDetailsDialog({
               </span>
             </div>
           </div>
+
+          {canMark && (
+            <div className="space-y-1 border-t pt-3">
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span className="flex items-center gap-2">
+                  <Checkbox
+                    checked={payEnabled}
+                    onCheckedChange={(v) => handleTogglePay(!!v)}
+                    disabled={payPending || marking}
+                  />
+                  <span>Оплатить пробное</span>
+                </span>
+                {trial.status === "attended" && (
+                  <span className="font-medium">
+                    {formatMoney(payEnabled ? trial.instructorPayAmount : 0)}
+                  </span>
+                )}
+              </label>
+              <p className="text-xs text-muted-foreground">
+                {trial.status === "attended"
+                  ? "Начисление попадает в ЗП за месяц. Клиенту пробное бесплатно в любом случае."
+                  : "При отметке «Был» начислим по ставке. Клиенту пробное бесплатно в любом случае."}
+              </p>
+            </div>
+          )}
 
           {rescheduling && (
             <form onSubmit={handleReschedule} className="space-y-3 border-t pt-3">

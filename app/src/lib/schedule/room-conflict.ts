@@ -29,8 +29,12 @@ function intervalsOverlap(
  * может идти только одно занятие группы (включая разовые isOneTime) ИЛИ одно
  * индивидуальное пробное. Возвращает первого занявшего или null.
  *
- * Пробные, привязанные к занятию группы (lessonId != null), кабинет отдельно
- * не занимают — ребёнок сидит внутри группового занятия.
+ * Пробные, привязанные к занятию (lessonId != null), кабинет отдельно не
+ * занимают — за них это делает само занятие: у группового пробного ребёнок
+ * сидит внутри занятия группы, у индивидуального есть собственное техническое
+ * занятие (скрытая группа-держатель, см. lib/services/trial-holder-lesson).
+ * Строка trial_lessons остаётся источником занятости только для пробных,
+ * записанных до появления держателей.
  *
  * Проверяется на путях СОЗДАНИЯ занятости: разовое занятие, индивидуальное
  * пробное (включая перенос), перенос занятия. Генерацию из шаблонов групп не
@@ -66,7 +70,7 @@ export async function findRoomOccupant(
       select: {
         startTime: true,
         durationMinutes: true,
-        group: { select: { name: true } },
+        group: { select: { name: true, isTrialHolder: true } },
       },
     }),
     tx.trialLesson.findMany({
@@ -89,7 +93,15 @@ export async function findRoomOccupant(
 
   for (const l of lessons) {
     if (intervalsOverlap(start, opts.durationMinutes, timeToMinutes(l.startTime), l.durationMinutes)) {
-      return { kind: "lesson", startTime: l.startTime, label: l.group.name }
+      // Держатель индивидуального пробного — это не «группа»: подписываем
+      // занятость как пробное, чтобы текст ошибки не путал администратора.
+      return l.group.isTrialHolder
+        ? {
+            kind: "trial",
+            startTime: l.startTime,
+            label: l.group.name.replace(/^Пробное — /, ""),
+          }
+        : { kind: "lesson", startTime: l.startTime, label: l.group.name }
     }
   }
   for (const t of trials) {
