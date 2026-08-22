@@ -163,11 +163,18 @@ export function SalaryRatesDialog({
   const okladLocked = monthlySalary != null
 
   // Пересинхронизируем поля оклада с актуальными пропсами при открытии диалога.
+  // Оклад ещё не задан и даты нет → подставляем 1-е число текущего месяца: оклад,
+  // заведённый впервые, действует с начала этого месяца, а не «всегда» (иначе он
+  // начислялся бы за все прошлые месяцы и давал фантомный долг в «Доначислено»).
   useEffect(() => {
     if (!open) return
     setOklad(monthlySalary != null ? String(monthlySalary) : "")
     setOkladDir(defaultDirectionId ?? "")
-    setOkladFrom(okladFromProp?.slice(0, 10) ?? "")
+    const firstOfMonth = (() => {
+      const now = new Date()
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`
+    })()
+    setOkladFrom(okladFromProp?.slice(0, 10) ?? (monthlySalary == null ? firstOfMonth : ""))
     setOkladBranches(okladBranchIds ?? [])
     setOkladSaved(false)
     setOkladError(null)
@@ -462,9 +469,10 @@ export function SalaryRatesDialog({
                         className="max-w-[200px]"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Оклад не начисляется за месяцы до этой даты; неполный первый
-                        месяц — пропорционально календарным дням. Пусто — оклад за весь
-                        месяц во всех периодах (как раньше).
+                        По умолчанию — 1-е число текущего месяца. Оклад не начисляется
+                        за месяцы до этой даты; если сотрудник вышел в середине месяца,
+                        поставьте день выхода — первый месяц посчитается пропорционально
+                        календарным дням.
                       </p>
                     </div>
                   )}

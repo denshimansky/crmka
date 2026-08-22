@@ -69,6 +69,18 @@ export function okladDaysFraction(opts: OkladPeriodOpts): number {
   return activeDays / daysInMonth
 }
 
+/**
+ * Дата начала оклада по умолчанию — 1-е число ТЕКУЩЕГО месяца.
+ *
+ * Оклад, заданный впервые, начинает действовать с начала месяца, в котором его
+ * завели. Пустая дата означала бы «оклад был всегда» — тогда он начислялся бы за
+ * все прошлые месяцы, которых в CRM не было, и переносился бы в «Доначислено»
+ * фантомным долгом. Сотрудник без заданного оклада не начисляет ничего.
+ */
+export function defaultOkladFrom(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+}
+
 /** Календарный UTC-день как число — для сравнения дат без времени. */
 const dayNum = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
 

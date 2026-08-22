@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
+import { defaultOkladFrom } from "@/lib/salary/oklad-for-period"
 import { isEmailTaken, EMAIL_TAKEN_MSG, uniqueViolationMessage } from "@/lib/employee-identity"
 
 const updateSchema = z.object({
@@ -132,6 +133,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Первичная установка оклада без даты начала → дата = 1-е число текущего месяца.
+  // Пустая дата означает «оклад был всегда»: он начислялся бы за все прошлые месяцы,
+  // которых в CRM не было, и уезжал бы в «Доначислено» фантомным долгом. Дату можно
+  // указать явно (сотрудник вышел в середине месяца — первый месяц пропорционально).
+  const okladFromDefault =
+    !okladAlreadySet && data.monthlySalary !== undefined && data.monthlySalary !== null && !data.okladFrom
+      ? defaultOkladFrom(new Date())
+      : undefined
+
   // Правка окладных полей меняет РАСЧЁТ прошлых месяцев (база — «версия с начала
   // времён»), поэтому оклад-твины ОПИУ надо пересобрать, иначе начисление и расход
   // разъедутся: было 18 000 → стало 25 000, а в финрезе прошлых месяцев осталось
@@ -157,7 +167,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(data.password && { passwordHash: await bcrypt.hash(data.password, 10) }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
         ...(data.monthlySalary !== undefined && { monthlySalary: data.monthlySalary }),
-        ...(data.okladFrom !== undefined && { okladFrom: data.okladFrom ? new Date(data.okladFrom) : null }),
+        ...(okladFromDefault
+          ? { okladFrom: okladFromDefault }
+          : data.okladFrom !== undefined
+            ? { okladFrom: data.okladFrom ? new Date(data.okladFrom) : null }
+            : {}),
         ...(data.defaultDirectionId !== undefined && { defaultDirectionId: data.defaultDirectionId }),
         ...(data.okladBranchIds !== undefined && {
           okladBranchIds: data.okladBranchIds && data.okladBranchIds.length > 0 ? data.okladBranchIds : Prisma.DbNull,

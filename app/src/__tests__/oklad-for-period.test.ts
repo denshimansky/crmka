@@ -1,6 +1,6 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
-import { okladForPeriod, okladDaysFraction, okladAmountOnDay } from "../lib/salary/oklad-for-period"
+import { okladForPeriod, okladDaysFraction, okladAmountOnDay, defaultOkladFrom } from "../lib/salary/oklad-for-period"
 
 const d = (s: string) => new Date(s + "T00:00:00.000Z")
 
@@ -241,5 +241,23 @@ describe("okladForPeriod: границы версий", () => {
       })
       assert.equal(withVersion, withoutVersion, `${salary} ${month}/2026 с ${startDay}`)
     }
+  })
+})
+
+describe("defaultOkladFrom: оклад начинается с начала текущего месяца", () => {
+  it("любой день месяца → 1-е число этого же месяца", () => {
+    assert.deepEqual(defaultOkladFrom(new Date("2026-08-22T13:45:00.000Z")), d("2026-08-01"))
+    assert.deepEqual(defaultOkladFrom(new Date("2026-01-01T00:00:00.000Z")), d("2026-01-01"))
+    assert.deepEqual(defaultOkladFrom(new Date("2026-12-31T23:59:59.000Z")), d("2026-12-01"))
+  })
+
+  it("оклад с этой датой не начисляется за прошлые месяцы", () => {
+    const from = defaultOkladFrom(new Date("2026-08-22T00:00:00.000Z"))
+    assert.equal(okladForPeriod({ monthlySalary: 40000, okladFrom: from, periodYear: 2026, periodMonth: 7 }), 0)
+    assert.equal(okladForPeriod({ monthlySalary: 40000, okladFrom: from, periodYear: 2026, periodMonth: 8 }), 40000)
+  })
+
+  it("сотрудник без заданного оклада не начисляет ничего", () => {
+    assert.equal(okladForPeriod({ monthlySalary: 0, okladFrom: null, periodYear: 2026, periodMonth: 8 }), 0)
   })
 })
