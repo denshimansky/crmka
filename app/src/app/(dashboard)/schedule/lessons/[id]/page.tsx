@@ -7,6 +7,7 @@ import {
   coverageSubscriptionsWhere,
   coverageKeysOnDate,
   coverageKey,
+  isEnrolledOnLesson,
 } from "@/lib/subscriptions/roster-filter"
 import { consumedPackageLessonsMap, pickChargeableSubscription } from "@/lib/subscriptions/package-remaining"
 import { getAttendanceTypeOverrideMap, applyAttendanceOverride } from "@/lib/subscriptions/withdrawal-block"
@@ -705,6 +706,12 @@ export default async function LessonCardPage({
   )
   const uncoveredStudents = enrollmentsRaw
     .filter((e) => {
+      // Нижнюю границу здесь задаёт enrolledAt, а не абонемент. В покрытом
+      // составе её задаёт startDate абонемента (rosterWhereOnDate намеренно
+      // проверяет только withdrawnAt), но у непокрытого ребёнка абонемента нет —
+      // без этой проверки зачисленный в сентябре висел бы серой строкой на всех
+      // августовских занятиях группы.
+      if (!isEnrolledOnLesson(e, rosterDate)) return false
       const key = coverageKey(e.clientId, e.wardId)
       return (
         !coveredKeys.has(key) && !trialKeys.has(key) && !attendanceKeysOnLesson.has(key)
