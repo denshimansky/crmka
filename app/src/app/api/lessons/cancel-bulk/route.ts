@@ -3,7 +3,11 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
-import { reconcileDayToNonWorking } from "@/lib/schedule/reconcile-calendar-day"
+import {
+  reconcileDayToNonWorking,
+  findNonWorkingBlockers,
+  nonWorkingBlockReason,
+} from "@/lib/schedule/reconcile-calendar-day"
 
 const schema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Формат даты: YYYY-MM-DD"),
@@ -40,6 +44,23 @@ export async function POST(req: NextRequest) {
 
   const { date, branchId, reason } = parsed.data
   const targetDate = new Date(date + "T00:00:00.000Z")
+
+  // Отмена всего дня (без филиала) помечает его нерабочим в производственном
+  // календаре — то же действие, что и галка на странице календаря, и тот же
+  // запрет: пока в дне есть отметки/активные пробные, день применился бы
+  // наполовину (отмеченные занятия остались бы), а при возврате дня в рабочие
+  // генератор доложил бы дубли рядом с ними. Отмена по одному филиалу календарь
+  // не трогает — там регенерации не будет, и запрет не нужен.
+  if (!branchId) {
+    const blockers = await findNonWorkingBlockers(db, { tenantId, date: targetDate })
+    const blockReason = nonWorkingBlockReason(blockers)
+    if (blockReason) {
+      return NextResponse.json(
+        { error: blockReason, lessons: blockers.details },
+        { status: 409 },
+      )
+    }
+  }
 
   // Удаляем занятия дня без реальных отметок и пересчитываем абонементы
   // (переплата возвращается на баланс клиента, долг — начисляется). Правило

@@ -6,6 +6,8 @@ import { z } from "zod"
 import {
   reconcileDayToNonWorking,
   reconcileDayToWorking,
+  findNonWorkingBlockers,
+  nonWorkingBlockReason,
 } from "@/lib/schedule/reconcile-calendar-day"
 
 const updateSchema = z.object({
@@ -49,6 +51,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const createdBy = session.user.employeeId ?? null
   const wasNonWorking = existing.isWorking === false
   const nowNonWorking = (parsed.data.isWorking ?? existing.isWorking) === false
+
+  // Гард на пометку «нерабочий» — до апдейта (см. findNonWorkingBlockers).
+  if (!wasNonWorking && nowNonWorking) {
+    const blockers = await findNonWorkingBlockers(db, { tenantId, date: existing.date })
+    const reason = nonWorkingBlockReason(blockers)
+    if (reason) {
+      return NextResponse.json({ error: reason, lessons: blockers.details }, { status: 409 })
+    }
+  }
 
   const item = await db.productionCalendar.update({ where: { id }, data: parsed.data })
 

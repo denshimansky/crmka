@@ -66,6 +66,75 @@ export function partitionDeletableLessons(lessons: DeletableLessonRow[]): {
 }
 
 /**
+ * Что мешает объявить день нерабочим. Пометка «нерабочий» удаляет занятия дня, но
+ * занятия с реальными отметками и активными пробными она НЕ трогает (см.
+ * partitionDeletableLessons) — раньше день просто применялся наполовину: часть
+ * занятий исчезала, отмеченные оставались, а запись календаря писалась. Позже, при
+ * возврате дня в рабочие, генератор докладывал в расписание всё, чего «не хватает по
+ * шаблону», и рядом с уцелевшим занятием появлялся дубль (кейс «Математика/Гурина»,
+ * Школа студия Class, 03.08.2026 — двойные отметки и двойная ЗП).
+ *
+ * Поэтому пометка нерабочим теперь запрещается целиком, пока в дне есть отметки:
+ * либо день действительно нерабочий и отметок в нём быть не может, либо занятия
+ * состоялись и день рабочий. Промежуточного состояния нет.
+ */
+export async function findNonWorkingBlockers(
+  db: Tx,
+  params: { tenantId: string; date: Date; branchId?: string | null },
+): Promise<{ markedLessons: number; trialLessons: number; details: string[] }> {
+  const { tenantId, date, branchId } = params
+  const { from, to } = dayBounds(date)
+
+  const lessons = await db.lesson.findMany({
+    where: {
+      tenantId,
+      date: { gte: from, lt: to },
+      status: { not: "cancelled" },
+      ...(branchId ? { group: { branchId } } : {}),
+    },
+    select: {
+      startTime: true,
+      group: { select: { name: true } },
+      _count: {
+        select: {
+          attendances: { where: { isPending: false } },
+          trialLessons: { where: { status: { not: "cancelled" } } },
+        },
+      },
+    },
+    orderBy: { startTime: "asc" },
+  })
+
+  let markedLessons = 0
+  let trialLessons = 0
+  const details: string[] = []
+  for (const l of lessons) {
+    if (l._count.attendances === 0 && l._count.trialLessons === 0) continue
+    if (l._count.attendances > 0) markedLessons++
+    if (l._count.trialLessons > 0) trialLessons++
+    const parts: string[] = []
+    if (l._count.attendances > 0) parts.push(`отметок: ${l._count.attendances}`)
+    if (l._count.trialLessons > 0) parts.push(`пробных: ${l._count.trialLessons}`)
+    details.push(`${l.startTime} · ${l.group.name} (${parts.join(", ")})`)
+  }
+  return { markedLessons, trialLessons, details }
+}
+
+/** Текст отказа для UI. null — препятствий нет. */
+export function nonWorkingBlockReason(b: {
+  markedLessons: number
+  trialLessons: number
+}): string | null {
+  if (b.markedLessons > 0) {
+    return "В этот день уже есть отмеченные занятия. Снимите все отметки, а потом сможете поставить нерабочий день."
+  }
+  if (b.trialLessons > 0) {
+    return "В этот день есть занятия с активными пробными. Отмените или перенесите пробные, а потом сможете поставить нерабочий день."
+  }
+  return null
+}
+
+/**
  * День становится нерабочим (или его отменяют): удалить занятия дня без реальных
  * отметок и пересчитать абонементы затронутых групп. branchId — ограничить одним
  * филиалом (частичная отмена дня). Возвращает число удалённых занятий и
