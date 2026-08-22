@@ -238,6 +238,18 @@ function LessonTextField({
   )
 }
 
+/** Зачисленный в группу ребёнок, которого на эту дату не покрывает ни один
+ *  абонемент. Отметить его нельзя (списывать нечем), но в таблице он виден серой
+ *  строкой — чтобы не пропадал из занятия молча. */
+interface UncoveredStudentData {
+  enrollmentId: string
+  clientId: string
+  clientName: string
+  clientPhone: string | null
+  wardId: string | null
+  wardName: string | null
+}
+
 interface AttendanceTableProps {
   lessonId: string
   lessonDateISO: string
@@ -247,6 +259,7 @@ interface AttendanceTableProps {
   students: StudentData[]
   makeupStudents?: StudentData[]
   trialStudents?: TrialStudentData[]
+  uncoveredStudents?: UncoveredStudentData[]
   attendanceTypes: AttendanceTypeData[]
   salaryRate: SalaryRateData | null
   instructorName?: string
@@ -278,6 +291,7 @@ export function AttendanceTable({
   students: initialStudents,
   makeupStudents: initialMakeupStudents = [],
   trialStudents: initialTrialStudents = [],
+  uncoveredStudents = [],
   attendanceTypes,
   salaryRate,
   instructorName,
@@ -294,6 +308,7 @@ export function AttendanceTable({
   const [students, setStudents] = useState(initialStudents)
   const [makeupStudents, setMakeupStudents] = useState(initialMakeupStudents)
   const [trialStudents, setTrialStudents] = useState(initialTrialStudents)
+  const [addingUncoveredId, setAddingUncoveredId] = useState<string | null>(null)
 
   // Синхронизация локального state со свежими server-props после router.refresh().
   // Без этого useState(initialStudents) держит снимок с момента первого монтирования,
@@ -807,6 +822,81 @@ export function AttendanceTable({
     )
   }
 
+  /** Зачисленный без покрытия → разовое посещение. Кнопка делает то же, что
+   *  «Добавить ученика», но без поиска: ребёнок уже перед глазами в строке.
+   *  Заводит placeholder-отметку без списаний — дальше строка обычная. */
+  async function addUncoveredAsOneTime(student: UncoveredStudentData) {
+    if (!student.wardId) return
+    setAddingUncoveredId(student.enrollmentId)
+    try {
+      const res = await fetch(`/api/lessons/${lessonId}/add-student`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: student.clientId,
+          wardId: student.wardId,
+          isOneTime: true,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || "Не удалось добавить ученика на занятие")
+        return
+      }
+      router.refresh()
+    } catch {
+      alert("Не удалось добавить ученика на занятие")
+    } finally {
+      setAddingUncoveredId(null)
+    }
+  }
+
+  function renderUncoveredRow(student: UncoveredStudentData) {
+    const displayName = student.wardName || student.clientName
+    const busy = addingUncoveredId === student.enrollmentId
+    return (
+      <TableRow key={`uncovered-${student.enrollmentId}`} className="bg-muted/30">
+        <TableCell>
+          <div className="flex items-center gap-2 flex-wrap">
+            {student.wardId && canViewClients ? (
+              <Link
+                href={`/crm/wards/${student.wardId}`}
+                className="font-medium text-muted-foreground hover:underline"
+              >
+                {displayName}
+              </Link>
+            ) : (
+              <span className="font-medium text-muted-foreground">{displayName}</span>
+            )}
+            <Badge
+              variant="outline"
+              className="text-xs text-muted-foreground"
+              title="На эту дату ребёнка не покрывает ни один абонемент — отметить его нельзя. Пояснение под таблицей."
+            >
+              Нет покрытия
+            </Badge>
+          </div>
+        </TableCell>
+        <TableCell colSpan={3} className="text-xs text-muted-foreground">
+          Отметить нельзя: нет абонемента, покрывающего это занятие
+        </TableCell>
+        <TableCell className="text-center">
+          {canAddStudent && student.wardId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="whitespace-nowrap"
+              disabled={busy}
+              onClick={() => addUncoveredAsOneTime(student)}
+              title="Завести разовое посещение: строка станет обычной, оплата спишется с баланса родителя при отметке «Был»"
+            >
+              {busy ? "..." : "Добавить разовым"}
+            </Button>
+          )}
+        </TableCell>
+      </TableRow>
+    )
+  }
   function renderStudentRow(student: StudentData) {
     const isLoading = loadingStudentId === student.enrollmentId
     const displayName = student.wardName || student.clientName
@@ -1148,7 +1238,7 @@ export function AttendanceTable({
           </div>
         </CardHeader>
         <CardContent>
-          {totalStudentsCount === 0 ? (
+          {totalStudentsCount === 0 && uncoveredStudents.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground">
               <Users className="mx-auto size-10 opacity-50 mb-2" />
               <p>В группе нет зачисленных учеников</p>
@@ -1169,9 +1259,29 @@ export function AttendanceTable({
                   {students.map(renderStudentRow)}
                   {makeupStudents.length > 0 && makeupStudents.map(renderStudentRow)}
                   {trialStudents.length > 0 && trialStudents.map(renderTrialRow)}
+                  {uncoveredStudents.length > 0 && uncoveredStudents.map(renderUncoveredRow)}
                 </TableBody>
               </Table>
             </StickyHScroll>
+          )}
+
+          {/* Пояснение к «Нет покрытия» — один раз под таблицей, а не в каждой
+              строке. Без него админы спрашивают, почему ребёнок серый и почему
+              ему нельзя проставить отметку. */}
+          {uncoveredStudents.length > 0 && (
+            <div className="mt-4 rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Нет покрытия</span> — на
+              эту дату ребёнка не покрывает ни один абонемент по направлению группы:
+              абонемент закончился, ещё не начался, не оплачен и отчислен, либо это
+              занятие не входит в план пакета. Отметку такому ребёнку поставить
+              нельзя — списывать не с чего.
+              <br />
+              Что можно сделать: выписать или продлить абонемент (для пакета —
+              добавить это занятие в план) — строка станет обычной; либо
+              «Добавить разовым» — оплата спишется с баланса родителя при отметке
+              «Был». Строка показана, чтобы ребёнок не пропадал из занятия молча:
+              он зачислен в группу, просто платить за это занятие пока нечем.
+            </div>
           )}
         </CardContent>
       </Card>

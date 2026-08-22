@@ -691,6 +691,41 @@ export default async function LessonCardPage({
 
   const allStudents = [...students, ...oneTimeStudents]
 
+  // Зачисленные, но НЕ покрытые абонементом на дату состава. В платный состав они
+  // не входят (списывать нечем), но и молча пропадать не должны: раньше такой
+  // ребёнок был виден, только пока на нём висела отметка, и снятие отметки
+  // («Не отмечен») убирало его с занятия совсем — выглядело как потеря данных
+  // (кейс Жуковой, ДЦ Первое Слово, 17.08.2026). Показываем отдельной серой
+  // строкой с пояснением и кнопкой «Добавить разовым».
+  //
+  // Тех, у кого отметка на этом занятии есть, сюда не берём — они уже отрисованы
+  // строкой ретро-состава/разового (oneTimeStudents), иначе задвоятся.
+  const attendanceKeysOnLesson = new Set(
+    lesson.attendances.map((a) => coverageKey(a.clientId, a.wardId)),
+  )
+  const uncoveredStudents = enrollmentsRaw
+    .filter((e) => {
+      const key = coverageKey(e.clientId, e.wardId)
+      return (
+        !coveredKeys.has(key) && !trialKeys.has(key) && !attendanceKeysOnLesson.has(key)
+      )
+    })
+    .map((e) => ({
+      enrollmentId: e.id,
+      clientId: e.clientId,
+      clientName:
+        [e.client.lastName, e.client.firstName].filter(Boolean).join(" ") || "Без имени",
+      clientPhone: maskPhone(
+        e.client.phone || null,
+        currentRole,
+        session.user.instructorsSeePhones,
+      ),
+      wardId: e.wardId,
+      wardName: e.ward
+        ? [e.ward.lastName, e.ward.firstName].filter(Boolean).join(" ")
+        : null,
+    }))
+
   const attendanceTypesData = attendanceTypes.map((t) => ({
     id: t.id,
     name: t.name,
@@ -844,6 +879,7 @@ export default async function LessonCardPage({
         topic={lesson.topic}
         homework={lesson.homework}
         students={allStudents}
+        uncoveredStudents={uncoveredStudents}
         makeupStudents={makeupStudents}
         trialStudents={trialStudents}
         attendanceTypes={attendanceTypesData}
