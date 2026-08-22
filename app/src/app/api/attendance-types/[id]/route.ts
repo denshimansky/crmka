@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { WITHDRAWAL_LOCKED_CODES } from "@/lib/subscriptions/withdrawal-block"
 import { logAudit } from "@/lib/audit"
 import { z } from "zod"
 
@@ -124,13 +125,24 @@ export async function PATCH(
   // отчисления у всех. У кастомных типов поле по-прежнему живёт в самой колонке.
   const isGlobal = existing.tenantId === null
   let withdrawalChange: { old: boolean; new: boolean } | null = null
+  // Залоченные коды — запрет отчисления зашит в систему, центру его не снять
+  // (см. WITHDRAWAL_LOCKED_CODES). Проверяем до ветки isGlobal: кастомный тип с
+  // таким кодом завести нельзя, но если он как-то появится — правило то же.
+  if (
+    parsed.data.allowSubscriptionWithdrawal !== undefined &&
+    WITHDRAWAL_LOCKED_CODES.has(existing.code)
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          existing.code === "makeup_scheduled"
+            ? "«Назначена отработка» всегда блокирует отчисление — этот статус изменить нельзя."
+            : "«Не был» всегда блокирует отчисление: это промежуточный статус, сначала нужно уточнить причину пропуска. Изменить нельзя.",
+      },
+      { status: 403 },
+    )
+  }
   if (isGlobal && parsed.data.allowSubscriptionWithdrawal !== undefined) {
-    if (existing.code === "makeup_scheduled") {
-      return NextResponse.json(
-        { error: "«Назначена отработка» всегда блокирует отчисление — этот статус изменить нельзя." },
-        { status: 403 }
-      )
-    }
     const val = parsed.data.allowSubscriptionWithdrawal
     const prev = await db.attendanceTypeWithdrawalOverride.findUnique({
       where: { tenantId_attendanceTypeId: { tenantId, attendanceTypeId: id } },

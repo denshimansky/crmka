@@ -221,12 +221,20 @@ export default async function LessonsAbsencesPage({
   }
 
   // === Вкладка 1: "Не был" (no_show) ===
+  // Отчисленные абонементы из реестра исключены: разбирать пропуск по абонементу,
+  // с которого ученик уже ушёл, нечего — статус на нём никто не переставит, а строка
+  // висела бы вечно. Разовые отметки (subscriptionId = null) остаются: они не
+  // привязаны к абонементу и отчислять там нечего.
   const noShowAttendances = await db.attendance.findMany({
     where: {
       tenantId,
       isPending: false,
       attendanceType: { code: "no_show" },
       lesson: lessonWhereBase,
+      OR: [
+        { subscriptionId: null },
+        { subscription: { is: { status: { not: "withdrawn" } } } },
+      ],
     },
     select: {
       id: true,

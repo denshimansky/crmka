@@ -37,7 +37,11 @@ async function main() {
       // чтобы не гонять баланс туда-сюда.
       code: "no_show",
       name: "Не был",
-      allowSubscriptionWithdrawal: true,
+      // Отчислять с неразобранным «Не был» нельзя: статус промежуточный, деньги
+      // по нему не двинуты, и отчисление заморозило бы занятие в подвешенном
+      // состоянии навсегда. Сначала уточните причину. Флаг залочен и в UI, и в
+      // API — как у «Назначена отработка».
+      allowSubscriptionWithdrawal: false,
       chargesSubscription: false,
       paysInstructor: false,
       countsAsRevenue: false,

@@ -3,6 +3,16 @@ import { type Prisma, type PrismaClient } from "@prisma/client"
 type DB = PrismaClient | Prisma.TransactionClient
 
 /**
+ * Виды посещений, при которых отчисление запрещено ВСЕГДА — правило системы, а не
+ * настройка центра. Галку в матрице не поставить ни в UI, ни через API, и
+ * пер-организационный оверрайд для них игнорируется.
+ *  - makeup_scheduled: незакрытое обязательство (назначенная отработка);
+ *  - no_show: промежуточный статус без выбранной причины — деньги и ЗП не двинуты,
+ *    а на отчисленном абонементе статус уже никто не переставит.
+ */
+export const WITHDRAWAL_LOCKED_CODES = new Set(["makeup_scheduled", "no_show"])
+
+/**
  * Оверрайды флага «Разрешить отчисление» текущей организации для СИСТЕМНЫХ
  * (глобальных) видов посещений: Map<attendanceTypeId, allowSubscriptionWithdrawal>.
  * Общая строка одна на весь SaaS, поэтому персональное значение центра хранится в
@@ -92,12 +102,18 @@ export async function getDisallowedWithdrawalTypeIds(
   const [types, overrideMap] = await Promise.all([
     db.attendanceType.findMany({
       where: { OR: [{ tenantId: null }, { tenantId }] },
-      select: { id: true, allowSubscriptionWithdrawal: true },
+      select: { id: true, code: true, allowSubscriptionWithdrawal: true },
     }),
     getWithdrawalOverrideMap(db, tenantId),
   ])
   const disallowed = new Set<string>()
   for (const t of types) {
+    // Залоченные коды — запрет всегда, оверрайд центра и значение строки не смотрим:
+    // у старых центров в оверрайде мог остаться true, поставленный до запрета.
+    if (WITHDRAWAL_LOCKED_CODES.has(t.code)) {
+      disallowed.add(t.id)
+      continue
+    }
     const effective = overrideMap.has(t.id) ? overrideMap.get(t.id)! : t.allowSubscriptionWithdrawal
     if (!effective) disallowed.add(t.id)
   }
@@ -141,6 +157,7 @@ export async function getWithdrawalBlockReason(
       lessonId: true,
       clientId: true,
       wardId: true,
+      lesson: { select: { date: true } },
       attendanceType: { select: { name: true, code: true } },
     },
   })
@@ -158,9 +175,16 @@ export async function getWithdrawalBlockReason(
       })
       if (resolved) continue
     }
-    return b.attendanceType.code === "makeup_scheduled"
-      ? "Нельзя отчислить: у ученика есть незакрытая отработка. Сначала проведите её («Был» на занятии-отработке) или отмените."
-      : `Нельзя отчислить: на занятии стоит статус «${b.attendanceType.name}», по которому отчисление запрещено. Измените статус или разрешите отчисление в настройках видов посещений.`
+    const lessonDate = b.lesson.date.toLocaleDateString("ru-RU")
+    if (b.attendanceType.code === "makeup_scheduled") {
+      return "Нельзя отчислить: у ученика есть незакрытая отработка. Сначала проведите её («Был» на занятии-отработке) или отмените."
+    }
+    // «Не был» — правило системы, «разрешить в настройках» не предлагаем: галку
+    // там не поставить. Нужно уточнить причину пропуска.
+    if (b.attendanceType.code === "no_show") {
+      return `Нельзя отчислить: на занятии ${lessonDate} стоит «Не был». Сначала уточните причину пропуска — «Уваж. пропуск», «Прогул» или назначьте отработку.`
+    }
+    return `Нельзя отчислить: на занятии ${lessonDate} стоит статус «${b.attendanceType.name}», по которому отчисление запрещено. Измените статус или разрешите отчисление в настройках видов посещений.`
   }
 
   return null
