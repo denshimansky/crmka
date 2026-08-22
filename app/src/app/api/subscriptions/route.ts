@@ -8,6 +8,7 @@ import {
   setSubscriptionManualDiscount,
 } from "@/lib/discounts/recalc-client-discounts"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
+import { paidBySubscriptions } from "@/lib/subscriptions/net-paid"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
 import {
   validateSelectedLessons,
@@ -93,23 +94,11 @@ export async function GET(req: NextRequest) {
     take: clientId ? undefined : 200,
   })
 
-  // Возвраты на баланс при закрытии (subscription_closed_refund, amount > 0):
-  // вычитаются из «Оплачено» в UI, чтобы закрытый с возвратом абонемент
-  // не выглядел оплаченным (отрицательные суммы — перенос долга, не возврат).
+  // «Оплачено» — деньги, реально зашедшие в абонемент: платежи минус знаковая
+  // сверка закрытия. Включает автосписание долга с баланса родителя при
+  // отчислении (раньше в столбце оставались одни ручные зачисления).
   const subIds = subscriptions.map((s) => s.id)
-  const refunds = subIds.length
-    ? await db.clientBalanceTransaction.groupBy({
-        by: ["subscriptionId"],
-        where: {
-          tenantId: session.user.tenantId,
-          subscriptionId: { in: subIds },
-          type: "subscription_closed_refund",
-          amount: { gt: 0 },
-        },
-        _sum: { amount: true },
-      })
-    : []
-  const refundBySub = new Map(refunds.map((r) => [r.subscriptionId, Number(r._sum.amount ?? 0)]))
+  const paidBySub = await paidBySubscriptions(db, session.user.tenantId, subIds)
 
   // Скидки v2: «отхожено» = число отметок, списывающих занятие (включая
   // бесплатные при 100% скидке) — деление chargedAmount/lessonPrice больше
@@ -149,7 +138,10 @@ export async function GET(req: NextRequest) {
   const masked = subscriptions.map((s) => ({
     ...s,
     client: { ...s.client, phone: maskPhone(s.client.phone, session.user.role, session.user.instructorsSeePhones) },
-    refundedToBalance: refundBySub.get(s.id) ?? 0,
+    paidAmount: paidBySub.get(s.id)?.paid ?? 0,
+    // Разбивка для подсказки в столбце «Оплачено» карточки клиента.
+    paidNet: paidBySub.get(s.id)?.netPaid ?? 0,
+    paidClosure: paidBySub.get(s.id)?.closure ?? 0,
     attendedLessons: attendedBySub.get(s.id) ?? 0,
     // legacy идёт по замороженной денежной модели (reprice его пропускает) —
     // consumed-остаток показывал бы «0», пока «К оплате» ждёт денег.

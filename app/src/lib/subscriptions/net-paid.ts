@@ -56,3 +56,64 @@ export async function netPaidBySubscriptions(
   }
   return map
 }
+
+/**
+ * «Оплачено» для показа в таблицах абонементов: нетто-платежи МИНУС знаковая
+ * сверка закрытия (subscription_closed_refund).
+ *
+ * Сверка знаковая, и оба знака — движение реальных денег родителя:
+ *   • +N — переплата вернулась на баланс родителя → «Оплачено» уменьшается;
+ *   • −N — долг при закрытии/отчислении погашен с баланса родителя →
+ *     «Оплачено» увеличивается: это тоже оплата, просто не ручная. Раньше
+ *     считали только положительные и показывали одни ручные зачисления
+ *     (22.08.2026: внесли 4000, при отчислении автосписали ещё 2000 —
+ *     в столбце висело 4000 вместо 6000).
+ *
+ * Для закрытого/отчисленного результат по построению равен chargedAmount:
+ * сверка закрытия приводит «оплачено» к отработанному. Если баланс родителя
+ * при этом ушёл в минус — долг виден в «Долг/Баланс» (отрицательный
+ * clientBalance), а не прячется в абонементе.
+ *
+ * Не путать с netPaidToSubscription: та считает деньги ДО сверки и служит
+ * денежной логике закрытия (сверка вычитает прошлые проводки отдельно).
+ */
+export interface SubscriptionPaid {
+  /** Итог для столбца «Оплачено». */
+  paid: number
+  /** Внесено до сверки закрытия (нетто-платежи). */
+  netPaid: number
+  /** Сверка закрытия: > 0 — вернули на баланс, < 0 — добрали с баланса. */
+  closure: number
+}
+
+export async function paidBySubscriptions(
+  t: Tx,
+  tenantId: string,
+  subscriptionIds: string[],
+): Promise<Map<string, SubscriptionPaid>> {
+  if (subscriptionIds.length === 0) return new Map()
+  const [netPaid, closureRows] = await Promise.all([
+    netPaidBySubscriptions(t, tenantId, subscriptionIds),
+    t.clientBalanceTransaction.groupBy({
+      by: ["subscriptionId"],
+      where: {
+        tenantId,
+        subscriptionId: { in: subscriptionIds },
+        type: "subscription_closed_refund",
+      },
+      _sum: { amount: true },
+    }),
+  ])
+  const closureBySub = new Map<string, number>()
+  for (const r of closureRows) {
+    if (r.subscriptionId) closureBySub.set(r.subscriptionId, Number(r._sum.amount ?? 0))
+  }
+
+  const map = new Map<string, SubscriptionPaid>()
+  for (const id of subscriptionIds) {
+    const net = Number(netPaid.get(id) ?? 0)
+    const closure = closureBySub.get(id) ?? 0
+    map.set(id, { paid: net - closure, netPaid: net, closure })
+  }
+  return map
+}

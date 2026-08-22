@@ -69,8 +69,12 @@ interface Subscription {
   group: { id: string; name: string }
   ward: { id: string; firstName: string; lastName: string | null } | null
   payments: { id: string; amount: string; date: string; method: string }[]
-  /** Возвращено на баланс клиента при закрытии абонемента (subscription_closed_refund). */
-  refundedToBalance?: number
+  /** «Оплачено»: платежи ± сверка закрытия (см. lib/subscriptions/net-paid). */
+  paidAmount?: number
+  /** Внесено до сверки закрытия — для подсказки в столбце «Оплачено». */
+  paidNet?: number
+  /** Сверка закрытия: > 0 — вернули на баланс, < 0 — добрали с баланса. */
+  paidClosure?: number
   /** Скидки v2: число отметок, списавших занятие (включая бесплатные при 100% скидке). */
   attendedLessons?: number
   /** Израсходовано занятий: списывающие отметки + финальные несписывающие
@@ -933,11 +937,13 @@ function SubscriptionsTab({ clientId, wards, perSubDiscountMode }: { clientId: s
             </TableHeader>
             <TableBody>
               {subs.map((s) => {
-                const paidIn = s.payments.reduce((sum, p) => sum + Number(p.amount), 0)
-                // «Оплачено» = внесено минус возвращённое на баланс при закрытии:
-                // отчисленный с полным возвратом не должен выглядеть оплаченным.
-                const refunded = Number(s.refundedToBalance) || 0
-                const paid = Math.max(0, paidIn - refunded)
+                // «Оплачено» считает сервер: платежи минус знаковая сверка
+                // закрытия. Отчисленный с возвратом не выглядит оплаченным, а
+                // долг, автосписанный с баланса родителя при отчислении,
+                // попадает в столбец (а не только ручные зачисления).
+                const paid = Math.max(0, Number(s.paidAmount) || 0)
+                const paidNet = Number(s.paidNet) || 0
+                const closure = Number(s.paidClosure) || 0
                 const balance = Number(s.balance)
                 const finalAmount = Number(s.finalAmount)
                 // Скидки v2: «отхожено» приходит с сервера числом отметок —
@@ -1003,9 +1009,11 @@ function SubscriptionsTab({ clientId, wards, perSubDiscountMode }: { clientId: s
                     <TableCell
                       className={`text-right ${paid > 0 ? "text-green-600" : "text-muted-foreground"}`}
                       title={
-                        refunded > 0
-                          ? `Внесено ${formatMoney(paidIn)}, возвращено на баланс ${formatMoney(refunded)}`
-                          : undefined
+                        closure > 0
+                          ? `Внесено ${formatMoney(paidNet)}, возвращено на баланс ${formatMoney(closure)}`
+                          : closure < 0
+                            ? `Внесено ${formatMoney(paidNet)}, списано с баланса при отчислении ${formatMoney(Math.abs(closure))}`
+                            : undefined
                       }
                     >
                       {paid > 0 ? formatMoney(paid) : "—"}

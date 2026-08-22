@@ -5,6 +5,7 @@ import { currencySymbol } from "@/lib/currency"
 import { getOrgUiSettings } from "@/lib/role-names"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { suggestDefaultRenewRange } from "@/lib/subscriptions/bulk-renew"
+import { paidBySubscriptions } from "@/lib/subscriptions/net-paid"
 import { PageHelp } from "@/components/page-help"
 import { SubscriptionsTable, type SubscriptionRow, type SubsTabKey } from "./subscriptions-table"
 import {
@@ -146,23 +147,11 @@ export default async function SubscriptionsPage({
     }),
   ])
 
-  // Возвраты на баланс при закрытии (subscription_closed_refund, amount > 0):
-  // balance у закрытого абонемента обнулён, поэтому без этой поправки
-  // «Оплачено» показывало бы полную сумму даже после возврата.
+  // «Оплачено» — по деньгам абонемента (платежи ± сверка закрытия), а не по
+  // formula finalAmount − balance: у закрытого/отчисленного balance обнулён,
+  // и она показывала всю выписанную сумму.
   const rowIds = rows.map((s) => s.id)
-  const refunds = rowIds.length
-    ? await db.clientBalanceTransaction.groupBy({
-        by: ["subscriptionId"],
-        where: {
-          tenantId,
-          subscriptionId: { in: rowIds },
-          type: "subscription_closed_refund",
-          amount: { gt: 0 },
-        },
-        _sum: { amount: true },
-      })
-    : []
-  const refundBySub = new Map(refunds.map((r) => [r.subscriptionId, Number(r._sum.amount ?? 0)]))
+  const paidBySub = await paidBySubscriptions(db, tenantId, rowIds)
 
   const mapped: SubscriptionRow[] = rows.map((s) => {
     const wardName =
@@ -193,14 +182,10 @@ export default async function SubscriptionsPage({
       branchName: s.group.branch.name,
       groupName: s.group.name,
       finalAmount: Number(s.finalAmount),
-      // «Оплачено» = реальные транши с баланса родителя в счёт абонемента =
-      // finalAmount − balance − возвращённое на баланс при закрытии.
-      // chargedAmount хранит отработанные занятия, он не равен «оплачено»
-      // (раньше путали из-за общей семантики).
-      paidAmount: Math.max(
-        0,
-        Number(s.finalAmount) - Number(s.balance) - (refundBySub.get(s.id) ?? 0),
-      ),
+      // «Оплачено» = деньги, зашедшие в абонемент: ручные зачисления с баланса
+      // родителя плюс автосписание долга при отчислении, минус возвращённое.
+      // chargedAmount хранит отработанные занятия, он не равен «оплачено».
+      paidAmount: Math.max(0, paidBySub.get(s.id)?.paid ?? 0),
       startDate: s.startDate.toISOString(),
       endDate: s.endDate ? s.endDate.toISOString() : null,
       expiresAt: s.expiresAt ? s.expiresAt.toISOString() : null,
