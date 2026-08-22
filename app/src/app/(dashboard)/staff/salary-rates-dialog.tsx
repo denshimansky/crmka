@@ -28,6 +28,7 @@ import {
   type TrialPayMode,
 } from "@/components/salary/salary-rate-form"
 import { RateScheduleSection } from "@/components/salary/rate-schedule-section"
+import { OkladScheduleSection } from "@/components/salary/oklad-schedule-section"
 
 interface RateRow {
   id: string
@@ -358,6 +359,12 @@ export function SalaryRatesDialog({
                     Фиксированный месячный оклад. Попадает в «Начислено» на странице
                     «Зарплата» → вкладка «Оклады». Оставьте пустым, если оклада нет.
                   </p>
+                  <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                    Это базовая сумма: её правка меняет расчёт ВСЕХ месяцев до первого
+                    изменения из «Истории оклада» ниже. Чтобы поменять оклад с какой-то
+                    даты (в том числе снять оклад — сумма 0), заведите изменение в
+                    истории, а не правьте поле.
+                  </p>
                   {okladError && (
                     <div className="rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">{okladError}</div>
                   )}
@@ -432,6 +439,15 @@ export function SalaryRatesDialog({
                     </Button>
                     {okladSaved && <span className="text-xs text-green-600">Сохранено</span>}
                   </div>
+
+                  {/* История оклада: изменения «с даты», прошлые месяцы не трогают. */}
+                  <OkladScheduleSection
+                    employeeId={employeeId}
+                    baseAmount={oklad.trim() === "" ? null : Number(oklad)}
+                    baseFrom={okladFrom || null}
+                    canEdit
+                    onChanged={() => router.refresh()}
+                  />
                 </div>
 
                 {/* Сдельные ставки — только у инструкторов; у остальных ролей

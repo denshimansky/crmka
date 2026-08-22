@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient, type SalaryScheme } from "@prisma/client"
 import { pickRateAt } from "./pick-rate-at"
 import { okladForPeriod } from "./oklad-for-period"
+import { loadOkladSchedules } from "./oklad-context"
 
 type DB = PrismaClient | Prisma.TransactionClient
 
@@ -145,8 +146,9 @@ export async function computeSalaryForecastBreakdown(
     }),
   ])
 
-  // Оклад за прогнозируемый месяц с учётом даты начала (okladFrom) и пропорции
-  // неполного месяца; окладники, чей оклад ещё не начался (0), в карту не попадают.
+  // Оклад за прогнозируемый месяц: версии (OkladSchedule) + дата начала (okladFrom) +
+  // пропорция неполного месяца; окладники с нулём за месяц в карту не попадают.
+  const okladSchedules = await loadOkladSchedules(db, tenantId, oklads.map((e) => e.id))
   const okladMap = new Map(
     oklads
       .map((e) => [
@@ -154,6 +156,7 @@ export async function computeSalaryForecastBreakdown(
         okladForPeriod({
           monthlySalary: Number(e.monthlySalary) || 0,
           okladFrom: e.okladFrom,
+          schedule: okladSchedules.get(e.id),
           periodYear: year,
           periodMonth: month,
         }),

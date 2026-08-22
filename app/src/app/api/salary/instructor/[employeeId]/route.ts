@@ -7,6 +7,7 @@ import { buildInstructorSalaryDetail, type AttendanceInput } from "@/lib/salary/
 import { kindOfDirection } from "@/lib/salary/kind-split"
 import { okladForPeriod } from "@/lib/salary/oklad-for-period"
 import { computePriorPieceBalances } from "@/lib/salary/prior-piece-balance"
+import { loadOkladSchedules } from "@/lib/salary/oklad-context"
 
 export async function GET(
   req: NextRequest,
@@ -96,11 +97,12 @@ export async function GET(
   // Тип карточки: oklad-вид (только оклад) или piece-вид (только сделка). Оклад =
   // «без направления» (см. lib/salary/kind-split). kind из ссылки; без него —
   // «Оклады» для чистого окладника (есть оклад, нет сделки), иначе «Сдельная».
-  // Оклад за выбранный месяц с учётом даты начала (okladFrom) и пропорции неполного
-  // первого месяца. hasOklad — окладник ли он В ЭТОМ месяце (0 до даты начала).
+  // Оклад за выбранный месяц: версии (OkladSchedule) + дата начала (okladFrom) +
+  // пропорция неполного месяца. hasOklad — окладник ли он В ЭТОМ месяце.
   const okladThisPeriod = okladForPeriod({
     monthlySalary: employee.monthlySalary != null ? Number(employee.monthlySalary) : 0,
     okladFrom: employee.okladFrom,
+    schedule: (await loadOkladSchedules(db, tenantId, [employeeId])).get(employeeId),
     periodYear,
     periodMonth,
   })

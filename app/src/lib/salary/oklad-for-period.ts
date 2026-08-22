@@ -1,5 +1,6 @@
-// Оклад сотрудника за конкретный месяц с учётом даты начала оклада
-// (Employee.okladFrom) и календарной пропорции неполного первого месяца.
+// Оклад сотрудника за конкретный месяц: история версий (OkladSchedule) + базовая
+// величина (Employee.monthlySalary с Employee.okladFrom) + календарная пропорция
+// неполного месяца.
 //
 // Зачем: оклад хранится плоским полем Employee.monthlySalary без версий/даты.
 // Раньше он начислялся ЗА ЛЮБОЙ месяц (ведомость/автозаполнение/карточка считают
@@ -17,6 +18,20 @@
 // upToDay — необязательный конец окна начисления для АВАНСА «по N-е число»
 // (сценарий salary-payments/accruals?upTo=…). Комбинируется с датой начала: окно
 // = [startDay, min(upToDay, дней в месяце)].
+//
+// ВЕРСИИ ОКЛАДА (schedule, модель OkladSchedule) — «с этой даты оклад стал таким».
+// Правка monthlySalary раньше переписывала прошлое (оклад 0 с августа обнулял июнь);
+// версия действует только вперёд от своей даты. Расчёт месяца — ПО ДНЯМ: за каждый
+// день берётся действующая в этот день сумма (последняя версия с effectiveFrom <= дня,
+// иначе базовая с okladFrom, иначе 0), сумма делится на число дней месяца. Без версий
+// формула тождественна прежней пропорции, поэтому существующие базы не меняются.
+
+/** Версия оклада: с даты effectiveFrom действует amount. */
+export interface OkladVersion {
+  effectiveFrom: Date
+  amount: number
+  deletedAt?: Date | null
+}
 
 interface OkladPeriodOpts {
   okladFrom: Date | null | undefined
@@ -54,11 +69,56 @@ export function okladDaysFraction(opts: OkladPeriodOpts): number {
   return activeDays / daysInMonth
 }
 
-/** Сумма оклада за месяц с учётом даты начала и пропорции (0 если не окладник/не начался). */
-export function okladForPeriod(
-  opts: OkladPeriodOpts & { monthlySalary: number },
+/** Календарный UTC-день как число — для сравнения дат без времени. */
+const dayNum = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+
+/**
+ * Действующая сумма оклада на конкретный день: последняя версия с effectiveFrom <= дня;
+ * если версий на этот день нет — базовая величина (при okladFrom <= дня или без него);
+ * иначе 0 (оклад ещё не начался).
+ */
+export function okladAmountOnDay(
+  day: Date,
+  base: { monthlySalary: number; okladFrom: Date | null | undefined },
+  schedule?: OkladVersion[] | null,
 ): number {
-  if (!opts.monthlySalary || opts.monthlySalary <= 0) return 0
-  const amount = opts.monthlySalary * okladDaysFraction(opts)
-  return Math.round(amount * 100) / 100
+  const at = dayNum(day)
+  let bestDay = -Infinity
+  let bestAmount: number | null = null
+  for (const v of schedule ?? []) {
+    if (v.deletedAt != null) continue
+    const vd = dayNum(v.effectiveFrom)
+    if (vd <= at && vd > bestDay) { bestDay = vd; bestAmount = v.amount }
+  }
+  if (bestAmount != null) return bestAmount
+  if (base.okladFrom && dayNum(base.okladFrom) > at) return 0
+  return base.monthlySalary > 0 ? base.monthlySalary : 0
+}
+
+/**
+ * Сумма оклада за месяц: Σ по дням окна (действующая сумма дня) / дней в месяце.
+ * Без версий тождественно прежнему monthlySalary × доля_дней.
+ */
+export function okladForPeriod(
+  opts: OkladPeriodOpts & { monthlySalary: number; schedule?: OkladVersion[] | null },
+): number {
+  const { monthlySalary, okladFrom, periodYear, periodMonth, upToDay, schedule } = opts
+  const hasSchedule = (schedule ?? []).some((v) => v.deletedAt == null)
+  // Быстрый путь без версий — прежняя формула (и прежнее округление).
+  if (!hasSchedule) {
+    if (!monthlySalary || monthlySalary <= 0) return 0
+    return Math.round(monthlySalary * okladDaysFraction(opts) * 100) / 100
+  }
+
+  const daysInMonth = new Date(Date.UTC(periodYear, periodMonth, 0)).getUTCDate()
+  const endDay = upToDay != null ? Math.min(upToDay, daysInMonth) : daysInMonth
+  let sum = 0
+  for (let d = 1; d <= endDay; d++) {
+    sum += okladAmountOnDay(
+      new Date(Date.UTC(periodYear, periodMonth - 1, d)),
+      { monthlySalary, okladFrom },
+      schedule,
+    )
+  }
+  return Math.round((sum / daysInMonth) * 100) / 100
 }

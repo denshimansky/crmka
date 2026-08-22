@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client"
+import { resolveOkladForPeriod } from "./oklad-context"
 import {
   computeOkladTwinPortion,
   okladRecognitionTarget,
@@ -21,17 +22,58 @@ import {
  * kind-независимо. Вызывать ВНУТРИ money-транзакции, ПОСЛЕ создания/удаления выплат и
  * SalaryAdjustment периода (иначе netAdjustment/сумма выплат будут неполными).
  * Возвращает признанную сумму (0 — если не окладник / нечего признавать).
+ *
+ * Оклад периода функция резолвит САМА (resolveOkladForPeriod: база + okladFrom +
+ * версии OkladSchedule). Раньше сумму передавали снаружи сырым monthlySalary, и
+ * признание расхода игнорировало и дату начала оклада, и версии: за июль сотруднику
+ * с окладом «с августа» начисление давало 0, а в июльский ОПИУ уходил полный оклад.
  */
+/**
+ * Пересобрать оклад-твины сотрудника за ВСЕ периоды с выплатами начиная с указанного
+ * месяца. Нужен после правки истории оклада: признание расхода в ОПИУ капается
+ * окладом периода, поэтому новая или удалённая версия меняет уже проведённые месяцы.
+ */
+export async function resyncOkladTwinsFromMonth(
+  tx: Prisma.TransactionClient,
+  input: {
+    tenantId: string
+    employeeId: string
+    fromYear: number
+    fromMonth: number
+    okladCategoryId: string
+    createdBy: string | null
+  },
+): Promise<number> {
+  const periods = await tx.salaryPayment.findMany({
+    where: {
+      tenantId: input.tenantId,
+      employeeId: input.employeeId,
+      OR: [
+        { periodYear: { gt: input.fromYear } },
+        { periodYear: input.fromYear, periodMonth: { gte: input.fromMonth } },
+      ],
+    },
+    select: { periodYear: true, periodMonth: true },
+    distinct: ["periodYear", "periodMonth"],
+  })
+  for (const p of periods) {
+    await syncOkladTwinsForEmployeePeriod(tx, {
+      tenantId: input.tenantId,
+      employeeId: input.employeeId,
+      periodYear: p.periodYear,
+      periodMonth: p.periodMonth,
+      okladCategoryId: input.okladCategoryId,
+      createdBy: input.createdBy,
+    })
+  }
+  return periods.length
+}
+
 export async function syncOkladTwinsForEmployeePeriod(
   tx: Prisma.TransactionClient,
   input: {
     tenantId: string
     employeeId: string
-    monthlySalary: number
-    defaultDirectionId: string | null
-    // Филиалы, на которые распространяется оклад (Employee.okladBranchIds). Пусто →
-    // оклад-твин без привязки к филиалу (общий) → в ОПИУ разносится по всей сети ∝ выручке.
-    okladBranchIds: string[]
     periodYear: number
     periodMonth: number
     okladCategoryId: string
@@ -50,7 +92,16 @@ export async function syncOkladTwinsForEmployeePeriod(
     },
   })
 
-  if (input.monthlySalary <= 0) return 0
+  // Оклад за ЭТОТ период (база + okladFrom + версии) и его атрибуция: направление
+  // для ОПИУ и филиалы (Employee.okladBranchIds; пусто → твин без филиала, в ОПИУ
+  // разносится по всей сети ∝ выручке).
+  const oklad = await resolveOkladForPeriod(tx, {
+    tenantId: input.tenantId,
+    employeeId: input.employeeId,
+    periodYear: input.periodYear,
+    periodMonth: input.periodMonth,
+  })
+  if (oklad.amount <= 0) return 0
 
   // 2. Всего выплачено сотруднику за период (по всем выплатам).
   const paidAgg = await tx.salaryPayment.aggregate({
@@ -83,7 +134,7 @@ export async function syncOkladTwinsForEmployeePeriod(
     0,
   )
 
-  const target = okladRecognitionTarget(input.monthlySalary, netAdjustment)
+  const target = okladRecognitionTarget(oklad.amount, netAdjustment)
   const portion = computeOkladTwinPortion({ monthlySalary: target, paymentTotal: totalPaid, alreadyTwinned: 0 })
   if (portion <= 0) return 0
 
@@ -106,7 +157,7 @@ export async function syncOkladTwinsForEmployeePeriod(
     categoryId: input.okladCategoryId,
     salaryPaymentId: anchor.id,
     amount: portion,
-    directionId: input.defaultDirectionId,
+    directionId: oklad.defaultDirectionId,
     recognition,
     createdBy: input.createdBy,
   })
@@ -132,9 +183,9 @@ export async function syncOkladTwinsForEmployeePeriod(
   //    оклад разносится на выбранные филиалы ∝ выручке (внутри — по направлению);
   //  • филиалы не выбраны, но есть направление → одна строка (branchId=null, directionId);
   //  • ни филиалов, ни направления → без строки (общий расход ∝ всей сети).
-  if (input.okladBranchIds.length > 0) {
+  if (oklad.okladBranchIds.length > 0) {
     await tx.expenseBranch.createMany({
-      data: input.okladBranchIds.map((branchId) => ({
+      data: oklad.okladBranchIds.map((branchId) => ({
         tenantId: input.tenantId,
         expenseId: exp.id,
         branchId,

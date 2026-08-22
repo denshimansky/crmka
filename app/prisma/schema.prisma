@@ -272,10 +272,12 @@ model Employee {
   // При выборе сотрудника на странице выплаты ЗП «Заполнить» подтянет одну строку
   // (monthlySalary, defaultDirectionId) — преподаватели начисляются по факту посещений.
   monthlySalary      Decimal?  @map("monthly_salary") @db.Decimal(12, 2)
-  // Дата, с которой действует оклад. NULL → оклад за весь месяц во всех периодах
-  // (обратная совместимость). Иначе оклад не начисляется за месяцы до неё, а
-  // первый (неполный) месяц — пропорционально календарным дням (lib/salary/
+  // Дата, с которой действует БАЗОВАЯ сумма оклада. NULL → оклад за весь месяц во
+  // всех периодах (обратная совместимость). Иначе оклад не начисляется за месяцы до
+  // неё, а первый (неполный) месяц — пропорционально календарным дням (lib/salary/
   // oklad-for-period.ts). Фиксит «окладник заведён в августе → всплыл в июле».
+  // Смена САМОЙ СУММЫ оформляется версией okladSchedules, а не правкой поля —
+  // иначе прошлые месяцы пересчитались бы новым окладом задним числом.
   okladFrom          DateTime? @map("oklad_from") @db.Date
   defaultDirectionId String?   @map("default_direction_id") @db.Uuid
   // Филиалы, на которые распространяется оклад (разнесение оклад-твина в ОПИУ).
@@ -287,6 +289,7 @@ model Employee {
   user                       User?
   employeeBranches           EmployeeBranch[]
   salaryRates                SalaryRate[]
+  okladSchedules             OkladSchedule[]
   salaryPayments             SalaryPayment[]
   salaryPaymentItems         SalaryPaymentItem[]
   salaryAdjustments          SalaryAdjustment[]
@@ -870,6 +873,39 @@ model SalaryRateSchedule {
 
   @@index([tenantId, salaryRateId, effectiveFrom])
   @@map("salary_rate_schedules")
+}
+
+// История ОКЛАДА сотрудника — версия = «с этой даты оклад стал таким».
+//
+// Зачем: Employee.monthlySalary — плоское текущее значение, поэтому его правка
+// пересчитывала ВСЕ прошлые месяцы новой суммой (кейс Андреевой, ДЦ Умный Я:
+// поставили 0 с августа → июнь и июль тоже стали 0, а выплаты и списания за них
+// остались → фантомные −36 000 ₽). Employee.okladFrom закрывал только НАЧАЛО
+// оклада, но не смену суммы и не её окончание.
+//
+// Модель — как у ставок инструктора (SalaryRateSchedule):
+//  • базовая величина (Employee.monthlySalary + okladFrom) = «версия с начала
+//    времён», поэтому существующие базы работают без бэкфилла;
+//  • версия несёт только сумму и дату начала, интервал закрывает следующая версия;
+//  • «сняли с оклада» = версия с amount = 0 (отдельное поле «оклад по» не нужно);
+//  • оклад за месяц считается ПО ДНЯМ (lib/salary/oklad-for-period.ts): за каждый
+//    день берётся действующая в этот день сумма — смена оклада в середине месяца
+//    делится пропорционально, как и неполный первый месяц.
+model OkladSchedule {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  employeeId    String    @map("employee_id") @db.Uuid
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  amount        Decimal   @db.Decimal(12, 2)
+  comment       String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  createdBy     String?   @map("created_by") @db.Uuid
+  deletedAt     DateTime? @map("deleted_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, employeeId, effectiveFrom])
+  @@map("oklad_schedules")
 }
 
 // Строка плавающей матрицы «N учеников → ставка за занятие». Может относиться

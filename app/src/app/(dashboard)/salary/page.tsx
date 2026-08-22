@@ -18,6 +18,7 @@ import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { ConductedPaymentsList } from "@/components/salary/conducted-payments-list"
 import { splitEmployeeByKind } from "@/lib/salary/kind-split"
 import { okladForPeriod } from "@/lib/salary/oklad-for-period"
+import { loadOkladSchedules } from "@/lib/salary/oklad-context"
 import { computePriorPieceBalances } from "@/lib/salary/prior-piece-balance"
 
 export default async function SalaryPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -118,15 +119,18 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   //  • «Оклады» — окладники (monthlySalary>0).
   //  • «Сдельная» — у кого есть сделочная активность (начисление/выплата/корректировка).
   //  Совмещающий попадает в обе вкладки (в каждой — своя часть; см. lib/salary/kind-split).
-  // Оклад сотрудника за ВЫБРАННЫЙ месяц: гейт по дате начала оклада (okladFrom) +
-  // пропорция неполного первого месяца. Раньше оклад начислялся за любой месяц —
-  // окладник, заведённый в августе, всплывал в июле (см. lib/salary/oklad-for-period).
+  // Оклад сотрудника за ВЫБРАННЫЙ месяц: версии оклада (OkladSchedule) + гейт по
+  // дате начала (okladFrom) + пропорция неполного месяца. Раньше оклад начислялся за
+  // любой месяц текущей суммой — окладник, заведённый в августе, всплывал в июле, а
+  // смена суммы переписывала прошлое (см. lib/salary/oklad-for-period).
+  const okladSchedules = await loadOkladSchedules(db, tenantId, employees.map((e) => e.id))
   const okladByEmployee = new Map(
     employees.map((e) => [
       e.id,
       okladForPeriod({
         monthlySalary: Number(e.monthlySalary) || 0,
         okladFrom: e.okladFrom,
+        schedule: okladSchedules.get(e.id),
         periodYear: year,
         periodMonth: month,
       }),

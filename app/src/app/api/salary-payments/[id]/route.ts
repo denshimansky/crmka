@@ -54,11 +54,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
 
-  // Окладнику после удаления пересобираем твин по ОСТАВШИМСЯ выплатам периода
-  // (если удалили выплату, державшую потолок — сосед должен подхватить). Категорию
-  // резолвим ДО money-tx.
-  const isOkladnik = Number(payment.employee?.monthlySalary ?? 0) > 0
-  const okladCategoryId = isOkladnik ? await getOkladCategoryId() : null
+  // Пересобираем твин по ОСТАВШИМСЯ выплатам периода (если удалили выплату,
+  // державшую потолок — сосед должен подхватить). Без предварительной проверки
+  // «окладник ли»: оклад периода резолвит сам sync, у не-окладника вызов сносит
+  // устаревший твин. Категорию резолвим ДО money-tx.
+  const okladCategoryId = await getOkladCategoryId()
 
   await db.$transaction(async (tx) => {
     // Вернуть деньги на счета по ФАКТИЧЕСКИМ позициям (выплата может быть разнесена
@@ -76,19 +76,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     await tx.salaryPayment.delete({ where: { id: payment.id } })
 
     // Пересобрать оклад-твин по оставшимся выплатам периода (0 выплат → 0 твинов).
-    if (isOkladnik && okladCategoryId) {
-      await syncOkladTwinsForEmployeePeriod(tx, {
-        tenantId,
-        employeeId: payment.employeeId,
-        monthlySalary: Number(payment.employee?.monthlySalary ?? 0),
-        defaultDirectionId: payment.employee?.defaultDirectionId ?? null,
-        okladBranchIds: Array.isArray(payment.employee?.okladBranchIds) ? (payment.employee.okladBranchIds as string[]) : [],
-        periodYear: payment.periodYear,
-        periodMonth: payment.periodMonth,
-        okladCategoryId,
-        createdBy: actor ?? null,
-      })
-    }
+    await syncOkladTwinsForEmployeePeriod(tx, {
+      tenantId,
+      employeeId: payment.employeeId,
+      periodYear: payment.periodYear,
+      periodMonth: payment.periodMonth,
+      okladCategoryId,
+      createdBy: actor ?? null,
+    })
   })
 
   logAudit({
@@ -136,11 +131,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (accounts.length !== accountIds.length) return NextResponse.json({ error: "Один или несколько счетов не найдены" }, { status: 404 })
   if (directions.length !== directionIds.length) return NextResponse.json({ error: "Одно или несколько направлений не найдены" }, { status: 404 })
 
-  // Пересчитываем оклад-твин по факту окладника (monthlySalary>0), а не по наличию
-  // прежнего твина — иначе правка выплаты окладника, заведённой без твина (через
-  // карточку/сделочную вкладку), его бы не создала. Категорию резолвим ДО money-tx.
-  const isOkladnik = Number(payment.employee?.monthlySalary ?? 0) > 0
-  const okladCategoryId = isOkladnik ? await getOkladCategoryId() : null
+  // Твин пересобираем всегда: оклад периода резолвит сам sync, а прежняя проверка
+  // «есть ли твин» не создавала его для выплаты окладника, заведённой через карточку.
+  // Категорию резолвим ДО money-tx.
+  const okladCategoryId = await getOkladCategoryId()
   const newAmount = data.items.reduce((s, it) => s + it.amount, 0)
 
   await db.$transaction(async (tx) => {
@@ -180,21 +174,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // Пересобрать оклад-твин по потолку «оклад + премии − штрафы» за период. Окладнику
     // — per-period ресинк (сам сносит прежние твины периода и создаёт один); не
     // окладнику — просто снести возможный устаревший твин этой выплаты.
-    if (isOkladnik && okladCategoryId) {
-      await syncOkladTwinsForEmployeePeriod(tx, {
-        tenantId,
-        employeeId: payment.employeeId,
-        monthlySalary: Number(payment.employee?.monthlySalary ?? 0),
-        defaultDirectionId: payment.employee?.defaultDirectionId ?? null,
-        okladBranchIds: Array.isArray(payment.employee?.okladBranchIds) ? (payment.employee.okladBranchIds as string[]) : [],
-        periodYear: payment.periodYear,
-        periodMonth: payment.periodMonth,
-        okladCategoryId,
-        createdBy: actor ?? null,
-      })
-    } else {
-      await tx.expense.deleteMany({ where: { salaryPaymentId: payment.id } })
-    }
+    // Ресинк безусловный: оклад периода резолвит сам sync, а у не-окладника вызов
+    // сносит устаревший твин (прежняя ветка else делала то же, но уже по одной выплате).
+    await syncOkladTwinsForEmployeePeriod(tx, {
+      tenantId,
+      employeeId: payment.employeeId,
+      periodYear: payment.periodYear,
+      periodMonth: payment.periodMonth,
+      okladCategoryId,
+      createdBy: actor ?? null,
+    })
   })
 
   logAudit({

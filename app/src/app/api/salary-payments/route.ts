@@ -11,6 +11,8 @@ import { getOkladCategoryId } from "@/lib/salary/oklad-category"
 import { getBranchScope } from "@/lib/session"
 import { scopeEmployee } from "@/lib/branch-scope"
 import { kindOfDirection } from "@/lib/salary/kind-split"
+import { okladForPeriod } from "@/lib/salary/oklad-for-period"
+import { loadOkladSchedules } from "@/lib/salary/oklad-context"
 
 // Legacy: одна выплата = (employee × account × amount). Используется простым диалогом
 // «Провести выплату». Сохраняется как SalaryPayment + одна позиция SalaryPaymentItem
@@ -102,7 +104,7 @@ export async function GET(req: NextRequest) {
   const payments = await db.salaryPayment.findMany({
     where,
     include: {
-      employee: { select: { id: true, firstName: true, lastName: true, role: true, monthlySalary: true } },
+      employee: { select: { id: true, firstName: true, lastName: true, role: true, monthlySalary: true, okladFrom: true } },
       account: { select: { id: true, name: true } },
       items: {
         include: {
@@ -121,9 +123,25 @@ export async function GET(req: NextRequest) {
   // ломаются. Тип определяется ПО СТРОКАМ (directionId), а не по monthlySalary>0: у
   // совместителя одна выплата бывает смешанной, и бакетирование по признаку окладника
   // отправляло ВСЕ его выплаты (включая чисто сделочные) только на вкладку «Оклады».
+  // Окладник ли сотрудник В ЭТОМ периоде — по версиям оклада и дате начала, а не по
+  // текущему полю: иначе после смены оклада разбивка выплат прошлых месяцев на
+  // оклад/сделку менялась задним числом.
+  const okladSchedules = await loadOkladSchedules(db, session.user.tenantId, payments.map((p) => p.employeeId))
+  const hasOkladByEmp = new Map(
+    payments.map((p) => [
+      p.employeeId,
+      okladForPeriod({
+        monthlySalary: Number(p.employee?.monthlySalary ?? 0),
+        okladFrom: p.employee?.okladFrom ?? null,
+        schedule: okladSchedules.get(p.employeeId),
+        periodYear,
+        periodMonth,
+      }) > 0,
+    ]),
+  )
   const r2 = (n: number) => Math.round(n * 100) / 100
   let enriched = payments.map((p) => {
-    const hasOklad = Number(p.employee?.monthlySalary ?? 0) > 0
+    const hasOklad = hasOkladByEmp.get(p.employeeId) ?? false
     let okladAmount = 0
     let pieceAmount = 0
     for (const it of p.items) {
@@ -300,18 +318,16 @@ export async function POST(req: NextRequest) {
       // сумма выплат и netAdjustment были полными). Пересинк per-period для каждого
       // затронутого окладника (из выплат ИЛИ премий/штрафов); accountId=NULL → только ОПИУ.
       if (okladCategoryId) {
-        const okladnikToResync = new Set(
-          [...data.items.map((i) => i.employeeId), ...data.adjustments.map((a) => a.employeeId)]
-            .filter((id) => Number(empById.get(id)?.monthlySalary ?? 0) > 0),
+        // Ресинк по ВСЕМ затронутым сотрудникам, без предварительного фильтра
+        // «окладник ли он сейчас»: оклад за период резолвит сам sync (база + дата
+        // начала + версии), а у не-окладника вызов просто снесёт устаревший твин.
+        const toResync = new Set(
+          [...data.items.map((i) => i.employeeId), ...data.adjustments.map((a) => a.employeeId)],
         )
-        for (const empId of okladnikToResync) {
-          const emp = empById.get(empId)!
+        for (const empId of toResync) {
           await syncOkladTwinsForEmployeePeriod(tx, {
             tenantId,
             employeeId: empId,
-            monthlySalary: Number(emp.monthlySalary),
-            defaultDirectionId: emp.defaultDirectionId ?? null,
-            okladBranchIds: Array.isArray(emp.okladBranchIds) ? (emp.okladBranchIds as string[]) : [],
             periodYear: data.periodYear,
             periodMonth: data.periodMonth,
             okladCategoryId,
@@ -402,13 +418,10 @@ export async function POST(req: NextRequest) {
     // Оклад-выплата → твин-расход для ОПИУ (accountId=NULL). Направление — из карточки
     // сотрудника. Пересинк per-period: потолок «оклад + премии − штрафы» отсекает
     // сделочную часть совмещающего (см. syncOkladTwinsForEmployeePeriod).
-    if (legacyIsOkladnik && legacyOkladCategoryId) {
+    if (legacyOkladCategoryId) {
       await syncOkladTwinsForEmployeePeriod(tx, {
         tenantId,
         employeeId: data.employeeId,
-        monthlySalary: Number(employee.monthlySalary),
-        defaultDirectionId: employee.defaultDirectionId ?? null,
-        okladBranchIds: Array.isArray(employee.okladBranchIds) ? (employee.okladBranchIds as string[]) : [],
         periodYear: data.periodYear,
         periodMonth: data.periodMonth,
         okladCategoryId: legacyOkladCategoryId,

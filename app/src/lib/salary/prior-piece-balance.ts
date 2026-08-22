@@ -15,15 +15,22 @@
 
 import type { PrismaClient } from "@prisma/client"
 import { kindOfDirection } from "./kind-split"
+import { okladForPeriod, type OkladVersion } from "./oklad-for-period"
+import { loadOkladSchedules } from "./oklad-context"
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
 export interface PriorPieceOne {
+  /** Признак «окладник» по умолчанию, если строка не несёт свой (обратная совместимость). */
   hasOklad: boolean
   /** Σ сделочного начисления по занятиям прошлых периодов (с учётом подмены). */
   priorAttendancePay: number
-  adjustments: { directionId: string | null; type: "bonus" | "penalty"; amount: number }[]
-  payments: { directionId: string | null; amount: number }[]
+  // hasOklad У СТРОКИ — окладник ли сотрудник был В ПЕРИОДЕ этой строки. Один флаг на
+  // всю историю врал после смены оклада: сотрудник с окладом 0 «сейчас» получал
+  // hasOklad=false задним числом, и его окладные выплаты/списания прошлых месяцев
+  // уезжали в сделочный остаток (кейс Андреевой: −36 000 ₽ из ниоткуда).
+  adjustments: { directionId: string | null; type: "bonus" | "penalty"; amount: number; hasOklad?: boolean }[]
+  payments: { directionId: string | null; amount: number; hasOklad?: boolean }[]
 }
 
 /** Чистый расчёт накопленного сделочного остатка прошлых периодов (плюс/минус). */
@@ -32,12 +39,12 @@ export function computePriorPieceBalanceOne(input: PriorPieceOne): number {
   let penalties = 0
   let paid = 0
   for (const a of input.adjustments) {
-    if (kindOfDirection(a.directionId, input.hasOklad) !== "piece") continue
+    if (kindOfDirection(a.directionId, a.hasOklad ?? input.hasOklad) !== "piece") continue
     if (a.type === "bonus") bonuses += a.amount
     else penalties += a.amount
   }
   for (const p of input.payments) {
-    if (kindOfDirection(p.directionId, input.hasOklad) !== "piece") continue
+    if (kindOfDirection(p.directionId, p.hasOklad ?? input.hasOklad) !== "piece") continue
     paid += p.amount
   }
   return r2(input.priorAttendancePay + bonuses - penalties - paid)
@@ -74,7 +81,7 @@ export async function computePriorPieceBalances(
   const [employees, attendances, adjustments, payments] = await Promise.all([
     dbClient.employee.findMany({
       where: { tenantId, deletedAt: null, ...(idFilter ? { id: idFilter } : {}) },
-      select: { id: true, monthlySalary: true },
+      select: { id: true, monthlySalary: true, okladFrom: true },
     }),
     dbClient.attendance.findMany({
       where: {
@@ -105,15 +112,40 @@ export async function computePriorPieceBalances(
     }),
     dbClient.salaryAdjustment.findMany({
       where: { tenantId, OR: priorPeriodOR, ...(idFilter ? { employeeId: idFilter } : {}) },
-      select: { employeeId: true, type: true, amount: true, directionId: true },
+      select: { employeeId: true, type: true, amount: true, directionId: true, periodYear: true, periodMonth: true },
     }),
     dbClient.salaryPaymentItem.findMany({
       where: { tenantId, salaryPayment: { OR: priorPeriodOR }, ...(idFilter ? { employeeId: idFilter } : {}) },
-      select: { employeeId: true, amount: true, directionId: true },
+      select: {
+        employeeId: true, amount: true, directionId: true,
+        salaryPayment: { select: { periodYear: true, periodMonth: true } },
+      },
     }),
   ])
 
-  const hasOkladById = new Map(employees.map((e) => [e.id, Number(e.monthlySalary) > 0]))
+  // Признак «окладник» считается ПО ПЕРИОДУ строки (версии оклада + okladFrom), а не
+  // по текущему значению поля: иначе смена оклада перекидывает окладные деньги
+  // прошлых месяцев в сделочный остаток.
+  const okladSchedules = await loadOkladSchedules(dbClient, tenantId, employees.map((e) => e.id))
+  const empById = new Map(employees.map((e) => [e.id, e]))
+  const hasOkladCache = new Map<string, boolean>()
+  const hasOkladIn = (empId: string, y: number, m: number): boolean => {
+    const key = `${empId}:${y}-${m}`
+    const cached = hasOkladCache.get(key)
+    if (cached !== undefined) return cached
+    const e = empById.get(empId)
+    const value = e
+      ? okladForPeriod({
+          monthlySalary: Number(e.monthlySalary) || 0,
+          okladFrom: e.okladFrom,
+          schedule: okladSchedules.get(empId) as OkladVersion[] | undefined,
+          periodYear: y,
+          periodMonth: m,
+        }) > 0
+      : false
+    hasOkladCache.set(key, value)
+    return value
+  }
 
   const accruedByEmp = new Map<string, number>()
   const dirPayByEmp = new Map<string, Map<string, number>>()
@@ -133,25 +165,34 @@ export async function computePriorPieceBalances(
     }
   }
 
-  const adjByEmp = new Map<string, { directionId: string | null; type: "bonus" | "penalty"; amount: number }[]>()
+  const adjByEmp = new Map<string, { directionId: string | null; type: "bonus" | "penalty"; amount: number; hasOklad: boolean }[]>()
   for (const a of adjustments) {
     const list = adjByEmp.get(a.employeeId) ?? []
-    list.push({ directionId: a.directionId, type: a.type as "bonus" | "penalty", amount: Number(a.amount) })
+    list.push({
+      directionId: a.directionId,
+      type: a.type as "bonus" | "penalty",
+      amount: Number(a.amount),
+      hasOklad: hasOkladIn(a.employeeId, a.periodYear, a.periodMonth),
+    })
     adjByEmp.set(a.employeeId, list)
   }
-  const payByEmp = new Map<string, { directionId: string | null; amount: number }[]>()
+  const payByEmp = new Map<string, { directionId: string | null; amount: number; hasOklad: boolean }[]>()
   for (const p of payments) {
     const list = payByEmp.get(p.employeeId) ?? []
-    list.push({ directionId: p.directionId, amount: Number(p.amount) })
+    list.push({
+      directionId: p.directionId,
+      amount: Number(p.amount),
+      hasOklad: hasOkladIn(p.employeeId, p.salaryPayment.periodYear, p.salaryPayment.periodMonth),
+    })
     payByEmp.set(p.employeeId, list)
   }
 
   const allEmpIds = new Set<string>([...accruedByEmp.keys(), ...adjByEmp.keys(), ...payByEmp.keys()])
   const result = new Map<string, PriorPieceResult>()
   for (const empId of allEmpIds) {
-    const hasOklad = hasOkladById.get(empId) ?? false
     const balance = computePriorPieceBalanceOne({
-      hasOklad,
+      // Фолбэк для строк без периода не используется — каждая строка несёт свой флаг.
+      hasOklad: false,
       priorAttendancePay: accruedByEmp.get(empId) ?? 0,
       adjustments: adjByEmp.get(empId) ?? [],
       payments: payByEmp.get(empId) ?? [],

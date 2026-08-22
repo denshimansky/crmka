@@ -1,6 +1,6 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
-import { okladForPeriod, okladDaysFraction } from "../lib/salary/oklad-for-period"
+import { okladForPeriod, okladDaysFraction, okladAmountOnDay } from "../lib/salary/oklad-for-period"
 
 const d = (s: string) => new Date(s + "T00:00:00.000Z")
 
@@ -83,5 +83,111 @@ describe("okladForPeriod", () => {
       okladDaysFraction({ okladFrom: d("2026-07-10"), periodYear: 2026, periodMonth: 7, upToDay: 5 }),
       0,
     )
+  })
+})
+
+// ── История версий оклада (OkladSchedule) ──────────────────────────────────────
+// Базовая величина = «версия с начала времён»; версия действует ТОЛЬКО вперёд от
+// своей даты, поэтому правка оклада больше не переписывает прошлые месяцы.
+describe("okladForPeriod: версии оклада", () => {
+  it("пустой список версий → как раньше (быстрый путь)", () => {
+    assert.equal(
+      okladForPeriod({ monthlySalary: 30000, okladFrom: null, schedule: [], periodYear: 2026, periodMonth: 7 }),
+      30000,
+    )
+  })
+
+  it("версия в будущем месяце прошлый не трогает (кейс Андреевой: 0 с августа)", () => {
+    const schedule = [{ effectiveFrom: d("2026-08-01"), amount: 0 }]
+    assert.equal(
+      okladForPeriod({ monthlySalary: 18000, okladFrom: null, schedule, periodYear: 2026, periodMonth: 6 }),
+      18000,
+    )
+    assert.equal(
+      okladForPeriod({ monthlySalary: 18000, okladFrom: null, schedule, periodYear: 2026, periodMonth: 7 }),
+      18000,
+    )
+    assert.equal(
+      okladForPeriod({ monthlySalary: 18000, okladFrom: null, schedule, periodYear: 2026, periodMonth: 8 }),
+      0,
+    )
+  })
+
+  it("версия с 1-го числа действует на весь месяц", () => {
+    assert.equal(
+      okladForPeriod({
+        monthlySalary: 20000, okladFrom: null,
+        schedule: [{ effectiveFrom: d("2026-07-01"), amount: 25000 }],
+        periodYear: 2026, periodMonth: 7,
+      }),
+      25000,
+    )
+  })
+
+  it("смена оклада в середине месяца делится по дням (июль: 20000 до 15-го, 32000 с 16-го)", () => {
+    // 1..15 → 20000, 16..31 → 32000; (15×20000 + 16×32000)/31
+    const expected = Math.round(((15 * 20000 + 16 * 32000) / 31) * 100) / 100
+    assert.equal(
+      okladForPeriod({
+        monthlySalary: 20000, okladFrom: null,
+        schedule: [{ effectiveFrom: d("2026-07-16"), amount: 32000 }],
+        periodYear: 2026, periodMonth: 7,
+      }),
+      expected,
+    )
+  })
+
+  it("несколько версий: берётся ближайшая слева от дня", () => {
+    const schedule = [
+      { effectiveFrom: d("2026-05-01"), amount: 10000 },
+      { effectiveFrom: d("2026-07-01"), amount: 15000 },
+      { effectiveFrom: d("2026-09-01"), amount: 0 },
+    ]
+    assert.equal(okladForPeriod({ monthlySalary: 5000, okladFrom: null, schedule, periodYear: 2026, periodMonth: 6 }), 10000)
+    assert.equal(okladForPeriod({ monthlySalary: 5000, okladFrom: null, schedule, periodYear: 2026, periodMonth: 8 }), 15000)
+    assert.equal(okladForPeriod({ monthlySalary: 5000, okladFrom: null, schedule, periodYear: 2026, periodMonth: 9 }), 0)
+  })
+
+  it("удалённая версия игнорируется", () => {
+    assert.equal(
+      okladForPeriod({
+        monthlySalary: 18000, okladFrom: null,
+        schedule: [{ effectiveFrom: d("2026-08-01"), amount: 0, deletedAt: d("2026-08-10") }],
+        periodYear: 2026, periodMonth: 8,
+      }),
+      18000,
+    )
+  })
+
+  it("версия не воскрешает оклад до okladFrom (база ещё не началась)", () => {
+    // okladFrom = 01.07, версия с 01.08 → июнь по-прежнему 0
+    assert.equal(
+      okladForPeriod({
+        monthlySalary: 18000, okladFrom: d("2026-07-01"),
+        schedule: [{ effectiveFrom: d("2026-08-01"), amount: 25000 }],
+        periodYear: 2026, periodMonth: 6,
+      }),
+      0,
+    )
+  })
+
+  it("аванс upToDay учитывает версии: смена с 10-го, аванс по 15-е (июль)", () => {
+    // 1..9 → 20000, 10..15 → 30000; делитель всегда 31
+    const expected = Math.round(((9 * 20000 + 6 * 30000) / 31) * 100) / 100
+    assert.equal(
+      okladForPeriod({
+        monthlySalary: 20000, okladFrom: null,
+        schedule: [{ effectiveFrom: d("2026-07-10"), amount: 30000 }],
+        periodYear: 2026, periodMonth: 7, upToDay: 15,
+      }),
+      expected,
+    )
+  })
+
+  it("okladAmountOnDay: граница включительна", () => {
+    const base = { monthlySalary: 18000, okladFrom: null }
+    const schedule = [{ effectiveFrom: d("2026-08-01"), amount: 0 }]
+    assert.equal(okladAmountOnDay(d("2026-07-31"), base, schedule), 18000)
+    assert.equal(okladAmountOnDay(d("2026-08-01"), base, schedule), 0)
   })
 })

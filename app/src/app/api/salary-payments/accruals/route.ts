@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { requirePermission } from "@/lib/api-permissions"
 import { allocateSalaryPayments, NO_DIR } from "@/lib/salary/allocate-payments"
 import { okladForPeriod } from "@/lib/salary/oklad-for-period"
+import { loadOkladSchedules } from "@/lib/salary/oklad-context"
 
 /**
  * GET /api/salary-payments/accruals?periodYear&periodMonth&upTo&kind
@@ -134,16 +135,31 @@ export async function GET(req: NextRequest) {
     m.set(key, prev)
   }
 
-  // 2. Оклад — из Employee.monthlySalary (ключ = defaultDirectionId ?? "__no_direction__").
-  // Учитываем дату начала оклада (okladFrom): за месяцы до неё оклад не начисляется,
-  // неполный первый месяц — пропорционально календарным дням. Аванс «по N-е»
+  // 2. Оклад (ключ = defaultDirectionId ?? "__no_direction__"). Учитываем версии
+  // оклада (OkladSchedule) и дату начала (okladFrom): за месяцы до неё оклад не
+  // начисляется, неполный месяц — пропорционально календарным дням. Аванс «по N-е»
   // комбинируется через upToDay (см. lib/salary/oklad-for-period).
   const okladAccruals = new Map<string, Map<string, AccrualPerDir>>()
   const upToDay = partial ? accrualEnd.getUTCDate() : null
+  const okladSchedules = await loadOkladSchedules(db, tenantId, employees.map((e) => e.id))
+  // Оклад за ПОЛНЫЙ месяц (без окна аванса) — признак «окладник в этом периоде»
+  // для okladDirectionId ниже: при авансе «по 5-е» окно может дать 0, но сотрудник
+  // окладник, и приоритет гашения выплаты без направления должен сохраниться.
+  const okladFullByEmp = new Map<string, number>()
+  for (const emp of employees) {
+    okladFullByEmp.set(emp.id, okladForPeriod({
+      monthlySalary: emp.monthlySalary ? Number(emp.monthlySalary) : 0,
+      okladFrom: emp.okladFrom,
+      schedule: okladSchedules.get(emp.id),
+      periodYear,
+      periodMonth,
+    }))
+  }
   for (const emp of employees) {
     const ms = okladForPeriod({
       monthlySalary: emp.monthlySalary ? Number(emp.monthlySalary) : 0,
       okladFrom: emp.okladFrom,
+      schedule: okladSchedules.get(emp.id),
       periodYear,
       periodMonth,
       upToDay,
@@ -228,7 +244,10 @@ export async function GET(req: NextRequest) {
       // (по defaultDirectionId, в т.ч. null) и прочие null-начисления, излишек —
       // в премии−штрафы; осиротевшие направленческие выплаты — отдельными строками.
       // okladDirectionId только когда оклад реально в выборке (kind != piece).
-      const isSalaried = emp.monthlySalary != null && Number(emp.monthlySalary) > 0
+      // Окладник ИМЕННО В ЭТОМ периоде (версии + okladFrom), а не «есть оклад в
+      // карточке»: иначе за месяцы до начала оклада строки оклада нет, а её
+      // направление объявлено приоритетным получателем выплат без направления.
+      const isSalaried = (okladFullByEmp.get(emp.id) ?? 0) > 0
       const alloc = allocateSalaryPayments({
         accruals: accruedRows.map((d) => ({ directionId: d.directionId, accrued: d.amount })),
         paidByDir: paidByDirByEmp.get(emp.id) || new Map<string, number>(),
