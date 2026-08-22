@@ -18,35 +18,97 @@ function unesc(s: string): string {
   return s.split(ESC).join("*")
 }
 
+/** Хвостовая пунктуация после голой ссылки — не часть адреса. */
+const URL_TAIL = ".,;:!?…»\"'"
+
+/**
+ * Отрезает от голой ссылки хвост, который автор написал как знаки препинания:
+ * «(Инструкция: https://…/sozdanie-grupp),» → ссылка без «),». Закрывающая
+ * скобка снимается, только если она непарная (внутри адреса скобок нет).
+ */
+function trimUrlTail(url: string): string {
+  let u = url
+  while (u.length > 0) {
+    const ch = u[u.length - 1]
+    if (URL_TAIL.includes(ch)) {
+      u = u.slice(0, -1)
+      continue
+    }
+    if (ch === ")") {
+      const open = (u.match(/\(/g) ?? []).length
+      const close = (u.match(/\)/g) ?? []).length
+      if (close > open) {
+        u = u.slice(0, -1)
+        continue
+      }
+    }
+    break
+  }
+  return u
+}
+
+/**
+ * Ссылка: http(s) — во внешней вкладке, относительная «/…» — в текущей.
+ * Схемы, кроме http/https и внутреннего пути, до сюда не доходят (см. регэксп),
+ * поэтому javascript:-адрес ссылкой не станет.
+ */
+function linkNode(href: string, label: string, key: string): React.ReactNode {
+  const external = /^https?:\/\//i.test(href)
+  return (
+    <a
+      key={key}
+      href={href}
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+      className="text-primary underline underline-offset-2 hover:no-underline break-words"
+    >
+      {label}
+    </a>
+  )
+}
+
 /** Инлайн-форматирование внутри одной строки. */
 export function renderInline(raw: string, kp: string): React.ReactNode[] {
   const text = raw.replace(/\\\*/g, ESC)
   const nodes: React.ReactNode[] = []
-  // Порядок веток важен: **жирный** и __подчёркнутый__ (двойные) проверяются
-  // раньше *курсива* (одиночная звезда), иначе жадность съест разметку.
-  const re = /\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`|\*([^*]+)\*/g
+  // Порядок веток важен: ссылки — раньше остального (внутри [текста] и адреса
+  // не должно искаться форматирование); **жирный** и __подчёркнутый__ (двойные)
+  // проверяются раньше *курсива* (одиночная звезда), иначе жадность съест разметку.
+  // Голая ссылка (без разметки) кликабельна сама по себе — авторы базы знаний
+  // вставляют адреса как есть; из адреса исключены пробелы, кавычки и символы
+  // разметки, хвостовая пунктуация снимается trimUrlTail.
+  const re =
+    /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]*)\)|(https?:\/\/[^\s<>«»"'`*[\]]+)|\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`|\*([^*]+)\*/g
   let last = 0
   let m: RegExpExecArray | null
   let i = 0
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) nodes.push(unesc(text.slice(last, m.index)))
-    if (m[1] !== undefined) {
-      nodes.push(<strong key={`${kp}-b${i}`}>{unesc(m[1])}</strong>)
-    } else if (m[2] !== undefined) {
-      nodes.push(<u key={`${kp}-u${i}`}>{unesc(m[2])}</u>)
+    let consumed = m[0].length
+    if (m[1] !== undefined && m[2] !== undefined) {
+      nodes.push(linkNode(m[2], unesc(m[1]), `${kp}-l${i}`))
     } else if (m[3] !== undefined) {
+      const url = trimUrlTail(m[3])
+      nodes.push(linkNode(url, url, `${kp}-a${i}`))
+      // Пунктуация после адреса остаётся текстом — вернём её в общий поток.
+      consumed = url.length
+    } else if (m[4] !== undefined) {
+      nodes.push(<strong key={`${kp}-b${i}`}>{unesc(m[4])}</strong>)
+    } else if (m[5] !== undefined) {
+      nodes.push(<u key={`${kp}-u${i}`}>{unesc(m[5])}</u>)
+    } else if (m[6] !== undefined) {
       nodes.push(
         <code
           key={`${kp}-c${i}`}
           className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]"
         >
-          {unesc(m[3])}
+          {unesc(m[6])}
         </code>,
       )
-    } else if (m[4] !== undefined) {
-      nodes.push(<em key={`${kp}-i${i}`}>{unesc(m[4])}</em>)
+    } else if (m[7] !== undefined) {
+      nodes.push(<em key={`${kp}-i${i}`}>{unesc(m[7])}</em>)
     }
-    last = m.index + m[0].length
+    last = m.index + consumed
+    re.lastIndex = last
     i++
   }
   if (last < text.length) nodes.push(unesc(text.slice(last)))
