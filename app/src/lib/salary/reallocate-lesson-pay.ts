@@ -1,6 +1,5 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { resolveRate } from "./resolve-rate"
-import { maybeRollbackPaidSalary } from "./rollback-correction"
 
 type DB = PrismaClient | Prisma.TransactionClient
 
@@ -23,9 +22,14 @@ type DB = PrismaClient | Prisma.TransactionClient
 //   - ставка: per_lesson — ratePerLesson при хотя бы одной оплачиваемой
 //     отметке; floating — брекет по n (нет оплачиваемых → 0);
 //   - вся ставка на одной отметке-«носителе» (первой по времени отметки) —
-//     как и раньше, чтобы сумма занятия не множилась на учеников;
-//   - если суммарное начисление занятия уменьшилось, а ЗП за период уже
-//     выплачена — net-компенсация через maybeRollbackPaidSalary.
+//     как и раньше, чтобы сумма занятия не множилась на учеников.
+//
+// Уменьшение начисления НИЧЕМ не компенсируется: «Начислено» — это сумма по
+// живым отметкам, снятие отметки и есть снятие денег. Если ЗП периода уже
+// выплачена, переплата уезжает в минусовое «Доначислено» (prior-piece-balance)
+// и вычитается из следующей выплаты. Прежняя авто-премия (SalaryAdjustment
+// «[Авто-корректировка]», 27.05.2026) полностью гасила эффект удаления занятия,
+// а при повторном снятии отметки задваивалась — удалена 22.08.2026.
 //
 // Пробные: занятия isTrial не трогаем вовсе. Пробная ОТМЕТКА (isTrial=true) на
 // обычном занятии группы участвует в расчёте, но не модифицируется — её сумма
@@ -106,32 +110,12 @@ export function computePayTargets(
 export interface ReallocateLessonPayInput {
   tenantId: string
   lessonId: string
-  /**
-   * Сумма instructorPayAmount не-пробных отметок занятия ДО мутации (снимок
-   * в начале транзакции, lessonPaySnapshot). Нужна для net-компенсации: если
-   * начисление занятия уменьшилось после выплаты ЗП, разница закрывается
-   * SalaryAdjustment.
-   */
-  paySumBefore: Prisma.Decimal | number
   createdBy?: string | null
 }
 
 export interface ReallocateResult {
-  /** true — схема реаллоцируемая, раскладка пересчитана (включая компенсацию). */
+  /** true — схема реаллоцируемая, раскладка пересчитана. */
   handled: boolean
-}
-
-/** Снимок суммы ЗП занятия до мутаций — параметр paySumBefore. */
-export async function lessonPaySnapshot(
-  tx: DB,
-  tenantId: string,
-  lessonId: string,
-): Promise<Prisma.Decimal> {
-  const agg = await tx.attendance.aggregate({
-    where: { tenantId, lessonId, isTrial: false, isPending: false },
-    _sum: { instructorPayAmount: true },
-  })
-  return agg._sum.instructorPayAmount ?? new Prisma.Decimal(0)
 }
 
 export async function reallocateLessonPay(
@@ -191,32 +175,15 @@ export async function reallocateLessonPay(
     })),
   )
 
-  let sumTarget = new Prisma.Decimal(0)
   for (const a of atts) {
     if (a.isTrial) continue // суммы пробных управляет /api/trial-lessons
     const target = targets.get(a.id) ?? new Prisma.Decimal(0)
-    sumTarget = sumTarget.add(target)
     if (!target.equals(a.instructorPayAmount)) {
       await tx.attendance.update({
         where: { id: a.id },
         data: { instructorPayAmount: target },
       })
     }
-  }
-
-  // Net-компенсация: начисление занятия уменьшилось, а ЗП могла быть выплачена.
-  // Считаем по сумме занятия, не по отметке: переезд ставки между отметками —
-  // не откат (accrued инструктора не меняется).
-  const net = new Prisma.Decimal(input.paySumBefore).sub(sumTarget)
-  if (net.gt(0)) {
-    await maybeRollbackPaidSalary(tx, {
-      tenantId,
-      employeeId: effectiveInstructorId,
-      lessonDate: new Date(lesson.date),
-      amount: net,
-      createdBy: input.createdBy ?? null,
-      comment: `Пересчёт ЗП занятия от ${new Date(lesson.date).toLocaleDateString("ru-RU")} после изменения отметок`,
-    })
   }
 
   return { handled: true }

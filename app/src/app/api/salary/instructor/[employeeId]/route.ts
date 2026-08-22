@@ -69,7 +69,7 @@ export async function GET(
     }),
     db.salaryAdjustment.findMany({
       where: { tenantId, employeeId, periodYear, periodMonth },
-      select: { type: true, amount: true, directionId: true, direction: { select: { name: true } } },
+      select: { id: true, type: true, amount: true, directionId: true, comment: true, createdAt: true, direction: { select: { name: true } } },
     }),
     db.salaryPaymentItem.findMany({
       where: { tenantId, employeeId, salaryPayment: { periodYear, periodMonth } },
@@ -122,7 +122,7 @@ export async function GET(
         attendances: [],
         adjustments: adjustments
           .filter((a) => kindOfDirection(a.directionId, hasOklad) === "salary")
-          .map((a) => ({ type: a.type as "bonus" | "penalty", amount: Number(a.amount) })),
+          .map((a) => ({ id: a.id, type: a.type as "bonus" | "penalty", amount: Number(a.amount), comment: a.comment, createdAt: a.createdAt })),
         paymentItems: paymentItems
           .filter((p) => kindOfDirection(p.directionId, hasOklad) === "salary")
           .map((p) => ({ directionId: p.directionId, amount: Number(p.amount), directionName: p.direction?.name ?? null })),
@@ -140,7 +140,7 @@ export async function GET(
         attendances: attInput,
         adjustments: adjustments
           .filter((a) => kindOfDirection(a.directionId, hasOklad) === "piece" && a.directionId == null)
-          .map((a) => ({ type: a.type as "bonus" | "penalty", amount: Number(a.amount) })),
+          .map((a) => ({ id: a.id, type: a.type as "bonus" | "penalty", amount: Number(a.amount), comment: a.comment, createdAt: a.createdAt })),
         paymentItems: paymentItems
           .filter((p) => kindOfDirection(p.directionId, hasOklad) === "piece")
           .map((p) => ({ directionId: p.directionId, amount: Number(p.amount), directionName: p.direction?.name ?? null })),

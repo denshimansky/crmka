@@ -160,4 +160,61 @@ describe("buildInstructorSalaryDetail", () => {
     assert.equal(sumRows, res.totals.remaining)
     assert.equal(res.totals.remaining, 200) // 1000 − (500 + 300)
   })
+  it("премии/штрафы — построчная расшифровка с причиной; Σ строк == итог", () => {
+    const res = buildInstructorSalaryDetail({
+      attendances: [att("l1", 5, "d1", "Рисование", 1000)],
+      adjustments: [
+        { id: "a2", type: "bonus", amount: 500, comment: "За открытый урок", createdAt: new Date(Date.UTC(2026, 5, 20)) },
+        { id: "a1", type: "penalty", amount: 200, comment: "Опоздание", createdAt: new Date(Date.UTC(2026, 5, 10)) },
+      ],
+      paymentItems: [{ directionId: null, amount: 300 }],
+      salaried: null,
+    })
+
+    const items = res.adjustments.items
+    assert.equal(items.length, 2)
+    // Порядок — хронологический (штраф от 10-го раньше премии от 20-го).
+    assert.equal(items[0].id, "a1")
+    assert.equal(items[0].amount, -200)      // штраф уходит в «Начислено» минусом
+    assert.equal(items[0].paid, 0)           // штраф ничего не «выплачивает»
+    assert.equal(items[0].comment, "Опоздание")
+    assert.equal(items[0].isAuto, false)
+    assert.equal(items[1].id, "a2")
+    assert.equal(items[1].amount, 500)
+    assert.equal(items[1].paid, 300)         // выплата без направления гасит премию
+    assert.equal(items[1].remaining, 200)
+
+    // Инварианты: Σ по строкам сходится с агрегатом.
+    assert.equal(items.reduce((s, a) => s + a.amount, 0), res.adjustments.net)
+    assert.equal(items.reduce((s, a) => s + a.paid, 0), res.adjustments.paidNoDirection)
+    assert.equal(items.reduce((s, a) => s + a.remaining, 0), res.adjustments.remaining)
+  })
+
+  it("метка [Авто-корректировка] в комментарии → isAuto", () => {
+    const res = buildInstructorSalaryDetail({
+      attendances: [],
+      adjustments: [{ id: "a1", type: "bonus", amount: 100, comment: "[Авто-корректировка] Откат отметки" }],
+      paymentItems: [],
+      salaried: null,
+    })
+    assert.equal(res.adjustments.items[0].isAuto, true)
+  })
+
+  it("выплата без направления сверх премий — техстрока «излишек», инвариант держится", () => {
+    const res = buildInstructorSalaryDetail({
+      attendances: [att("l1", 5, "d1", "Рисование", 1000)],
+      adjustments: [{ id: "a1", type: "bonus", amount: 100, comment: "Премия" }],
+      paymentItems: [{ directionId: null, amount: 400 }],
+      salaried: null,
+    })
+    const items = res.adjustments.items
+    assert.equal(items.length, 2)
+    assert.equal(items[0].paid, 100)         // премия закрыта целиком
+    assert.equal(items[1].type, "payment")
+    assert.equal(items[1].amount, 0)
+    assert.equal(items[1].paid, 300)         // 400 − 100
+    assert.equal(items[1].remaining, -300)
+    assert.equal(items.reduce((s, a) => s + a.paid, 0), res.adjustments.paidNoDirection)
+    assert.equal(items.reduce((s, a) => s + a.remaining, 0), res.adjustments.remaining)
+  })
 })

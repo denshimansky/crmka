@@ -20,8 +20,29 @@ export interface AttendanceInput {
 }
 
 export interface AdjustmentInput {
+  id?: string
   type: "bonus" | "penalty"
   amount: number
+  /** Причина (комментарий выплаты/корректировки) — показывается строкой в карточке. */
+  comment?: string | null
+  createdAt?: Date
+}
+
+// Строка расшифровки «Премии − штрафы»: одна корректировка = одна строка, чтобы
+// в карточке было видно, за что начислено/удержано, а не только итоговая сумма.
+// type="payment" — техстрока излишка выплаты без направления (выплатили больше,
+// чем начислено оклада/премий): начисления нет, только «Выплачено».
+export interface AdjustmentDetail {
+  id: string | null
+  type: "bonus" | "penalty" | "payment"
+  /** Знаковая сумма в столбец «Начислено»: премия +, штраф −, излишек выплаты 0. */
+  amount: number
+  comment: string | null
+  /** Корректировку создала система (комментарий с меткой), а не человек. */
+  isAuto: boolean
+  createdAt: string | null
+  paid: number
+  remaining: number
 }
 
 // Направленная премия/депремирование (сдельная): складывается в начисление своего
@@ -77,6 +98,8 @@ export interface InstructorSalaryDetail {
     net: number
     paidNoDirection: number
     remaining: number
+    /** Построчная расшифровка; Σ amount == net, Σ paid == paidNoDirection. */
+    items: AdjustmentDetail[]
   }
   lessons: LessonDetail[]
   totals: {
@@ -162,6 +185,46 @@ export function buildInstructorSalaryDetail(params: {
   })
   const adjPaidNoDirection = alloc.adjPaidNoDirection
 
+  // Расшифровка премий/штрафов построчно. Выплата без направления гасит премии
+  // по порядку их появления (FIFO); штраф ничего не «выплачивает». Остаток
+  // выплаты, не покрытый премиями, выносим техстрокой — иначе Σ по строкам не
+  // сойдётся с итогом.
+  const adjItems: AdjustmentDetail[] = []
+  let payBudget = adjPaidNoDirection
+  const orderedAdj = [...adjustments].sort((a, b) => {
+    const ta = a.createdAt ? a.createdAt.getTime() : 0
+    const tb = b.createdAt ? b.createdAt.getTime() : 0
+    return ta - tb
+  })
+  for (const a of orderedAdj) {
+    const signed = a.type === "bonus" ? a.amount : -a.amount
+    const paid = a.type === "bonus" ? Math.min(payBudget, a.amount) : 0
+    payBudget = r2(payBudget - paid)
+    const comment = a.comment?.trim() || null
+    adjItems.push({
+      id: a.id ?? null,
+      type: a.type,
+      amount: r2(signed),
+      comment,
+      isAuto: !!comment && comment.startsWith("[Авто-корректировка]"),
+      createdAt: a.createdAt ? a.createdAt.toISOString().slice(0, 10) : null,
+      paid: r2(paid),
+      remaining: r2(signed - paid),
+    })
+  }
+  if (payBudget > 0.004) {
+    adjItems.push({
+      id: null,
+      type: "payment",
+      amount: 0,
+      comment: null,
+      isAuto: false,
+      createdAt: null,
+      paid: r2(payBudget),
+      remaining: r2(-payBudget),
+    })
+  }
+
   // Имена направлений выплат (для осиротевших строк) — из paymentItems.
   const dirNameById = new Map<string, string>()
   for (const it of paymentItems) {
@@ -238,6 +301,7 @@ export function buildInstructorSalaryDetail(params: {
       // к премиям (оклад уже поглотил свою часть в byDirection выше).
       paidNoDirection: r2(adjPaidNoDirection),
       remaining: r2(net - adjPaidNoDirection),
+      items: adjItems,
     },
     lessons,
     totals: {

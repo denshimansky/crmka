@@ -31,6 +31,18 @@ interface LessonDetail {
   studentsCharged: number
   amount: number
 }
+// Строка расшифровки премий/штрафов: одна корректировка = одна строка с причиной.
+// type="payment" — излишек выплаты без направления (начисления нет).
+interface AdjustmentDetail {
+  id: string | null
+  type: "bonus" | "penalty" | "payment"
+  amount: number
+  comment: string | null
+  isAuto: boolean
+  createdAt: string | null
+  paid: number
+  remaining: number
+}
 export interface InstructorDetailData {
   employee: { id: string; name: string; role: string }
   // Тип карточки: «Оклады» (salary) или «Сдельная» (piece) — разные показатели и форма выплаты.
@@ -48,7 +60,7 @@ export interface InstructorDetailData {
   priorPieceBalance?: number
   priorTopDirectionId?: string | null
   byDirection: DirectionDetail[]
-  adjustments: { bonuses: number; penalties: number; net: number; paidNoDirection: number; remaining: number }
+  adjustments: { bonuses: number; penalties: number; net: number; paidNoDirection: number; remaining: number; items?: AdjustmentDetail[] }
   lessons: LessonDetail[]
   totals: { accrued: number; accruedFirstHalf: number; bonuses: number; penalties: number; paid: number; remaining: number }
 }
@@ -95,6 +107,18 @@ export function InstructorDetailClient({ employeeId, year, month, kind }: { empl
   if (!data) return null
 
   const monthName = new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+  // Подпись строки премии/штрафа: тип + причина. У авто-корректировок метку
+  // «[Авто-корректировка]» из комментария выносим в бейдж «начислено системой»,
+  // чтобы в таблице осталась человекочитаемая причина.
+  const AUTO_TAG = "[Авто-корректировка]"
+  const adjLabel = (a: AdjustmentDetail) => {
+    if (a.type === "payment") return "Выплата без направления (сверх начислений)"
+    const kindLabel = a.type === "bonus" ? "Премия" : "Депремирование"
+    const raw = (a.comment ?? "").trim()
+    const reason = (raw.startsWith(AUTO_TAG) ? raw.slice(AUTO_TAG.length) : raw).trim()
+    return reason ? `${kindLabel} — ${reason}` : `${kindLabel} (причина не указана)`
+  }
+  const adjItems: AdjustmentDetail[] = data.adjustments.items ?? []
   const monthKey = `${year}-${String(month).padStart(2, "0")}`
 
   // «Доначислено» — накопленный сделочный остаток прошлых периодов (плюс/минус);
@@ -104,7 +128,7 @@ export function InstructorDetailClient({ employeeId, year, month, kind }: { empl
 
   // Расшифровка по занятиям для выгрузки в Excel: одна строка на занятие
   // (направление/дата/группа/тип/ученики/начислено), затем премии−штрафы и Итого.
-  const hasExport = data.lessons.length > 0 || data.adjustments.net !== 0
+  const hasExport = data.lessons.length > 0 || adjItems.length > 0 || data.adjustments.net !== 0
   const exportRows: Record<string, string | number>[] = [
     ...[...data.lessons]
       .sort((a, b) => a.directionName.localeCompare(b.directionName, "ru") || a.date.localeCompare(b.date))
@@ -116,7 +140,21 @@ export function InstructorDetailClient({ employeeId, year, month, kind }: { empl
         students: l.studentsCharged,
         amount: Math.round(l.amount),
       })),
-    ...(data.adjustments.net !== 0
+    // Премии/штрафы — отдельной строкой на каждую корректировку с её причиной
+    // (одна суммарная строка «Премии − штрафы» не объясняла, за что начислено).
+    ...adjItems
+      .filter((a) => a.amount !== 0)
+      .map((a) => ({
+        direction: adjLabel(a),
+        date: a.createdAt
+          ? new Date(a.createdAt).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" })
+          : "",
+        group: "",
+        type: a.isAuto ? "начислено системой" : "",
+        students: "",
+        amount: Math.round(a.amount),
+      })),
+    ...(adjItems.length === 0 && data.adjustments.net !== 0
       ? [{ direction: "Премии − штрафы (без направления)", date: "", group: "", type: "", students: "", amount: Math.round(data.adjustments.net) }]
       : []),
     { direction: "Итого", date: "", group: "", type: "", students: "", amount: Math.round(data.totals.accrued) },
@@ -227,7 +265,35 @@ export function InstructorDetailClient({ employeeId, year, month, kind }: { empl
                   </Fragment>
                 )
               })}
-              {(data.adjustments.net !== 0 || data.adjustments.paidNoDirection !== 0 || data.adjustments.remaining !== 0) && (
+              {/* Премии/штрафы — по строке на каждую корректировку с причиной. */}
+              {adjItems.map((a, i) => (
+                <TableRow key={a.id ?? `adj-${i}`}>
+                  <TableCell className="font-medium">
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <span className={a.type === "penalty" ? "text-red-600" : a.type === "bonus" ? "text-green-700" : ""}>
+                        {adjLabel(a)}
+                      </span>
+                      {a.isAuto && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
+                          начислено системой
+                        </span>
+                      )}
+                      {a.createdAt && (
+                        <span className="text-xs font-normal text-muted-foreground">
+                          от {new Date(a.createdAt).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", timeZone: "UTC" })}
+                        </span>
+                      )}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">{a.amount !== 0 ? fmt(a.amount) : "—"}</TableCell>
+                  <TableCell className="text-right text-muted-foreground">—</TableCell>
+                  <TableCell className="text-right font-medium">{a.amount !== 0 ? fmt(a.amount) : "—"}</TableCell>
+                  <TableCell className="text-right text-purple-600">{a.paid > 0 ? fmt(a.paid) : "—"}</TableCell>
+                  <TableCell className={`text-right font-medium ${a.remaining > 0 ? "text-orange-600" : ""}`}>{fmt(a.remaining)}</TableCell>
+                </TableRow>
+              ))}
+              {/* Фолбэк для ответов API без построчной расшифровки. */}
+              {adjItems.length === 0 && (data.adjustments.net !== 0 || data.adjustments.paidNoDirection !== 0 || data.adjustments.remaining !== 0) && (
                 <TableRow>
                   <TableCell className="font-medium">Премии − штрафы <span className="text-xs text-muted-foreground">(без направления)</span></TableCell>
                   <TableCell className="text-right">{fmt(data.adjustments.net)}</TableCell>
