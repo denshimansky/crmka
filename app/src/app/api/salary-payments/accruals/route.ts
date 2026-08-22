@@ -234,11 +234,9 @@ export async function GET(req: NextRequest) {
   // удалённое/перенесённое занятие прошлого месяца не вычиталась, а ретро-«Прогул»
   // нельзя было выплатить отсюда — приходилось идти в карточку сотрудника.
   // Только для сделочной части: у оклада переноса остатка между месяцами нет.
-  const priorMap = kind === "salary"
-    ? new Map<string, { balance: number; topDirectionId: string | null }>()
-    : await computePriorPieceBalances(db, tenantId, periodYear, periodMonth, {
-        employeeIds: employees.map((e) => e.id),
-      })
+  const priorMap = await computePriorPieceBalances(db, tenantId, periodYear, periodMonth, {
+    employeeIds: employees.map((e) => e.id),
+  })
 
   const data = employees
     .map((emp) => {
@@ -250,7 +248,14 @@ export async function GET(req: NextRequest) {
       const penalties = penaltyByEmp.get(emp.id) || 0
       const alreadyPaid = paidByEmp.get(emp.id) || 0
       const prior = priorMap.get(emp.id)
-      const priorBalance = prior?.balance ?? 0
+      // Документ «оклады» переносит окладный остаток, «сделочный» — сделочный;
+      // объединённый (kind не задан) — оба, как и суммы начислений.
+      const priorBalance =
+        kind === "salary"
+          ? (prior?.okladBalance ?? 0)
+          : kind === "piece"
+            ? (prior?.balance ?? 0)
+            : (prior?.balance ?? 0) + (prior?.okladBalance ?? 0)
       // «К выплате» = остаток месяца + доначислено прошлых периодов (как в карточке
       // сотрудника и в ведомости), иначе три поверхности считали бы по-разному.
       const remaining = accrued + bonuses - penalties - alreadyPaid + priorBalance

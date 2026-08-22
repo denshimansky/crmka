@@ -56,6 +56,71 @@ export interface PriorPieceResult {
   /** Направление с наибольшим сделочным начислением прошлых периодов (для позиции
    *  выплаты «доначисления»); null — если сделочных направлений в прошлом нет. */
   topDirectionId: string | null
+  /**
+   * Накопленный ОКЛАДНЫЙ остаток прошлых периодов (плюс = недоплата, минус =
+   * переплата). Считается так же, как сделочный, но по окладной части:
+   * Σ (оклад периода + окладные премии − окладные штрафы − окладные выплаты).
+   *
+   * Окно начинается либо с даты начала оклада (okladFrom / первая версия), либо —
+   * если её нет — с первого месяца, в котором по сотруднику вообще была зарплатная
+   * операция. Иначе у окладника без даты начала «долг» уходил бы в бесконечность:
+   * оклад формально начисляется за любой прошлый месяц.
+   */
+  okladBalance: number
+}
+
+/** Номер месяца от начала эры — для сравнения и перебора периодов. */
+export const ymNum = (y: number, m: number) => y * 12 + (m - 1)
+
+/** Ограничитель окна накопления оклада (5 лет) — страховка от кривых дат начала. */
+const MAX_OKLAD_MONTHS = 60
+
+export interface PriorOkladOne {
+  monthlySalary: number
+  okladFrom: Date | null
+  schedule: OkladVersion[]
+  /** Первый месяц с любой зарплатной операцией (ymNum) — нижняя граница окна. */
+  firstActivityYm: number | null
+  /** Последний ПРОШЛЫЙ месяц включительно (ymNum). */
+  endYm: number
+  /** Окладные премии−штрафы по периодам: ymNum → сумма со знаком. */
+  adjByPeriod?: Map<number, number>
+  /** Окладные выплаты по периодам: ymNum → сумма. */
+  paidByPeriod?: Map<number, number>
+}
+
+/**
+ * Накопленный ОКЛАДНЫЙ остаток прошлых периодов: Σ (оклад периода + окладные
+ * премии − окладные штрафы − окладные выплаты). Плюс = недоплата, минус = переплата.
+ *
+ * Окно: с даты начала оклада (okladFrom или первая версия), иначе — с первого
+ * месяца с зарплатной операцией. Без обеих границ возвращает 0: у окладника без
+ * даты начала оклад формально начисляется за ЛЮБОЙ прошлый месяц, и окно ушло бы
+ * в бесконечность, нарисовав долг за годы, которых в CRM не было.
+ */
+export function computePriorOkladBalanceOne(input: PriorOkladOne): number {
+  const versions = input.schedule ?? []
+  const startDate = input.okladFrom ?? (versions.length > 0 ? versions[0].effectiveFrom : null)
+  const startYm = startDate
+    ? ymNum(startDate.getUTCFullYear(), startDate.getUTCMonth() + 1)
+    : input.firstActivityYm
+  if (startYm === null || startYm === undefined || startYm > input.endYm) return 0
+
+  const from = Math.max(startYm, input.endYm - MAX_OKLAD_MONTHS + 1)
+  let sum = 0
+  for (let ym = from; ym <= input.endYm; ym++) {
+    const y = Math.floor(ym / 12)
+    const m = (ym % 12) + 1
+    const accrued = okladForPeriod({
+      monthlySalary: input.monthlySalary,
+      okladFrom: input.okladFrom,
+      schedule: versions,
+      periodYear: y,
+      periodMonth: m,
+    })
+    sum += accrued + (input.adjByPeriod?.get(ym) ?? 0) - (input.paidByPeriod?.get(ym) ?? 0)
+  }
+  return r2(sum)
 }
 
 /**
@@ -190,7 +255,66 @@ export async function computePriorPieceBalances(
     payByEmp.set(p.employeeId, list)
   }
 
-  const allEmpIds = new Set<string>([...accruedByEmp.keys(), ...adjByEmp.keys(), ...payByEmp.keys()])
+  // Первый месяц с зарплатной операцией — нижняя граница окна накопления оклада
+  // для тех, у кого дата начала оклада не задана.
+  const firstActivityYm = new Map<string, number>()
+  for (const a of adjustments) {
+    const v = ymNum(a.periodYear, a.periodMonth)
+    const prev = firstActivityYm.get(a.employeeId)
+    if (prev === undefined || v < prev) firstActivityYm.set(a.employeeId, v)
+  }
+  for (const p of payments) {
+    const v = ymNum(p.salaryPayment.periodYear, p.salaryPayment.periodMonth)
+    const prev = firstActivityYm.get(p.employeeId)
+    if (prev === undefined || v < prev) firstActivityYm.set(p.employeeId, v)
+  }
+
+  // Окладные корректировки/выплаты по периодам — для окладного остатка.
+  type PerPeriod = Map<number, number>
+  const okladAdjByEmp = new Map<string, PerPeriod>()
+  for (const a of adjustments) {
+    const ym = ymNum(a.periodYear, a.periodMonth)
+    if (kindOfDirection(a.directionId, hasOkladIn(a.employeeId, a.periodYear, a.periodMonth)) !== "salary") continue
+    const m = okladAdjByEmp.get(a.employeeId) ?? new Map()
+    const delta = a.type === "bonus" ? Number(a.amount) : -Number(a.amount)
+    m.set(ym, (m.get(ym) ?? 0) + delta)
+    okladAdjByEmp.set(a.employeeId, m)
+  }
+  const okladPaidByEmp = new Map<string, PerPeriod>()
+  for (const p of payments) {
+    const py = p.salaryPayment.periodYear
+    const pm = p.salaryPayment.periodMonth
+    if (kindOfDirection(p.directionId, hasOkladIn(p.employeeId, py, pm)) !== "salary") continue
+    const ym = ymNum(py, pm)
+    const m = okladPaidByEmp.get(p.employeeId) ?? new Map()
+    m.set(ym, (m.get(ym) ?? 0) + Number(p.amount))
+    okladPaidByEmp.set(p.employeeId, m)
+  }
+
+  const endYm = ymNum(year, month) - 1 // последний прошлый месяц включительно
+
+  const okladBalanceFor = (empId: string): number => {
+    const e = empById.get(empId)
+    if (!e) return 0
+    return computePriorOkladBalanceOne({
+      monthlySalary: Number(e.monthlySalary) || 0,
+      okladFrom: e.okladFrom,
+      schedule: (okladSchedules.get(empId) ?? []) as OkladVersion[],
+      firstActivityYm: firstActivityYm.get(empId) ?? null,
+      endYm,
+      adjByPeriod: okladAdjByEmp.get(empId),
+      paidByPeriod: okladPaidByEmp.get(empId),
+    })
+  }
+
+  const allEmpIds = new Set<string>([
+    ...accruedByEmp.keys(),
+    ...adjByEmp.keys(),
+    ...payByEmp.keys(),
+    // Окладник мог за прошлые месяцы вообще не иметь операций — его долг всё равно
+    // надо перенести, поэтому добавляем всех с окладом.
+    ...employees.filter((e) => Number(e.monthlySalary) > 0 || okladSchedules.has(e.id)).map((e) => e.id),
+  ])
   const result = new Map<string, PriorPieceResult>()
   for (const empId of allEmpIds) {
     const balance = computePriorPieceBalanceOne({
@@ -220,7 +344,7 @@ export async function computePriorPieceBalances(
       let best = 0
       for (const [d, w] of weights) if (w > best) { best = w; topDirectionId = d }
     }
-    result.set(empId, { balance, topDirectionId })
+    result.set(empId, { balance, topDirectionId, okladBalance: okladBalanceFor(empId) })
   }
   return result
 }

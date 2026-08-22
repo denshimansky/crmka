@@ -58,6 +58,8 @@ export interface InstructorDetailData {
   // priorTopDirectionId — направление позиции выплаты «доначисления» (чтобы у
   // совместителя она классифицировалась как сделка). Только для kind="piece".
   priorPieceBalance?: number
+  /** Окладный остаток прошлых периодов — для окладной карточки. */
+  priorOkladBalance?: number
   priorTopDirectionId?: string | null
   byDirection: DirectionDetail[]
   adjustments: { bonuses: number; penalties: number; net: number; paidNoDirection: number; remaining: number; items?: AdjustmentDetail[] }
@@ -123,7 +125,7 @@ export function InstructorDetailClient({ employeeId, year, month, kind }: { empl
 
   // «Доначислено» — накопленный сделочный остаток прошлых периодов (плюс/минус);
   // только на сделочной карточке. «К выплате» = остаток месяца + доначислено.
-  const priorBalance = data.kind === "piece" ? (data.priorPieceBalance ?? 0) : 0
+  const priorBalance = data.kind === "piece" ? (data.priorPieceBalance ?? 0) : (data.priorOkladBalance ?? 0)
   const toPay = Math.round((data.totals.remaining + priorBalance) * 100) / 100
 
   // Расшифровка по занятиям для выгрузки в Excel: одна строка на занятие

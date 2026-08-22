@@ -33,10 +33,13 @@ export function OkladPayBody({
   const periodMonthStr = `${data.periodYear}-${String(data.periodMonth).padStart(2, "0")}`
 
   // Пресет: аванс = половина оклада за вычетом уже выплаченного оклада; остатки =
-  // остаток оклада. totals в детализации kind=salary — окладные (см. API).
+  // остаток оклада ПЛЮС окладное доначисление прошлых периодов (невыплаченный оклад
+  // прошлого месяца; переплата, наоборот, уменьшает сумму). В аванс доначисление не
+  // кладём — он считается по текущему месяцу. totals в kind=salary — окладные.
+  const priorOklad = data.priorOkladBalance ?? 0
   const preset = mode === "advance"
     ? Math.max(0, Math.round((data.totals.accruedFirstHalf - data.totals.paid) * 100) / 100)
-    : Math.max(0, data.totals.remaining)
+    : Math.max(0, Math.round((data.totals.remaining + priorOklad) * 100) / 100)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

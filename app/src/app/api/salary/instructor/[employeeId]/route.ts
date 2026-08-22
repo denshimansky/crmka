@@ -157,17 +157,15 @@ export async function GET(
           })),
       })
 
-  // «Доначислено» — накопленный сделочный остаток прошлых периодов (только для
-  // сделочной карточки; для окладной он не применим). topDirectionId нужен позиции
+  // «Доначислено» — накопленный остаток прошлых периодов. Своя величина для каждого
+  // вида карточки: сделочная берёт сделочный остаток, окладная — окладный
+  // (невыплаченный/переплаченный оклад прошлых месяцев). topDirectionId нужен позиции
   // выплаты «доначисления», чтобы у совместителя она классифицировалась как сделка.
-  let priorPieceBalance = 0
-  let priorTopDirectionId: string | null = null
-  if (kind === "piece") {
-    const priorMap = await computePriorPieceBalances(db, tenantId, periodYear, periodMonth, { employeeIds: [employeeId] })
-    const prior = priorMap.get(employeeId)
-    priorPieceBalance = prior?.balance ?? 0
-    priorTopDirectionId = prior?.topDirectionId ?? null
-  }
+  const priorMap = await computePriorPieceBalances(db, tenantId, periodYear, periodMonth, { employeeIds: [employeeId] })
+  const prior = priorMap.get(employeeId)
+  const priorPieceBalance = kind === "piece" ? (prior?.balance ?? 0) : 0
+  const priorOkladBalance = kind === "salary" ? (prior?.okladBalance ?? 0) : 0
+  const priorTopDirectionId = kind === "piece" ? (prior?.topDirectionId ?? null) : null
 
   return NextResponse.json({
     employee: {
@@ -184,6 +182,7 @@ export async function GET(
     periodLocked,
     accounts,
     priorPieceBalance,
+    priorOkladBalance,
     priorTopDirectionId,
     ...detail,
   })

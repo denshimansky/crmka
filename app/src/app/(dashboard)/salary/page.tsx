@@ -138,14 +138,15 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   )
   const okladIds = new Set(employees.filter((e) => (okladByEmployee.get(e.id) || 0) > 0).map((e) => e.id))
 
-  // «Доначислено» — накопленный сделочный остаток прошлых периодов (только вкладка
-  // «Сдельная»): плюс = недоплата (в т.ч. ретро-отметки после выплаты), минус —
-  // переплата. Входит в «Осталось» (к выплате). Считаем только по видимым (scoped)
-  // сотрудникам. См. lib/salary/prior-piece-balance.
-  const showDonachisleno = activeTab === "piece"
-  const priorMap = showDonachisleno
-    ? await computePriorPieceBalances(db, tenantId, year, month, { employeeIds: employees.map((e) => e.id) })
-    : new Map<string, { balance: number; topDirectionId: string | null }>()
+  // «Доначислено» — накопленный остаток прошлых периодов: плюс = недоплата (в т.ч.
+  // ретро-отметки после выплаты и невыплаченный оклад прошлого месяца), минус —
+  // переплата. Входит в «Осталось» (к выплате). Считается для ОБЕИХ вкладок, каждая
+  // берёт свою часть: «Сдельная» — сделочный остаток, «Оклады» — окладный.
+  // Считаем только по видимым (scoped) сотрудникам. См. lib/salary/prior-piece-balance.
+  const showDonachisleno = true
+  const priorMap = await computePriorPieceBalances(db, tenantId, year, month, {
+    employeeIds: employees.map((e) => e.id),
+  })
 
   // Каждая строка несёт РАЗДЕЛЁННЫЕ по типу ЗП суммы: начислено/выплачено/остаток
   // на вкладке — только своя часть, вкладки больше не смешиваются.
@@ -157,7 +158,8 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
       paymentItems: itemsByEmployee.get(emp.id) ?? [],
       adjustments: adjByEmployee.get(emp.id) ?? [],
     })
-    const donachisleno = showDonachisleno ? (priorMap.get(emp.id)?.balance ?? 0) : 0
+    const prior = priorMap.get(emp.id)
+    const donachisleno = activeTab === "salary" ? (prior?.okladBalance ?? 0) : (prior?.balance ?? 0)
     const tab = activeTab === "salary" ? split.salary : split.piece
     const pieceActive = split.piece.accrued !== 0 || split.piece.paid !== 0 || split.piece.bonuses !== 0 || split.piece.penalties !== 0
     const substitutions = substituteLessonCount.get(emp.id) || 0
@@ -175,7 +177,9 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
   // доначислением (долг/переплата прошлых периодов при нулевой активности месяца);
   // «Оклады» — окладники (monthlySalary>0). Пустая вкладка → пустая ведомость.
   const pieceRows = rows.filter((r) => r.pieceActive || r.donachisleno !== 0)
-  const salaryRows = rows.filter((r) => okladIds.has(r.id))
+  // «Оклады»: окладники месяца + те, у кого остался окладный долг/переплата прошлых
+  // месяцев (например, уволенный с недоплаченным окладом — иначе долг бы исчез).
+  const salaryRows = rows.filter((r) => okladIds.has(r.id) || r.donachisleno !== 0)
   const displayRows = activeTab === "salary" ? salaryRows : pieceRows
 
   const totalAccrued = displayRows.reduce((s, r) => s + r.accrued, 0)

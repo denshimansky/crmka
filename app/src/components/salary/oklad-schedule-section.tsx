@@ -32,6 +32,7 @@ export function OkladScheduleSection({
   baseFrom,
   canEdit,
   onChanged,
+  onCurrent,
 }: {
   employeeId: string
   /** Базовый оклад из карточки — действует до первой версии. */
@@ -40,6 +41,8 @@ export function OkladScheduleSection({
   baseFrom: string | null
   canEdit: boolean
   onChanged?: () => void
+  /** Действующий сегодня оклад — карточке, чтобы показать его нередактируемым полем. */
+  onCurrent?: (v: { amount: number; from: string | null }) => void
 }) {
   const sym = useCurrencySymbol()
   const [rows, setRows] = useState<OkladVersionRow[]>([])
@@ -72,6 +75,11 @@ export function OkladScheduleSection({
   const current = [...rows].filter((r) => r.effectiveFrom <= todayIso).pop()
   const currentAmount = current ? current.amount : (baseAmount ?? 0)
   const currentFrom = current ? current.effectiveFrom : baseFrom
+
+  useEffect(() => {
+    if (!loading) onCurrent?.({ amount: currentAmount, from: currentFrom })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, currentAmount, currentFrom])
 
   async function save() {
     if (!date) { setError("Укажите дату"); return }

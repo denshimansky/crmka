@@ -152,6 +152,15 @@ export function SalaryRatesDialog({
   const [okladSaving, setOkladSaving] = useState(false)
   const [okladSaved, setOkladSaved] = useState(false)
   const [okladError, setOkladError] = useState<string | null>(null)
+  // Действующий сегодня оклад (база или последняя версия ≤ сегодня) — приходит из
+  // секции истории, показывается нередактируемым полем после первичной настройки.
+  const [currentOklad, setCurrentOklad] = useState<{ amount: number; from: string | null } | null>(null)
+
+  // Базовый оклад задаётся ОДИН РАЗ. Дальше сумму меняют только версиями истории —
+  // правка базы пересчитала бы все месяцы до первой версии задним числом (кейс
+  // Андреевой: оклад обнулили, июнь и июль тоже стали нулевыми). Признак «уже
+  // задан» — непустое поле в карточке, включая явный ноль.
+  const okladLocked = monthlySalary != null
 
   // Пересинхронизируем поля оклада с актуальными пропсами при открытии диалога.
   useEffect(() => {
@@ -170,13 +179,31 @@ export function SalaryRatesDialog({
     setOkladSaved(false)
   }
 
-  const okladDirty =
-    (oklad.trim() === "" ? null : Number(oklad)) !== (monthlySalary ?? null) ||
-    (okladDir || null) !== (defaultDirectionId ?? null) ||
-    (okladFrom || null) !== (okladFromProp?.slice(0, 10) ?? null) ||
-    !sameBranchSet(okladBranches, okladBranchIds ?? [])
+  const okladDirty = okladLocked
+    ? // Заблокированы только сумма и дата начала; привязка к направлению и филиалам
+      // (атрибуция расхода в ОПИУ) остаётся редактируемой.
+      (okladDir || null) !== (defaultDirectionId ?? null) ||
+      !sameBranchSet(okladBranches, okladBranchIds ?? [])
+    : (oklad.trim() === "" ? null : Number(oklad)) !== (monthlySalary ?? null) ||
+      (okladDir || null) !== (defaultDirectionId ?? null) ||
+      (okladFrom || null) !== (okladFromProp?.slice(0, 10) ?? null) ||
+      !sameBranchSet(okladBranches, okladBranchIds ?? [])
 
   async function saveOklad() {
+    const raw = oklad.trim()
+    if (!okladLocked && raw !== "") {
+      const num = Number(raw.replace(",", "."))
+      if (!Number.isFinite(num) || num < 0) {
+        setOkladError("Оклад должен быть неотрицательным числом")
+        return
+      }
+      // Страховка от случайного обнуления: ноль задаётся только явным «000».
+      // Именно случайный 0 в этом поле обнулял оклад за все прошлые месяцы.
+      if (num === 0 && raw !== "000") {
+        setOkladError("Чтобы задать нулевой оклад, введите 000 — так мы страхуем от случайного обнуления")
+        return
+      }
+    }
     setOkladSaving(true)
     setOkladError(null)
     setOkladSaved(false)
@@ -185,9 +212,15 @@ export function SalaryRatesDialog({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          monthlySalary: oklad.trim() === "" ? null : Number(oklad),
+          // Сумму и дату начала шлём только при первичной настройке — PATCH
+          // частичный, поэтому заблокированные поля просто не трогаем.
+          ...(okladLocked
+            ? {}
+            : {
+                monthlySalary: raw === "" ? null : Number(raw.replace(",", ".")),
+                okladFrom: okladFrom || null,
+              }),
           defaultDirectionId: okladDir || null,
-          okladFrom: okladFrom || null,
           okladBranchIds: okladBranches,
         }),
       })
@@ -359,26 +392,51 @@ export function SalaryRatesDialog({
                     Фиксированный месячный оклад. Попадает в «Начислено» на странице
                     «Зарплата» → вкладка «Оклады». Оставьте пустым, если оклада нет.
                   </p>
-                  <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-                    Это базовая сумма: её правка меняет расчёт ВСЕХ месяцев до первого
-                    изменения из «Истории оклада» ниже. Чтобы поменять оклад с какой-то
-                    даты (в том числе снять оклад — сумма 0), заведите изменение в
-                    истории, а не правьте поле.
-                  </p>
+                  {!okladLocked && (
+                    <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                      Оклад и дата его начала задаются ОДИН раз. Дальше сумма меняется
+                      только через «Историю оклада» ниже — так прошлые месяцы не
+                      пересчитываются задним числом. Чтобы задать нулевой оклад,
+                      введите 000.
+                    </p>
+                  )}
                   {okladError && (
                     <div className="rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">{okladError}</div>
                   )}
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <Label className="text-xs">Месячный оклад, {sym}</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={oklad}
-                        onChange={(e) => { setOklad(e.target.value); setOkladSaved(false) }}
-                        placeholder="Нет оклада"
-                      />
+                      <Label className="text-xs">
+                        {okladLocked ? "Оклад сейчас, " + sym : "Оклад, " + sym}
+                      </Label>
+                      {okladLocked ? (
+                        <>
+                          {/* Задан — показываем ФАКТИЧЕСКИЙ оклад на сегодня (база или
+                              последняя версия), редактировать нельзя. */}
+                          <Input
+                            readOnly
+                            disabled
+                            value={new Intl.NumberFormat("ru-RU").format(
+                              currentOklad ? currentOklad.amount : (monthlySalary ?? 0),
+                            )}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {currentOklad && currentOklad.amount === 0
+                              ? "Оклада сейчас нет"
+                              : currentOklad && currentOklad.from
+                                ? "Действует с " + currentOklad.from.split("-").reverse().join(".")
+                                : "Действует с начала"}
+                            {" · изменить — через «Историю оклада» ниже"}
+                          </p>
+                        </>
+                      ) : (
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          value={oklad}
+                          onChange={(e) => { setOklad(e.target.value); setOkladSaved(false) }}
+                          placeholder="Нет оклада"
+                        />
+                      )}
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Основное направление</Label>
@@ -394,20 +452,22 @@ export function SalaryRatesDialog({
                       </select>
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Оклад действует с</Label>
-                    <Input
-                      type="date"
-                      value={okladFrom}
-                      onChange={(e) => { setOkladFrom(e.target.value); setOkladSaved(false) }}
-                      className="max-w-[200px]"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Оклад не начисляется за месяцы до этой даты; неполный первый
-                      месяц — пропорционально календарным дням. Пусто — оклад за весь
-                      месяц во всех периодах (как раньше).
-                    </p>
-                  </div>
+                  {!okladLocked && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Оклад действует с</Label>
+                      <Input
+                        type="date"
+                        value={okladFrom}
+                        onChange={(e) => { setOkladFrom(e.target.value); setOkladSaved(false) }}
+                        className="max-w-[200px]"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Оклад не начисляется за месяцы до этой даты; неполный первый
+                        месяц — пропорционально календарным дням. Пусто — оклад за весь
+                        месяц во всех периодах (как раньше).
+                      </p>
+                    </div>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     Основное направление — для разнесения оклада по направлениям в Финрез (P&L).
                     Не выбрано — оклад распределяется по всем направлениям пропорционально выручке.
@@ -443,9 +503,10 @@ export function SalaryRatesDialog({
                   {/* История оклада: изменения «с даты», прошлые месяцы не трогают. */}
                   <OkladScheduleSection
                     employeeId={employeeId}
-                    baseAmount={oklad.trim() === "" ? null : Number(oklad)}
-                    baseFrom={okladFrom || null}
+                    baseAmount={monthlySalary}
+                    baseFrom={okladFromProp?.slice(0, 10) ?? null}
                     canEdit
+                    onCurrent={setCurrentOklad}
                     onChanged={() => router.refresh()}
                   />
                 </div>

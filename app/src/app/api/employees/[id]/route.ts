@@ -111,6 +111,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Базовый оклад и дата его начала задаются ОДИН раз: они действуют «с начала
+  // времён», поэтому их правка пересчитывает все прошлые месяцы новой суммой —
+  // ровно так у Андреевой (ДЦ Умный Я) обнулились июнь и июль, а выплаты за них
+  // остались. Дальше сумму меняют версиями (OkladSchedule), которые действуют
+  // только вперёд от своей даты. Опечатку в базе тоже правят версией — с той же
+  // даты начала, она перекрывает базу полностью.
+  const okladAlreadySet = existing.monthlySalary !== null
+  if (okladAlreadySet) {
+    const changesBase =
+      (data.monthlySalary !== undefined && Number(data.monthlySalary ?? 0) !== Number(existing.monthlySalary)) ||
+      (data.okladFrom !== undefined &&
+        (data.okladFrom ? new Date(data.okladFrom).toISOString().slice(0, 10) : null) !==
+          (existing.okladFrom ? existing.okladFrom.toISOString().slice(0, 10) : null))
+    if (changesBase) {
+      return NextResponse.json(
+        { error: "Оклад уже задан. Изменить сумму можно только через «Историю оклада» — так прошлые месяцы не пересчитаются задним числом." },
+        { status: 400 },
+      )
+    }
+  }
+
   // Правка окладных полей меняет РАСЧЁТ прошлых месяцев (база — «версия с начала
   // времён»), поэтому оклад-твины ОПИУ надо пересобрать, иначе начисление и расход
   // разъедутся: было 18 000 → стало 25 000, а в финрезе прошлых месяцев осталось
