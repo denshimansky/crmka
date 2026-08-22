@@ -191,3 +191,55 @@ describe("okladForPeriod: версии оклада", () => {
     assert.equal(okladAmountOnDay(d("2026-08-01"), base, schedule), 0)
   })
 })
+
+describe("okladForPeriod: границы версий", () => {
+  it("okladFrom — абсолютный пол: версия раньше начала оклада его не воскрешает", () => {
+    // База 30 000 с 15.08; версия «с 01.08 — 20 000». Дни 1–14 оклада нет вообще,
+    // дни 15–31 идут по версии (она свежее базы по дате начала действия).
+    const res = okladForPeriod({
+      monthlySalary: 30000, okladFrom: d("2026-08-15"),
+      schedule: [{ effectiveFrom: d("2026-08-01"), amount: 20000 }],
+      periodYear: 2026, periodMonth: 8,
+    })
+    assert.equal(res, Math.round(20000 * (17 / 31) * 100) / 100)
+  })
+
+  it("okladFrom в будущем: версия из прошлого не создаёт оклад задним числом", () => {
+    assert.equal(
+      okladForPeriod({
+        monthlySalary: 30000, okladFrom: d("2026-09-01"),
+        schedule: [{ effectiveFrom: d("2026-06-01"), amount: 10000 }],
+        periodYear: 2026, periodMonth: 7,
+      }),
+      0,
+    )
+  })
+
+  it("отрицательная сумма версии клампится к нулю", () => {
+    assert.equal(
+      okladForPeriod({
+        monthlySalary: 18000, okladFrom: null,
+        schedule: [{ effectiveFrom: d("2026-08-01"), amount: -1000 }],
+        periodYear: 2026, periodMonth: 8,
+      }),
+      0,
+    )
+  })
+
+  it("версия, равная базе, не меняет уже посчитанный месяц ни на копейку", () => {
+    // Копеечная ставка + неполный месяц: раньше быстрый и медленный путь
+    // расходились на ±0,01 ₽ и оставляли фантомный остаток в ведомости.
+    for (const [salary, month, startDay] of [
+      [33333.33, 4, 6], [55555.55, 9, 22], [7777.77, 2, 3], [7777.77, 2, 27],
+    ] as [number, number, number][]) {
+      const from = new Date(Date.UTC(2026, month - 1, startDay))
+      const withoutVersion = okladForPeriod({ monthlySalary: salary, okladFrom: from, periodYear: 2026, periodMonth: month })
+      const withVersion = okladForPeriod({
+        monthlySalary: salary, okladFrom: from,
+        schedule: [{ effectiveFrom: from, amount: salary }],
+        periodYear: 2026, periodMonth: month,
+      })
+      assert.equal(withVersion, withoutVersion, `${salary} ${month}/2026 с ${startDay}`)
+    }
+  })
+})

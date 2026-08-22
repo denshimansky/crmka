@@ -116,8 +116,14 @@ export async function computeSalaryForecastBreakdown(
   ]
 
   const [oklads, groupRates, personalRates, enrollGroups, orgTypeRow] = await Promise.all([
+    // Окладником сотрудник может быть и без базовой суммы — только версией
+    // (OkladSchedule), поэтому фильтр по monthlySalary сюда не годится.
     db.employee.findMany({
-      where: { tenantId, deletedAt: null, monthlySalary: { not: null } },
+      where: {
+        tenantId,
+        deletedAt: null,
+        OR: [{ monthlySalary: { not: null } }, { okladSchedules: { some: { deletedAt: null } } }],
+      },
       select: { id: true, monthlySalary: true, okladFrom: true },
     }),
     db.groupSalaryRate.findMany({

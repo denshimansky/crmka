@@ -40,7 +40,7 @@ export async function DELETE(
       okladCategoryId,
       createdBy: actor,
     })
-  })
+  }, { timeout: 120_000 })
 
   logAudit({
     tenantId,

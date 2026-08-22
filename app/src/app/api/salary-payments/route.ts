@@ -208,7 +208,7 @@ export async function POST(req: NextRequest) {
     const directionIds = Array.from(new Set(data.items.map(i => i.directionId).filter((v): v is string => !!v)))
 
     const [employees, accounts, directions] = await Promise.all([
-      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true, monthlySalary: true, defaultDirectionId: true, okladBranchIds: true } }),
+      db.employee.findMany({ where: { id: { in: employeeIds }, tenantId }, select: { id: true, monthlySalary: true, okladFrom: true, defaultDirectionId: true, okladBranchIds: true } }),
       accountIds.length > 0
         ? db.financialAccount.findMany({ where: { id: { in: accountIds }, tenantId }, select: { id: true } })
         : Promise.resolve([] as Array<{ id: string }>),
@@ -234,10 +234,47 @@ export async function POST(req: NextRequest) {
     // потолку «оклад + премии − штрафы» за период (см. syncOkladTwinsForEmployeePeriod):
     // сделочная часть выплаты совмещающего отсекается потолком и не задваивается.
     const empById = new Map(employees.map((e) => [e.id, e]))
-    const anyOkladnik = employees.some((e) => Number(e.monthlySalary) > 0)
-    // Категорию оклад-расхода резолвим ДО money-транзакции (гонку партиал-UNIQUE
-    // безопасно перехватить только вне tx — см. getOkladCategoryId).
-    const okladCategoryId = anyOkladnik ? await getOkladCategoryId() : null
+    // Категорию резолвим БЕЗУСЛОВНО и ДО money-транзакции (гонку партиал-UNIQUE
+    // безопасно перехватить только вне tx — см. getOkladCategoryId). Прежний гейт
+    // «есть ли окладник» смотрел на сырой monthlySalary и пропускал сотрудника,
+    // которого перевели на оклад ВЕРСИЕЙ (OkladSchedule) при пустом базовом поле:
+    // ведомость его оклад начисляла, а расход в ОПИУ не создавался вовсе.
+    const okladCategoryId = await getOkladCategoryId()
+
+    // Кому реально нужен ресинк твина за период: у кого есть оклад ЗА ЭТОТ период
+    // (база + дата начала + версии) ИЛИ у кого от прошлой логики остался твин,
+    // который надо снять. Считаем ДО money-транзакции, чтобы не гонять внутри неё
+    // лишние запросы на каждого чистого сдельщика документа.
+    const touchedEmployeeIds = Array.from(new Set(
+      [...data.items.map((i) => i.employeeId), ...data.adjustments.map((a) => a.employeeId)],
+    ))
+    const touchedSchedules = await loadOkladSchedules(db, tenantId, touchedEmployeeIds)
+    const withExistingTwin = new Set(
+      (await db.expense.findMany({
+        where: {
+          tenantId,
+          categoryId: okladCategoryId,
+          salaryPayment: {
+            employeeId: { in: touchedEmployeeIds },
+            periodYear: data.periodYear,
+            periodMonth: data.periodMonth,
+          },
+        },
+        select: { salaryPayment: { select: { employeeId: true } } },
+      })).map((x) => x.salaryPayment!.employeeId),
+    )
+    const needResync = touchedEmployeeIds.filter((empId) => {
+      if (withExistingTwin.has(empId)) return true
+      const emp = empById.get(empId)
+      if (!emp) return false
+      return okladForPeriod({
+        monthlySalary: Number(emp.monthlySalary ?? 0),
+        okladFrom: emp.okladFrom ?? null,
+        schedule: touchedSchedules.get(empId),
+        periodYear: data.periodYear,
+        periodMonth: data.periodMonth,
+      }) > 0
+    })
 
     const payment = await db.$transaction(async (tx) => {
       let p: { id: string } | null = null
@@ -317,14 +354,8 @@ export async function POST(req: NextRequest) {
       // Оклад-твин(ы) — ПОСЛЕ создания всех выплат И премий/штрафов периода (чтобы
       // сумма выплат и netAdjustment были полными). Пересинк per-period для каждого
       // затронутого окладника (из выплат ИЛИ премий/штрафов); accountId=NULL → только ОПИУ.
-      if (okladCategoryId) {
-        // Ресинк по ВСЕМ затронутым сотрудникам, без предварительного фильтра
-        // «окладник ли он сейчас»: оклад за период резолвит сам sync (база + дата
-        // начала + версии), а у не-окладника вызов просто снесёт устаревший твин.
-        const toResync = new Set(
-          [...data.items.map((i) => i.employeeId), ...data.adjustments.map((a) => a.employeeId)],
-        )
-        for (const empId of toResync) {
+      {
+        for (const empId of needResync) {
           await syncOkladTwinsForEmployeePeriod(tx, {
             tenantId,
             employeeId: empId,
@@ -376,10 +407,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Период закрыт. Обратитесь к владельцу или управляющему." }, { status: 403 })
   }
 
-  // Твин только для реального окладника (monthlySalary>0), kind-независимо. Категорию
-  // резолвим до tx (гонку партиал-UNIQUE ловим только вне tx — см. getOkladCategoryId).
-  const legacyIsOkladnik = Number(employee.monthlySalary) > 0
-  const legacyOkladCategoryId = legacyIsOkladnik ? await getOkladCategoryId() : null
+  // Категорию резолвим безусловно и до tx (гонку партиал-UNIQUE ловим только вне tx).
+  // Окладник ли сотрудник за этот период, решает сам syncOkladTwinsForEmployeePeriod
+  // по окладу периода (база + дата начала + версии) — гейт по сырому monthlySalary
+  // терял расход у переведённых на оклад версией.
+  const legacyOkladCategoryId = await getOkladCategoryId()
 
   const payment = await db.$transaction(async (tx) => {
     const p = await tx.salaryPayment.create({

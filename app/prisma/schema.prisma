@@ -904,6 +904,9 @@ model OkladSchedule {
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
+  // Плюс частичный UNIQUE (employee_id, effective_from) WHERE deleted_at IS NULL —
+  // создан миграцией 20260822180000_oklad_schedule_unique_date; Prisma частичные
+  // уникальные индексы не описывает (тот же приём, что у expense_categories).
   @@index([tenantId, employeeId, effectiveFrom])
   @@map("oklad_schedules")
 }

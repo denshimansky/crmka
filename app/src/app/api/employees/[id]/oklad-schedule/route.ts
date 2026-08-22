@@ -108,7 +108,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       createdBy: actor,
     })
     return row
-  })
+  }, { timeout: 120_000 })
 
   logAudit({
     tenantId,

@@ -83,6 +83,10 @@ export function okladAmountOnDay(
   schedule?: OkladVersion[] | null,
 ): number {
   const at = dayNum(day)
+  // okladFrom — АБСОЛЮТНЫЙ пол: до начала оклада его нет, что бы ни говорили версии.
+  // Иначе версия, ошибочно поставленная раньше даты начала, включала бы оклад за
+  // месяцы, когда сотрудник ещё не был окладником, и навсегда отменяла базу.
+  if (base.okladFrom && dayNum(base.okladFrom) > at) return 0
   let bestDay = -Infinity
   let bestAmount: number | null = null
   for (const v of schedule ?? []) {
@@ -90,8 +94,9 @@ export function okladAmountOnDay(
     const vd = dayNum(v.effectiveFrom)
     if (vd <= at && vd > bestDay) { bestDay = vd; bestAmount = v.amount }
   }
-  if (bestAmount != null) return bestAmount
-  if (base.okladFrom && dayNum(base.okladFrom) > at) return 0
+  // Клампим к 0: отрицательная сумма (кривой импорт/правка в БД) дала бы
+  // отрицательное начисление и отрицательный потолок расхода в ОПИУ.
+  if (bestAmount != null) return Math.max(0, bestAmount)
   return base.monthlySalary > 0 ? base.monthlySalary : 0
 }
 
@@ -112,13 +117,30 @@ export function okladForPeriod(
 
   const daysInMonth = new Date(Date.UTC(periodYear, periodMonth, 0)).getUTCDate()
   const endDay = upToDay != null ? Math.min(upToDay, daysInMonth) : daysInMonth
+  // Считаем ОТРЕЗКАМИ одинаковой суммы, а не по одному дню: сумма_отрезка ×
+  // (дней/дней_в_месяце) — та же операция и тот же порядок float-действий, что в
+  // быстром пути (monthlySalary × okladDaysFraction). Иначе заведение версии,
+  // не меняющей сумму, сдвигало бы уже выплаченный месяц на ±0,01 ₽ и оставляло
+  // фантомный остаток в ведомости.
   let sum = 0
+  let segAmount: number | null = null
+  let segDays = 0
+  const flush = () => {
+    if (segAmount != null && segDays > 0) sum += segAmount * (segDays / daysInMonth)
+    segDays = 0
+  }
   for (let d = 1; d <= endDay; d++) {
-    sum += okladAmountOnDay(
+    const amount = okladAmountOnDay(
       new Date(Date.UTC(periodYear, periodMonth - 1, d)),
       { monthlySalary, okladFrom },
       schedule,
     )
+    if (segAmount === null || amount !== segAmount) {
+      flush()
+      segAmount = amount
+    }
+    segDays++
   }
-  return Math.round((sum / daysInMonth) * 100) / 100
+  flush()
+  return Math.round(sum * 100) / 100
 }

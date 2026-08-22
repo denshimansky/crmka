@@ -434,7 +434,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         await tx.attendance.delete({ where: { id: existingOnL2.id } })
         // Схемы per_lesson/floating: ставка могла висеть на удалённой отметке —
         // пересчитываем раскладку занятия.
-        await reallocateLessonPay(tx, { tenantId, lessonId, createdBy: employeeId })
+        await reallocateLessonPay(tx, { tenantId, lessonId })
         if (existingOnL2.subscriptionId) {
           // Скидки v2 + расход слотов: выравниваем finalAmount/balance после
           // отката. Строго ПОСЛЕ delete (иначе пересчёт видит удаляемую строку)
@@ -952,7 +952,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Схемы per_lesson/floating: раскладка ЗП зависит от итогового состава
     // занятия, а не от порядка отметок — пересчитываем целиком (внутри же
     // net-компенсация, если начисление уменьшилось после выплаты ЗП).
-    await reallocateLessonPay(tx, { tenantId, lessonId, createdBy: employeeId })
+    await reallocateLessonPay(tx, { tenantId, lessonId })
 
     return att
   })
@@ -1474,7 +1474,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Схемы per_lesson/floating: раскладка ЗП зависит от итогового состава —
     // пересчитываем целиком после массовой отметки.
-    await reallocateLessonPay(tx, { tenantId, lessonId, createdBy: employeeId })
+    await reallocateLessonPay(tx, { tenantId, lessonId })
 
     return atts
   })
@@ -1745,7 +1745,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     // пересчитываем раскладку целиком. Снятие отметки само по себе убирает
     // начисление; компенсировать выплаченное премией НЕ нужно — переплата
     // уедет в минусовое «Доначислено» и вычтется из следующей выплаты.
-    await reallocateLessonPay(tx, { tenantId, lessonId, createdBy: employeeId })
+    await reallocateLessonPay(tx, { tenantId, lessonId })
 
     if (existing.subscriptionId) {
       // Занятие вернулось в «оставшиеся» — повторное списание пойдёт по текущей

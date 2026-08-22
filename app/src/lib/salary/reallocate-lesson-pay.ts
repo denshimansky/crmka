@@ -110,7 +110,6 @@ export function computePayTargets(
 export interface ReallocateLessonPayInput {
   tenantId: string
   lessonId: string
-  createdBy?: string | null
 }
 
 export interface ReallocateResult {

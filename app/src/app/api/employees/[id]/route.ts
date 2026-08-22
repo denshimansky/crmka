@@ -111,6 +111,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Правка окладных полей меняет РАСЧЁТ прошлых месяцев (база — «версия с начала
+  // времён»), поэтому оклад-твины ОПИУ надо пересобрать, иначе начисление и расход
+  // разъедутся: было 18 000 → стало 25 000, а в финрезе прошлых месяцев осталось
+  // 18 000. Резолвим категорию ДО транзакции (см. getOkladCategoryId).
+  const okladFieldsTouched =
+    data.monthlySalary !== undefined ||
+    data.okladFrom !== undefined ||
+    data.defaultDirectionId !== undefined ||
+    data.okladBranchIds !== undefined
+
   let employee
   try {
     employee = await db.employee.update({
@@ -136,6 +146,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         employeeBranches: { include: { branch: { select: { id: true, name: true } } } },
       },
     })
+    if (okladFieldsTouched) {
+      const { getOkladCategoryId } = await import("@/lib/salary/oklad-category")
+      const { resyncOkladTwinsFromMonth } = await import("@/lib/salary/sync-oklad-twin")
+      const okladCategoryId = await getOkladCategoryId()
+      await db.$transaction(
+        async (tx) => {
+          await resyncOkladTwinsFromMonth(tx, {
+            tenantId: session.user.tenantId,
+            employeeId: id,
+            fromYear: 1970,
+            fromMonth: 1,
+            okladCategoryId,
+            createdBy: session.user.employeeId ?? null,
+          })
+        },
+        { timeout: 120_000 },
+      )
+    }
   } catch (e) {
     // Гонка между isEmailTaken и update (смена email) → БД-индекс → 409.
     const msg = uniqueViolationMessage(e)

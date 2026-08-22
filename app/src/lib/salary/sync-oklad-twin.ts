@@ -80,10 +80,13 @@ export async function syncOkladTwinsForEmployeePeriod(
     createdBy: string | null
   },
 ): Promise<number> {
-  // 1. Снести все прежние твины сотрудника за период — пересобираем с нуля.
+  // 1. Снести прежние оклад-твины сотрудника за период — пересобираем с нуля.
+  // Фильтр по категории обязателен: к выплате ЗП может быть привязан и другой
+  // расход (взносы/налоги), сносить его пересборкой оклада нельзя.
   await tx.expense.deleteMany({
     where: {
       tenantId: input.tenantId,
+      categoryId: input.okladCategoryId,
       salaryPayment: {
         employeeId: input.employeeId,
         periodYear: input.periodYear,

@@ -79,8 +79,11 @@ export async function computePriorPieceBalances(
   const idFilter = ids ? { in: ids } : undefined
 
   const [employees, attendances, adjustments, payments] = await Promise.all([
+    // Без фильтра deletedAt: строка нужна только чтобы резолвить оклад периода.
+    // С фильтром уволенный окладник становился «не окладником», и его окладные
+    // выплаты прошлых месяцев уезжали в сделочный остаток огромным минусом.
     dbClient.employee.findMany({
-      where: { tenantId, deletedAt: null, ...(idFilter ? { id: idFilter } : {}) },
+      where: { tenantId, ...(idFilter ? { id: idFilter } : {}) },
       select: { id: true, monthlySalary: true, okladFrom: true },
     }),
     dbClient.attendance.findMany({
@@ -201,6 +204,22 @@ export async function computePriorPieceBalances(
     let topPay = 0
     const dm = dirPayByEmp.get(empId)
     if (dm) for (const [d, p] of dm) if (p > topPay) { topPay = p; topDirectionId = d }
+    // Занятий с направлением в прошлом могло не быть (долг из направленной премии
+    // или из группы без направления). Тогда берём направление из сделочных
+    // корректировок/выплат прошлых периодов — позиция «Доначисление» без
+    // направления у окладника классифицировалась бы как оклад, долг бы не погас
+    // и всплывал каждый месяц заново.
+    if (!topDirectionId) {
+      const weights = new Map<string, number>()
+      for (const a of adjByEmp.get(empId) ?? []) {
+        if (a.directionId) weights.set(a.directionId, (weights.get(a.directionId) ?? 0) + a.amount)
+      }
+      for (const p of payByEmp.get(empId) ?? []) {
+        if (p.directionId) weights.set(p.directionId, (weights.get(p.directionId) ?? 0) + p.amount)
+      }
+      let best = 0
+      for (const [d, w] of weights) if (w > best) { best = w; topDirectionId = d }
+    }
     result.set(empId, { balance, topDirectionId })
   }
   return result

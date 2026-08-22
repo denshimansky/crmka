@@ -59,6 +59,10 @@ interface AccrualRow {
   adjPaid: number
   adjRemaining: number
   alreadyPaid: number
+  // «Доначислено» — сделочный остаток прошлых периодов: плюс = недоплата (её надо
+  // выплатить), минус = переплата (она уменьшает «К выплате» текущего месяца).
+  priorBalance: number
+  priorTopDirectionId: string | null
   remaining: number
   byDirection: AccrualByDirection[]
 }
@@ -222,6 +226,31 @@ function NewSalaryPaymentForm() {
             accountId: defaultAccountId,
             comment: "",
           })
+        }
+        // Доначисление за прошлые периоды: положительное — отдельной строкой (её
+        // надо доплатить). Отрицательное (переплата) строкой не идёт — оно уже
+        // уменьшило budget через row.remaining, поэтому автозаполнение просто
+        // выдаст меньше. Направление берём с наибольшим сделочным начислением
+        // прошлых периодов: позиция без направления у окладника классифицируется
+        // как оклад и долг не погасится.
+        if (row.priorBalance > 0 && budget > 0) {
+          const give = r2(Math.min(row.priorBalance, budget))
+          if (give > 0) {
+            budget = r2(budget - give)
+            newItems.push({
+              uid: uid(),
+              employeeId: row.employeeId,
+              employeeName: row.employeeName,
+              directionId: row.priorTopDirectionId,
+              directionName: "Доначисление за прошлые периоды",
+              accruedHint: row.priorBalance,
+              paidHint: 0,
+              remainingHint: row.priorBalance,
+              amount: String(give),
+              accountId: defaultAccountId,
+              comment: "Доначисление за прошлые периоды",
+            })
+          }
         }
         // Премии − штрафы за период (за вычетом выплат «без направления»).
         if (row.adjRemaining > 0 && budget > 0) {

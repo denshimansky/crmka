@@ -4,6 +4,7 @@ import { requirePermission } from "@/lib/api-permissions"
 import { allocateSalaryPayments, NO_DIR } from "@/lib/salary/allocate-payments"
 import { okladForPeriod } from "@/lib/salary/oklad-for-period"
 import { loadOkladSchedules } from "@/lib/salary/oklad-context"
+import { computePriorPieceBalances } from "@/lib/salary/prior-piece-balance"
 
 /**
  * GET /api/salary-payments/accruals?periodYear&periodMonth&upTo&kind
@@ -228,6 +229,17 @@ export async function GET(req: NextRequest) {
 
   // === Сборка результата ===
   const r2 = (n: number) => Math.round(n * 100) / 100
+  // «Доначислено» — накопленный сделочный остаток прошлых периодов (плюс = долг
+  // центра, минус = переплата). Раньше документ выплат его не видел: переплата за
+  // удалённое/перенесённое занятие прошлого месяца не вычиталась, а ретро-«Прогул»
+  // нельзя было выплатить отсюда — приходилось идти в карточку сотрудника.
+  // Только для сделочной части: у оклада переноса остатка между месяцами нет.
+  const priorMap = kind === "salary"
+    ? new Map<string, { balance: number; topDirectionId: string | null }>()
+    : await computePriorPieceBalances(db, tenantId, periodYear, periodMonth, {
+        employeeIds: employees.map((e) => e.id),
+      })
+
   const data = employees
     .map((emp) => {
       const name = [emp.lastName, emp.firstName].filter(Boolean).join(" ").trim() || "Без имени"
@@ -237,7 +249,11 @@ export async function GET(req: NextRequest) {
       const bonuses = bonusByEmp.get(emp.id) || 0
       const penalties = penaltyByEmp.get(emp.id) || 0
       const alreadyPaid = paidByEmp.get(emp.id) || 0
-      const remaining = accrued + bonuses - penalties - alreadyPaid
+      const prior = priorMap.get(emp.id)
+      const priorBalance = prior?.balance ?? 0
+      // «К выплате» = остаток месяца + доначислено прошлых периодов (как в карточке
+      // сотрудника и в ведомости), иначе три поверхности считали бы по-разному.
+      const remaining = accrued + bonuses - penalties - alreadyPaid + priorBalance
 
       // Аллокация выплат по строкам (общий helper — та же логика, что в
       // buildInstructorSalaryDetail): выплаты без направления гасят строку оклада
@@ -291,11 +307,13 @@ export async function GET(req: NextRequest) {
         adjPaid: r2(adjPaid),
         adjRemaining: r2(adjNet - adjPaid),
         alreadyPaid: r2(alreadyPaid),
+        priorBalance: r2(priorBalance),
+        priorTopDirectionId: prior?.topDirectionId ?? null,
         remaining: r2(remaining),
         byDirection,
       }
     })
-    .filter(r => r.accrued !== 0 || r.bonuses !== 0 || r.penalties !== 0 || r.alreadyPaid !== 0)
+    .filter(r => r.accrued !== 0 || r.bonuses !== 0 || r.penalties !== 0 || r.alreadyPaid !== 0 || r.priorBalance !== 0)
 
   return NextResponse.json({ data, periodYear, periodMonth })
 }

@@ -59,21 +59,40 @@ export async function POST(req: NextRequest) {
   })
   if (!employee) return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
 
-  const adjustment = await db.salaryAdjustment.create({
-    data: {
+  // Премия/штраф без направления входит в потолок оклад-твина («оклад + премии −
+  // штрафы»), поэтому расход в ОПИУ надо пересобрать сразу. Раньше премия,
+  // заведённая ПОСЛЕ выплаты, потолок не поднимала — оклад в финрезе оставался
+  // занижен, пока кто-нибудь случайно не тронет выплату.
+  const { getOkladCategoryId } = await import("@/lib/salary/oklad-category")
+  const { syncOkladTwinsForEmployeePeriod } = await import("@/lib/salary/sync-oklad-twin")
+  const okladCategoryId = await getOkladCategoryId()
+
+  const adjustment = await db.$transaction(async (tx) => {
+    const row = await tx.salaryAdjustment.create({
+      data: {
+        tenantId: session.user.tenantId,
+        employeeId: data.employeeId,
+        type: data.type,
+        amount: data.amount,
+        periodYear: data.periodYear,
+        periodMonth: data.periodMonth,
+        comment: data.comment,
+        createdBy: session.user.employeeId,
+      },
+      include: {
+        employee: { select: { id: true, firstName: true, lastName: true } },
+      },
+    })
+    await syncOkladTwinsForEmployeePeriod(tx, {
       tenantId: session.user.tenantId,
       employeeId: data.employeeId,
-      type: data.type,
-      amount: data.amount,
       periodYear: data.periodYear,
       periodMonth: data.periodMonth,
-      comment: data.comment,
-      createdBy: session.user.employeeId,
-    },
-    include: {
-      employee: { select: { id: true, firstName: true, lastName: true } },
-    },
-  })
+      okladCategoryId,
+      createdBy: session.user.employeeId ?? null,
+    })
+    return row
+  }, { timeout: 60_000 })
 
   return NextResponse.json(adjustment, { status: 201 })
 }
