@@ -43,9 +43,9 @@ export const PERMISSIONS = [
   { key: "warehouse.edit", label: "Операции склада (приход, перемещение, списание, остатки)", group: "Склад" },
 
   // Финансы
-  { key: "finance.view", label: "Просмотр финансов (оплаты, расходы)", group: "Финансы" },
+  { key: "finance.view", label: "Просмотр финансов (оплаты, расходы, долги)", group: "Финансы" },
   { key: "finance.edit", label: "Создание оплат и расходов", group: "Финансы" },
-  { key: "finance.result", label: "Финансовый результат (ДДС, P&L, маржа)", group: "Финансы" },
+  { key: "finance.result", label: "Виджеты финансов на дашборде, ДДС", group: "Финансы" },
   { key: "finance.salary", label: "Зарплатная ведомость и выплаты всех", group: "Финансы" },
   { key: "salary.own", label: "Просмотр своей зарплаты", group: "Финансы" },
   { key: "finance.refund", label: "Возвраты средств", group: "Финансы" },
