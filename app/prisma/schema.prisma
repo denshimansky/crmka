@@ -165,6 +165,7 @@ model Organization {
   adminBonusSettings        AdminBonusSettings[]
   notifications             Notification[]
   unprolongedComments       UnprolongedComment[]
+  deletedLessons            DeletedLesson[]
   employeeBranches          EmployeeBranch[]
   leadChannels              LeadChannel[]
   absenceReasons            AbsenceReason[]
@@ -204,19 +205,19 @@ model Branch {
   updatedAt         DateTime  @updatedAt @map("updated_at")
   deletedAt         DateTime? @map("deleted_at")
 
-  organization       Organization         @relation(fields: [tenantId], references: [id])
-  rooms              Room[]
-  employeeBranches   EmployeeBranch[]
-  clients             Client[]            @relation("ClientBranch")
-  clientsSecondBranch Client[]            @relation("ClientSecondBranch")
-  groups             Group[]
-  financialAccounts  FinancialAccount[]
-  expenseBranches    ExpenseBranch[]
-  plannedExpenses    PlannedExpense[]
-  adminBonusSettings AdminBonusSettings[]
-  stockBalances      StockBalance[]
-  applications       Application[]
-  tasks              Task[]
+  organization        Organization         @relation(fields: [tenantId], references: [id])
+  rooms               Room[]
+  employeeBranches    EmployeeBranch[]
+  clients             Client[]             @relation("ClientBranch")
+  clientsSecondBranch Client[]             @relation("ClientSecondBranch")
+  groups              Group[]
+  financialAccounts   FinancialAccount[]
+  expenseBranches     ExpenseBranch[]
+  plannedExpenses     PlannedExpense[]
+  adminBonusSettings  AdminBonusSettings[]
+  stockBalances       StockBalance[]
+  applications        Application[]
+  tasks               Task[]
 
   @@index([tenantId])
   @@map("branches")
@@ -293,6 +294,9 @@ model Employee {
   assignedTasks              Task[]               @relation("TaskAssignee")
   instructorGroups           Group[]              @relation("GroupInstructor")
   instructorLessons          Lesson[]             @relation("LessonInstructor")
+  deletedLessonsAsInstructor DeletedLesson[]      @relation("DeletedLessonInstructor")
+  deletedLessonsDeleted      DeletedLesson[]      @relation("DeletedLessonDeleter")
+  deletedLessonsRestored     DeletedLesson[]      @relation("DeletedLessonRestorer")
   substituteIn               Lesson[]             @relation("SubstituteInstructor")
   instructorTrialLessons     TrialLesson[]        @relation("TrialInstructor")
   periodsClosed              Period[]             @relation("periodClosedBy")
@@ -527,25 +531,25 @@ model DirectionPrice {
 // === ГРУППЫ И РАСПИСАНИЕ ===
 
 model Group {
-  id           String    @id @default(uuid()) @db.Uuid
-  tenantId     String    @map("tenant_id") @db.Uuid
-  name         String
-  directionId  String    @map("direction_id") @db.Uuid
-  branchId     String    @map("branch_id") @db.Uuid
-  roomId       String    @map("room_id") @db.Uuid
-  instructorId String    @map("instructor_id") @db.Uuid
-  maxStudents  Int       @default(15) @map("max_students")
-  isActive     Boolean   @default(true) @map("is_active")
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  name          String
+  directionId   String    @map("direction_id") @db.Uuid
+  branchId      String    @map("branch_id") @db.Uuid
+  roomId        String    @map("room_id") @db.Uuid
+  instructorId  String    @map("instructor_id") @db.Uuid
+  maxStudents   Int       @default(15) @map("max_students")
+  isActive      Boolean   @default(true) @map("is_active")
   // Период действия группы. startDate — с какой даты группа начала работу
   // (для уже существующих/исторических групп — null). endDate — до какой даты
   // группа работает (null = бессрочная). Используется при автогенерации
   // расписания: занятия создаются только внутри этого периода.
-  startDate    DateTime? @map("start_date")
-  endDate      DateTime? @map("end_date")
+  startDate     DateTime? @map("start_date")
+  endDate       DateTime? @map("end_date")
   // Технический флаг: группа создана под одно разовое занятие (Lesson вне
   // расписания группы). Такие группы скрываются из списка групп и из отчётов
   // с группировкой по группам — в UI пользователь их не видит.
-  isOneTime    Boolean   @default(false) @map("is_one_time")
+  isOneTime     Boolean   @default(false) @map("is_one_time")
   // Технический флаг: группа-держатель ИНДИВИДУАЛЬНОГО пробного (пробное без
   // группы). Такому пробному нужно собственное занятие: ЗП инструктора живёт
   // только в Attendance у Lesson, иначе за пробное без группы начислить нечем.
@@ -553,22 +557,23 @@ model Group {
   // группам) и дополнительно прячется из сетки расписания: там пробное рисуется
   // собственной карточкой (TrialDetailsDialog), и занятие-держатель дало бы
   // дубль строки. Само пробное при этом хранит groupId=null — «группы нет».
-  isTrialHolder Boolean  @default(false) @map("is_trial_holder")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-  deletedAt    DateTime? @map("deleted_at")
+  isTrialHolder Boolean   @default(false) @map("is_trial_holder")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
 
-  organization  Organization            @relation(fields: [tenantId], references: [id])
-  direction     Direction               @relation(fields: [directionId], references: [id])
-  branch        Branch                  @relation(fields: [branchId], references: [id])
-  room          Room                    @relation(fields: [roomId], references: [id])
-  instructor    Employee                @relation("GroupInstructor", fields: [instructorId], references: [id])
-  templates     GroupScheduleTemplate[]
-  lessons       Lesson[]
-  enrollments   GroupEnrollment[]
-  subscriptions Subscription[]
-  trialLessons  TrialLesson[]
-  salaryRate    GroupSalaryRate?
+  organization   Organization            @relation(fields: [tenantId], references: [id])
+  direction      Direction               @relation(fields: [directionId], references: [id])
+  branch         Branch                  @relation(fields: [branchId], references: [id])
+  room           Room                    @relation(fields: [roomId], references: [id])
+  instructor     Employee                @relation("GroupInstructor", fields: [instructorId], references: [id])
+  templates      GroupScheduleTemplate[]
+  lessons        Lesson[]
+  deletedLessons DeletedLesson[]
+  enrollments    GroupEnrollment[]
+  subscriptions  Subscription[]
+  trialLessons   TrialLesson[]
+  salaryRate     GroupSalaryRate?
 
   @@index([tenantId])
   @@index([tenantId, branchId])
@@ -632,6 +637,54 @@ model Lesson {
   @@index([tenantId, date])
   @@index([groupId, date])
   @@map("lessons")
+}
+
+// Архив удалённых занятий. Lesson удаляется физически (DELETE /api/lessons/[id]):
+// мягкое удаление на самой Lesson потребовало бы фильтра deletedAt в ~57 местах
+// чтения занятий (сетка расписания, отчёты, ЗП, ЛК родителя, задачи, ИИ-контекст),
+// и единственный пропуск показал бы «призрак» удалённого занятия. Поэтому перед
+// удалением сюда кладётся снимок: вкладка «Расписание» карточки группы рисует
+// такую строку как удалённую (кто и когда), а «Восстановить» пересоздаёт занятие
+// из снимка. Восстановленная строка остаётся в архиве с restoredAt — история
+// «удалили и вернули» не теряется.
+model DeletedLesson {
+  id                     String       @id @default(uuid()) @db.Uuid
+  tenantId               String       @map("tenant_id") @db.Uuid
+  groupId                String       @map("group_id") @db.Uuid
+  // id занятия до удаления — для сверки со старыми ссылками в логах.
+  lessonId               String       @map("lesson_id") @db.Uuid
+  date                   DateTime     @db.Date
+  startTime              String       @map("start_time")
+  durationMinutes        Int          @map("duration_minutes")
+  instructorId           String       @map("instructor_id") @db.Uuid
+  substituteInstructorId String?      @map("substitute_instructor_id") @db.Uuid
+  isTrial                Boolean      @default(false) @map("is_trial")
+  isMakeup               Boolean      @default(false) @map("is_makeup")
+  status                 LessonStatus
+  cancelReason           String?      @map("cancel_reason")
+  topic                  String?
+  homework               String?
+  rescheduledFromDate    DateTime?    @map("rescheduled_from_date") @db.Date
+  // Снимок выбранных занятий пакетов (SubscriptionLesson уходит по cascade):
+  // [{ subscriptionId }]. При восстановлении привязка возвращается тем пакетам,
+  // у которых ещё есть свободное место.
+  packageSelections      Json?        @map("package_selections")
+  deletedAt              DateTime     @default(now()) @map("deleted_at")
+  deletedBy              String?      @map("deleted_by") @db.Uuid
+  restoredAt             DateTime?    @map("restored_at")
+  restoredBy             String?      @map("restored_by") @db.Uuid
+  // id пересозданного занятия (у восстановленного занятия id новый).
+  restoredLessonId       String?      @map("restored_lesson_id") @db.Uuid
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+  group        Group        @relation(fields: [groupId], references: [id])
+  instructor   Employee     @relation("DeletedLessonInstructor", fields: [instructorId], references: [id])
+  deleter      Employee?    @relation("DeletedLessonDeleter", fields: [deletedBy], references: [id])
+  restorer     Employee?    @relation("DeletedLessonRestorer", fields: [restoredBy], references: [id])
+
+  @@index([tenantId, groupId, date])
+  @@index([tenantId, deletedAt])
+  @@map("deleted_lessons")
 }
 
 model GroupEnrollment {

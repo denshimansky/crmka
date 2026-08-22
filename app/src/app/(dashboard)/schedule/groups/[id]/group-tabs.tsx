@@ -47,6 +47,21 @@ interface LessonData {
   statusLabel: string
   statusVariant: "default" | "secondary" | "destructive"
   instructor: string
+  // ISO-дата + время: единый порядок для живых и удалённых строк.
+  sortKey: string
+}
+
+// Строка архива удалённых занятий (deleted_lessons) — в сетке расписания её нет,
+// показывается только здесь, чтобы было видно, что занятие было и кто его убрал.
+interface DeletedLessonData {
+  id: string
+  date: string
+  startTime: string
+  durationMinutes: number
+  instructor: string
+  deletedBy: string
+  deletedAt: string
+  sortKey: string
 }
 
 interface EnrollmentData {
@@ -105,6 +120,8 @@ interface GroupInfo {
 interface GroupTabsProps {
   groupId: string
   lessons: LessonData[]
+  deletedLessons: DeletedLessonData[]
+  canRestoreLessons: boolean
   enrollments: EnrollmentData[]
   templates: TemplateData[]
   scheduleStr: string
@@ -143,6 +160,8 @@ const MONTH_OPTIONS = [
 export function GroupTabs({
   groupId,
   lessons,
+  deletedLessons,
+  canRestoreLessons,
   enrollments,
   templates,
   scheduleStr,
@@ -168,10 +187,9 @@ export function GroupTabs({
 
       <TabsContent value="schedule">
         <ScheduleTab
-          groupId={groupId}
           lessons={lessons}
-          currentMonth={currentMonth}
-          currentYear={currentYear}
+          deletedLessons={deletedLessons}
+          canRestore={canRestoreLessons}
           monthLabel={monthLabel}
           onRefresh={() => router.refresh()}
         />
@@ -204,21 +222,48 @@ export function GroupTabs({
 // --- Расписание ---
 
 function ScheduleTab({
-  groupId,
   lessons,
-  currentMonth,
-  currentYear,
+  deletedLessons,
+  canRestore,
   monthLabel,
   onRefresh,
 }: {
-  groupId: string
   lessons: LessonData[]
-  currentMonth: number
-  currentYear: number
+  deletedLessons: DeletedLessonData[]
+  canRestore: boolean
   monthLabel: string
   onRefresh: () => void
 }) {
   const roleNames = useRoleNames()
+  const [restoringId, setRestoringId] = useState<string | null>(null)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
+
+  // Живые и удалённые занятия — одним списком в хронологическом порядке, чтобы
+  // пропуск в расписании был виден на своём месте, а не отдельной таблицей внизу.
+  const rows = [
+    ...lessons.map((l) => ({ kind: "live" as const, sortKey: l.sortKey, lesson: l })),
+    ...deletedLessons.map((l) => ({ kind: "deleted" as const, sortKey: l.sortKey, deleted: l })),
+  ].sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+
+  async function handleRestore(deletedLessonId: string) {
+    setRestoringId(deletedLessonId)
+    setRestoreError(null)
+    try {
+      const res = await fetch(`/api/deleted-lessons/${deletedLessonId}/restore`, {
+        method: "POST",
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setRestoreError(data.error || "Не удалось восстановить занятие")
+        return
+      }
+      onRefresh()
+    } catch {
+      setRestoreError("Не удалось восстановить занятие")
+    } finally {
+      setRestoringId(null)
+    }
+  }
 
   return (
     <div className="space-y-4 mt-4">
@@ -229,7 +274,11 @@ function ScheduleTab({
         <MonthPicker />
       </div>
 
-      {lessons.length === 0 ? (
+      {restoreError && (
+        <p className="text-sm text-destructive">{restoreError}</p>
+      )}
+
+      {rows.length === 0 ? (
         <div className="text-center py-10 text-muted-foreground">
           <CalendarDays className="mx-auto size-10 opacity-50 mb-2" />
           <p>Нет занятий за этот месяц</p>
@@ -247,32 +296,60 @@ function ScheduleTab({
               <TableHead>Длительность</TableHead>
               <TableHead>{roleNames.instructor}</TableHead>
               <TableHead>Статус</TableHead>
-              <TableHead className="w-[40px]" />
+              <TableHead className="w-[160px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {lessons.map((lesson) => (
-              <TableRow key={lesson.id} className="cursor-pointer hover:bg-muted/50">
-                <TableCell>
-                  <Link href={`/schedule/lessons/${lesson.id}`} className="hover:underline">
-                    {lesson.date}
-                  </Link>
-                </TableCell>
-                <TableCell>{lesson.startTime}</TableCell>
-                <TableCell>{lesson.durationMinutes} мин</TableCell>
-                <TableCell>{lesson.instructor}</TableCell>
-                <TableCell>
-                  <Badge variant={lesson.statusVariant}>
-                    {lesson.statusLabel}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Link href={`/schedule/lessons/${lesson.id}`}>
-                    <ExternalLink className="size-4 text-muted-foreground" />
-                  </Link>
-                </TableCell>
-              </TableRow>
-            ))}
+            {rows.map((row) =>
+              row.kind === "live" ? (
+                <TableRow key={row.lesson.id} className="cursor-pointer hover:bg-muted/50">
+                  <TableCell>
+                    <Link href={`/schedule/lessons/${row.lesson.id}`} className="hover:underline">
+                      {row.lesson.date}
+                    </Link>
+                  </TableCell>
+                  <TableCell>{row.lesson.startTime}</TableCell>
+                  <TableCell>{row.lesson.durationMinutes} мин</TableCell>
+                  <TableCell>{row.lesson.instructor}</TableCell>
+                  <TableCell>
+                    <Badge variant={row.lesson.statusVariant}>
+                      {row.lesson.statusLabel}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/schedule/lessons/${row.lesson.id}`}>
+                      <ExternalLink className="size-4 text-muted-foreground" />
+                    </Link>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                <TableRow key={row.deleted.id} className="bg-muted/30 text-muted-foreground">
+                  <TableCell className="line-through">{row.deleted.date}</TableCell>
+                  <TableCell className="line-through">{row.deleted.startTime}</TableCell>
+                  <TableCell className="line-through">{row.deleted.durationMinutes} мин</TableCell>
+                  <TableCell className="line-through">{row.deleted.instructor}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">Удалено</Badge>
+                    <div className="text-xs mt-1">
+                      {row.deleted.deletedBy}, {row.deleted.deletedAt}
+                    </div>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {canRestore && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={restoringId === row.deleted.id}
+                        onClick={() => handleRestore(row.deleted.id)}
+                      >
+                        <ArchiveRestore className="size-4 mr-1" />
+                        {restoringId === row.deleted.id ? "..." : "Восстановить"}
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ),
+            )}
           </TableBody>
         </Table>
       )}

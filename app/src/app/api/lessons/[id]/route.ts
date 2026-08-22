@@ -16,6 +16,7 @@ import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
 import { calcRefund } from "@/lib/balance/calc-refund"
 import { logAudit } from "@/lib/audit"
+import { archiveDeletedLesson } from "@/lib/schedule/deleted-lessons"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { maybeRollbackPaidSalary } from "@/lib/salary/rollback-correction"
 import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
@@ -716,6 +717,17 @@ export async function DELETE(
       date: true,
       groupId: true,
       status: true,
+      // Остальные поля — снимок в архив удалённых (см. DeletedLesson).
+      startTime: true,
+      durationMinutes: true,
+      instructorId: true,
+      substituteInstructorId: true,
+      isTrial: true,
+      isMakeup: true,
+      cancelReason: true,
+      topic: true,
+      homework: true,
+      rescheduledFromDate: true,
       _count: {
         select: {
           // Реальные отметки блокируют удаление. Placeholder (isPending=true)
@@ -766,7 +778,33 @@ export async function DELETE(
   )
   const selSnapshot = await snapshotPackageSelections(db, tenantId, [id])
 
-  await db.lesson.delete({ where: { id } })
+  // Удаление и снимок в архив — одной транзакцией: занятие не должно исчезнуть
+  // без записи, по которой его можно вернуть. Архив пишем после delete, чтобы
+  // отказ удаления (FK от заметок о ребёнке или отработок) не оставил строку
+  // про живое занятие.
+  await db.$transaction(async (tx) => {
+    await tx.lesson.delete({ where: { id } })
+    await archiveDeletedLesson(tx, {
+      tenantId,
+      lesson,
+      packageSelections: selSnapshot,
+      deletedBy: employeeId ?? null,
+    })
+  })
+
+  logAudit({
+    tenantId,
+    employeeId: employeeId ?? null,
+    action: "delete",
+    entityType: "Lesson",
+    entityId: id,
+    changes: {
+      date: { old: lesson.date.toISOString().slice(0, 10) },
+      startTime: { old: lesson.startTime },
+      groupId: { old: lesson.groupId },
+    },
+    req,
+  })
 
   // Живые календарные абонементы периода теряют одно занятие — уменьшаем
   // totalLessons/сумму (переплата вернётся на баланс родителя через reprice).

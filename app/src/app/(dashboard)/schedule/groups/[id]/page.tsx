@@ -107,6 +107,23 @@ export default async function GroupCardPage({
     orderBy: [{ date: "asc" }, { startTime: "asc" }],
   })
 
+  // Удалённые занятия этого месяца — строки архива (deleted_lessons). В сетке
+  // расписания их нет и быть не должно; здесь показываем «кто и когда удалил»
+  // и даём вернуть занятие. Восстановленные не показываем — они уже в lessons.
+  const deletedLessons = await db.deletedLesson.findMany({
+    where: {
+      groupId: id,
+      tenantId,
+      restoredAt: null,
+      date: { gte: monthStart, lte: monthEnd },
+    },
+    include: {
+      instructor: { select: { firstName: true, lastName: true } },
+      deleter: { select: { firstName: true, lastName: true } },
+    },
+    orderBy: [{ date: "asc" }, { startTime: "asc" }],
+  })
+
   // Зачисления, актуальные на выбранный месяц: зачисленные не позже конца
   // месяца (enrolledAt <= monthEnd) — при просмотре прошлого месяца более
   // поздние ученики не показываются; для текущего/будущего — весь состав.
@@ -158,8 +175,27 @@ export default async function GroupCardPage({
     statusLabel: LESSON_STATUS_LABELS[l.status] || l.status,
     statusVariant: LESSON_STATUS_VARIANT[l.status] || "secondary" as const,
     instructor: `${l.instructor.lastName} ${l.instructor.firstName}`,
+    sortKey: `${l.date.toISOString().slice(0, 10)}_${l.startTime}`,
   }))
 
+  const deletedLessonsData = deletedLessons.map((l) => ({
+    id: l.id,
+    date: formatDate(l.date),
+    startTime: l.startTime,
+    durationMinutes: l.durationMinutes,
+    instructor: `${l.instructor.lastName} ${l.instructor.firstName}`,
+    deletedBy: l.deleter
+      ? `${l.deleter.lastName} ${l.deleter.firstName}`
+      : "—",
+    deletedAt: l.deletedAt.toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    sortKey: `${l.date.toISOString().slice(0, 10)}_${l.startTime}`,
+  }))
   const enrollmentsData = enrollments.map((e) => ({
     id: e.id,
     clientId: e.client.id,
@@ -238,6 +274,8 @@ export default async function GroupCardPage({
       <GroupTabs
         groupId={id}
         lessons={lessonsData}
+        deletedLessons={deletedLessonsData}
+        canRestoreLessons={["owner", "manager", "admin"].includes(session.user.role)}
         enrollments={enrollmentsData}
         templates={templatesData}
         scheduleStr={scheduleStr}
