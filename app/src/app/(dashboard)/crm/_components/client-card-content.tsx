@@ -85,6 +85,17 @@ export async function ClientCardContent({
   const formatMoney = (amount: number) =>
     new Intl.NumberFormat("ru-RU").format(amount) + " " + currencySymbol(currency)
 
+  // Блок «Непродлённые абонементы» — только для пакетной модели. У пакета нет
+  // «месяца периода», непродление ловится по истечению срока, и страница-отчёт
+  // /reports/churn/not-renewed для такой организации показывает пусто — карточка
+  // остаётся единственным местом, где эта картина видна. Календарной организации
+  // блок не нужен: там работает сам отчёт.
+  const orgSubType = await db.organization.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionType: true },
+  })
+  const isPackageOrg = orgSubType?.subscriptionType === "package"
+
   const client = await db.client.findFirst({
     where: { id, tenantId, deletedAt: null },
     include: {
@@ -703,7 +714,7 @@ export async function ClientCardContent({
 
         {/* Sidebar */}
         <div className="space-y-4">
-          <UnprolongedCommentsSection clientId={client.id} />
+          {isPackageOrg && <UnprolongedCommentsSection clientId={client.id} />}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
