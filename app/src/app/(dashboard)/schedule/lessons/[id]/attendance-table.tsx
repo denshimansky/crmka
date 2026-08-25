@@ -504,10 +504,18 @@ export function AttendanceTable({
       {
         // Берём настоящий id из ответа сервера, чтобы потом можно было
         // корректно сделать DELETE (сброс отметки) до router.refresh().
-        const created: { id?: string } = await res.json().catch(() => ({}))
+        // Сервер может ответить телом `null` (HTTP 200): «Не был» на отработке =
+        // отмена отработки — обе стороны (L1 makeup_scheduled + L2 отметка)
+        // удаляются, создавать нечего. res.json() успешно парсит "null" в null
+        // (не ошибка → .catch не срабатывает), поэтому здесь именно null, а не {}.
+        const created: { id?: string } | null = await res.json().catch(() => null)
         router.refresh()
 
-        const attType = attendanceTypes.find((t) => t.id === attendanceTypeId)
+        // created=null → отметка не создавалась (отмена отработки). Оптимистичное
+        // проставление «Не был» тут было бы враньём: строка виртуальной отработки
+        // должна исчезнуть — это подтянет router.refresh(). Без этого гварда чтение
+        // created.id роняло рендер (Cannot read properties of null (reading 'id')).
+        const attType = created && attendanceTypes.find((t) => t.id === attendanceTypeId)
         if (attType) {
           const chargeAmount = attType.chargesSubscription ? student.lessonPrice : 0
           let instructorPayAmount = 0
@@ -528,7 +536,7 @@ export function AttendanceTable({
                 ? {
                     ...s,
                     attendance: {
-                      id: created.id || s.attendance?.id || "",
+                      id: created?.id || s.attendance?.id || "",
                       attendanceTypeId,
                       attendanceTypeName: attType.name,
                       attendanceTypeCode: attType.code,
