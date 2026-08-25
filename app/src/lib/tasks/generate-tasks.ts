@@ -160,35 +160,49 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
     }
   }
 
-  // 5. Ожидание оплаты со следующего дня — по подопечному (Ward.salesStage), одна
-  //    задача на родителя. Порог 1 день: статус «Ожидаем оплату» установлен вчера
-  //    или раньше (salesStageAt < сегодня). Дедуп по ОТКРЫТОЙ задаче клиента
-  //    (status=pending), НЕ по дню: пока висит незакрытая payment_due — новую не
-  //    создаём. Иначе крон плодил бы дубль каждый день ожидания (одна задача на
-  //    родителя за каждый день) — «одна задача до оплаты».
+  // 5. «Напомнить об оплате» — подопечный в «Ожидаем оплату», И у клиента ЯВНО
+  //    проставлена обещанная дата оплаты (promisedPaymentDate). Без обещанной даты
+  //    задачу НЕ плодим: сценарий «заявка, скоро первое платное, не оплачено» уже
+  //    закрывает триггер #7 (first_paid_reminder, за день до старта) — дублировать
+  //    его напоминанием об оплате не нужно.
+  //    Порог 1 день: статус установлен вчера или раньше (salesStageAt < сегодня).
+  //    dueDate = обещанная дата (НЕ день крона): задача краснеет ровно когда
+  //    обещание нарушено, а не на следующий день после входа в этап (для будущей
+  //    даты она просто висит в «Актуальных»).
+  //    Дедуп по (клиент, автотриггер, dueDate=обещанная дата) в ЛЮБОМ статусе:
+  //    закрытие задачи администратором её больше НЕ воскрешает ночным кроном (был
+  //    баг-петля, как #111 — раньше дедуп шёл по status=pending); а если клиент
+  //    пообещал новую дату — под неё создастся новая задача.
   if (isTriggerEnabled("payment_due", triggerSettings, todayLocal)) {
     const awaitingWards = await db.ward.findMany({
       where: {
         tenantId,
         salesStage: "awaiting_payment",
         salesStageAt: { lt: today },
-        client: { deletedAt: null },
+        client: { deletedAt: null, promisedPaymentDate: { not: null } },
       },
-      select: { client: { select: { id: true, firstName: true, lastName: true } } },
+      select: {
+        client: { select: { id: true, firstName: true, lastName: true, promisedPaymentDate: true } },
+      },
     })
     const seenClients = new Set<string>()
     for (const w of awaitingWards) {
       if (seenClients.has(w.client.id)) continue
       seenClients.add(w.client.id)
+      const promised = w.client.promisedPaymentDate
+      if (!promised) continue
       const exists = await db.task.findFirst({
-        where: { tenantId, clientId: w.client.id, autoTrigger: "payment_due", status: "pending", deletedAt: null },
+        where: {
+          tenantId, clientId: w.client.id, autoTrigger: "payment_due",
+          dueDate: promised, deletedAt: null,
+        },
       })
       if (!exists) {
         await db.task.create({
           data: {
             tenantId, title: `Напомнить об оплате: ${[w.client.lastName, w.client.firstName].filter(Boolean).join(" ")}`,
             type: "auto", autoTrigger: "payment_due", status: "pending",
-            dueDate: today, assignedTo: defaultAssignee.id, clientId: w.client.id,
+            dueDate: promised, assignedTo: defaultAssignee.id, clientId: w.client.id,
           },
         })
         created++

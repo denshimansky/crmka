@@ -60,6 +60,19 @@ function commentText(item: CallItem): string {
   return "—"
 }
 
+/**
+ * Метка колонки «Статус». Исходы «Создать заявку» и «Записан ранее» технически
+ * сохраняются с одним статусом called (метка «Обзвонен»), а различаются только
+ * полем result. Чтобы в колонке была видна реальная выбранная отметка (а не общее
+ * «Обзвонен»), для обработанных строк с известным result предпочитаем метку исхода.
+ */
+function statusLabel(item: CallItem): string {
+  if (item.status === "called" && item.result) {
+    return RESULT_LABELS[item.result] ?? "Обзвонен"
+  }
+  return CALL_STATUS_LABELS[item.status] || item.status
+}
+
 const STATUS_VARIANTS: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   pending: "outline",
   called: "secondary",
@@ -146,7 +159,7 @@ export function WardResultCells({
       <TableCell className={`text-muted-foreground text-xs ${dim}`}>{item.ageLabel || "—"}</TableCell>
       <TableCell className={dim}>
         <Badge variant={STATUS_VARIANTS[item.status] || "outline"}>
-          {CALL_STATUS_LABELS[item.status] || item.status}
+          {statusLabel(item)}
         </Badge>
       </TableCell>
       <TableCell className={`whitespace-nowrap text-muted-foreground text-xs ${dim}`}>
