@@ -173,13 +173,17 @@ export function AttendanceTab({
     let makeup = 0
     let totalCharge = 0
     for (const a of items) {
+      // «Не был на отработке» — информационная строка (ребёнок не пришёл на
+      // назначенную отработку): показываем её в истории, но в счётчики посещений/
+      // пропусков/отработок не берём (реальный пропуск учтён на исходном занятии).
+      const isMakeupNoShow = a.isMakeup && a.attendanceType.code === "no_show"
       // Непроставленную отметку («Не отмечен») не считаем ни посещением, ни пропуском.
-      if (!a.isPending) {
+      if (!a.isPending && !isMakeupNoShow) {
         if (a.attendanceType.countsAsRevenue) present++
         else absent++
       }
       if (a.isTrial) trial++
-      if (a.isMakeup) makeup++
+      if (a.isMakeup && !isMakeupNoShow) makeup++
       totalCharge += a.chargeAmount
     }
     return { total, present, absent, trial, makeup, totalCharge }
@@ -390,7 +394,7 @@ function AttendanceItemsTable({
                     Пробное
                   </Badge>
                 )}
-                {a.isMakeup && (
+                {a.isMakeup && a.attendanceType.code !== "no_show" && (
                   <Badge
                     variant="secondary"
                     className="px-1.5 py-0 text-[10px]"
@@ -412,6 +416,13 @@ function AttendanceItemsTable({
               {a.isPending ? (
                 <Badge variant="outline" className="text-muted-foreground">
                   Не отмечен
+                </Badge>
+              ) : a.isMakeup && a.attendanceType.code === "no_show" ? (
+                <Badge
+                  variant="secondary"
+                  title="Был назначен на отработку, но не пришёл"
+                >
+                  Не был на отработке
                 </Badge>
               ) : (
                 <Badge

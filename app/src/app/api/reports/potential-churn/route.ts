@@ -94,6 +94,8 @@ export async function GET(req: NextRequest) {
     where: {
       tenantId,
       attendanceTypeId: { in: absenceTypeIds },
+      // «Не был на отработке» — информационная запись, не пропуск в группе.
+      isMakeup: false,
       lesson: {
         date: { gte: dateFrom, lte: dateTo },
       },

@@ -15,6 +15,9 @@ export async function GET(req: NextRequest) {
   const attWhere: any = {
     tenantId,
     lesson: { date: { gte: dateFrom, lte: dateTo } },
+    // «Не был на отработке» (isMakeup no_show) — информационная запись, в
+    // посещаемость не считаем (реальный пропуск учтён на исходном занятии).
+    NOT: { isMakeup: true, attendanceType: { code: "no_show" } },
   }
   if (branchId) attWhere.lesson = { ...attWhere.lesson, group: { branchId } }
   if (clientId) attWhere.clientId = clientId

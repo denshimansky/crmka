@@ -68,6 +68,9 @@ interface StudentData {
   makeupResolved?: MakeupResolvedInfo | null
   /** Если стоит «Назначена отработка» — целевое будущее занятие. */
   scheduledMakeup?: ScheduledMakeupInfo | null
+  /** Ученик был назначен отработать этот пропуск, но на отработку не пришёл —
+   *  здесь занятие-отработка (L2), где стоит «Не был». Бейдж «не был на отработке DD.MM». */
+  makeupMissed?: ScheduledMakeupInfo | null
   /** Ф7: если эта строка — отработка ребёнка из другой группы, здесь данные
    *  исходного (пропущенного) занятия. Бейдж «Отработка за DD.MM», клик → L1. */
   makeupSource?: {
@@ -258,6 +261,8 @@ interface AttendanceTableProps {
   homework: string | null
   students: StudentData[]
   makeupStudents?: StudentData[]
+  /** Справка «не был на отработке» — для сводки «По типам» (не строки ростера). */
+  makeupNoShows?: { clientId: string; wardId: string | null; clientName: string; wardName: string | null }[]
   trialStudents?: TrialStudentData[]
   uncoveredStudents?: UncoveredStudentData[]
   attendanceTypes: AttendanceTypeData[]
@@ -290,6 +295,7 @@ export function AttendanceTable({
   homework: initialHomework,
   students: initialStudents,
   makeupStudents: initialMakeupStudents = [],
+  makeupNoShows = [],
   trialStudents: initialTrialStudents = [],
   uncoveredStudents = [],
   attendanceTypes,
@@ -511,12 +517,14 @@ export function AttendanceTable({
         const created: { id?: string } | null = await res.json().catch(() => null)
         router.refresh()
 
-        // created=null → отметка не создавалась (отмена отработки). Оптимистичное
-        // проставление «Не был» тут было бы враньём: строка виртуальной отработки
-        // должна исчезнуть — это подтянет router.refresh(). Без этого гварда чтение
-        // created.id роняло рендер (Cannot read properties of null (reading 'id')).
+        // created=null подстраховка: если сервер вернёт пустое тело, не читаем
+        // created.id (когда-то это роняло рендер). «Не был» на отработке: строка
+        // уходит из ростера в справку «По типам» / бейдж на исходном занятии — не
+        // проставляем оптимистично (иначе мелькнёт отмеченной строкой), полагаемся
+        // на router.refresh().
         const attType = created && attendanceTypes.find((t) => t.id === attendanceTypeId)
-        if (attType) {
+        const isMakeupNoShow = !!attType && student.isMakeup && attType.code === "no_show"
+        if (attType && !isMakeupNoShow) {
           const chargeAmount = attType.chargesSubscription ? student.lessonPrice : 0
           let instructorPayAmount = 0
           if (attType.paysInstructor && payEnabled && salaryRate) {
@@ -1002,6 +1010,22 @@ export function AttendanceTable({
                   </Badge>
                 </Link>
               )}
+              {/* Ученик не пришёл на назначенную отработку. Бейдж-ссылка на
+                  занятие-отработку; статус этого занятия остаётся «Не был», админ
+                  переназначает отработку или закрывает другим статусом. */}
+              {student.makeupMissed && (
+                <Link
+                  href={`/schedule/lessons/${student.makeupMissed.lessonId}`}
+                  title={`Не пришёл на отработку ${new Date(student.makeupMissed.date).toLocaleDateString("ru-RU")} в группе «${student.makeupMissed.groupName}» (${student.makeupMissed.directionName}) в ${student.makeupMissed.startTime}. Кликните, чтобы открыть.`}
+                >
+                  <Badge
+                    variant="outline"
+                    className="text-xs text-red-600 border-red-300 cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/30"
+                  >
+                    не был на отработке {new Date(student.makeupMissed.date).toLocaleDateString("ru-RU")}
+                  </Badge>
+                </Link>
+              )}
             </div>
             {student.wardName && (
               <div className="text-xs text-muted-foreground">
@@ -1295,7 +1319,7 @@ export function AttendanceTable({
       </Card>
 
       {/* Summary */}
-      {(markedStudents.length > 0 || trialStudents.length > 0) && (
+      {(markedStudents.length > 0 || trialStudents.length > 0 || makeupNoShows.length > 0) && (
         <Card>
           <CardContent className="p-4">
             <div className="flex flex-wrap gap-6">
@@ -1316,6 +1340,15 @@ export function AttendanceTable({
                   {makeupStudents.length > 0 && (
                     <div className="text-sm text-orange-600">
                       <span className="font-medium">Отработки:</span> {makeupStudents.length}
+                    </div>
+                  )}
+                  {/* Справка: кто был назначен на отработку сюда, но не пришёл.
+                      Чисто информационная строка — повторному назначению отработки
+                      этого же ребёнка на это занятие не мешает. */}
+                  {makeupNoShows.length > 0 && (
+                    <div className="text-sm text-red-600">
+                      <span className="font-medium">Не были на отработке:</span>{" "}
+                      {makeupNoShows.map((m) => m.wardName || m.clientName).join(", ")}
                     </div>
                   )}
                   {trialStudents.length > 0 && (
@@ -1425,8 +1458,19 @@ function MakeupChangeWarningDialog({
             После изменения проверьте ведомости — возможно, потребуется ручная корректировка.
           </div>
           <div className="text-muted-foreground">
-            Со списания с абонемента исходной группы откатится автоматически. Связь с
-            пропущенным занятием сохранится — администратор может переназначить отработку.
+            Списание с абонемента исходной группы откатится автоматически.
+            {newAction === "no_show" ? (
+              <>
+                {" "}Отметка станет «Не был на отработке» и останется в истории; на
+                исходном занятии ребёнок вернётся в «Не был» — там можно переназначить
+                отработку или закрыть другим статусом.
+              </>
+            ) : (
+              <>
+                {" "}Связь с пропущенным занятием сохранится — администратор может
+                переназначить отработку.
+              </>
+            )}
           </div>
         </div>
 

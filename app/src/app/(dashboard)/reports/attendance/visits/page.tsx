@@ -35,6 +35,9 @@ export default async function VisitsReportPage({ searchParams }: { searchParams:
     where: {
       tenantId,
       lesson: { date: { gte: monthStart, lte: monthEnd } },
+      // «Не был на отработке» (isMakeup no_show) — информационная запись, в
+      // посещаемость не считаем (реальный пропуск учтён на исходном занятии).
+      NOT: { isMakeup: true, attendanceType: { code: "no_show" } },
     },
     select: {
       id: true,

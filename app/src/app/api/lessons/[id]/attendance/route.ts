@@ -396,61 +396,116 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // === Вся бизнес-логика в транзакции ===
   const attendance = await db.$transaction(async (tx) => {
-    // Ф8: Отмена отработки. «Не был» на L2-виртуальной отработке = отработка
-    // не состоялась. Возвращаем оба занятия к «не отмечено»: удаляем запись
-    // `makeup_scheduled` на L1 и (если уже была) реальную отметку на L2.
-    // Откаты списания / refund / ЗП — здесь же, чтобы не оставлять «осиротевших»
-    // транзакций в балансе.
+    // Ф8 (переработано 25.08.2026): «Не был» на отработке. Раньше удаляли обе
+    // стороны — ребёнок пропадал и с занятия-отработки (L2), и из «Назначена
+    // отработка» на исходном (L1). Теперь след сохраняем, ничего не удаляя:
+    //  · L2 (это занятие): отметка остаётся как isMakeup + no_show, списание/ЗП
+    //    откатываем в 0. В ростер она не идёт — рисуется строкой-справкой «не был
+    //    на отработке» в сводке «По типам» и тянется в историю посещений клиента.
+    //  · L1 (исходное): makeup_scheduled/makeup → no_show, снимаем ссылку
+    //    scheduled_makeup_lesson_id — админ на L1 переназначит отработку или
+    //    закроет другим статусом. Бейдж «не был на отработке DD.MM» на L1
+    //    вычисляется из этой же L2-записи (makeup_of_lesson_id).
+    // Финансово безопасно: обе makeup-стороны не списывают и не платят ЗП по типу;
+    // единственные деньги к откату — прежний «Был» на L2 (слот абонемента L1 + ЗП).
     if (isMakeupArrival && attendanceType.code === "no_show") {
+      // Прежняя отметка на L2 (если раньше стоял «Был»): по (занятие, абонемент),
+      // а при пропуске без покрывающего абонемента — по (занятие, клиент, ward).
       const existingOnL2 = data.subscriptionId
         ? await tx.attendance.findUnique({
             where: { tenantId_lessonId_subscriptionId: { tenantId, lessonId, subscriptionId: data.subscriptionId } },
             include: { attendanceType: { select: { chargePercent: true } } },
           })
-        : null
+        : await tx.attendance.findFirst({
+            where: { tenantId, lessonId, clientId: data.clientId, wardId: data.wardId, isMakeup: true },
+            include: { attendanceType: { select: { chargePercent: true } } },
+          })
 
-      if (existingOnL2) {
-        if (Number(existingOnL2.chargeAmount) > 0) {
-          const prevRefund = calcRefund(existingOnL2.chargeAmount, existingOnL2.attendanceType.chargePercent)
-          if (prevRefund.gt(0)) {
-            await applyBalanceDelta(tx, {
-              tenantId,
-              clientId: data.clientId,
-              delta: prevRefund.negated(),
-              type: "attendance_revert",
-              refs: { lessonId, attendanceId: existingOnL2.id, directionId: lesson.group.directionId },
-              createdBy: employeeId,
-            })
-          }
-          if (existingOnL2.subscriptionId) {
-            await tx.subscription.update({
-              where: { id: existingOnL2.subscriptionId },
-              data: {
-                chargedAmount: { decrement: existingOnL2.chargeAmount },
-              },
-            })
-          }
-        }
-        await tx.attendance.delete({ where: { id: existingOnL2.id } })
-        // Схемы per_lesson/floating: ставка могла висеть на удалённой отметке —
-        // пересчитываем раскладку занятия.
-        await reallocateLessonPay(tx, { tenantId, lessonId })
-        if (existingOnL2.subscriptionId) {
-          // Скидки v2 + расход слотов: выравниваем finalAmount/balance после
-          // отката. Строго ПОСЛЕ delete (иначе пересчёт видит удаляемую строку)
-          // и независимо от chargeAmount (бесплатная при 100% скидке отметка
-          // тоже расходовала занятие).
-          await repriceSubscription(tx, {
+      // Откат списания слота абонемента L1 и недосписанной части (был «Был»).
+      if (existingOnL2 && Number(existingOnL2.chargeAmount) > 0) {
+        const prevRefund = calcRefund(existingOnL2.chargeAmount, existingOnL2.attendanceType.chargePercent)
+        if (prevRefund.gt(0)) {
+          await applyBalanceDelta(tx, {
             tenantId,
-            subscriptionId: existingOnL2.subscriptionId,
+            clientId: data.clientId,
+            delta: prevRefund.negated(),
+            type: "attendance_revert",
+            refs: { lessonId, attendanceId: existingOnL2.id, directionId: lesson.group.directionId },
             createdBy: employeeId,
           })
         }
+        if (existingOnL2.subscriptionId) {
+          await tx.subscription.update({
+            where: { id: existingOnL2.subscriptionId },
+            data: { chargedAmount: { decrement: existingOnL2.chargeAmount } },
+          })
+        }
       }
+
+      // L2: конвертируем/создаём отметку «Не был на отработке» (isMakeup, без
+      // списания и ЗП). makeup_of_lesson_id → исходное занятие (по нему бейдж на
+      // L1 и история); scheduled_makeup_lesson_id тут не нужен (это уже L2).
+      let makeupNoShow
+      if (existingOnL2) {
+        makeupNoShow = await tx.attendance.update({
+          where: { id: existingOnL2.id },
+          data: {
+            attendanceTypeId: data.attendanceTypeId,
+            chargeAmount: 0,
+            instructorPayAmount: 0,
+            instructorPayEnabled: false,
+            isMakeup: true,
+            makeupOfLessonId: sourceMakeupLessonId,
+            scheduledMakeupLessonId: null,
+            isPending: false,
+            markedBy: employeeId,
+            markedAt: new Date(),
+          },
+        })
+      } else {
+        makeupNoShow = await tx.attendance.create({
+          data: {
+            tenantId,
+            lessonId,
+            subscriptionId: data.subscriptionId,
+            clientId: data.clientId,
+            wardId: data.wardId,
+            attendanceTypeId: data.attendanceTypeId,
+            chargeAmount: 0,
+            instructorPayAmount: 0,
+            instructorPayEnabled: false,
+            isMakeup: true,
+            makeupOfLessonId: sourceMakeupLessonId,
+            markedBy: employeeId,
+            markedAt: new Date(),
+          },
+        })
+      }
+
+      // per_lesson/floating: если откатили оплаченный «Был» — пересчитать ЗП L2.
+      await reallocateLessonPay(tx, { tenantId, lessonId })
+      // Реприс абонемента L1: вернуть слот/«ожидание оплаты» после отката списания.
+      if (existingOnL2?.subscriptionId) {
+        await repriceSubscription(tx, {
+          tenantId,
+          subscriptionId: existingOnL2.subscriptionId,
+          createdBy: employeeId,
+        })
+      }
+
+      // L1: «Назначена отработка»/«Отработано» → «Не был», снять ссылку на L2,
+      // чтобы админ мог переназначить отработку или закрыть другим статусом.
       if (virtualMakeup) {
-        await tx.attendance.delete({ where: { id: virtualMakeup.id } })
+        await tx.attendance.update({
+          where: { id: virtualMakeup.id },
+          data: {
+            attendanceTypeId: data.attendanceTypeId,
+            scheduledMakeupLessonId: null,
+          },
+        })
       }
-      return null
+
+      return makeupNoShow
     }
 
     // Calculate charge amount

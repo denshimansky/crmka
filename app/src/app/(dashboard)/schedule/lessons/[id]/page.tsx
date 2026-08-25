@@ -253,23 +253,46 @@ export default async function LessonCardPage({
   const enrolledClientKeys = new Set(
     enrollments.map(e => `${e.clientId}:${e.wardId || ""}`)
   )
-  const makeupAttendances = lesson.attendances.filter(a => a.isMakeup)
+  const makeupAttendancesAll = lesson.attendances.filter(a => a.isMakeup)
+  // Результативные отработки (Был и пр.) — интерактивные строки ростера.
+  // «Не был на отработке» (no_show) в ростер НЕ идёт: показываем строкой-справкой
+  // в сводке «По типам» и бейджем «не был на отработке» на исходном занятии.
+  const makeupAttendances = makeupAttendancesAll.filter(
+    (a) => a.attendanceType.code !== "no_show",
+  )
+  const makeupNoShowAttendances = makeupAttendancesAll.filter(
+    (a) => a.attendanceType.code === "no_show",
+  )
 
-  // Fetch client info for makeup students
-  const makeupClientIds = [...new Set(makeupAttendances.map(a => a.clientId))]
+  // Fetch client info for makeup students (обе группы — и строки, и справка).
+  const makeupClientIds = [...new Set(makeupAttendancesAll.map(a => a.clientId))]
   const makeupClients = makeupClientIds.length > 0
     ? await db.client.findMany({
         where: { id: { in: makeupClientIds }, tenantId },
         select: { id: true, firstName: true, lastName: true, phone: true },
       })
     : []
-  const makeupWardIds = makeupAttendances.map(a => a.wardId).filter(Boolean) as string[]
+  const makeupWardIds = makeupAttendancesAll.map(a => a.wardId).filter(Boolean) as string[]
   const makeupWards = makeupWardIds.length > 0
     ? await db.ward.findMany({
         where: { id: { in: makeupWardIds } },
         select: { id: true, firstName: true, lastName: true },
       })
     : []
+
+  // Строки-справки «не был на отработке» для сводки «По типам» (только имена).
+  const makeupNoShowStudents = makeupNoShowAttendances.map((a) => {
+    const client = makeupClients.find((c) => c.id === a.clientId)
+    const ward = a.wardId ? makeupWards.find((w) => w.id === a.wardId) : null
+    return {
+      clientId: a.clientId,
+      wardId: a.wardId,
+      clientName: client
+        ? [client.lastName, client.firstName].filter(Boolean).join(" ") || "Без имени"
+        : "Без имени",
+      wardName: ward ? [ward.lastName, ward.firstName].filter(Boolean).join(" ") : null,
+    }
+  })
 
   // Для уже отмеченных отработок — детали исходного занятия (на L1).
   const makeupSourceIds = [
@@ -378,6 +401,37 @@ export default async function LessonCardPage({
   // Без этого фильтра бейдж «отработано DD.MM» оставался бы и после смены Был→Не был.
   const madeUpAttendances = await db.attendance.findMany({
     where: { tenantId, makeupOfLessonId: lesson.id, chargeAmount: { gt: 0 } },
+    select: {
+      id: true,
+      wardId: true,
+      clientId: true,
+      lesson: {
+        select: {
+          id: true,
+          date: true,
+          startTime: true,
+          group: {
+            select: {
+              name: true,
+              direction: { select: { name: true } },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  // Пропуски отработки этого занятия: ученик был назначен отработать пропуск L1
+  // на каком-то L2, но на отработку не пришёл (isMakeup + no_show, chargeAmount=0).
+  // Рисуем на строке L1 бейдж «не был на отработке DD.MM» (по дате L2), после чего
+  // админ переназначает отработку или закрывает другим статусом.
+  const makeupMissedAttendances = await db.attendance.findMany({
+    where: {
+      tenantId,
+      makeupOfLessonId: lesson.id,
+      isMakeup: true,
+      attendanceType: { code: "no_show" },
+    },
     select: {
       id: true,
       wardId: true,
@@ -596,6 +650,12 @@ export default async function LessonCardPage({
         (enrollment.wardId ? m.wardId === enrollment.wardId : !m.wardId),
     )
 
+    const makeupMissed = makeupMissedAttendances.find(
+      (m) =>
+        m.clientId === enrollment.clientId &&
+        (enrollment.wardId ? m.wardId === enrollment.wardId : !m.wardId),
+    )
+
     const scheduledLesson =
       attendance?.scheduledMakeupLessonId
         ? scheduledMakeupLessons.find((l) => l.id === attendance.scheduledMakeupLessonId)
@@ -621,6 +681,15 @@ export default async function LessonCardPage({
             startTime: madeUp.lesson.startTime,
             directionName: madeUp.lesson.group.direction.name,
             groupName: madeUp.lesson.group.name,
+          }
+        : null,
+      makeupMissed: makeupMissed
+        ? {
+            lessonId: makeupMissed.lesson.id,
+            date: makeupMissed.lesson.date.toISOString().slice(0, 10),
+            startTime: makeupMissed.lesson.startTime,
+            directionName: makeupMissed.lesson.group.direction.name,
+            groupName: makeupMissed.lesson.group.name,
           }
         : null,
       scheduledMakeup: scheduledLesson
@@ -888,6 +957,7 @@ export default async function LessonCardPage({
         students={allStudents}
         uncoveredStudents={uncoveredStudents}
         makeupStudents={makeupStudents}
+        makeupNoShows={makeupNoShowStudents}
         trialStudents={trialStudents}
         attendanceTypes={attendanceTypesData}
         salaryRate={salaryRateData}

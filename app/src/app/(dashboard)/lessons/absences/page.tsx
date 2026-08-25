@@ -229,6 +229,10 @@ export default async function LessonsAbsencesPage({
     where: {
       tenantId,
       isPending: false,
+      // «Не был на отработке» (isMakeup no_show) — информационная запись занятия-
+      // отработки, а не пропуск в группе; в реестр «Пропуски» не берём (настоящий
+      // пропуск учтён на исходном занятии).
+      isMakeup: false,
       attendanceType: { code: "no_show" },
       lesson: lessonWhereBase,
       OR: [
