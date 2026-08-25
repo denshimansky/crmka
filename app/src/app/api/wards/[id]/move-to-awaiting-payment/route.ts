@@ -90,9 +90,15 @@ export async function POST(
     return NextResponse.json({ error: "Подопечный не найден" }, { status: 404 })
   }
 
-  // Воронка ведётся по заявке: переводим в «Ожидаем оплату» КОНКРЕТНУЮ заявку.
-  // Берём её по applicationId (строка «Продаж»), иначе — активную заявку этого
-  // направления, иначе — любую активную заявку ребёнка в подходящем этапе.
+  // Воронка ведётся по заявке: переводим в «Ожидаем оплату» КОНКРЕТНУЮ заявку —
+  // ТОГО ЖЕ направления, что и создаваемый абонемент. Берём её по applicationId
+  // (строка «Продаж») либо активную заявку этого направления. Направление заявки
+  // ОБЯЗАНО совпадать с data.directionId: иначе awaiting-заявка «повиснет» без
+  // своего абонемента — строка «Продаж» матчит абонемент по (ребёнок+направление)
+  // и при расхождении показывает «—» вместо группы/цены (реальный баг: заявку на
+  // «Английский» проштамповали awaiting, а абонемент был на «Английский
+  // индивидуальный»). Прежний fallback «любая активная заявка ребёнка» как раз и
+  // хватал заявку чужого направления — убран.
   // В awaiting_payment можно прийти из «Заявка» (application) или «Прошёл пробное»
   // (trial_attended); из «Пробное» — пусть сперва отметят пробное.
   const eligibleStages = ["application", "trial_attended"] as const
@@ -103,6 +109,7 @@ export async function POST(
             id: parsed.data.applicationId,
             tenantId,
             wardId: ward.id,
+            directionId: data.directionId,
             status: "active",
             deletedAt: null,
             stage: { in: [...eligibleStages] },
@@ -121,24 +128,15 @@ export async function POST(
       },
       orderBy: { createdAt: "desc" },
       select: { id: true, stage: true, packageTemplateId: true },
-    })) ??
-    (await db.application.findFirst({
-      where: {
-        tenantId,
-        wardId: ward.id,
-        status: "active",
-        deletedAt: null,
-        stage: { in: [...eligibleStages] },
-      },
-      orderBy: { createdAt: "desc" },
-      select: { id: true, stage: true, packageTemplateId: true },
     }))
 
   if (!targetApp) {
     return NextResponse.json(
       {
         error:
-          "Перевести в «Ожидание оплаты» можно только заявку из «Заявка» или «Прошёл пробное».",
+          "Нет активной заявки на выбранное направление. Создайте заявку на это " +
+          "направление (или выберите направление, совпадающее с заявкой), прежде " +
+          "чем переводить в «Ожидание оплаты».",
       },
       { status: 400 },
     )
