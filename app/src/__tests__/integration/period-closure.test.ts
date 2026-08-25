@@ -4,11 +4,16 @@
  */
 import { describe, it, before } from "node:test"
 import assert from "node:assert/strict"
-import { getAuthCookie, apiCall } from "./helpers"
+import { getAuthCookie, apiCall } from "../helpers"
+
+// Интеграционные HTTP-тесты бьют по реальному серверу. Без TEST_BASE_URL (нет
+// засеянного тестового сервера) весь набор скипается — так локальный прогон не
+// стучится в сеть и не шумит. Запуск: TEST_BASE_URL=... npm run test:integration
+const suite = process.env.TEST_BASE_URL ? describe : describe.skip
 
 // ── Unit-тесты isPeriodLocked логики ────────────────────────
 
-describe("isPeriodLocked — контракт ролей", () => {
+suite("isPeriodLocked — контракт ролей", () => {
   it("owner/manager bypass закрытый период", () => {
     const bypass = (role: string) => role === "owner" || role === "manager"
     assert.equal(bypass("owner"), true)
@@ -40,7 +45,7 @@ describe("isPeriodLocked — контракт ролей", () => {
 
 let ownerCookie: string | null = null
 
-describe("API /api/periods (требует seed)", () => {
+suite("API /api/periods (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })

@@ -5,7 +5,12 @@
  */
 import { describe, it, before } from "node:test"
 import assert from "node:assert/strict"
-import { getAuthCookie, apiCall } from "./helpers"
+import { getAuthCookie, apiCall } from "../helpers"
+
+// Интеграционные HTTP-тесты бьют по реальному серверу. Без TEST_BASE_URL (нет
+// засеянного тестового сервера) весь набор скипается — так локальный прогон не
+// стучится в сеть и не шумит. Запуск: TEST_BASE_URL=... npm run test:integration
+const suite = process.env.TEST_BASE_URL ? describe : describe.skip
 
 let ownerCookie: string | null = null
 
@@ -91,7 +96,7 @@ const ALL_REPORTS = [
 
 // ── Тесты без авторизации → 401 ─────────────────────────────
 
-describe("Отчёты — без авторизации → 401", () => {
+suite("Отчёты — без авторизации → 401", () => {
   for (const report of ALL_REPORTS) {
     it(`GET /api/reports/${report} → 401`, async () => {
       const res = await apiCall("GET", `/api/reports/${report}${DATE_PARAMS}`)
@@ -105,7 +110,7 @@ describe("Отчёты — без авторизации → 401", () => {
 
 // ── CRM-отчёты ──────────────────────────────────────────────
 
-describe("CRM-отчёты (требует seed)", () => {
+suite("CRM-отчёты (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -129,7 +134,7 @@ describe("CRM-отчёты (требует seed)", () => {
 
 // ── Churn-отчёты ─────────────────────────────────────────────
 
-describe("Churn-отчёты (требует seed)", () => {
+suite("Churn-отчёты (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -152,7 +157,7 @@ describe("Churn-отчёты (требует seed)", () => {
 
 // ── Leads-отчёты ─────────────────────────────────────────────
 
-describe("Leads-отчёты (требует seed)", () => {
+suite("Leads-отчёты (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -175,7 +180,7 @@ describe("Leads-отчёты (требует seed)", () => {
 
 // ── Capacity-отчёты ──────────────────────────────────────────
 
-describe("Capacity-отчёты (требует seed)", () => {
+suite("Capacity-отчёты (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -198,7 +203,7 @@ describe("Capacity-отчёты (требует seed)", () => {
 
 // ── Finance-отчёты ───────────────────────────────────────────
 
-describe("Finance-отчёты (требует seed)", () => {
+suite("Finance-отчёты (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -221,7 +226,7 @@ describe("Finance-отчёты (требует seed)", () => {
 
 // ── Salary-отчёты ────────────────────────────────────────────
 
-describe("Salary-отчёты (требует seed)", () => {
+suite("Salary-отчёты (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -244,7 +249,7 @@ describe("Salary-отчёты (требует seed)", () => {
 
 // ── Фильтры по датам ─────────────────────────────────────────
 
-describe("Отчёты — фильтры по датам (требует seed)", () => {
+suite("Отчёты — фильтры по датам (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -303,7 +308,7 @@ describe("Отчёты — фильтры по датам (требует seed)"
 
 // ── Metadata shape проверки ──────────────────────────────────
 
-describe("Отчёты — metadata shape (требует seed)", () => {
+suite("Отчёты — metadata shape (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })

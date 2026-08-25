@@ -4,11 +4,16 @@
  */
 import { describe, it, before } from "node:test"
 import assert from "node:assert/strict"
-import { getAuthCookie, apiCall } from "./helpers"
+import { getAuthCookie, apiCall } from "../helpers"
+
+// Интеграционные HTTP-тесты бьют по реальному серверу. Без TEST_BASE_URL (нет
+// засеянного тестового сервера) весь набор скипается — так локальный прогон не
+// стучится в сеть и не шумит. Запуск: TEST_BASE_URL=... npm run test:integration
+const suite = process.env.TEST_BASE_URL ? describe : describe.skip
 
 let ownerCookie: string | null = null
 
-describe("RBAC — без авторизации → 401/redirect", () => {
+suite("RBAC — без авторизации → 401/redirect", () => {
   const endpoints: [string, string][] = [
     ["GET", "/api/clients"],
     ["GET", "/api/payments"],
@@ -29,7 +34,7 @@ describe("RBAC — без авторизации → 401/redirect", () => {
   }
 })
 
-describe("RBAC — superadmin endpoints", () => {
+suite("RBAC — superadmin endpoints", () => {
   it("GET /api/admin/partners без auth → 401/403", async () => {
     const res = await apiCall("GET", "/api/admin/partners")
     assert.ok([401, 403].includes(res.status), `Ожидали 401/403, получили ${res.status}`)
@@ -41,7 +46,7 @@ describe("RBAC — superadmin endpoints", () => {
   })
 })
 
-describe("RBAC — rate limiting на admin auth", () => {
+suite("RBAC — rate limiting на admin auth", () => {
   it("блокируется после 5 попыток → 429", async () => {
     let lastStatus = 200
     for (let i = 0; i < 7; i++) {
@@ -55,7 +60,7 @@ describe("RBAC — rate limiting на admin auth", () => {
   })
 })
 
-describe("RBAC — owner полный доступ (требует seed)", () => {
+suite("RBAC — owner полный доступ (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -76,7 +81,7 @@ describe("RBAC — owner полный доступ (требует seed)", () =>
   }
 })
 
-describe("RBAC — валидация POST (требует seed)", () => {
+suite("RBAC — валидация POST (требует seed)", () => {
   const cases: [string, any][] = [
     ["/api/payments", {}],
     ["/api/expenses", {}],

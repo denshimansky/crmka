@@ -6,7 +6,12 @@
  */
 import { describe, it, before } from "node:test"
 import assert from "node:assert/strict"
-import { getAuthCookie, apiCall, uuid } from "./helpers"
+import { getAuthCookie, apiCall, uuid } from "../helpers"
+
+// Интеграционные HTTP-тесты бьют по реальному серверу. Без TEST_BASE_URL (нет
+// засеянного тестового сервера) весь набор скипается — так локальный прогон не
+// стучится в сеть и не шумит. Запуск: TEST_BASE_URL=... npm run test:integration
+const suite = process.env.TEST_BASE_URL ? describe : describe.skip
 
 let ownerCookie: string | null = null
 let instructorCookie: string | null = null
@@ -14,7 +19,7 @@ let readonlyCookie: string | null = null
 
 // ── ProductionCalendar ───────────────────────────────────────
 
-describe("ProductionCalendar — без авторизации", () => {
+suite("ProductionCalendar — без авторизации", () => {
   it("GET /api/production-calendar → 401", async () => {
     const res = await apiCall("GET", "/api/production-calendar")
     assert.ok(
@@ -34,7 +39,7 @@ describe("ProductionCalendar — без авторизации", () => {
   })
 })
 
-describe("ProductionCalendar — CRUD (требует seed)", () => {
+suite("ProductionCalendar — CRUD (требует seed)", () => {
   let createdId: string | null = null
   const testDate = "2026-12-25"
 
@@ -137,7 +142,7 @@ describe("ProductionCalendar — CRUD (требует seed)", () => {
 
 // ── DiscountTemplate ─────────────────────────────────────────
 
-describe("DiscountTemplate — без авторизации", () => {
+suite("DiscountTemplate — без авторизации", () => {
   it("GET /api/discount-templates → 401", async () => {
     const res = await apiCall("GET", "/api/discount-templates")
     assert.ok(
@@ -157,7 +162,7 @@ describe("DiscountTemplate — без авторизации", () => {
   })
 })
 
-describe("DiscountTemplate — CRUD (требует seed)", () => {
+suite("DiscountTemplate — CRUD (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
     instructorCookie = await getAuthCookie("instructor")
@@ -250,7 +255,7 @@ describe("DiscountTemplate — CRUD (требует seed)", () => {
 
 // ── PlannedExpense — проверка наличия endpoint ───────────────
 
-describe("PlannedExpense (требует seed)", () => {
+suite("PlannedExpense (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -278,7 +283,7 @@ describe("PlannedExpense (требует seed)", () => {
 
 // ── AdminBonusSettings — проверка наличия endpoint ───────────
 
-describe("AdminBonusSettings (требует seed)", () => {
+suite("AdminBonusSettings (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -305,7 +310,7 @@ describe("AdminBonusSettings (требует seed)", () => {
 
 // ── Notification ─────────────────────────────────────────────
 
-describe("Notification (требует seed)", () => {
+suite("Notification (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })
@@ -350,7 +355,7 @@ describe("Notification (требует seed)", () => {
 
 // ── UnprolongedComment ───────────────────────────────────────
 
-describe("UnprolongedComment (требует seed)", () => {
+suite("UnprolongedComment (требует seed)", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })

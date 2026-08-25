@@ -9,7 +9,12 @@
  */
 import { describe, it, before } from "node:test"
 import assert from "node:assert/strict"
-import { getAuthCookie, apiCall } from "./helpers"
+import { getAuthCookie, apiCall } from "../helpers"
+
+// Интеграционные HTTP-тесты бьют по реальному серверу. Без TEST_BASE_URL (нет
+// засеянного тестового сервера) весь набор скипается — так локальный прогон не
+// стучится в сеть и не шумит. Запуск: TEST_BASE_URL=... npm run test:integration
+const suite = process.env.TEST_BASE_URL ? describe : describe.skip
 
 let ownerCookie: string | null = null
 let managerCookie: string | null = null
@@ -23,7 +28,7 @@ before(async () => {
 
 // ── Без авторизации ──────────────────────────────────────────
 
-describe("PackageTemplate — без авторизации", () => {
+suite("PackageTemplate — без авторизации", () => {
   it("GET /api/package-templates → 401", async () => {
     const res = await apiCall("GET", "/api/package-templates")
     assert.ok(
@@ -55,7 +60,7 @@ describe("PackageTemplate — без авторизации", () => {
 
 // ── GET доступен всем авторизованным ─────────────────────────
 
-describe("PackageTemplate — GET", () => {
+suite("PackageTemplate — GET", () => {
   it("GET → 200 массив (любая роль)", async (t) => {
     if (!instructorCookie) {
       t.skip("Auth недоступна")
@@ -71,7 +76,7 @@ describe("PackageTemplate — GET", () => {
 
 // ── Гард по subscriptionType ─────────────────────────────────
 
-describe("PackageTemplate — гард по subscriptionType", () => {
+suite("PackageTemplate — гард по subscriptionType", () => {
   it("POST для calendar-tenant → 409", async (t) => {
     if (!ownerCookie) {
       t.skip("Auth недоступна")
@@ -95,7 +100,7 @@ describe("PackageTemplate — гард по subscriptionType", () => {
 
 // ── Forbidden ────────────────────────────────────────────────
 
-describe("PackageTemplate — RBAC", () => {
+suite("PackageTemplate — RBAC", () => {
   it("POST от instructor → 403", async (t) => {
     if (!instructorCookie) {
       t.skip("Auth недоступна")
@@ -123,7 +128,7 @@ describe("PackageTemplate — RBAC", () => {
 
 // ── Гард на смену subscriptionType ───────────────────────────
 
-describe("Organization — subscriptionType locked-гард", () => {
+suite("Organization — subscriptionType locked-гард", () => {
   it("PATCH /api/organization {subscriptionType:'package'} на locked-tenant → 409", async (t) => {
     if (!ownerCookie) {
       t.skip("Auth недоступна")

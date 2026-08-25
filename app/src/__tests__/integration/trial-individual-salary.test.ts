@@ -11,7 +11,12 @@
  */
 import { describe, it, before, after } from "node:test"
 import assert from "node:assert/strict"
-import { getAuthCookie, apiCall } from "./helpers"
+import { getAuthCookie, apiCall } from "../helpers"
+
+// Интеграционные HTTP-тесты бьют по реальному серверу. Без TEST_BASE_URL (нет
+// засеянного тестового сервера) весь набор скипается — так локальный прогон не
+// стучится в сеть и не шумит. Запуск: TEST_BASE_URL=... npm run test:integration
+const suite = process.env.TEST_BASE_URL ? describe : describe.skip
 
 const RATE_PER_LESSON = 500
 
@@ -27,7 +32,7 @@ function isoDatePlus(days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-describe("Пробное без группы: ЗП инструктору", () => {
+suite("Пробное без группы: ЗП инструктору", () => {
   before(async () => {
     ownerCookie = await getAuthCookie("owner")
   })

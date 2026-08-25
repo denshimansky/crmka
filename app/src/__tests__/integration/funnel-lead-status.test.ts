@@ -10,7 +10,12 @@
  */
 import { describe, it, before, after } from "node:test"
 import assert from "node:assert/strict"
-import { getAuthCookie, apiCall } from "./helpers"
+import { getAuthCookie, apiCall } from "../helpers"
+
+// Интеграционные HTTP-тесты бьют по реальному серверу. Без TEST_BASE_URL (нет
+// засеянного тестового сервера) весь набор скипается — так локальный прогон не
+// стучится в сеть и не шумит. Запуск: TEST_BASE_URL=... npm run test:integration
+const suite = process.env.TEST_BASE_URL ? describe : describe.skip
 
 async function leadCount(cookie: string): Promise<number> {
   const res = await apiCall("GET", "/api/reports/funnel", { cookie })
@@ -19,7 +24,7 @@ async function leadCount(cookie: string): Promise<number> {
   return lead ? Number(lead.count) : NaN
 }
 
-describe("Воронка: «Лид» = стал лидом в этом месяце (по входу в статус)", () => {
+suite("Воронка: «Лид» = стал лидом в этом месяце (по входу в статус)", () => {
   let cookie: string | null = null
   const cleanup: string[] = []
 

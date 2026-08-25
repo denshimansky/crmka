@@ -13,7 +13,8 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "test:unit": "node --import tsx --test src/__tests__/**/*.test.ts",
+    "test:unit": "node --import tsx --test \"src/__tests__/*.test.ts\"",
+    "test:integration": "node --import tsx --test \"src/__tests__/integration/*.test.ts\"",
     "test:e2e": "npx playwright test"
   },
   "prisma": {
