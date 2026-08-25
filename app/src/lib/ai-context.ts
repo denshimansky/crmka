@@ -621,11 +621,13 @@ export async function buildBaseContext(
   // видели бы выручку и прибыль организации в ответах ИИ. Данные всё равно
   // выбираются (для владельца/управляющего), но в промпт для незапривилегированной
   // роли не попадают.
-  const canSeeFinance = hasPermission(
-    role as Role,
-    "finance.result",
-    (org?.rolePermissions as RolePermissions | null) ?? null,
-  )
+  const orgPerms = (org?.rolePermissions as RolePermissions | null) ?? null
+  // Финрез (выручка/прибыль/средний чек/топ инструкторов/P&L направлений) — право
+  // finance.result (как виджеты финрез на дашборде; админ по умолчанию его не имеет).
+  const canSeeFinance = hasPermission(role as Role, "finance.result", orgPerms)
+  // Долги и расходы (оплаты/расходы/должники) — право finance.view; оно есть и у
+  // администратора, поэтому эти блоки гейтим отдельно, чтобы не прятать их от админа.
+  const canSeeFinanceOps = hasPermission(role as Role, "finance.view", orgPerms)
 
   let ctx = `Организация: ${org?.name || "—"}
 Дата: ${now.toLocaleDateString("ru-RU", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })} (день недели указан — используй его, НЕ вычисляй сам; «завтра» = следующий календарный день)
@@ -672,7 +674,7 @@ export async function buildBaseContext(
       ctx += `${m.name}: выручка ${fmt(mRevenue)} ₽ | расходы ${fmt(mExpenses)} ₽ | прибыль ${fmt(profit)} ₽\n`
     }
   } else {
-    ctx += `\n(Финансовые показатели — выручка, расходы, прибыль, средний чек, крупные расходы, должники — этой роли НЕДОСТУПНЫ и в контекст не переданы. На вопросы о деньгах/выручке/прибыли организации отвечай, что финансовые отчёты доступны только владельцу и управляющему.)\n`
+    ctx += `\n(Финансовый результат — выручка, прибыль, средний чек, P&L по направлениям — этой роли НЕ передан. На вопросы о выручке/прибыли организации отвечай, что финрез (P&L) доступен владельцу и управляющему.)\n`
   }
 
   // ─── Срез по текущему месяцу ───
@@ -799,8 +801,8 @@ export async function buildBaseContext(
     }
   }
 
-  // ─── Топ-5 крупных расходов ───
-  if (canSeeFinance && monthExpenseTop.length > 0) {
+  // ─── Топ-5 крупных расходов (право finance.view — есть и у админа) ───
+  if (canSeeFinanceOps && monthExpenseTop.length > 0) {
     ctx += `\nКрупные расходы за ${current.name}:\n`
     for (const e of monthExpenseTop) {
       const cat = e.category?.name || "—"
@@ -809,8 +811,8 @@ export async function buildBaseContext(
     }
   }
 
-  // ─── Должники и группы (как раньше, но компактнее) ───
-  if (canSeeFinance && debtors.length > 0) {
+  // ─── Должники и группы (должники — право finance.view, есть и у админа) ───
+  if (canSeeFinanceOps && debtors.length > 0) {
     const totalDebt = debtors.reduce((s, d) => s + Math.abs(Number(d.balance)), 0)
     ctx += `\nДолжники: ${debtors.length} клиентов на ${fmt(totalDebt)} ₽\n`
     debtors.slice(0, 5).forEach(d => {
