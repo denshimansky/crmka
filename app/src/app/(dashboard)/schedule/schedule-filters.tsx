@@ -107,6 +107,12 @@ function wardLabel(w: WardOption): string {
 
 function getOccupancyStyle(enrolled: number, max: number): { className: string; label: string } {
   if (max === 0) return { className: "border-l-4 border-l-gray-400", label: "—" }
+  // Превышение лимита (больше учеников, чем мест) — отдельное состояние «переполнена»
+  // с восклицательным знаком на карточке. Полностью занятая группа (ровно по лимиту)
+  // ещё НЕ переполнена — предупреждения нет.
+  if (enrolled > max) {
+    return { className: "border-l-4 border-l-red-500", label: "переполнена" }
+  }
   const ratio = enrolled / max
   if (ratio > 0.9) {
     return { className: "border-l-4 border-l-red-500", label: "заполнена" }
@@ -763,8 +769,12 @@ function WeekRoomsView({
                           <span className="font-semibold">
                             {enrolled}/{max}
                           </span>
-                          {max > 0 && enrolled / max > 0.9 && (
-                            <Badge variant="destructive" className="h-3.5 px-1 text-[9px]">
+                          {max > 0 && enrolled > max && (
+                            <Badge
+                              variant="destructive"
+                              className="h-3.5 px-1 text-[9px]"
+                              title="Превышен лимит группы"
+                            >
                               !
                             </Badge>
                           )}

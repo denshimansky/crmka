@@ -607,6 +607,7 @@ export default async function SchedulePage({
           <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-green-500" /> &lt;70% — свободно</span>
           <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-yellow-500" /> 70–90% — почти заполнена</span>
           <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-red-500" /> &gt;90% — заполнена</span>
+          <span className="flex items-center gap-1"><span className="inline-flex h-3.5 items-center rounded bg-red-600 px-1 text-[9px] font-medium text-white">!</span> превышен лимит группы</span>
         </div>
       )}
 
