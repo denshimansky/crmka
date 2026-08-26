@@ -42,9 +42,6 @@ export function MoveLessonDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [needsConfirm, setNeedsConfirm] = useState(false)
-  const [conflicts, setConflicts] = useState<
-    { id: string; startTime: string; groupName: string; roomName: string | null }[] | null
-  >(null)
 
   if (!canMove) return null
 
@@ -54,7 +51,6 @@ export function MoveLessonDialog({
     setDuration(currentDurationMinutes)
     setError(null)
     setNeedsConfirm(false)
-    setConflicts(null)
   }
 
   const isChanged =
@@ -65,7 +61,6 @@ export function MoveLessonDialog({
   async function submit(confirmReset: boolean) {
     setSubmitting(true)
     setError(null)
-    setConflicts(null)
     try {
       const res = await fetch(`/api/lessons/${lessonId}`, {
         method: "PATCH",
@@ -91,12 +86,6 @@ export function MoveLessonDialog({
       if (res.status === 409 && data.requiresConfirmation) {
         setNeedsConfirm(true)
         setError(null)
-        return
-      }
-      // 409 + conflicts → конфликт расписания (инструктор/кабинет)
-      if (res.status === 409 && Array.isArray(data.conflicts)) {
-        setConflicts(data.conflicts)
-        setError(data.error || "Конфликт расписания")
         return
       }
 
@@ -176,20 +165,6 @@ export function MoveLessonDialog({
             {error && (
               <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {error}
-              </div>
-            )}
-
-            {conflicts && conflicts.length > 0 && (
-              <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs">
-                <div className="font-medium text-destructive">Конфликтуют:</div>
-                <ul className="space-y-0.5">
-                  {conflicts.map((c) => (
-                    <li key={c.id}>
-                      {c.startTime} — {c.groupName}
-                      {c.roomName && ` (${c.roomName})`}
-                    </li>
-                  ))}
-                </ul>
               </div>
             )}
 

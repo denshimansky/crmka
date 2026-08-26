@@ -19,7 +19,6 @@ import { logAudit } from "@/lib/audit"
 import { archiveDeletedLesson } from "@/lib/schedule/deleted-lessons"
 import { createMissedMakeupTask } from "@/lib/tasks/missed-makeup"
 import { repriceSubscription } from "@/lib/discounts/recalc-client-discounts"
-import { findRoomOccupant, roomOccupiedMessage } from "@/lib/schedule/room-conflict"
 import {
   branchScopeFromSession,
   canAccessBranch,
@@ -80,15 +79,6 @@ const updateSchema = z.object({
   // Подтверждение сброса отметок (если на занятии есть посещения)
   confirmResetAttendances: z.boolean().optional(),
 })
-
-function timeToMinutes(t: string): number {
-  const [h, m] = t.split(":").map(Number)
-  return h * 60 + m
-}
-
-function intervalsOverlap(s1: number, d1: number, s2: number, d2: number): boolean {
-  return s1 < s2 + d2 && s2 < s1 + d1
-}
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
@@ -415,78 +405,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       )
     }
 
-    // Конфликт: инструктор или кабинет уже заняты в новой дате/времени.
-    const effectiveInstructorId = existing.substituteInstructorId || existing.instructorId
-    const candidates = await db.lesson.findMany({
-      where: {
-        tenantId,
-        date: newDate,
-        id: { not: id },
-        status: { not: "cancelled" },
-        OR: [
-          { instructorId: effectiveInstructorId },
-          { substituteInstructorId: effectiveInstructorId },
-          { group: { roomId: existing.group.roomId } },
-        ],
-      },
-      select: {
-        id: true,
-        startTime: true,
-        durationMinutes: true,
-        instructorId: true,
-        substituteInstructorId: true,
-        group: {
-          select: {
-            name: true,
-            roomId: true,
-            room: { select: { name: true } },
-          },
-        },
-        instructor: { select: { firstName: true, lastName: true } },
-      },
-    })
-    const newStart = timeToMinutes(newStartTime)
-    const conflicts = candidates.filter((l) =>
-      intervalsOverlap(newStart, newDurationMinutes, timeToMinutes(l.startTime), l.durationMinutes),
-    )
-    if (conflicts.length > 0) {
-      const first = conflicts[0]
-      const sameInstructor =
-        first.instructorId === effectiveInstructorId ||
-        first.substituteInstructorId === effectiveInstructorId
-      const reason = sameInstructor
-        ? `инструктор уже занят (${[first.instructor.lastName, first.instructor.firstName].filter(Boolean).join(" ") || "—"})`
-        : `кабинет «${first.group.room?.name || "—"}» уже занят`
-      return NextResponse.json(
-        {
-          error: `Конфликт: ${reason} в ${first.startTime} (группа «${first.group.name}»)`,
-          conflicts: conflicts.map((c) => ({
-            id: c.id,
-            startTime: c.startTime,
-            groupName: c.group.name,
-            roomName: c.group.room?.name || null,
-          })),
-        },
-        { status: 409 },
-      )
-    }
-
-    // Баг #61: кабинет может быть занят и индивидуальным пробным (занятия
-    // выше уже проверены — сюда доходят только конфликты с пробными).
-    const occupant = await findRoomOccupant(db, {
-      tenantId,
-      roomId: existing.group.roomId,
-      date: newDate,
-      startTime: newStartTime,
-      durationMinutes: newDurationMinutes,
-      excludeLessonId: id,
-    })
-    if (occupant) {
-      return NextResponse.json(
-        { error: `Конфликт: ${roomOccupiedMessage(existing.group.room?.name || null, occupant)}` },
-        { status: 409 },
-      )
-    }
+    // Наложения при переносе разрешены НАМЕРЕННО: партнёрам часто нужно
+    // переносить занятия свободно (для аналитики), поэтому проверка занятости
+    // кабинета/инструктора здесь не выполняется. Запрет на наложение остаётся
+    // только при создании разового занятия и создании/переносе индивидуального
+    // пробного (см. lib/schedule/room-conflict → standalone-lessons, trial-lesson).
   }
 
   // ── Состав обновления ──

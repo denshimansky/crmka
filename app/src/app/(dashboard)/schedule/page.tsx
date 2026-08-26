@@ -15,7 +15,6 @@ import { ScheduleWeekNav, type ScheduleView } from "./schedule-week-nav"
 import { CancelDayDialog } from "./cancel-day-dialog"
 import { StandaloneLessonDialog } from "./standalone-lesson-dialog"
 import { SchedulePrintButton } from "@/components/schedule-print"
-import { CopyMonthDialog } from "./copy-month-dialog"
 import { PageHelp } from "@/components/page-help"
 import { ScheduleFilterableGrid } from "./schedule-filters"
 import {
@@ -595,7 +594,6 @@ export default async function SchedulePage({
             view={view}
           />
         </div>
-        <CopyMonthDialog />
         <CancelDayDialog defaultDate={defaultDate} branches={branches} />
         <SchedulePrintButton />
       </div>
