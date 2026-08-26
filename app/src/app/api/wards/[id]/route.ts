@@ -5,6 +5,9 @@ import { db } from "@/lib/db"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { logAudit } from "@/lib/audit"
 import { computeTrialPay } from "@/lib/salary/trial-pay"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { computeTrialCharge } from "@/lib/services/trial-charge"
+import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
@@ -218,14 +221,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
                 instructorPayEnabled: scheduled.instructorPayEnabled,
                 atDate: scheduled.scheduledDate,
               })
-              await tx.attendance.create({
+              // Сумма списания за пробное — по галке «Бесплатное пробное» направления
+              // (как в PATCH /api/trial-lessons/[id]).
+              const direction = await tx.direction.findUnique({
+                where: { id: scheduled.lesson.group.directionId },
+                select: { trialFree: true, trialPrice: true },
+              })
+              const newCharge = direction ? computeTrialCharge(direction) : new Prisma.Decimal(0)
+              const att = await tx.attendance.create({
                 data: {
                   tenantId,
                   lessonId: scheduled.lesson.id,
                   clientId: existing.clientId,
                   wardId: id,
                   attendanceTypeId: presentType.id,
-                  chargeAmount: new Prisma.Decimal(0),
+                  chargeAmount: newCharge,
                   instructorPayAmount: payAmount,
                   instructorPayEnabled: scheduled.instructorPayEnabled,
                   isTrial: true,
@@ -233,6 +243,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
                   markedAt: now,
                 },
               })
+              if (newCharge.gt(0)) {
+                await applyBalanceDelta(tx, {
+                  tenantId,
+                  clientId: existing.clientId,
+                  delta: newCharge.negated(),
+                  type: "trial_charge",
+                  refs: {
+                    lessonId: scheduled.lesson.id,
+                    attendanceId: att.id,
+                    directionId: scheduled.lesson.group.directionId,
+                  },
+                  comment: "Пробное занятие",
+                  createdBy: session.user.employeeId ?? undefined,
+                })
+              }
+              await recomputeClientFirstPaidLessonDate(tx, tenantId, existing.clientId)
             }
           }
         }
