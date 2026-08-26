@@ -37,17 +37,23 @@ export default async function RevenueReportPage({ searchParams }: { searchParams
           direction: { select: { id: true, name: true } },
         },
       },
+      // Пробное списание не привязано к абонементу — берём направление занятия,
+      // иначе выручка пробного падала бы в «Без направления».
+      lesson: {
+        select: { group: { select: { direction: { select: { id: true, name: true } } } } },
+      },
     },
   })
 
   const totalRevenue = attendances.reduce((s, a) => s + Number(a.chargeAmount), 0)
   const totalLessons = attendances.length
 
-  // Группировка по направлениям
+  // Группировка по направлениям (абонемент → занятие как фолбэк)
   const byDirection = new Map<string, { name: string; amount: number; count: number }>()
   for (const a of attendances) {
-    const dirId = a.subscription?.direction?.id || "unknown"
-    const dirName = a.subscription?.direction?.name || "Без направления"
+    const dir = a.subscription?.direction ?? a.lesson?.group?.direction ?? null
+    const dirId = dir?.id || "unknown"
+    const dirName = dir?.name || "Без направления"
     const prev = byDirection.get(dirId) || { name: dirName, amount: 0, count: 0 }
     prev.amount += Number(a.chargeAmount)
     prev.count += 1
