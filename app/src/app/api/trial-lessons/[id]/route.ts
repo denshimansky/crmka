@@ -335,7 +335,13 @@ export async function PATCH(
         const prevCharge = existingAtt
           ? new Prisma.Decimal(existingAtt.chargeAmount)
           : new Prisma.Decimal(0)
-        const chargeChanged = !prevCharge.equals(newCharge)
+        // Деньги двигаем только при ЯВНОЙ отметке «Был» (status==="attended").
+        // Переключение оплаты инструктору / confirmed (status undefined) не должно
+        // ни списывать, ни возвращать — и не ретро-списывает легаси-пробные (0₽)
+        // на платном направлении.
+        const settle = status === "attended"
+        const targetCharge = settle ? newCharge : prevCharge
+        const chargeChanged = settle && !prevCharge.equals(newCharge)
 
         // Откат прежнего списания (при повторной отметке/смене цены).
         if (existingAtt && chargeChanged && prevCharge.gt(0)) {
@@ -355,7 +361,7 @@ export async function PATCH(
             where: { id: existingAtt.id },
             data: {
               attendanceTypeId: presentType.id,
-              chargeAmount: newCharge,
+              chargeAmount: targetCharge,
               instructorPayAmount: payAmount,
               instructorPayEnabled: attendancePayEnabled,
               markedBy: session.user.employeeId ?? undefined,
@@ -370,7 +376,7 @@ export async function PATCH(
               clientId: trial.clientId,
               wardId: trial.wardId,
               attendanceTypeId: presentType.id,
-              chargeAmount: newCharge,
+              chargeAmount: targetCharge,
               instructorPayAmount: payAmount,
               instructorPayEnabled: attendancePayEnabled,
               isTrial: true,
@@ -460,6 +466,15 @@ export async function PATCH(
           instructorPayEnabled: survivorPayEnabled,
           atDate: trial.scheduledDate,
         })
+        // Списание принадлежит выжившему платному пробному — сохраняем его сумму,
+        // иначе баланс и chargeAmount разъедутся (фантомный долг / двойное списание).
+        const survivorDirection = await tx.direction.findUnique({
+          where: { id: lesson.group.directionId },
+          select: { trialFree: true, trialPrice: true },
+        })
+        const survivorCharge = survivorDirection
+          ? computeTrialCharge(survivorDirection)
+          : new Prisma.Decimal(0)
         await tx.attendance.updateMany({
           where: {
             tenantId,
@@ -470,7 +485,7 @@ export async function PATCH(
           },
           data: {
             attendanceTypeId: presentType.id,
-            chargeAmount: new Prisma.Decimal(0),
+            chargeAmount: survivorCharge,
             instructorPayAmount: survivorPay,
             instructorPayEnabled: survivorPayEnabled,
           },
