@@ -12,9 +12,11 @@ export async function GET() {
   const prevMonthStart = new Date(Date.UTC(now.getFullYear(), now.getMonth() - 1, 1))
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
-  // Все организации (+ признак нулевого тарифа и последняя подписка — для
-  // разбивки по состояниям)
+  // Все ДЕЙСТВУЮЩИЕ организации (+ признак нулевого тарифа и последняя подписка —
+  // для разбивки по состояниям). Архивные партнёры (прекратили работу) исключены
+  // из всех метрик бэк-офиса — считаем их отдельно (archivedCount).
   const allOrgs = await db.organization.findMany({
+    where: { archivedAt: null },
     select: {
       id: true,
       name: true,
@@ -66,12 +68,14 @@ export async function GET() {
   const partnerStates = { paying: 0, trial: 0, zero: 0, blocked: 0, grace: 0, other: 0 }
   for (const o of allOrgs) partnerStates[classifyPartner(o)]++
 
-  // Новые за этот месяц
-  const newThisMonth = allOrgs.filter((o) => new Date(o.createdAt) >= monthStart).length
-  // Новые за прошлый месяц (для сравнения)
-  const newLastMonth = allOrgs.filter(
-    (o) => new Date(o.createdAt) >= prevMonthStart && new Date(o.createdAt) < monthStart
-  ).length
+  // Новые партнёры за месяц — метрика с привязкой к периоду: считаем ВСЕХ
+  // созданных в месяце, включая позже архивированных. Факт привлечения —
+  // историчен и не должен «переписываться» задним числом при архивировании
+  // (в отличие от allOrgs, где архивные исключены для метрик текущего состояния).
+  const newThisMonth = await db.organization.count({ where: { createdAt: { gte: monthStart } } })
+  const newLastMonth = await db.organization.count({
+    where: { createdAt: { gte: prevMonthStart, lt: monthStart } },
+  })
 
   // Топ-10 по клиентам
   const topByClients = [...allOrgs]
@@ -112,22 +116,27 @@ export async function GET() {
       createdAt: o.createdAt,
     }))
 
-  // MRR (сумма активных подписок)
+  // MRR (сумма активных подписок) — без архивных партнёров
   const activeSubs = await db.billingSubscription.aggregate({
-    where: { status: "active" },
+    where: { status: "active", organization: { archivedAt: null } },
     _sum: { monthlyAmount: true },
     _count: true,
   })
 
-  // Неоплаченные счета
+  // Неоплаченные счета — без архивных (их долги мы не преследуем)
   const unpaidInvoices = await db.billingInvoice.aggregate({
-    where: { status: { in: ["pending", "overdue"] } },
+    where: { status: { in: ["pending", "overdue"] }, organization: { archivedAt: null } },
     _sum: { amount: true },
     _count: true,
   })
 
   const overdueInvoices = await db.billingInvoice.count({
-    where: { status: "overdue" },
+    where: { status: "overdue", organization: { archivedAt: null } },
+  })
+
+  // Архивные партнёры (прекратили работу) — для справки в шапке бэк-офиса
+  const archivedCount = await db.organization.count({
+    where: { archivedAt: { not: null } },
   })
 
   return NextResponse.json({
@@ -143,5 +152,6 @@ export async function GET() {
     unpaidAmount: Number(unpaidInvoices._sum.amount || 0),
     unpaidCount: unpaidInvoices._count,
     overdueCount: overdueInvoices,
+    archivedCount,
   })
 }

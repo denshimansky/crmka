@@ -57,6 +57,8 @@ const updateSchema = z.object({
   contactPerson: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
   billingStatus: z.enum(["active", "grace_period", "blocked"]).optional(),
   billingExempt: z.boolean().optional(),
+  // Архивирование партнёра (former partner). true → archivedAt = now, false → NULL.
+  archived: z.boolean().optional(),
 })
 
 // PATCH /api/admin/partners/[id] — обновить партнёра
@@ -83,6 +85,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (parsed.data.contactPerson !== undefined) data.contactPerson = parsed.data.contactPerson
   if (parsed.data.billingStatus !== undefined) data.billingStatus = parsed.data.billingStatus
   if (parsed.data.billingExempt !== undefined) data.billingExempt = parsed.data.billingExempt
+  // Архив: штампуем/снимаем метку времени (обратимо). Сам архив только гасит
+  // биллинг и уводит партнёра вниз списка — подписку/данные не трогаем.
+  if (parsed.data.archived !== undefined) data.archivedAt = parsed.data.archived ? new Date() : null
 
   const updated = await db.organization.update({ where: { id }, data })
 

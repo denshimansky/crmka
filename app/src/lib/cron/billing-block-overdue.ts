@@ -26,7 +26,8 @@ export async function blockOverdueBilling(now: Date = new Date()): Promise<Block
     where: {
       status: "pending",
       dueDate: { lte: today },
-      organization: { billingExempt: false },
+      // Архивных партнёров (прекратили работу) не блокируем — как exempt.
+      organization: { billingExempt: false, archivedAt: null },
     },
     include: { organization: { select: { id: true, name: true } } },
   })

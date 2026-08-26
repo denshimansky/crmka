@@ -43,7 +43,8 @@ export async function generateBillingInvoices(
   const subs = await db.billingSubscription.findMany({
     where: {
       status: { not: "cancelled" },
-      organization: { billingExempt: false },
+      // Архивным партнёрам (прекратили работу) счета не выставляем — как exempt.
+      organization: { billingExempt: false, archivedAt: null },
     },
     include: {
       plan: true,

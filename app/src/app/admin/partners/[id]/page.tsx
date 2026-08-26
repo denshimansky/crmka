@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  ArrowLeft, Building2, CalendarClock, CircleSlash, CreditCard, FileText, KeyRound, LogIn, Pencil, Plus, Users,
+  Archive, ArchiveRestore, ArrowLeft, Building2, CalendarClock, CircleSlash, CreditCard, FileText, KeyRound, LogIn, Pencil, Plus, Users,
 } from "lucide-react"
 import { BackButton } from "@/components/back-button"
 import { DEFAULT_ROLE_DISPLAY_NAMES } from "@/lib/roles"
@@ -64,6 +64,7 @@ interface Partner {
   contactPerson: string | null
   billingStatus: string
   billingExempt: boolean
+  archivedAt: string | null
   createdAt: string
   branches: { id: string; name: string; address: string | null }[]
   employees: { id: string; firstName: string; lastName: string; role: string; email: string | null; phone: string | null; isActive: boolean }[]
@@ -105,6 +106,7 @@ export default function PartnerDetailPage() {
   const [extendForm, setExtendForm] = useState({ subscriptionId: "", trialEndsAt: "" })
   const [extending, setExtending] = useState(false)
   const [zeroing, setZeroing] = useState(false)
+  const [archiving, setArchiving] = useState(false)
   const [invoiceOpen, setInvoiceOpen] = useState(false)
   const [invoiceForm, setInvoiceForm] = useState({ subscriptionId: "", periodStart: "", periodEnd: "", dueDate: "" })
   const [saving, setSaving] = useState(false)
@@ -309,6 +311,29 @@ export default function PartnerDetailPage() {
     } catch { setError("Ошибка сети") }
   }
 
+  // Архив: партнёр прекратил работу. Счета не выставляются, автоблокировка не
+  // применяется, в списке уходит вниз с пометкой «Архив». Обратимо.
+  const handleArchiveToggle = async () => {
+    if (!partner) return
+    const archivingNow = !partner.archivedAt
+    const msg = archivingNow
+      ? "Архивировать партнёра? Счета выставляться перестанут, в списке уйдёт вниз с пометкой «Архив». Действие обратимо."
+      : "Вернуть партнёра из архива? Он снова станет действующим — автосчета возобновятся по расписанию."
+    if (!confirm(msg)) return
+    setArchiving(true)
+    setError("")
+    try {
+      const res = await fetch(`/api/admin/partners/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: archivingNow }),
+      })
+      if (!res.ok) { const d = await res.json(); setError(d.error || "Не удалось изменить архивный статус"); return }
+      fetchPartner()
+    } catch { setError("Ошибка сети") }
+    finally { setArchiving(false) }
+  }
+
   // Исключение из автобиллинга: счета 20-го числа и автоблокировка 1-го
   // не применяются (своя/тестовая организация)
   const handleExemptToggle = async () => {
@@ -364,6 +389,7 @@ export default function PartnerDetailPage() {
           <div className="flex flex-wrap items-center gap-3 gap-y-2">
             <h1 className="text-2xl font-bold">{partner.name}</h1>
             <Badge variant={st.variant}>{st.label}</Badge>
+            {partner.archivedAt && <Badge variant="outline">Архив</Badge>}
             {partner.billingExempt && <Badge variant="outline">Без автосчетов</Badge>}
           </div>
           {partner.legalName && <p className="text-sm text-muted-foreground">{partner.legalName}</p>}
@@ -397,6 +423,17 @@ export default function PartnerDetailPage() {
           onClick={handleBlockToggle}
         >
           {partner.billingStatus === "blocked" ? "Разблокировать" : "Заблокировать"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleArchiveToggle}
+          disabled={archiving}
+          title="Партнёр прекратил работу: счета не выставляются, в списке уходит вниз с пометкой «Архив». Обратимо."
+        >
+          {partner.archivedAt
+            ? <><ArchiveRestore className="mr-2 size-4" />{archiving ? "..." : "Вернуть из архива"}</>
+            : <><Archive className="mr-2 size-4" />{archiving ? "..." : "Архивировать"}</>}
         </Button>
       </div>
 

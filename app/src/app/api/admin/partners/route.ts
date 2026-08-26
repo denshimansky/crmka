@@ -49,9 +49,12 @@ export async function GET() {
   })
   const activeSubsByTenant = new Map(activeSubs.map((s) => [s.tenantId, s._count._all]))
 
-  return NextResponse.json(
-    partners.map((p) => ({ ...p, activeSubscriptions: activeSubsByTenant.get(p.id) ?? 0 }))
-  )
+  // Архивные партнёры (прекратили работу) уходят в конец списка; внутри групп —
+  // сохраняем исходный порядок по дате создания (createdAt desc из запроса).
+  const withCounts = partners.map((p) => ({ ...p, activeSubscriptions: activeSubsByTenant.get(p.id) ?? 0 }))
+  withCounts.sort((a, b) => Number(!!a.archivedAt) - Number(!!b.archivedAt))
+
+  return NextResponse.json(withCounts)
 }
 
 const createSchema = z.object({

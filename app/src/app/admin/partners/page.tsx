@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -19,7 +19,7 @@ import {
   RESIZABLE_TABLE_CLASS,
   useColumnWidths,
 } from "@/components/resizable-columns"
-import { Plus, Eye } from "lucide-react"
+import { Plus, Eye, Archive, ArchiveRestore } from "lucide-react"
 
 interface Partner {
   id: string
@@ -30,6 +30,7 @@ interface Partner {
   email: string | null
   contactPerson: string | null
   billingStatus: string
+  archivedAt: string | null
   createdAt: string
   branches: { id: string; name: string }[]
   employees: { id: string; firstName: string; lastName: string; email: string | null }[]
@@ -60,7 +61,7 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   ai: 110,
   plan: 190,
   status: 120,
-  actions: 64,
+  actions: 104,
 }
 
 export default function PartnersPage() {
@@ -83,6 +84,21 @@ export default function PartnersPage() {
   }
 
   useEffect(() => { fetchPartners() }, [])
+
+  // Архивирование партнёра прямо из списка (прекратил работу). Обратимо.
+  const handleArchiveToggle = async (p: Partner) => {
+    const archiving = !p.archivedAt
+    const msg = archiving
+      ? `Архивировать «${p.name}»? Счета выставляться перестанут, партнёр уйдёт вниз списка. Действие обратимо.`
+      : `Вернуть «${p.name}» из архива? Партнёр снова станет действующим — автосчета возобновятся по расписанию.`
+    if (!confirm(msg)) return
+    await fetch(`/api/admin/partners/${p.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archived: archiving }),
+    })
+    fetchPartners()
+  }
 
   const handleCreate = async () => {
     setError("")
@@ -140,44 +156,71 @@ export default function PartnersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {partners.map((p) => {
+              {partners.map((p, idx) => {
                 const sub = p.billingSubscriptions[0]
                 const owner = p.employees[0]
                 const st = BILLING_STATUS_MAP[p.billingStatus] || { label: p.billingStatus, variant: "outline" as const }
+                const archived = !!p.archivedAt
+                // Разделитель «Архив» — перед первым архивным партнёром (список
+                // уже отсортирован: действующие сверху, архивные внизу).
+                const showArchivedDivider = archived && !partners[idx - 1]?.archivedAt
                 return (
-                  <TableRow key={p.id}>
-                    <TableCell>
-                      <div className="truncate font-medium" title={p.name}>{p.name}</div>
-                      {p.legalName && <div className="truncate text-xs text-muted-foreground" title={p.legalName}>{p.legalName}</div>}
-                    </TableCell>
-                    <TableCell className="text-sm">{p.inn || "—"}</TableCell>
-                    <TableCell className="text-sm">
-                      {owner ? `${owner.lastName} ${owner.firstName}` : "—"}
-                    </TableCell>
-                    <TableCell>{p._count.branches}</TableCell>
-                    <TableCell>{p._count.employees}</TableCell>
-                    <TableCell>{p._count.clients}</TableCell>
-                    <TableCell>{p._count.directions}</TableCell>
-                    <TableCell>{p.activeSubscriptions}</TableCell>
-                    <TableCell>{p._count.aiChatLogs}</TableCell>
-                    <TableCell className="text-sm" title={sub ? `${sub.plan.name} — ${Number(sub.monthlyAmount).toLocaleString("ru")} ₽` : ""}>
-                      {sub ? (
-                        <span>{sub.plan.name} — {Number(sub.monthlyAmount).toLocaleString("ru")} ₽</span>
-                      ) : (
-                        <span className="text-muted-foreground">Нет подписки</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={st.variant}>{st.label}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Link href={`/admin/partners/${p.id}`}>
-                        <Button variant="ghost" size="sm">
-                          <Eye className="size-4" />
-                        </Button>
-                      </Link>
-                    </TableCell>
-                  </TableRow>
+                  <Fragment key={p.id}>
+                    {showArchivedDivider && (
+                      <TableRow className="bg-muted/40 hover:bg-muted/40">
+                        <TableCell colSpan={12} className="py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Архив — {partners.filter((x) => x.archivedAt).length}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    <TableRow className={archived ? "opacity-60" : undefined}>
+                      <TableCell>
+                        <div className="truncate font-medium" title={p.name}>{p.name}</div>
+                        {p.legalName && <div className="truncate text-xs text-muted-foreground" title={p.legalName}>{p.legalName}</div>}
+                      </TableCell>
+                      <TableCell className="text-sm">{p.inn || "—"}</TableCell>
+                      <TableCell className="text-sm">
+                        {owner ? `${owner.lastName} ${owner.firstName}` : "—"}
+                      </TableCell>
+                      <TableCell>{p._count.branches}</TableCell>
+                      <TableCell>{p._count.employees}</TableCell>
+                      <TableCell>{p._count.clients}</TableCell>
+                      <TableCell>{p._count.directions}</TableCell>
+                      <TableCell>{p.activeSubscriptions}</TableCell>
+                      <TableCell>{p._count.aiChatLogs}</TableCell>
+                      <TableCell className="text-sm" title={sub ? `${sub.plan.name} — ${Number(sub.monthlyAmount).toLocaleString("ru")} ₽` : ""}>
+                        {sub ? (
+                          <span>{sub.plan.name} — {Number(sub.monthlyAmount).toLocaleString("ru")} ₽</span>
+                        ) : (
+                          <span className="text-muted-foreground">Нет подписки</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {archived ? (
+                          <Badge variant="outline">Архив</Badge>
+                        ) : (
+                          <Badge variant={st.variant}>{st.label}</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center">
+                          <Link href={`/admin/partners/${p.id}`}>
+                            <Button variant="ghost" size="sm" title="Открыть карточку">
+                              <Eye className="size-4" />
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title={archived ? "Вернуть из архива" : "Архивировать"}
+                            onClick={() => handleArchiveToggle(p)}
+                          >
+                            {archived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  </Fragment>
                 )
               })}
               {partners.length === 0 && (

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -13,6 +13,7 @@ interface Invoice {
   number: string
   amount: string
   status: string
+  createdAt: string
   periodStart: string
   periodEnd: string
   dueDate: string
@@ -20,6 +21,35 @@ interface Invoice {
   paidAmount: string | null
   organization: { id: string; name: string; employees: { firstName: string; lastName: string }[] }
   subscription: { id: string; plan: { name: string } }
+}
+
+// Русское склонение «счёт / счёта / счетов» для заголовка группы месяца.
+function pluralInvoices(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return "счёт"
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "счёта"
+  return "счетов"
+}
+
+// Группировка счетов по месяцу выставления (createdAt). Список приходит с сервера
+// отсортированным createdAt desc → месяцы идут от новых к старым; Map сохраняет
+// порядок появления, поэтому заголовки месяцев выстраиваются новые сверху.
+function groupByIssueMonth(invoices: Invoice[]): { label: string; total: number; items: Invoice[] }[] {
+  const map = new Map<string, { label: string; total: number; items: Invoice[] }>()
+  for (const inv of invoices) {
+    const d = new Date(inv.createdAt)
+    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`
+    let g = map.get(key)
+    if (!g) {
+      const raw = d.toLocaleDateString("ru", { month: "long", year: "numeric" })
+      g = { label: raw.charAt(0).toUpperCase() + raw.slice(1), total: 0, items: [] }
+      map.set(key, g)
+    }
+    g.items.push(inv)
+    g.total += Number(inv.amount)
+  }
+  return [...map.values()]
 }
 
 interface BankOperation {
@@ -68,11 +98,13 @@ export default function InvoicesPage() {
     fetchInvoices()
   }
 
+  const monthGroups = groupByIssueMonth(invoices)
+
   return (
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Счета</h1>
-        <p className="text-sm text-muted-foreground">Все выставленные счета</p>
+        <p className="text-sm text-muted-foreground">Все выставленные счета, сгруппированы по месяцу выставления</p>
       </div>
 
       {/* Платежи из выписки Т-Банк, которые не удалось сопоставить со счетами
@@ -132,52 +164,64 @@ export default function InvoicesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoices.map((inv) => {
-                const st = STATUS[inv.status] || { label: inv.status, variant: "outline" as const }
-                return (
-                  <TableRow key={inv.id}>
-                    <TableCell className="font-mono text-sm">{inv.number}</TableCell>
-                    <TableCell>
-                      <Link href={`/admin/partners/${inv.organization.id}`} className="text-primary hover:underline">
-                        {inv.organization.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {inv.organization.employees[0]
-                        ? `${inv.organization.employees[0].lastName} ${inv.organization.employees[0].firstName}`
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-sm">{inv.subscription.plan.name}</TableCell>
-                    <TableCell className="text-sm">
-                      {new Date(inv.periodStart).toLocaleDateString("ru")} — {new Date(inv.periodEnd).toLocaleDateString("ru")}
-                    </TableCell>
-                    <TableCell>{Number(inv.amount).toLocaleString("ru")} ₽</TableCell>
-                    <TableCell className="text-sm">{new Date(inv.dueDate).toLocaleDateString("ru")}</TableCell>
-                    <TableCell><Badge variant={st.variant}>{st.label}</Badge></TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          title="Открыть PDF счёта"
-                          onClick={() => window.open(`/api/admin/invoices/${inv.id}/pdf`, "_blank")}
-                        >
-                          PDF
-                        </Button>
-                        {inv.status === "pending" && (
-                          <>
-                            <Button size="sm" variant="outline" onClick={() => handleStatus(inv.id, "paid")}>Оплачен</Button>
-                            <Button size="sm" variant="ghost" onClick={() => handleStatus(inv.id, "cancelled")}>Отменить</Button>
-                          </>
-                        )}
-                        {inv.status === "overdue" && (
-                          <Button size="sm" variant="outline" onClick={() => handleStatus(inv.id, "paid")}>Оплачен</Button>
-                        )}
-                      </div>
+              {monthGroups.map((g) => (
+                <Fragment key={g.label}>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableCell colSpan={9} className="py-2 text-sm font-semibold">
+                      {g.label}
+                      <span className="ml-2 font-normal text-muted-foreground">
+                        — {g.items.length} {pluralInvoices(g.items.length)} · {g.total.toLocaleString("ru")} ₽
+                      </span>
                     </TableCell>
                   </TableRow>
-                )
-              })}
+                  {g.items.map((inv) => {
+                    const st = STATUS[inv.status] || { label: inv.status, variant: "outline" as const }
+                    return (
+                      <TableRow key={inv.id}>
+                        <TableCell className="font-mono text-sm">{inv.number}</TableCell>
+                        <TableCell>
+                          <Link href={`/admin/partners/${inv.organization.id}`} className="text-primary hover:underline">
+                            {inv.organization.name}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {inv.organization.employees[0]
+                            ? `${inv.organization.employees[0].lastName} ${inv.organization.employees[0].firstName}`
+                            : "—"}
+                        </TableCell>
+                        <TableCell className="text-sm">{inv.subscription.plan.name}</TableCell>
+                        <TableCell className="text-sm">
+                          {new Date(inv.periodStart).toLocaleDateString("ru")} — {new Date(inv.periodEnd).toLocaleDateString("ru")}
+                        </TableCell>
+                        <TableCell>{Number(inv.amount).toLocaleString("ru")} ₽</TableCell>
+                        <TableCell className="text-sm">{new Date(inv.dueDate).toLocaleDateString("ru")}</TableCell>
+                        <TableCell><Badge variant={st.variant}>{st.label}</Badge></TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="Открыть PDF счёта"
+                              onClick={() => window.open(`/api/admin/invoices/${inv.id}/pdf`, "_blank")}
+                            >
+                              PDF
+                            </Button>
+                            {inv.status === "pending" && (
+                              <>
+                                <Button size="sm" variant="outline" onClick={() => handleStatus(inv.id, "paid")}>Оплачен</Button>
+                                <Button size="sm" variant="ghost" onClick={() => handleStatus(inv.id, "cancelled")}>Отменить</Button>
+                              </>
+                            )}
+                            {inv.status === "overdue" && (
+                              <Button size="sm" variant="outline" onClick={() => handleStatus(inv.id, "paid")}>Оплачен</Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </Fragment>
+              ))}
               {invoices.length === 0 && (
                 <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Нет счетов</TableCell></TableRow>
               )}

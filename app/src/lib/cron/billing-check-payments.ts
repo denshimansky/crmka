@@ -54,10 +54,11 @@ export async function checkBillingPayments(now: Date = new Date()): Promise<Chec
   // Незакрытые счета (pending + overdue) не-exempt организаций
   const openInvoices = await db.billingInvoice.findMany({
     where: { status: { in: ["pending", "overdue"] } },
-    include: { organization: { select: { inn: true, billingExempt: true } } },
+    include: { organization: { select: { inn: true, billingExempt: true, archivedAt: true } } },
   })
   const matchable: MatchableInvoice[] = openInvoices
-    .filter((i) => !i.organization.billingExempt)
+    // Архивных партнёров (прекратили работу) не матчим — как exempt.
+    .filter((i) => !i.organization.billingExempt && !i.organization.archivedAt)
     .map((i) => ({
       id: i.id,
       number: i.number,

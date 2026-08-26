@@ -40,7 +40,7 @@ export async function syncSubscriptionBranchCount(tenantId: string, now: Date = 
     orderBy: { createdAt: "desc" },
     include: {
       plan: true,
-      organization: { select: { billingExempt: true } },
+      organization: { select: { billingExempt: true, archivedAt: true } },
     },
   })
   if (!subscription || subscription.branchCount === branchCount) return
@@ -57,7 +57,9 @@ export async function syncSubscriptionBranchCount(tenantId: string, now: Date = 
   // чистой selectProrationBase: только периодный счёт (isAdjustment=false),
   // доплатные счета как база дали бы неверный totalDays при телескопировании.
   const today = utcMidnight(now)
-  const coveringPaid = subscription.organization.billingExempt
+  // exempt (своя/тестовая) и архивные (прекратили работу) партнёры не получают
+  // доплатных счетов перерасчёта — branchCount подтянется, но счёт не выставится.
+  const coveringPaid = subscription.organization.billingExempt || subscription.organization.archivedAt
     ? []
     : await db.billingInvoice.findMany({
         where: {
