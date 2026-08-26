@@ -10,6 +10,9 @@ import {
 } from "@/lib/services/trial-holder-lesson"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
+import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { computeTrialCharge } from "@/lib/services/trial-charge"
+import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 
 const updateSchema = z
   .object({
@@ -313,6 +316,13 @@ export async function PATCH(
       accruedPay = attendancePayEnabled ? Number(payAmount) : 0
 
       if (presentType) {
+        // Сумма списания за пробное — по галке «Бесплатное пробное» направления.
+        const direction = await tx.direction.findUnique({
+          where: { id: lesson.group.directionId },
+          select: { trialFree: true, trialPrice: true },
+        })
+        const newCharge = direction ? computeTrialCharge(direction) : new Prisma.Decimal(0)
+
         const existingAtt = await tx.attendance.findFirst({
           where: {
             tenantId,
@@ -322,12 +332,30 @@ export async function PATCH(
             isTrial: true,
           },
         })
+        const prevCharge = existingAtt
+          ? new Prisma.Decimal(existingAtt.chargeAmount)
+          : new Prisma.Decimal(0)
+        const chargeChanged = !prevCharge.equals(newCharge)
+
+        // Откат прежнего списания (при повторной отметке/смене цены).
+        if (existingAtt && chargeChanged && prevCharge.gt(0)) {
+          await applyBalanceDelta(tx, {
+            tenantId,
+            clientId: trial.clientId,
+            delta: prevCharge,
+            type: "attendance_revert",
+            refs: { lessonId: lesson.id, attendanceId: existingAtt.id, directionId: lesson.group.directionId },
+            createdBy: session.user.employeeId ?? undefined,
+          })
+        }
+
+        let att
         if (existingAtt) {
-          await tx.attendance.update({
+          att = await tx.attendance.update({
             where: { id: existingAtt.id },
             data: {
               attendanceTypeId: presentType.id,
-              chargeAmount: new Prisma.Decimal(0),
+              chargeAmount: newCharge,
               instructorPayAmount: payAmount,
               instructorPayEnabled: attendancePayEnabled,
               markedBy: session.user.employeeId ?? undefined,
@@ -335,14 +363,14 @@ export async function PATCH(
             },
           })
         } else {
-          await tx.attendance.create({
+          att = await tx.attendance.create({
             data: {
               tenantId,
               lessonId: lesson.id,
               clientId: trial.clientId,
               wardId: trial.wardId,
               attendanceTypeId: presentType.id,
-              chargeAmount: new Prisma.Decimal(0),
+              chargeAmount: newCharge,
               instructorPayAmount: payAmount,
               instructorPayEnabled: attendancePayEnabled,
               isTrial: true,
@@ -351,6 +379,23 @@ export async function PATCH(
             },
           })
         }
+
+        // Списание нового пробного с баланса родителя (в минус = долг).
+        if (chargeChanged && newCharge.gt(0)) {
+          await applyBalanceDelta(tx, {
+            tenantId,
+            clientId: trial.clientId,
+            delta: newCharge.negated(),
+            type: "trial_charge",
+            refs: { lessonId: lesson.id, attendanceId: att.id, directionId: lesson.group.directionId },
+            comment: "Пробное занятие",
+            createdBy: session.user.employeeId ?? undefined,
+          })
+        }
+
+        // firstPaidLessonDate — агрегат для отчётов/конверсии (statusflip НЕ делаем,
+        // «оставить в воронке»). Пересчёт по факту платных посещений + заявок.
+        await recomputeClientFirstPaidLessonDate(tx, tenantId, trial.clientId)
       }
     } else if (
       effectiveStatus === "no_show" ||
@@ -376,6 +421,20 @@ export async function PATCH(
         select: { instructorPayEnabled: true },
       })
       if (otherAttendedSameLesson.length === 0) {
+        // Возврат платного пробного на баланс перед удалением явки.
+        const toDelete = await tx.attendance.findFirst({
+          where: { tenantId, lessonId: lesson.id, clientId: trial.clientId, wardId: trial.wardId, isTrial: true },
+        })
+        if (toDelete && new Prisma.Decimal(toDelete.chargeAmount).gt(0)) {
+          await applyBalanceDelta(tx, {
+            tenantId,
+            clientId: trial.clientId,
+            delta: new Prisma.Decimal(toDelete.chargeAmount),
+            type: "attendance_revert",
+            refs: { lessonId: lesson.id, directionId: lesson.group.directionId },
+            createdBy: session.user.employeeId ?? undefined,
+          })
+        }
         await tx.attendance.deleteMany({
           where: {
             tenantId,
@@ -385,6 +444,7 @@ export async function PATCH(
             isTrial: true,
           },
         })
+        await recomputeClientFirstPaidLessonDate(tx, tenantId, trial.clientId)
       } else if (presentType) {
         // Явка принадлежит выжившему attended-дублю — не удаляем, а пере-
         // синхронизируем по нему: сбрасываемый мог ранее затереть общую строку
