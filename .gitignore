@@ -22,6 +22,15 @@ meetings/*.txt
 Import/*.xlsx
 .claude/
 
+# Клиентские/локальные офисные файлы с ПДн — по умолчанию НЕ коммитим.
+# Уже нужные в репо шаблоны/гайды сохраняем явными исключениями ниже.
+*.xlsx
+*.docx
+!app/public/templates/*.xlsx
+!crmka-user-guide.docx
+!getting-started-guide.docx
+!quick-start-guide.docx
+
 # SSL certs (generated on server)
 nginx/certbot/
 .github/workflows/deploy-prod.yml
