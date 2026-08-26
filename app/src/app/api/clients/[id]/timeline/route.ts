@@ -781,13 +781,15 @@ export async function GET(
           ? `Корректировка баланса ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
           : t.type === "personal_lesson_charge"
             ? `Разовое посещение: ${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
-            : t.type === "lesson_refund"
-              ? `Возврат за занятие: +${amount.toLocaleString("ru-RU")} ${sym}`
-              : t.type === "discount_refund"
-                ? `Перерасчёт абонемента: +${amount.toLocaleString("ru-RU")} ${sym} на баланс`
-                : t.type === "attendance_revert"
-                  ? `Отмена посещения: +${amount.toLocaleString("ru-RU")} ${sym}`
-                  : `Операция (${t.type}) ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
+            : t.type === "trial_charge"
+              ? `Пробное занятие: ${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
+              : t.type === "lesson_refund"
+                ? `Возврат за занятие: +${amount.toLocaleString("ru-RU")} ${sym}`
+                : t.type === "discount_refund"
+                  ? `Перерасчёт абонемента: +${amount.toLocaleString("ru-RU")} ${sym} на баланс`
+                  : t.type === "attendance_revert"
+                    ? `Отмена посещения: +${amount.toLocaleString("ru-RU")} ${sym}`
+                    : `Операция (${t.type}) ${amount >= 0 ? "+" : "−"}${Math.abs(amount).toLocaleString("ru-RU")} ${sym}`
     events.push({
       id: `ledger-${t.id}`,
       kind,

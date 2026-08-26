@@ -18,6 +18,7 @@ const TYPE_LABELS: Record<string, string> = {
   subscription_closed_refund: "Закрытие абонемента",
   lesson_refund: "Возврат за занятие",
   personal_lesson_charge: "Разовое посещение",
+  trial_charge: "Пробное занятие",
   attendance_revert: "Отмена посещения",
   // Не «возврат по скидке»: пересчёт абонемента бывает и по скидке, и по
   // занятию без списания (Уваж. пропуск/Перерасчёт), и по смене состава занятий.

@@ -61,7 +61,9 @@ export async function balanceDebtBreakdownByClient(
   const [charges, reverts, imports] = await Promise.all([
     db.clientBalanceTransaction.groupBy({
       by: ["clientId"],
-      where: { tenantId, clientId: { in: ids }, type: "personal_lesson_charge" },
+      // Разовые и платные пробные — оба списываются с баланса как разовый долг.
+      // Возврат обоих идёт attendance_revert (ниже), поэтому симметрия сходится.
+      where: { tenantId, clientId: { in: ids }, type: { in: ["personal_lesson_charge", "trial_charge"] } },
       _sum: { amount: true },
     }),
     db.clientBalanceTransaction.groupBy({
