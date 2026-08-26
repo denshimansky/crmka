@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import { getReportContext } from "@/lib/report-helpers"
 import { computeMonthSubscriptionFigures } from "@/lib/finance/subscription-month-figures"
+import { sumPaidTrialRevenue } from "@/lib/finance/paid-trial-revenue"
 
 /** 7.1. Прогноз прибыли */
 export async function GET(req: NextRequest) {
@@ -33,6 +34,11 @@ export async function GET(req: NextRequest) {
     isPackageOrg: org?.subscriptionType === "package",
   })
   const totalSubscriptionAmount = figures.reduce((s, f) => s + f.subAmount, 0)
+
+  // Спека B1: платные пробные — выручка (в ОПИУ входят), но абонементный источник
+  // их не видит. Досчитываем реализованную выручку пробных за месяц.
+  const paidTrialRevenue = await sumPaidTrialRevenue(db, { tenantId, year, month, scope, branchId })
+  const revenueBase = totalSubscriptionAmount + paidTrialRevenue
 
   // Salary forecast from salary rates + attendances
   const salaryAtt = await db.attendance.findMany({
@@ -78,11 +84,11 @@ export async function GET(req: NextRequest) {
   const fixedExpensesForecast = recurringExpenses.reduce((s, e) => s + Number(e.amount), 0)
 
   const profitForecast =
-    totalSubscriptionAmount - salaryForecast - avgVariable - fixedExpensesForecast
+    revenueBase - salaryForecast - avgVariable - fixedExpensesForecast
 
   return NextResponse.json({
     data: {
-      subscriptionAmount: totalSubscriptionAmount,
+      subscriptionAmount: revenueBase,
       salaryForecast,
       variableExpensesForecast: Math.round(avgVariable),
       fixedExpensesForecast,

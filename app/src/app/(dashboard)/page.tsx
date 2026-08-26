@@ -30,6 +30,7 @@ import { DashboardGrid } from "@/components/dashboard-grid"
 import { DashboardSettingsButton } from "@/components/dashboard-settings"
 import { DashboardTasksTable, type DashboardTaskRow } from "@/components/dashboard-tasks-table"
 import { computeMonthlySalaryForecast } from "@/lib/salary/forecast-month"
+import { sumPaidTrialRevenue } from "@/lib/finance/paid-trial-revenue"
 import { computeActiveSubscriptionsByBranch } from "@/lib/dashboard/active-subscriptions"
 import { computeUpcomingBirthdays } from "@/lib/dashboard/upcoming-birthdays"
 import { computePlannedExpensesWithFact } from "@/lib/finance/planned-expenses"
@@ -452,7 +453,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // расходов за 3 месяца (Expense.isVariable, БЕЗ ЗП-категорий), как в §7.1.
   // Постоянные платежи — плановые расходы постоянных категорий (PlannedExpense,
   // isVariable=false), «заполняется вручную раз в месяц».
-  const profitSubAmount = subFigures.reduce((s, f) => s + f.subAmount, 0)
+  const paidTrialRevenue = await sumPaidTrialRevenue(db, { tenantId, year, month, scope })
+  const profitSubAmount = subFigures.reduce((s, f) => s + f.subAmount, 0) + paidTrialRevenue
 
   // ADM-04: profitSubAmount уже заскоуплен (через subFigures), но прогноз ЗП и
   // плановые расходы ниже остаются общеорганизационными. Виджеты «Прогноз
