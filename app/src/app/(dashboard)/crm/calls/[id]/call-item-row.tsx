@@ -53,11 +53,48 @@ const RESULT_LABELS: Record<string, string> = {
   refused: "Отказ",
 }
 
+/** Максимальная длина комментария к результату обзвона. */
+const COMMENT_MAX_LEN = 80
+
 /** Текст ячейки «Комментарий»: сначала комментарий, иначе метка результата. */
 function commentText(item: CallItem): string {
   if (item.comment) return item.comment
   if (item.result) return RESULT_LABELS[item.result] ?? item.result
   return "—"
+}
+
+/**
+ * Ячейка «Комментарий». В строке текст усечён (max-w + truncate), поэтому длинный
+ * комментарий целиком не виден — по клику разворачиваем его в Popover. Для строк
+ * без комментария (метка результата / «—») разворачивать нечего: обычная ячейка.
+ */
+function CommentCell({ item, dim }: { item: CallItem; dim: string }) {
+  const text = commentText(item)
+  if (!item.comment) {
+    return (
+      <TableCell className={`max-w-[220px] truncate text-muted-foreground ${dim}`}>{text}</TableCell>
+    )
+  }
+  return (
+    <TableCell className={`max-w-[220px] truncate text-muted-foreground ${dim}`}>
+      <Popover>
+        <PopoverTrigger
+          nativeButton={false}
+          render={
+            <span
+              title="Показать комментарий полностью"
+              className="cursor-pointer underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 hover:text-foreground"
+            />
+          }
+        >
+          {text}
+        </PopoverTrigger>
+        <PopoverContent align="start" className="max-w-xs text-sm break-words whitespace-pre-wrap">
+          {item.comment}
+        </PopoverContent>
+      </Popover>
+    </TableCell>
+  )
 }
 
 /**
@@ -166,7 +203,7 @@ export function WardResultCells({
         {item.processedAt ? new Date(item.processedAt).toLocaleDateString("ru-RU") : "—"}
       </TableCell>
       <TableCell className={`text-muted-foreground text-xs ${dim}`}>{item.responsibleName || "—"}</TableCell>
-      <TableCell className={`max-w-[220px] truncate text-muted-foreground ${dim}`}>{commentText(item)}</TableCell>
+      <CommentCell item={item} dim={dim} />
       <TableCell>
         {item.status !== "pending" ? (
           <Check className="size-4 text-green-500" />
@@ -186,12 +223,18 @@ export function WardResultCells({
                 <div className="text-xs font-medium text-muted-foreground">
                   {item.wardName ? `Подопечный: ${item.wardName}` : "Результат звонка"}
                 </div>
-                <Input
-                  placeholder="Комментарий"
-                  value={comment}
-                  onChange={e => setComment(e.target.value)}
-                  className="h-8"
-                />
+                <div className="space-y-1">
+                  <Input
+                    placeholder="Комментарий"
+                    value={comment}
+                    onChange={e => setComment(e.target.value.slice(0, COMMENT_MAX_LEN))}
+                    maxLength={COMMENT_MAX_LEN}
+                    className="h-8"
+                  />
+                  <div className="text-right text-[10px] text-muted-foreground">
+                    {comment.length}/{COMMENT_MAX_LEN}
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   <Button size="sm" variant="outline" onClick={() => saveResult("no_answer")} disabled={loading}>Не ответил</Button>
                   <Button size="sm" variant={callbackOpen ? "secondary" : "outline"} onClick={openCallback} disabled={loading}>Перезвонить</Button>

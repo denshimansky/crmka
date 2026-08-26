@@ -36,7 +36,9 @@ const updateSchema = z.object({
   itemId: z.string().uuid(),
   status: z.enum(["called", "no_answer", "callback", "completed"]),
   result: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
-  comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
+  // Комментарий к результату обзвона ограничен 80 символами (UI). Здесь режем
+  // жёстко на случай обхода клиента, чтобы в базу не попадала длинная строка.
+  comment: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim().slice(0, 80) : undefined),
   // Дата следующей связи для исхода «Перезвонить» (баг #82): падает в
   // Client.nextContactDate, откуда её подхватывают автотриггеры задач.
   callbackDate: z.any().transform(v => (typeof v === "string" && v.trim()) ? v.trim() : undefined),
