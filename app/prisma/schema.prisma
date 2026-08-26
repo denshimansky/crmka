@@ -2458,6 +2458,9 @@ enum BalanceTransactionType {
   attendance_revert
   // Скидки v2: возврат на баланс при пересчёте скидки (оплачено > новой стоимости)
   discount_refund
+  // Платное пробное: списание цены пробного с баланса родителя при отметке «Был».
+  // Возврат — существующим attendance_revert (см. lib/one-off-debt.ts: симметрия).
+  trial_charge
 }
 
 enum NotificationType {
