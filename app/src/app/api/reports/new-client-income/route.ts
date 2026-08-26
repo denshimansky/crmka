@@ -32,6 +32,8 @@ export async function GET(req: NextRequest) {
     tenantId,
     clientId: { in: newClientIds },
     chargeAmount: { gt: 0 },
+    // «Остальное нет»: пробные — выручка ОПИУ, но не «доход новых клиентов».
+    isTrial: false,
     lesson: { date: { gte: dateFrom, lte: dateTo } },
   }
   if (directionId) newAttWhere.subscription = { directionId }

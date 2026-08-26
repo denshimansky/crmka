@@ -39,6 +39,8 @@ export async function GET(req: NextRequest) {
       tenantId,
       clientId: { in: clientIds },
       chargeAmount: { gt: 0 },
+      // «Остальное нет»: пробное не должно двигать дату последнего платного занятия.
+      isTrial: false,
     },
     select: { clientId: true, lesson: { select: { date: true } } },
     orderBy: { lesson: { date: "desc" } },
