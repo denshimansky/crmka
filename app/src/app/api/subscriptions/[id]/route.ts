@@ -22,6 +22,7 @@ import { consumedTypeWhereFor } from "@/lib/subscriptions/consumed-lessons"
 import { closeSubscription } from "@/lib/subscriptions/close-subscription"
 import { getWithdrawalBlockReason } from "@/lib/subscriptions/withdrawal-block"
 import { currencySymbol } from "@/lib/currency"
+import { logAudit } from "@/lib/audit"
 
 const updateSchema = z.object({
   status: z.enum(["pending", "active", "closed", "withdrawn"]).optional(),
@@ -91,6 +92,35 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     )?.currency ?? "RUB"
   const sym = currencySymbol(currency)
+
+  // Гард против двойной скидки (кейс: 23 абонемента, июнь–авг 2026): у абонемента
+  // с живой авто-скидкой (type1/type2) СНИЖАТЬ номинальную цену занятия нельзя —
+  // эффективная цена = lessonPrice − discountPerLesson, и снижение номинала
+  // «зашивает» скидку в цену, после чего recalc применяет её второй раз. Бóльшую
+  // скидку задают шаблоном/пер-абонементной скидкой, а не снижением цены занятия.
+  // Дрейф-устойчиво: сравниваем с ТЕКУЩЕЙ ценой абонемента, а не с ценой прайса.
+  if (data.lessonPrice !== undefined) {
+    const priced = await db.subscription.findFirst({
+      where: { id, tenantId: session.user.tenantId, deletedAt: null },
+      select: { lessonPrice: true, discountPerLesson: true, discountSource: true },
+    })
+    if (
+      priced &&
+      Number(priced.discountPerLesson) > 0 &&
+      (priced.discountSource === "type1" || priced.discountSource === "type2") &&
+      data.lessonPrice < Number(priced.lessonPrice)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            `У абонемента активна авто-скидка (−${Number(priced.discountPerLesson).toLocaleString("ru-RU")} ${sym}/зан.). ` +
+            `Снижать цену занятия нельзя — скидка уже уменьшает её, иначе задвоится. ` +
+            `Чтобы дать бóльшую скидку, задайте её шаблоном/пер-абонементной скидкой.`,
+        },
+        { status: 400 },
+      )
+    }
+  }
 
   // Отмена отложенного отчисления (Подход A): снять scheduledWithdrawal*, вернуть
   // ребёнка в состав группы. Отдельный ранний путь — не трогает основную логику.
@@ -581,10 +611,43 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       })
     }
 
-    return { subscription, discountRecalc, balanceDelta }
+    return {
+      subscription,
+      discountRecalc,
+      balanceDelta,
+      prev: {
+        lessonPrice: Number(existing.lessonPrice),
+        totalLessons: existing.totalLessons,
+        status: existing.status,
+      },
+    }
   })
 
   if (!result) return NextResponse.json({ error: "Абонемент не найден" }, { status: 404 })
+
+  // Аудит правок абонемента (раньше PATCH ничего не писал — из-за чего ручное
+  // снижение цены занятия было невидимо, кейс двойной скидки не оставлял следа).
+  const auditChanges: Record<string, { old: unknown; new: unknown }> = {}
+  if (data.lessonPrice !== undefined && data.lessonPrice !== result.prev.lessonPrice) {
+    auditChanges.lessonPrice = { old: result.prev.lessonPrice, new: data.lessonPrice }
+  }
+  if (data.totalLessons !== undefined && data.totalLessons !== result.prev.totalLessons) {
+    auditChanges.totalLessons = { old: result.prev.totalLessons, new: data.totalLessons }
+  }
+  if (data.status !== undefined && data.status !== result.prev.status) {
+    auditChanges.status = { old: result.prev.status, new: data.status }
+  }
+  if (Object.keys(auditChanges).length > 0) {
+    logAudit({
+      tenantId: session.user.tenantId,
+      employeeId: session.user.employeeId,
+      action: "update",
+      entityType: "Subscription",
+      entityId: id,
+      changes: auditChanges,
+      req,
+    })
+  }
 
   const response: any = { ...result.subscription }
   const removed = result.discountRecalc.changes.filter((c) => c.action === "removed")

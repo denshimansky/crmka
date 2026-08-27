@@ -17,6 +17,10 @@ import {
 } from "@/lib/subscriptions/subscription-lessons"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { logSubscriptionIssued } from "@/lib/subscriptions/audit-price"
+import {
+  resolveDirectionBasePrice,
+  PreDiscountedPriceError,
+} from "@/lib/subscriptions/lesson-price-guard"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
 import { z } from "zod"
@@ -408,6 +412,21 @@ export async function POST(req: NextRequest) {
         ward: { select: { id: true, firstName: true, lastName: true } },
       },
     })
+
+    // Гард против двойной скидки: авто-скидка применилась, но цена занятия — ниже
+    // базовой цены направления → в запросе была пред-сниженная цена, скидка
+    // задвоилась. Откатываем создание (кейс: 23 абонемента, июнь–авг 2026).
+    if (fresh && Number(fresh.discountPerLesson) > 0 && orgType !== "package") {
+      const base = await resolveDirectionBasePrice(
+        tx,
+        session.user.tenantId,
+        data.directionId,
+        startDate,
+      )
+      if (base != null && data.lessonPrice < base) {
+        throw new PreDiscountedPriceError(base, data.lessonPrice)
+      }
+    }
     // История клиента: сумма, НА КОТОРУЮ выписан абонемент — берём после
     // recalc, т.е. уже со скидкой. Дальнейшие пересчёты пишут свои события и
     // эту сумму не переписывают.
@@ -423,6 +442,15 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     if (e instanceof SelectionConflictError) {
       return NextResponse.json({ error: e.message }, { status: e.status })
+    }
+    if (e instanceof PreDiscountedPriceError) {
+      return NextResponse.json({
+        error:
+          `Цена занятия (${e.price.toLocaleString("ru-RU")} ₽) ниже базовой цены направления ` +
+          `(${e.base.toLocaleString("ru-RU")} ₽), а к абонементу применяется авто-скидка. ` +
+          `Похоже, передана уже сниженная цена — скидка задвоится. Укажите номинальную ` +
+          `цену занятия; скидка применится отдельно.`,
+      }, { status: 400 })
     }
     throw e
   }
