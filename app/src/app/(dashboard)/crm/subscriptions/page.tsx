@@ -229,6 +229,7 @@ export default async function SubscriptionsPage({
         canRenew={canRenew}
         renewDefaultStart={renewDefault?.rangeStart ?? null}
         renewDefaultEnd={renewDefault?.rangeEnd ?? null}
+        renewDefaultReason={renewDefault?.reason ?? null}
       />
     </div>
   )

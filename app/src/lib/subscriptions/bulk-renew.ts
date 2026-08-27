@@ -163,7 +163,7 @@ function monthRangeStrings(year: number, month1: number): { rangeStart: string; 
 export async function suggestDefaultRenewRange(
   tenantId: string,
   filters?: { branchId?: string | null; directionId?: string | null },
-): Promise<{ rangeStart: string; rangeEnd: string }> {
+): Promise<{ rangeStart: string; rangeEnd: string; reason: "current_backlog" | "next_period" }> {
   // «Сейчас» = серверные часы (getMonth локально). Осознанно согласовано с
   // гейтом «выписка задним числом» в роутах (currentMonthStart = new Date()):
   // и дефолт, и гейт коммита берут одни и те же часы, поэтому не противоречат.
@@ -185,7 +185,7 @@ export async function suggestDefaultRenewRange(
   const sources = await loadSources({ tenantId, rangeStart: curStart, rangeEnd: curEnd, branchId, directionId })
   if (sources.length === 0) {
     const t = nextMonthOf(cur.year, cur.month)
-    return monthRangeStrings(t.year, t.month)
+    return { ...monthRangeStrings(t.year, t.month), reason: "next_period" }
   }
 
   // Уже выписанные в текущий месяц (приблизительно — по period, без интервала).
@@ -208,7 +208,10 @@ export async function suggestDefaultRenewRange(
     (s) => !issuedSet.has(`${s.clientId}|${s.wardId ?? ""}|${s.directionId}|${s.groupId}`),
   )
   const target = remaining ? cur : nextMonthOf(cur.year, cur.month)
-  return monthRangeStrings(target.year, target.month)
+  return {
+    ...monthRangeStrings(target.year, target.month),
+    reason: remaining ? "current_backlog" : "next_period",
+  }
 }
 
 async function loadSources(opts: BulkRenewInput): Promise<SourceRow[]> {

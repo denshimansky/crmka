@@ -143,6 +143,7 @@ export function SubscriptionsTable({
   canRenew,
   renewDefaultStart,
   renewDefaultEnd,
+  renewDefaultReason,
 }: {
   tab: SubsTabKey
   tabs: SubsTab[]
@@ -156,6 +157,7 @@ export function SubscriptionsTable({
   canRenew: boolean
   renewDefaultStart?: string | null
   renewDefaultEnd?: string | null
+  renewDefaultReason?: "current_backlog" | "next_period" | null
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -263,6 +265,7 @@ export function SubscriptionsTable({
             directionId={initialDirectionId !== "all" ? initialDirectionId : null}
             defaultRangeStart={renewDefaultStart ?? null}
             defaultRangeEnd={renewDefaultEnd ?? null}
+            defaultRangeReason={renewDefaultReason ?? null}
           />
         )}
       </div>

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useCurrencySymbol } from "@/components/currency-provider"
-import { CalendarPlus, AlertCircle } from "lucide-react"
+import { CalendarPlus, AlertCircle, ArrowRight } from "lucide-react"
 
 interface Candidate {
   sourceSubscriptionId: string
@@ -83,6 +83,13 @@ function fmt(n: number): string {
   return n.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
 }
 
+// «YYYY-MM-DD» → «Август 2026» для подсказки о предложенном месяце.
+function monthLabel(ymdStr: string): string {
+  const [y, m] = ymdStr.split("-").map(Number)
+  if (!y || !m || m < 1 || m > 12) return ymdStr
+  return `${MONTHS_RU[m - 1]} ${y}`
+}
+
 function skipLabel(r: Skipped["reason"]): string {
   if (r === "already_renewed") return "уже выписан на этот период"
   return "у группы нет расписания на период"
@@ -93,6 +100,7 @@ export function RenewButton({
   directionId,
   defaultRangeStart,
   defaultRangeEnd,
+  defaultRangeReason,
 }: {
   branchId: string | null
   directionId: string | null
@@ -100,6 +108,9 @@ export function RenewButton({
   // «следующий месяц» (defaultRange), чтобы поведение не сломалось.
   defaultRangeStart?: string | null
   defaultRangeEnd?: string | null
+  // Почему предложен этот месяц: current_backlog — за текущий ещё есть
+  // невыписанные; next_period — штатно на месяц вперёд. Для подсказки под датами.
+  defaultRangeReason?: "current_backlog" | "next_period" | null
 }) {
   const router = useRouter()
   const sym = useCurrencySymbol()
@@ -240,6 +251,24 @@ export function RenewButton({
                   <Input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
                 </div>
               </div>
+              {defaultRangeReason &&
+                rangeStart === def.start &&
+                rangeEnd === def.end && (
+                  <p className="text-xs text-muted-foreground">
+                    {defaultRangeReason === "current_backlog" ? (
+                      <>
+                        Предложен <b>{monthLabel(rangeStart)}</b>: за него ещё
+                        остались невыписанные абонементы. Обычно выписывают на
+                        месяц вперёд — поменяйте даты, если нужен следующий период.
+                      </>
+                    ) : (
+                      <>
+                        Предложен <b>{monthLabel(rangeStart)}</b> — следующий
+                        период.
+                      </>
+                    )}
+                  </p>
+                )}
               {(branchId || directionId) && (
                 <label className="flex items-start gap-2 text-sm">
                   <Checkbox
@@ -293,13 +322,14 @@ export function RenewButton({
                     <AlertCircle className="size-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-500" />
                     <div>
                       <div className="font-medium text-amber-700 dark:text-amber-500">
-                        Есть абонементы за другой месяц
+                        {preview.toCreate.length === 0
+                          ? "Похоже, выбран не тот месяц"
+                          : "Есть абонементы за другой месяц"}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        Эти абонементы (закрытые или с оплатой/посещениями)
-                        относятся к прошлым месяцам и не попадают в выбранный
-                        период. Их естественный период выписки — ниже; нажмите,
-                        чтобы переключиться на него.
+                        {preview.toCreate.length === 0
+                          ? "За выбранный период продлевать нечего. Но эти абонементы пора продлить в другой месяц — их прошлый месяц уже закрыт или оплачен. Нажмите месяц ниже, чтобы переключиться и выписать их."
+                          : "Кроме выписки за выбранный период, часть абонементов относится к другим прошлым месяцам. Нажмите месяц, чтобы переключиться на него."}
                       </div>
                     </div>
                   </div>
@@ -313,7 +343,8 @@ export function RenewButton({
                         disabled={loading}
                         onClick={() => switchPeriod(b.year, b.month)}
                       >
-                        {MONTHS_RU[b.month - 1]} {b.year} — {b.count}
+                        {MONTHS_RU[b.month - 1]} {b.year} · {b.count}
+                        <ArrowRight className="size-3.5" />
                       </Button>
                     ))}
                   </div>
