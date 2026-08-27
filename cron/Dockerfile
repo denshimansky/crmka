@@ -18,5 +18,8 @@ RUN curl -fsSL "https://github.com/aptible/supercronic/releases/download/${SUPER
 
 COPY crontab /etc/crontab
 
+# -no-reap — НЕ включать PID-1 reaper: в наших контейнерах он крашлупит
+#   («Failed to fork exec»), а сироты-процессы не появляются (supercronic сам дожидается
+#   своих curl-детей). Без флага сайдкар не стартует.
 # -passthrough-logs — вывод curl виден в `docker logs` крон-сайдкара.
-CMD ["supercronic", "-passthrough-logs", "/etc/crontab"]
+CMD ["supercronic", "-no-reap", "-passthrough-logs", "/etc/crontab"]
