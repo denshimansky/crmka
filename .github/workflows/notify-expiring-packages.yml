@@ -2,8 +2,9 @@ name: Notify expiring packages (daily)
 
 on:
   schedule:
-    # Каждый день в 06:00 UTC (~09:00 MSK) — админы увидят уведомление утром.
-    - cron: '0 6 * * *'
+    # Каждый день в 00:18 UTC (03:18 МСК) — админы увидят уведомление утром.
+    # РЕЗЕРВ: основной планировщик — supercronic.
+    - cron: '18 0 * * *'
   workflow_dispatch:
 
 jobs:

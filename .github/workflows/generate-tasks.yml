@@ -2,8 +2,9 @@ name: Generate auto-tasks (daily)
 
 on:
   schedule:
-    # Каждый день в 00:00 UTC (= 03:00 MSK)
-    - cron: '0 0 * * *'
+    # Каждый день в 00:02 UTC (= 03:02 МСК). РЕЗЕРВ: основной планировщик —
+    # supercronic (cron/crontab); GitHub-schedule ненадёжен, держим дублёром.
+    - cron: '2 0 * * *'
   workflow_dispatch: # позволить ручной запуск из UI
 
 jobs:

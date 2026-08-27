@@ -2,8 +2,8 @@ name: Check inactive clients (daily)
 
 on:
   schedule:
-    # Каждый день в 03:00 UTC (~06:00 MSK)
-    - cron: '0 3 * * *'
+    # Каждый день в 00:10 UTC (03:10 МСК). РЕЗЕРВ: основной планировщик — supercronic.
+    - cron: '10 0 * * *'
   workflow_dispatch: # позволить ручной запуск из UI
 
 jobs:

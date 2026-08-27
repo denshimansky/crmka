@@ -2880,3 +2880,19 @@ model RoomBalance {
   @@index([tenantId])
   @@map("room_balances")
 }
+
+// Пульс крон-задач (ops-таблица, НЕ мультитенантная — кроны обходят всех тенантов).
+// Каждый /api/cron/* при успехе апсертит свою строку (lastSuccessAt=now). Сторож
+// /api/cron/self-check раз в сутки сверяет lastSuccessAt с «сегодня»: у кого успеха
+// за сегодня нет — перезапускает джобу, а если не поднялась — шлёт алерт на почту.
+// jobName = имя эндпоинта без префикса (напр. "generate-tasks").
+model CronHeartbeat {
+  jobName       String    @id @map("job_name")
+  lastRunAt     DateTime  @map("last_run_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+  lastStatus    String    @map("last_status") // "ok" | "error"
+  lastDetail    String?   @map("last_detail")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("cron_heartbeats")
+}

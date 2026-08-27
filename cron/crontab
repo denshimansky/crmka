@@ -1,0 +1,37 @@
+# Расписание кронов CRMka (supercronic). Времена — UTC (TZ=UTC в образе).
+# МСК = UTC+3, «МСК+2» (напр. Екатеринбург) = UTC+5.
+#
+# Весь суточный батч сжат в 00:00–00:20 UTC (03:00–03:20 МСК) — свежие данные (задачи,
+# счета, цены) готовы до начала рабочего дня даже у партнёров в UTC+5 (~05:20 их
+# локального). Раньше 00:00 UTC уводить НЕЛЬЗЯ: джобы считают «сегодня» по UTC-дате,
+# в 23:xx UTC это ещё «вчера» → обработали бы не ту дату.
+#
+# Порядок внутри батча важен для биллинга: сперва опрос оплат Т-Банка (00:00), потом
+# блокировка должников (00:20) — чтобы не заблокировать оплатившего ночью.
+#
+# Сторож self-check в 01:00 UTC (04:00 МСК): проверяет пульс, перезапускает пропущенные
+# джобы, при неуспехе шлёт письмо на CRON_ALERT_EMAIL.
+#
+# GitHub Actions воркфлоу оставлены резервом на те же времена (идемпотентность спасает
+# от дублей). Env CRON_SECRET и CRON_BASE_URL приходят из docker-compose.
+#
+# Формат: m h dom mon dow  command
+
+# --- Утренний суточный батч (00:00–00:20 UTC = 03:00–03:20 МСК) ---
+0  0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/billing-check-payments"
+2  0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/generate-tasks"
+4  0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/promote-direction-prices"
+6  0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/close-finished-calendar-subscriptions"
+8  0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/finalize-scheduled-withdrawals"
+10 0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/check-inactive-clients"
+12 0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/close-expired-packages"
+14 0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/close-unpaid-subscriptions"
+16 0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/billing-generate-invoices"
+18 0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/notify-expiring-packages"
+20 0 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/billing-block-overdue"
+
+# --- Сторож: проверка + перезапуск + алерт (01:00 UTC = 04:00 МСК) ---
+0  1 * * *  curl -fsS -m 290 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/self-check"
+
+# --- Внутридневной опрос оплат Т-Банка (каждые 2 часа, 02:00–22:00 UTC) ---
+0  2-22/2 * * *  curl -fsS -m 115 -X POST -H "Authorization: Bearer $CRON_SECRET" "$CRON_BASE_URL/api/cron/billing-check-payments"

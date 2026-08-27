@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/**'
       - 'docker-compose.yml'
+      - 'cron/**'
       - 'nginx/**'
       - 'scripts/**'
       - '.github/workflows/deploy.yml'
@@ -70,7 +71,7 @@ jobs:
               docker builder prune -af || true
               df -h /
             fi
-            docker compose build app
+            docker compose build app cron
             # Убираем застрявшие переименованные контейнеры от прерванного прошлого
             # recreate (docker оставляет <hash>_crmka-<svc>-1 → следующий up конфликтует
             # «container name already in use»; баг повторился 23.07.2026, commit 4048e81).

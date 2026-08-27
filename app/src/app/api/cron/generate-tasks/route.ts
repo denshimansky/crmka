@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
+import { runCron } from "@/lib/cron/heartbeat"
 import { generateTasksForTenant } from "@/lib/tasks/generate-tasks"
 
 export const runtime = "nodejs"
@@ -7,41 +8,35 @@ export const maxDuration = 120
 
 // POST /api/cron/generate-tasks
 //
-// Раз в сутки (GitHub Actions cron) генерирует автозадачи по 7 триггерам для всех
-// тенантов: дата следующей связи (включая просроченные), обещанная оплата, ДР,
-// неотмеченные занятия, ожидание оплаты (со следующего дня), неуточнённый «Не был»
-// (со следующего дня), за день до 1-го платного.
+// Раз в сутки генерирует автозадачи по 7 триггерам для всех тенантов: дата
+// следующей связи (включая просроченные), обещанная оплата, ДР, неотмеченные
+// занятия, ожидание оплаты (со следующего дня), неуточнённый «Не был» (со
+// следующего дня), за день до 1-го платного.
 //
-// Авторизация: header Authorization: Bearer ${CRON_SECRET}.
+// Авторизация: header Authorization: Bearer ${CRON_SECRET}. Пульс + перезапуск
+// при пропуске — через runCron (сторож /api/cron/self-check).
 export async function POST(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (!secret) {
-    return NextResponse.json({ error: "CRON_SECRET не сконфигурирован" }, { status: 500 })
-  }
-  const auth = req.headers.get("authorization") || ""
-  if (auth !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  return runCron("generate-tasks", req, async () => {
+    const orgs = await db.organization.findMany({ select: { id: true } })
 
-  const orgs = await db.organization.findMany({ select: { id: true } })
+    let created = 0
+    const errors: { tenantId: string; error: string }[] = []
 
-  let created = 0
-  const errors: { tenantId: string; error: string }[] = []
-
-  // Тенанты обрабатываем последовательно и изолированно: сбой одного не должен
-  // прерывать генерацию для остальных.
-  for (const o of orgs) {
-    try {
-      created += await generateTasksForTenant(o.id)
-    } catch (e) {
-      errors.push({ tenantId: o.id, error: e instanceof Error ? e.message : String(e) })
+    // Тенанты обрабатываем последовательно и изолированно: сбой одного не должен
+    // прерывать генерацию для остальных.
+    for (const o of orgs) {
+      try {
+        created += await generateTasksForTenant(o.id)
+      } catch (e) {
+        errors.push({ tenantId: o.id, error: e instanceof Error ? e.message : String(e) })
+      }
     }
-  }
 
-  return NextResponse.json({
-    ok: errors.length === 0,
-    tenants: orgs.length,
-    created,
-    ...(errors.length > 0 ? { errors } : {}),
+    return {
+      ok: errors.length === 0,
+      tenants: orgs.length,
+      created,
+      ...(errors.length > 0 ? { errors } : {}),
+    }
   })
 }

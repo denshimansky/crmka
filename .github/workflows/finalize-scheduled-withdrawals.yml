@@ -2,8 +2,8 @@ name: Finalize scheduled withdrawals (daily)
 
 on:
   schedule:
-    # Каждый день в 02:00 UTC (~05:00 MSK) — до прочих cron'ов в 03:xx.
-    - cron: '0 2 * * *'
+    # Каждый день в 00:08 UTC (03:08 МСК). РЕЗЕРВ: основной планировщик — supercronic.
+    - cron: '8 0 * * *'
   workflow_dispatch: # позволить ручной запуск из UI
 
 jobs:

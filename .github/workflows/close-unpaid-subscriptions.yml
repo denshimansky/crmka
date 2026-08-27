@@ -2,8 +2,8 @@ name: Close unpaid subscriptions (daily)
 
 on:
   schedule:
-    # Каждый день в 03:30 UTC — после close-expired-packages.
-    - cron: '30 3 * * *'
+    # Каждый день в 00:14 UTC (03:14 МСК). РЕЗЕРВ: основной планировщик — supercronic.
+    - cron: '14 0 * * *'
   workflow_dispatch:
 
 jobs:

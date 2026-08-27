@@ -11,6 +11,7 @@ on:
     paths:
       - 'app/**'
       - 'docker-compose.yml'
+      - 'cron/**'
       - 'nginx/**'
       - 'scripts/**'
       - '.github/workflows/deploy-timeweb.yml'
@@ -72,7 +73,7 @@ jobs:
               docker builder prune -af || true
               df -h /
             fi
-            docker compose build app
+            docker compose build app cron
             # docker compose up может упасть с "container name already in use", если
             # прошлый деплой прервался на recreate (SSH-таймаут): docker оставляет
             # старый контейнер переименованным как <hash>_crmka-<svc>-1, и следующий

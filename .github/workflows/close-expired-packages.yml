@@ -2,8 +2,8 @@ name: Close expired packages (daily)
 
 on:
   schedule:
-    # Каждый день в 03:15 UTC — сразу после check-inactive-clients.
-    - cron: '15 3 * * *'
+    # Каждый день в 00:12 UTC (03:12 МСК). РЕЗЕРВ: основной планировщик — supercronic.
+    - cron: '12 0 * * *'
   workflow_dispatch:
 
 jobs:
