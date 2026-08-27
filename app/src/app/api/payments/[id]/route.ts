@@ -13,10 +13,23 @@ import { currencySymbol } from "@/lib/currency"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
-// Ошибка «на балансе не хватает» — деньги уже потрачены, откатывать нечего.
+// Ошибка «на балансе не хватает». Для обычной оплаты — деньги уже потрачены,
+// откатывать нечего; для возврата — нельзя вернуть больше, чем лежит на балансе.
 class InsufficientBalanceError extends Error {
-  constructor(public balance: number, public amount: number) {
+  constructor(
+    public balance: number,
+    public amount: number,
+    public isRefund = false,
+  ) {
     super("insufficient_balance")
+  }
+}
+
+// Возврат (или увеличение возврата) не должен увести счёт списания в минус —
+// как проверка «Недостаточно средств на счёте» при создании возврата.
+class AccountOverdrawError extends Error {
+  constructor(public accountName: string, public deficit: number) {
+    super("account_overdraw")
   }
 }
 
@@ -24,9 +37,10 @@ function fmtMoney(n: number, currency: string): string {
   return new Intl.NumberFormat("ru-RU").format(n) + " " + currencySymbol(currency)
 }
 
-// Редактирование «обычной» оплаты на случай ошибки админа.
-// Доступно только владельцу и управляющему. Возвраты, переводы и прочие
-// служебные движения через этот эндпоинт не меняются.
+// Редактирование оплаты или возврата на случай ошибки админа. Доступно только
+// владельцу и управляющему. Переводы и прочие служебные движения (transfer_in)
+// через этот эндпоинт не меняются. Для возврата сумма приходит положительной
+// (величина возврата), знак проставляется на сервере по типу операции.
 const updateSchema = z.object({
   amount: z.number().min(0.01, "Сумма должна быть больше 0").optional(),
   method: z
@@ -100,12 +114,28 @@ export async function PATCH(
       })
     )?.currency ?? "RUB"
 
-  // Редактирование разрешено только для обычных «входящих» оплат.
-  // Возвраты делаются через отдельный диалог; внутренние movements (переводы,
-  // pay-from-balance) — отдельной операцией.
-  if (existing.type !== "incoming") {
+  // Редактируем обычные оплаты и возвраты. Внутренние movements (переводы,
+  // pay-from-balance = transfer_in) правятся отдельной операцией.
+  const isRefund = existing.type === "refund"
+  if (existing.type !== "incoming" && !isRefund) {
     return NextResponse.json(
       { error: "Этот тип операции нельзя редактировать здесь" },
+      { status: 400 },
+    )
+  }
+
+  // Историческая аномалия: несколько старых возвратов привязаны к абонементу
+  // (subscriptionId). netPaidToSubscription читает такие возвраты вживую, а сверка
+  // закрытия (subscription_closed_refund) заморожена на момент закрытия — правка
+  // суммы разъедет «Оплачено» закрытого абонемента. Новые возвраты всегда с
+  // subscriptionId=null, поэтому штатный сценарий это не затрагивает.
+  if (isRefund && existing.subscriptionId) {
+    return NextResponse.json(
+      {
+        error:
+          "Этот возврат привязан к абонементу (старая запись) — его правка исказит " +
+          "«Оплачено» абонемента. Обратитесь к разработчику.",
+      },
       { status: 400 },
     )
   }
@@ -128,8 +158,13 @@ export async function PATCH(
     )
   }
 
-  const newAmount = data.amount ?? Number(existing.amount)
+  // Знаковые суммы: у возврата запись хранится с минусом, а из диалога приходит
+  // положительная величина — знак проставляем по типу операции. И счёт, и баланс
+  // родителя всегда двигаются на знаковую amount (incoming +, refund −), поэтому
+  // вся арифметика ниже единообразна для обоих типов.
   const oldAmount = Number(existing.amount)
+  const newAmount =
+    data.amount !== undefined ? (isRefund ? -data.amount : data.amount) : oldAmount
   const newAccountId = data.accountId ?? existing.accountId
 
   // Проверка нового счёта.
@@ -166,24 +201,48 @@ export async function PATCH(
       })
     }
 
-    // Баланс родителя — только если у оплаты есть клиент (не «прочий доход»)
-    // и сумма поменялась.
-    if (existing.clientId && newAmount !== oldAmount) {
+    // Возврат не должен увести счёт списания в минус — как проверка «Недостаточно
+    // средств на счёте» при создании возврата. Проверяем ТОЛЬКО когда правка
+    // реально списывает со счёта больше (увеличение возврата или перенос на другой
+    // счёт): уменьшение возврата счёт лишь пополняет и в минус увести не может,
+    // поэтому не блокируем правки при уже отрицательном (по иным причинам) счёте.
+    const accountChanged = newAccountId !== existing.accountId
+    const netToNewAccount = accountChanged ? newAmount : newAmount - oldAmount
+    if (isRefund && netToNewAccount < 0) {
+      const acct = await tx.financialAccount.findUnique({
+        where: { id: newAccountId },
+        select: { name: true, balance: true },
+      })
+      if (acct && new Prisma.Decimal(acct.balance).lt(0)) {
+        throw new AccountOverdrawError(
+          acct.name,
+          Number(new Prisma.Decimal(acct.balance).negated()),
+        )
+      }
+    }
+
+    // Баланс родителя — только если у операции есть клиент (не «прочий доход»)
+    // и знаковая сумма поменялась.
+    const clientDelta = newAmount - oldAmount
+    if (existing.clientId && clientDelta !== 0) {
       const { newBalance } = await applyBalanceDelta(tx, {
         tenantId: session.user.tenantId,
         clientId: existing.clientId,
-        delta: newAmount - oldAmount,
+        delta: clientDelta,
         type: "correction",
         refs: { paymentId: existing.id },
-        comment: "Корректировка оплаты",
+        comment: isRefund ? "Корректировка возврата" : "Корректировка оплаты",
         createdBy: session.user.employeeId,
       })
-      // Уменьшение суммы не должно уводить баланс клиента в минус: деньги уже
-      // потрачены (списаны в абонемент и т.п.) — сначала верните их на баланс.
-      if (newBalance.lt(0)) {
+      // В минус баланс уводить нельзя ТОЛЬКО когда операция его уменьшает
+      // (clientDelta < 0): уменьшение обычной оплаты или увеличение возврата.
+      // Обратные правки (увеличение оплаты / уменьшение возврата) баланс растят —
+      // блокировать их нельзя, даже если клиент и так в минусе.
+      if (clientDelta < 0 && newBalance.lt(0)) {
         throw new InsufficientBalanceError(
-          Number(newBalance.add(new Prisma.Decimal(oldAmount - newAmount))),
-          oldAmount - newAmount,
+          Number(newBalance.sub(new Prisma.Decimal(clientDelta))),
+          Number(newBalance.negated()),
+          isRefund,
         )
       }
     }
@@ -191,7 +250,7 @@ export async function PATCH(
     const updatedRow = await tx.payment.update({
       where: { id },
       data: {
-        ...(data.amount !== undefined && { amount: data.amount }),
+        ...(data.amount !== undefined && { amount: newAmount }),
         ...(data.method !== undefined && { method: data.method }),
         ...(data.date !== undefined && { date: newDate }),
         ...(data.accountId !== undefined && { accountId: data.accountId }),
@@ -215,7 +274,7 @@ export async function PATCH(
       const oldC = existing.comment?.trim() || ""
       const newC = (data.comment ?? "").trim()
       if (oldC !== newC) {
-        const ref = `оплате ${fmtMoney(newAmount, currency)} от ${newDate.toLocaleDateString("ru-RU")}`
+        const ref = `${isRefund ? "возврату" : "оплате"} ${fmtMoney(Math.abs(newAmount), currency)} от ${newDate.toLocaleDateString("ru-RU")}`
         const content = !oldC
           ? `Комментарий к ${ref} добавлен:\n${newC}`
           : !newC
@@ -232,13 +291,25 @@ export async function PATCH(
     return updatedRow
     })
   } catch (e) {
-    if (e instanceof InsufficientBalanceError) {
+    if (e instanceof AccountOverdrawError) {
       return NextResponse.json(
         {
           error:
-            `Нельзя уменьшить сумму: на балансе клиента ${fmtMoney(e.balance, currency)}, а уменьшение — на ${fmtMoney(e.amount, currency)}. ` +
-            `Деньги уже потрачены — например, списаны в счёт абонемента. ` +
-            `Отчислите абонемент с возвратом денег на баланс или откройте карточку клиента → вкладка «История» и проверьте, куда ушли средства.`,
+            `Недостаточно средств на счёте «${e.accountName}» для возврата: не хватает ${fmtMoney(e.deficit, currency)}. ` +
+            `Уменьшите сумму возврата или выберите другой счёт списания.`,
+        },
+        { status: 400 },
+      )
+    }
+    if (e instanceof InsufficientBalanceError) {
+      return NextResponse.json(
+        {
+          error: e.isRefund
+            ? `Нельзя увеличить возврат: на балансе клиента ${fmtMoney(e.balance, currency)}, для возврата не хватает ${fmtMoney(e.amount, currency)}. ` +
+              `Деньги, перенесённые в абонемент, на балансе не лежат — сначала верните их на баланс (отчисление/закрытие абонемента или перенос остатка).`
+            : `Нельзя уменьшить сумму: на балансе клиента ${fmtMoney(e.balance, currency)}, не хватает ${fmtMoney(e.amount, currency)}. ` +
+              `Деньги уже потрачены — например, списаны в счёт абонемента. ` +
+              `Отчислите абонемент с возвратом денег на баланс или откройте карточку клиента → вкладка «История» и проверьте, куда ушли средства.`,
         },
         { status: 400 },
       )
@@ -254,7 +325,7 @@ export async function PATCH(
     entityId: id,
     changes: {
       ...(data.amount !== undefined && {
-        amount: { old: oldAmount, new: data.amount },
+        amount: { old: oldAmount, new: newAmount },
       }),
       ...(data.method !== undefined && {
         method: { old: existing.method, new: data.method },
@@ -278,11 +349,12 @@ export async function PATCH(
   return NextResponse.json(updated)
 }
 
-// DELETE /api/payments/[id] — удалить операцию оплаты с откатом пополнения.
+// DELETE /api/payments/[id] — удалить оплату или возврат с полным откатом.
 // Право payments.delete: владелец всегда; управляющему владелец может включить
-// в матрице прав. Удаляются только обычные входящие оплаты (не возвраты и не
-// служебные движения). Пополнение откатывается со счёта и с баланса родителя;
-// если деньги с баланса уже потрачены (списаны в абонемент и т.п.) — отказ.
+// в матрице прав. Удаляются обычные входящие оплаты и возвраты (не служебные
+// transfer_in). И счёт, и баланс родителя двигаются на знаковую amount, поэтому
+// откат — вычитание этой суммы: для оплаты деньги снимаются (и, если уже
+// потрачены с баланса, — отказ), для возврата возвращаются на счёт и баланс.
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -318,9 +390,25 @@ export async function DELETE(
     return NextResponse.json({ error: "Оплата не найдена" }, { status: 404 })
   }
 
-  if (existing.type !== "incoming") {
+  const isRefund = existing.type === "refund"
+  if (existing.type !== "incoming" && !isRefund) {
     return NextResponse.json(
-      { error: "Удалять можно только обычные оплаты. Возвраты и служебные операции не удаляются." },
+      { error: "Удалять можно только оплаты и возвраты. Служебные операции (переводы) не удаляются." },
+      { status: 400 },
+    )
+  }
+
+  // Историческая аномалия: несколько старых возвратов привязаны к абонементу
+  // (subscriptionId). Их soft-delete меняет живой netPaid, а замороженная сверка
+  // закрытия (subscription_closed_refund) — нет, из-за чего «Оплачено» закрытого
+  // абонемента показало бы переплату. Новые возвраты с subscriptionId=null.
+  if (isRefund && existing.subscriptionId) {
+    return NextResponse.json(
+      {
+        error:
+          "Этот возврат привязан к абонементу (старая запись) — его удаление исказит " +
+          "«Оплачено» абонемента. Обратитесь к разработчику.",
+      },
       { status: 400 },
     )
   }
@@ -364,10 +452,13 @@ export async function DELETE(
           delta: -amount,
           type: "correction",
           refs: { paymentId: existing.id },
-          comment: `Удаление оплаты от ${existing.date.toLocaleDateString("ru-RU")}`,
+          comment: `${isRefund ? "Удаление возврата" : "Удаление оплаты"} от ${existing.date.toLocaleDateString("ru-RU")}`,
           createdBy: session.user.employeeId,
         })
-        if (newBalance.lt(0)) {
+        // Баланс уходит вниз только при удалении обычной оплаты (amount > 0):
+        // тогда нельзя увести его в минус — деньги уже потрачены. Удаление
+        // возврата (amount < 0) баланс поднимает — не блокируем.
+        if (amount > 0 && newBalance.lt(0)) {
           throw new InsufficientBalanceError(
             Number(newBalance.add(new Prisma.Decimal(amount))),
             amount,
@@ -375,7 +466,8 @@ export async function DELETE(
         }
       }
 
-      // Откат поступления со счёта.
+      // Откат движения по счёту (знаковая amount: оплату снимаем со счёта,
+      // возврат — возвращаем на счёт).
       await tx.financialAccount.update({
         where: { id: existing.accountId },
         data: { balance: { decrement: amount } },

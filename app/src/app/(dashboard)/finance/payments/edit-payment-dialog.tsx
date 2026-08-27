@@ -30,11 +30,14 @@ interface AccountOption {
 
 interface PaymentInput {
   id: string
+  /** Знаковая сумма записи: у возврата отрицательная. В форме показываем модуль. */
   amount: number
   method: string
   date: string
   accountId: string
   comment: string | null
+  /** Возврат — редактируется как обычная оплата, но сумма трактуется как величина возврата. */
+  isRefund: boolean
   /** Прочий доход (без клиента, с категорией) — только он попадает в ОПИУ. */
   isOtherIncome: boolean
   /** «Не учитывать в ОПИУ» — редактируется только у прочего дохода (баг #105). */
@@ -67,15 +70,23 @@ export function EditPaymentDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [amount, setAmount] = useState(String(payment.amount))
+  // Возврат хранится с отрицательной суммой — в форме показываем и вводим модуль,
+  // знак проставляет сервер по типу операции.
+  const [amount, setAmount] = useState(String(Math.abs(payment.amount)))
   const [method, setMethod] = useState(payment.method)
   const [accountId, setAccountId] = useState(payment.accountId)
   const [date, setDate] = useState(payment.date.slice(0, 10))
   const [comment, setComment] = useState(payment.comment ?? "")
   const [notInPnl, setNotInPnl] = useState(payment.notInPnl)
 
+  // У возврата деньги списываются со счёта — способы те же, что при оформлении
+  // возврата: наличные или безнал (онлайн-эквайринг вручную не возвращают).
+  const methodOptions = payment.isRefund
+    ? METHOD_OPTIONS.filter((m) => m.value === "cash" || m.value === "bank_transfer")
+    : METHOD_OPTIONS
+
   function reset() {
-    setAmount(String(payment.amount))
+    setAmount(String(Math.abs(payment.amount)))
     setMethod(payment.method)
     setAccountId(payment.accountId)
     setDate(payment.date.slice(0, 10))
@@ -137,7 +148,7 @@ export function EditPaymentDialog({
       />
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Редактирование оплаты</DialogTitle>
+          <DialogTitle>{payment.isRefund ? "Редактирование возврата" : "Редактирование оплаты"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
@@ -148,7 +159,7 @@ export function EditPaymentDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Сумма *</Label>
+              <Label>{payment.isRefund ? "Сумма возврата *" : "Сумма *"}</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -183,7 +194,7 @@ export function EditPaymentDialog({
                   {selectedMethod ? selectedMethod.label : "Выберите способ"}
                 </SelectTrigger>
                 <SelectContent>
-                  {METHOD_OPTIONS.map(m => (
+                  {methodOptions.map(m => (
                     <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
                   ))}
                 </SelectContent>

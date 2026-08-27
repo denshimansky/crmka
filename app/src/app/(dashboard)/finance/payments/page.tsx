@@ -228,35 +228,41 @@ export default async function PaymentsPage({ searchParams }: { searchParams: Pro
                     <TableCell className="text-muted-foreground">{p.account.name}</TableCell>
                     {(canEdit || canDelete) && (
                       <TableCell className="p-1">
-                        {!isRefund && (
-                          <div className="flex items-center gap-0.5">
-                            {canEdit && (
-                              <EditPaymentDialog
-                                payment={{
-                                  id: p.id,
-                                  amount: Number(p.amount),
-                                  method: p.method,
-                                  date: p.date.toISOString(),
-                                  accountId: p.account.id,
-                                  comment: p.comment,
-                                  isOtherIncome: p.incomeCategoryId != null,
-                                  notInPnl: p.notInPnl,
-                                }}
-                                accounts={accountOptions}
-                              />
-                            )}
-                            {canDelete && (
-                              <DeletePaymentDialog
-                                payment={{
-                                  id: p.id,
-                                  amount: amt,
-                                  date: p.date.toISOString(),
-                                  clientName: p.client ? clientName : null,
-                                  accountName: p.account.name,
-                                }}
-                              />
-                            )}
-                          </div>
+                        {/* Возвраты редактируются/удаляются, КРОМЕ исторических,
+                            привязанных к абонементу (subscriptionId): их правка
+                            разъехала бы «Оплачено» закрытого абонемента (API это
+                            тоже блокирует). Обычные оплаты с абонементом — можно. */}
+                        {!(isRefund && p.subscription) && (
+                        <div className="flex items-center gap-0.5">
+                          {canEdit && (
+                            <EditPaymentDialog
+                              payment={{
+                                id: p.id,
+                                amount: Number(p.amount),
+                                method: p.method,
+                                date: p.date.toISOString(),
+                                accountId: p.account.id,
+                                comment: p.comment,
+                                isRefund,
+                                isOtherIncome: p.incomeCategoryId != null,
+                                notInPnl: p.notInPnl,
+                              }}
+                              accounts={accountOptions}
+                            />
+                          )}
+                          {canDelete && (
+                            <DeletePaymentDialog
+                              payment={{
+                                id: p.id,
+                                amount: amt,
+                                date: p.date.toISOString(),
+                                clientName: p.client ? clientName : null,
+                                accountName: p.account.name,
+                                isRefund,
+                              }}
+                            />
+                          )}
+                        </div>
                         )}
                       </TableCell>
                     )}
