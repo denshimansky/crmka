@@ -1288,6 +1288,13 @@ model Attendance {
   scheduledMakeupLesson     Lesson?                    @relation("ScheduledMakeupLesson", fields: [scheduledMakeupLessonId], references: [id])
   clientBalanceTransactions ClientBalanceTransaction[]
 
+  // ВНИМАНИЕ: помимо ограничений ниже, в БД живёт ЧАСТИЧНЫЙ уникальный индекс
+  // attendances_tenant_lesson_client_ward_key на (tenant_id, lesson_id,
+  // client_id, ward_id) NULLS NOT DISTINCT WHERE NOT is_trial AND NOT is_makeup
+  // — инвариант «один ребёнок на занятии = одна отметка» (миграция
+  // 20260828160000_attendance_unique_per_student). Prisma частичные индексы не
+  // умеет, поэтому в схеме его нет: НЕ удалять как «дрейф» при migrate dev.
+  // Уникальность по абонементу оставлена: она защищает от гонки на одном ключе.
   @@unique([tenantId, lessonId, subscriptionId])
   @@index([tenantId, lessonId])
   @@index([tenantId, lessonId, isPending])
