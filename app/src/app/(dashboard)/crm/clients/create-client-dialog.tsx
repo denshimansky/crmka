@@ -75,6 +75,9 @@ export function CreateClientDialog({
   const [phone2, setPhone2] = useState("")
   const [email, setEmail] = useState("")
   const [socialLink, setSocialLink] = useState("")
+  const [telegram, setTelegram] = useState("")
+  const [vk, setVk] = useState("")
+  const [max, setMax] = useState("")
   const [channelId, setChannelId] = useState<string>("")
   const [channels, setChannels] = useState<ChannelOption[]>([])
   const [assignedTo, setAssignedTo] = useState<string>(myEmployeeId || "")
@@ -183,6 +186,9 @@ export function CreateClientDialog({
           phone2: phone2.trim() || undefined,
           email: email.trim() || undefined,
           socialLink: socialLink.trim() || undefined,
+          telegram: telegram.trim() || undefined,
+          vk: vk.trim() || undefined,
+          max: max.trim() || undefined,
           channelId: channelId || undefined,
           branchId: branchId || undefined,
           secondBranchId: secondBranchId || undefined,
@@ -345,6 +351,38 @@ export function CreateClientDialog({
                   value={socialLink}
                   onChange={(e) => setSocialLink(e.target.value)}
                   placeholder="vk.com/ivanova"
+                />
+              </div>
+            </div>
+
+            {/* Мессенджер-хендлы для расширения (аналог BubbleXT): матчинг чата
+                с карточкой. Свободный текст — username / ссылка / id. */}
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <Label htmlFor="cl-telegram">Телеграм</Label>
+                <Input
+                  id="cl-telegram"
+                  value={telegram}
+                  onChange={(e) => setTelegram(e.target.value)}
+                  placeholder="@username"
+                />
+              </div>
+              <div>
+                <Label htmlFor="cl-vk">ВК</Label>
+                <Input
+                  id="cl-vk"
+                  value={vk}
+                  onChange={(e) => setVk(e.target.value)}
+                  placeholder="vk.com/id..."
+                />
+              </div>
+              <div>
+                <Label htmlFor="cl-max">MAX</Label>
+                <Input
+                  id="cl-max"
+                  value={max}
+                  onChange={(e) => setMax(e.target.value)}
+                  placeholder="телефон / ссылка"
                 />
               </div>
             </div>

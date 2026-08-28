@@ -58,6 +58,9 @@ interface ClientData {
   phone2: string | null
   email: string | null
   socialLink: string | null
+  telegram: string | null
+  vk: string | null
+  max: string | null
   channelId: string | null
   branchId: string | null
   secondBranchId: string | null
@@ -103,6 +106,9 @@ export function EditClientDialog({
   const [phone2, setPhone2] = useState(client.phone2 || "")
   const [email, setEmail] = useState(client.email || "")
   const [socialLink, setSocialLink] = useState(client.socialLink || "")
+  const [telegram, setTelegram] = useState(client.telegram || "")
+  const [vk, setVk] = useState(client.vk || "")
+  const [max, setMax] = useState(client.max || "")
   const [channelId, setChannelId] = useState(client.channelId || "")
   const [branchId, setBranchId] = useState(client.branchId || "")
   const [secondBranchId, setSecondBranchId] = useState(client.secondBranchId || "")
@@ -152,6 +158,9 @@ export function EditClientDialog({
     setPhone2(client.phone2 || "")
     setEmail(client.email || "")
     setSocialLink(client.socialLink || "")
+    setTelegram(client.telegram || "")
+    setVk(client.vk || "")
+    setMax(client.max || "")
     setChannelId(client.channelId || "")
     setBranchId(client.branchId || "")
     setSecondBranchId(client.secondBranchId || "")
@@ -203,6 +212,9 @@ export function EditClientDialog({
         phone2: phone2.trim() || null,
         email: email.trim() || null,
         socialLink: socialLink.trim() || null,
+        telegram: telegram.trim() || null,
+        vk: vk.trim() || null,
+        max: max.trim() || null,
         channelId: channelId || null,
         branchId: branchId || null,
         secondBranchId: secondBranchId || null,
@@ -365,6 +377,35 @@ export function EditClientDialog({
                 value={socialLink}
                 onChange={(e) => setSocialLink(e.target.value)}
                 placeholder="https://vk.com/..."
+              />
+            </div>
+          </div>
+
+          {/* Мессенджер-хендлы для расширения (аналог BubbleXT): матчинг чата
+              с карточкой. Свободный текст — username / ссылка / id. */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label>Телеграм</Label>
+              <Input
+                value={telegram}
+                onChange={(e) => setTelegram(e.target.value)}
+                placeholder="@username"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>ВК</Label>
+              <Input
+                value={vk}
+                onChange={(e) => setVk(e.target.value)}
+                placeholder="vk.com/id..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>MAX</Label>
+              <Input
+                value={max}
+                onChange={(e) => setMax(e.target.value)}
+                placeholder="телефон / ссылка"
               />
             </div>
           </div>

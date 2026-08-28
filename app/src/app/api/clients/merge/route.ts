@@ -111,6 +111,9 @@ export async function POST(req: NextRequest) {
     if (!target.phone2 && source.phone2) updateData.phone2 = source.phone2
     if (!target.email && source.email) updateData.email = source.email
     if (!target.socialLink && source.socialLink) updateData.socialLink = source.socialLink
+    if (!target.telegram && source.telegram) updateData.telegram = source.telegram
+    if (!target.vk && source.vk) updateData.vk = source.vk
+    if (!target.max && source.max) updateData.max = source.max
 
     // Append comment
     if (source.comment) {

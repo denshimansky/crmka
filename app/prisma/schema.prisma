@@ -339,6 +339,15 @@ model Client {
   phone2                  String?
   email                   String?
   socialLink              String?           @map("social_link")
+  // Мессенджер-хендлы клиента (28.08.2026) — отдельно от общего socialLink.
+  // Нужны для браузерного расширения-надстройки над мессенджерами (аналог
+  // BubbleXT): по этим идентификаторам расширение сопоставит открытый чат с
+  // карточкой. Telegram/ВК телефон не отдают → матч по username/id, не по
+  // номеру; MAX привязан к телефону, но веб-DOM его может прятать. Свободный
+  // текст (username / ссылка / id). См. docs/messenger-extension.md.
+  telegram                String?
+  vk                      String?
+  max                     String?
   funnelStatus            FunnelStatus      @default(new) @map("funnel_status")
   clientStatus            ClientWorkStatus? @map("client_status")
   segment                 ClientSegment     @default(new_client) @map("segment")

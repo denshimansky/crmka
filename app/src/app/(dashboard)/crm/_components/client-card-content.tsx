@@ -731,6 +731,9 @@ export async function ClientCardContent({
                     phone2: visiblePhone2,
                     email: client.email,
                     socialLink: client.socialLink,
+                    telegram: client.telegram,
+                    vk: client.vk,
+                    max: client.max,
                     channelId: client.channelId,
                     branchId: client.branchId,
                     secondBranchId: client.secondBranchId,
@@ -817,6 +820,30 @@ export async function ClientCardContent({
                   <span className="text-muted-foreground shrink-0">Соцсеть</span>
                   <span className="truncate max-w-[160px] text-right">
                     {client.socialLink}
+                  </span>
+                </div>
+              )}
+              {client.telegram && (
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground shrink-0">Телеграм</span>
+                  <span className="truncate max-w-[160px] text-right">
+                    {client.telegram}
+                  </span>
+                </div>
+              )}
+              {client.vk && (
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground shrink-0">ВК</span>
+                  <span className="truncate max-w-[160px] text-right">
+                    {client.vk}
+                  </span>
+                </div>
+              )}
+              {client.max && (
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground shrink-0">MAX</span>
+                  <span className="truncate max-w-[160px] text-right">
+                    {client.max}
                   </span>
                 </div>
               )}
