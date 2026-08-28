@@ -6,6 +6,7 @@
  */
 
 import {
+  MSG_AI_DRAFT,
   MSG_API,
   MSG_CHAT_ACTIVITY,
   MSG_GET_STATE,
@@ -58,6 +59,7 @@ const el = {
   quick: /** @type {HTMLElement} */ (document.getElementById("quick")),
   quickButtons: /** @type {HTMLElement} */ (document.getElementById("quick-buttons")),
   templateButtons: /** @type {HTMLElement} */ (document.getElementById("template-buttons")),
+  aiDraft: /** @type {HTMLButtonElement} */ (document.getElementById("ai-draft")),
   wards: /** @type {HTMLElement} */ (document.getElementById("wards")),
   subscriptions: /** @type {HTMLElement} */ (document.getElementById("subscriptions")),
   payments: /** @type {HTMLElement} */ (document.getElementById("payments")),
@@ -458,7 +460,10 @@ async function loadQuickInfo(clientId) {
 
   renderChips(el.quickButtons, info?.blocks ?? [], "chip")
   renderChips(el.templateButtons, templates?.templates ?? [], "chip chip-template")
-  el.quick.hidden = el.quickButtons.childElementCount + el.templateButtons.childElementCount === 0
+  // Черновик работает и без карточки (по одной переписке), но кнопку показываем
+  // только когда блок вообще виден.
+  el.aiDraft.hidden = false
+  el.quick.hidden = false
 }
 
 /**
@@ -515,6 +520,35 @@ async function insertIntoChat(text, button) {
     button.disabled = false
   }
 }
+
+/**
+ * ИИ-черновик ответа.
+ *
+ * Занимает несколько секунд, поэтому кнопка блокируется и честно пишет, что
+ * происходит: без этого человек жмёт её повторно и тратит дневной лимит.
+ * Результат попадает в поле ввода — отправляет его человек, прочитав.
+ */
+el.aiDraft.addEventListener("click", async () => {
+  el.aiDraft.disabled = true
+  const label = el.aiDraft.textContent
+  el.aiDraft.textContent = "✨ Готовим…"
+  try {
+    const result = await send({ type: MSG_AI_DRAFT, clientId: state.clientId })
+    if (!result?.text) {
+      flashStatus("ИИ не вернул черновик — попробуйте ещё раз")
+      return
+    }
+    await insertIntoChat(result.text, el.aiDraft)
+    flashStatus("Черновик вставлен — прочитайте и поправьте перед отправкой")
+  } catch (error) {
+    // Здесь ошибки осмысленные (нет доступа к ИИ, дневной лимит, релей лежит) —
+    // показываем текст сервера как есть.
+    flashStatus(error instanceof Error ? error.message : "Не удалось получить черновик")
+  } finally {
+    el.aiDraft.textContent = label
+    el.aiDraft.disabled = false
+  }
+})
 
 /** Показать сообщение и убрать через несколько секунд, если его не перебили. */
 function flashStatus(text) {

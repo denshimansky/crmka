@@ -75,6 +75,12 @@ export const MSG_COLLECT_MESSAGES = "collect-messages"
  * инструмент со всеми последствиями в сторах и у самих мессенджеров).
  */
 export const MSG_INSERT_TEXT = "insert-text"
+/**
+ * Панель → service worker: собрать ИИ-черновик ответа. Видимые сообщения к нему
+ * прикладывает service worker (у него доступ к content script), панель шлёт
+ * только id клиента.
+ */
+export const MSG_AI_DRAFT = "ai-draft"
 /** Сообщения панели → service worker. */
 export const MSG_GET_STATE = "get-state"
 export const MSG_SAVE_SETTINGS = "save-settings"

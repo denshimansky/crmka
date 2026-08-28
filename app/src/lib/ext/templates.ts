@@ -91,16 +91,15 @@ export async function buildTemplatesForChat(
   const facts = options.clientId ? await collectClientFacts(ctx, options.clientId) : null
   if (!facts) return templates.map((t) => ({ id: t.id, title: t.title, text: t.body }))
 
-  const [organization, employee] = await Promise.all([
-    db.organization.findUnique({ where: { id: ctx.tenantId }, select: { name: true } }),
-    db.employee.findUnique({
-      where: { id: ctx.employeeId },
-      select: { firstName: true, lastName: true },
-    }),
-  ])
+  // Имя сотрудника уже посчитал гард (он и так читает сотрудника на каждый
+  // запрос) — второй запрос за тем же именем не нужен.
+  const organization = await db.organization.findUnique({
+    where: { id: ctx.tenantId },
+    select: { name: true },
+  })
 
   const values = buildTemplateValues(facts, {
-    employeeName: employee?.firstName?.trim() || null,
+    employeeName: ctx.employeeName,
     organizationName: organization?.name ?? null,
   })
 

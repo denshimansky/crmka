@@ -112,6 +112,16 @@ export function fetchTemplates(settings, payload) {
 }
 
 /**
+ * ИИ-черновик ответа. Возвращает ТЕКСТ для поля ввода — отправляет человек.
+ * @param {ExtSettings} settings
+ * @param {{clientId?: string|null, messages?: ChatMessage[], instruction?: string|null}} payload
+ * @returns {Promise<{text: string, remaining?: number}>}
+ */
+export function fetchAiReply(settings, payload) {
+  return request(settings, "/api/ext/ai-reply", { method: "POST", body: payload })
+}
+
+/**
  * Поиск клиента для ручной привязки (в Telegram телефона нет — ищет человек).
  * @param {ExtSettings} settings
  * @param {string} q

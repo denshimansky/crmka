@@ -13,6 +13,7 @@
  */
 
 import {
+  MSG_AI_DRAFT,
   MSG_API,
   MSG_CHAT_ACTIVITY,
   MSG_CHAT_CHANGED,
@@ -29,6 +30,7 @@ import {
 import {
   ApiError,
   createBinding,
+  fetchAiReply,
   deleteBinding,
   fetchClientCard,
   fetchQuickInfo,
@@ -250,6 +252,10 @@ async function handleMessage(message, sender) {
       return syncVisibleMessages(message.clientId)
     }
 
+    case MSG_AI_DRAFT: {
+      return buildAiDraft(message.clientId ?? null)
+    }
+
     case MSG_INSERT_TEXT: {
       // Текст едет в поле ввода активной вкладки. Отправку не инициируем ни
       // здесь, ни в адаптере — это принцип-щит спеки, а не деталь реализации.
@@ -293,6 +299,41 @@ async function callApi(settings, action, payload) {
 }
 
 /**
+ * Видимые сообщения открытого чата. null — content script не ответил
+ * (вкладку закрыли, страница обновляется).
+ * @param {number} tabId
+ * @returns {Promise<import("../common/types.js").ChatMessage[]|null>}
+ */
+async function collectMessages(tabId) {
+  const collected = await chrome.tabs
+    .sendMessage(tabId, { type: MSG_COLLECT_MESSAGES })
+    .catch(() => null)
+  if (!collected) return null
+  return (collected.messages ?? []).filter((m) => m.text?.trim())
+}
+
+/**
+ * ИИ-черновик ответа: контекст — карточка клиента и сообщения, которые сотрудник
+ * видит на экране. Возвращаем ТЕКСТ, панель кладёт его в поле ввода; отправка
+ * остаётся за человеком.
+ *
+ * @param {string|null} clientId
+ * @returns {Promise<{text: string, remaining?: number}>}
+ */
+async function buildAiDraft(clientId) {
+  const settings = await getSettings()
+  const tabId = await getActiveTabId()
+  const messages = tabId != null ? ((await collectMessages(tabId)) ?? []) : []
+
+  return fetchAiReply(settings, {
+    clientId,
+    // Тот же хвост, что и при заливке переписки: модели нужен разговор, а не
+    // вся подгруженная история.
+    messages: messages.slice(-SYNC_MESSAGES_LIMIT),
+  })
+}
+
+/**
  * Забрать у content script видимые сообщения и залить их в CRM.
  *
  * Заливаем только то, что администратор видит на экране — историю не выкачиваем
@@ -311,17 +352,10 @@ async function syncVisibleMessages(clientId) {
   const chat = await getChatForTab(tabId)
   if (!chat) return null
 
-  /** @type {{messages: import("../common/types.js").ChatMessage[]} | undefined} */
-  let collected
-  try {
-    collected = await chrome.tabs.sendMessage(tabId, { type: MSG_COLLECT_MESSAGES })
-  } catch {
-    // Вкладку закрыли или content script не отвечает после обновления
-    // мессенджера — панель продолжает работать без записи переписки.
-    return null
-  }
-
-  const messages = (collected?.messages ?? []).filter((m) => m.text?.trim())
+  // null — вкладку закрыли или content script не отвечает после обновления
+  // мессенджера: панель продолжает работать без записи переписки.
+  const messages = await collectMessages(tabId)
+  if (!messages) return null
   if (messages.length === 0) return { created: 0, skipped: 0 }
 
   return syncMessages(settings, {

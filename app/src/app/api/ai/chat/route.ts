@@ -3,8 +3,8 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { buildNavMap, buildBaseContext, buildDynamicSlice, buildFaqSlice } from "@/lib/ai-context"
+import { AI_DAILY_LIMIT as DAILY_LIMIT, aiConfigured, callAi } from "@/lib/ai-provider"
 
-const DAILY_LIMIT = 50
 
 /**
  * POST /api/ai/chat
@@ -45,13 +45,10 @@ export async function POST(req: NextRequest) {
     }, { status: 429 })
   }
 
-  // Провайдер: anthropic (Claude, по умолчанию) или openai. Релей на Hetzner
-  // умеет оба (/anthropic/ и /oai/), переключение — только через env, без правок кода.
-  const provider = (process.env.AI_PROVIDER || "anthropic").toLowerCase()
-  const apiKey = provider === "openai"
-    ? process.env.OPENAI_API_KEY
-    : process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
+  // Провайдер, модель и адрес (в т.ч. релей на Hetzner) — в lib/ai-provider.ts:
+  // общая точка с черновиком ответа для расширения, настройка релея хрупкая и
+  // жить в двух копиях не должна.
+  if (!aiConfigured()) {
     return NextResponse.json({
       reply: "AI-ассистент временно недоступен. Обратитесь к администратору.",
       remaining: DAILY_LIMIT - usedToday,
@@ -120,101 +117,28 @@ ${navMap}${faqSlice ? "\n\n" + faqSlice : ""}`
 ДАННЫЕ ОРГАНИЗАЦИИ:
 ${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
 
-    const systemPrompt = `${staticPrompt}\n\n${dynamicPrompt}`
-
     const history = (body.history || []).slice(-6)
+
     let reply: string
-
-    // Модель каждого провайдера переопределяется через env. Дефолт Anthropic —
-    // Opus 4.8 (Haiku 4.5 галлюцинировал на «как сделать X»); на боевом msk1
-    // с 08.07.2026 через ANTHROPIC_MODEL задан claude-haiku-4-5 (экономия 5×),
-    // галлюцинации компенсируются FAQ в ai-context.ts и примерами в промпте.
-    // Промежуточный вариант — claude-sonnet-4-6 (в 1.7 раза дешевле Opus).
-    // OpenAI: gpt-5.4-mini — оптимум цена/качество (OPENAI_MODEL: gpt-5.4-nano
-    // дешевле, gpt-5.5 премиум).
-    const model = provider === "openai"
-      ? process.env.OPENAI_MODEL || "gpt-5.4-mini"
-      : process.env.ANTHROPIC_MODEL || "claude-opus-4-8"
-
-    if (provider === "openai") {
-      // База OpenAI API (с /v1, как у официального SDK). По умолчанию api.openai.com.
-      // Для заблокированного хоста — OPENAI_BASE_URL на релей (напр. .../oai/v1).
-      const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "")
-
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          // GPT-5.x — reasoning-модель: max_completion_tokens покрывает и скрытые
-          // reasoning-токены; reasoning_effort=low — глубокое рассуждение не нужно;
-          // sampling-параметры (temperature и т.п.) reasoning-модели не поддерживают.
-          model,
-          max_completion_tokens: 2000,
-          reasoning_effort: "low",
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...history,
-            { role: "user", content: message },
-          ],
-        }),
+    let provider: string
+    let model: string
+    try {
+      const answer = await callAi({
+        systemStatic: staticPrompt,
+        systemDynamic: dynamicPrompt,
+        messages: [...history, { role: "user", content: message }],
       })
-
-      if (!response.ok) {
-        const errBody = await response.text()
-        console.error("[ai/chat] OpenAI API error:", response.status, errBody)
-        return NextResponse.json({
-          reply: "Не удалось получить ответ от AI. Попробуйте позже.",
-          remaining: DAILY_LIMIT - usedToday,
-        })
-      }
-
-      const data = await response.json()
-      reply = data.choices?.[0]?.message?.content?.trim() || "Нет ответа"
-    } else {
-      // Anthropic Messages API. Цена входа компенсируется prompt cache на
-      // статической части системного промпта (cache_control ниже).
-      // База Anthropic API (без /v1, как у официального SDK — путь добавляем сами).
-      // Для заблокированного хоста — ANTHROPIC_BASE_URL на релей (напр. .../anthropic).
-      const baseUrl = (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "")
-
-      const response = await fetch(`${baseUrl}/v1/messages`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 2000,
-          // Статическая часть промпта кэшируется (TTL 5 мин): при активном
-          // использовании чата повторные запросы читают её из кэша за ~0.1×
-          // цены. Динамика (данные организации) идёт отдельным блоком после.
-          system: [
-            { type: "text", text: staticPrompt, cache_control: { type: "ephemeral" } },
-            { type: "text", text: dynamicPrompt },
-          ],
-          messages: [
-            ...history,
-            { role: "user", content: message },
-          ],
-        }),
+      reply = answer.text || "Нет ответа"
+      provider = answer.provider
+      model = answer.model
+    } catch (providerErr) {
+      // Провайдер недоступен (упал релей, кончилась квота) — это не поломка
+      // ассистента, человеку нужен понятный ответ, а не 500.
+      console.error("[ai/chat] Provider error:", providerErr)
+      return NextResponse.json({
+        reply: "Не удалось получить ответ от AI. Попробуйте позже.",
+        remaining: DAILY_LIMIT - usedToday,
       })
-
-      if (!response.ok) {
-        const errBody = await response.text()
-        console.error("[ai/chat] Anthropic API error:", response.status, errBody)
-        return NextResponse.json({
-          reply: "Не удалось получить ответ от AI. Попробуйте позже.",
-          remaining: DAILY_LIMIT - usedToday,
-        })
-      }
-
-      const data = await response.json()
-      reply = data.content?.[0]?.text?.trim() || "Нет ответа"
     }
 
     // Лог диалога — сырьё для аудита качества ответов и пополнения FAQ

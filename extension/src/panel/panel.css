@@ -320,6 +320,13 @@ button.primary:disabled {
   border-style: dashed;
 }
 
+/* ИИ-черновик — не мгновенная вставка, а запрос на несколько секунд, поэтому
+   выделяем его отдельно от готовых текстов. */
+.chip-ai {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .hint-inline {
   margin: 6px 0 0;
 }

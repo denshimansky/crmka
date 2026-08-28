@@ -60,6 +60,8 @@ export interface ExtContext {
   /** Видит ли роль телефоны клиентов (настройка организации). */
   instructorsSeePhones: boolean
   tokenId: string
+  /** Имя сотрудника: им подписываются шаблоны и журнал ИИ-черновиков. */
+  employeeName: string | null
 }
 
 export type ExtAuthResult =
@@ -146,6 +148,7 @@ export async function requireExtAuth(req: Request, scope: ExtScope): Promise<Ext
     select: {
       id: true,
       role: true,
+      firstName: true,
       organization: {
         select: { rolePermissions: true, billingStatus: true, instructorsSeePhones: true },
       },
@@ -197,6 +200,7 @@ export async function requireExtAuth(req: Request, scope: ExtScope): Promise<Ext
       branchScope,
       instructorsSeePhones: org.instructorsSeePhones,
       tokenId: token.id,
+      employeeName: employee.firstName?.trim() || null,
     },
   }
 }
