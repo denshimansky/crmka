@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -449,32 +450,22 @@ export function SalesTable({
         />
       </div>
       {showBranchFilter && (
-        <select
+        <SimpleSelect
           value={branchId ?? "all"}
-          onChange={(e) => setParam("branchId", e.target.value)}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
-        >
-          <option value="all">Все филиалы</option>
-          {branches.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
+          onValueChange={(v) => setParam("branchId", v)}
+          options={branches}
+          emptyLabel="Все филиалы"
+          className="w-[180px]"
+        />
       )}
       {showDirectionFilter && (
-        <select
+        <SimpleSelect
           value={directionId ?? "all"}
-          onChange={(e) => setParam("directionId", e.target.value)}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
-        >
-          <option value="all">Все направления</option>
-          {directions.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+          onValueChange={(v) => setParam("directionId", v)}
+          options={directions}
+          emptyLabel="Все направления"
+          className="w-[200px]"
+        />
       )}
     </div>
   )

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import {
   Dialog,
   DialogContent,
@@ -363,16 +364,14 @@ export function SalaryRatesDialog({
             {editing === "new" && (
               <div className="space-y-1.5">
                 <Label>Направление (исключение)</Label>
-                <select
+                <SimpleSelect
                   value={editDirectionId}
-                  onChange={(e) => setEditDirectionId(e.target.value)}
-                  className="h-9 w-full rounded border bg-background px-3 text-sm"
-                >
-                  <option value="">— Ставка по умолчанию —</option>
-                  {availableDirections.map((d) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
+                  onValueChange={setEditDirectionId}
+                  options={availableDirections}
+                  emptyLabel="— Ставка по умолчанию —"
+                  emptyValue=""
+                  className="w-full"
+                />
               </div>
             )}
 
@@ -447,16 +446,14 @@ export function SalaryRatesDialog({
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Основное направление</Label>
-                      <select
+                      <SimpleSelect
                         value={okladDir}
-                        onChange={(e) => { setOkladDir(e.target.value); setOkladSaved(false) }}
-                        className="h-9 w-full rounded border bg-background px-3 text-sm"
-                      >
-                        <option value="">Не выбрано</option>
-                        {directions.map((d) => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
-                        ))}
-                      </select>
+                        onValueChange={(v) => { setOkladDir(v); setOkladSaved(false) }}
+                        options={directions}
+                        emptyLabel="Не выбрано"
+                        emptyValue=""
+                        className="w-full"
+                      />
                     </div>
                   </div>
                   {!okladLocked && (

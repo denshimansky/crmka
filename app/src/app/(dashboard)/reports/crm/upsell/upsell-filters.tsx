@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
+import { SimpleSelect } from "@/components/ui/simple-select"
 
 interface DirectionOption {
   id: string
@@ -40,35 +41,28 @@ export function UpsellFilters({
     router.push(`?${params.toString()}`)
   }
 
-  const selectCls =
-    "h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+  // SimpleSelect отдаёт "all" вместо пустой строки — в URL это отсутствие параметра.
+  const groupOptions = groups.map((g) => ({
+    id: g.id,
+    name: g.directionName ? `${g.name} · ${g.directionName}` : g.name,
+  }))
 
   return (
     <div className="flex flex-wrap gap-2">
-      <select
-        value={directionId ?? ""}
-        onChange={(e) => setParam("directionId", e.target.value)}
-        className={selectCls}
-      >
-        <option value="">Все направления</option>
-        {directions.map((d) => (
-          <option key={d.id} value={d.id}>
-            {d.name}
-          </option>
-        ))}
-      </select>
-      <select
-        value={groupId ?? ""}
-        onChange={(e) => setParam("groupId", e.target.value)}
-        className={selectCls}
-      >
-        <option value="">Все группы</option>
-        {groups.map((g) => (
-          <option key={g.id} value={g.id}>
-            {g.directionName ? `${g.name} · ${g.directionName}` : g.name}
-          </option>
-        ))}
-      </select>
+      <SimpleSelect
+        value={directionId ?? "all"}
+        onValueChange={(v) => setParam("directionId", v === "all" ? "" : v)}
+        options={directions}
+        emptyLabel="Все направления"
+        className="w-[200px]"
+      />
+      <SimpleSelect
+        value={groupId ?? "all"}
+        onValueChange={(v) => setParam("groupId", v === "all" ? "" : v)}
+        options={groupOptions}
+        emptyLabel="Все группы"
+        className="w-[220px]"
+      />
     </div>
   )
 }

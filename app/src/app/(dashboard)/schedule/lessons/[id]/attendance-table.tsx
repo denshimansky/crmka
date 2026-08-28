@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select,
@@ -1632,39 +1633,35 @@ function ScheduleMakeupDialog({
 
           <div className="space-y-1.5">
             <Label>Филиал</Label>
-            <select
+            <SimpleSelect
               value={branchId}
-              onChange={(e) => setBranchId(e.target.value)}
-              className="h-9 w-full rounded border bg-background px-3 text-sm"
-            >
-              <option value="">— выберите филиал —</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+              onValueChange={setBranchId}
+              options={branches}
+              emptyLabel="— выберите филиал —"
+              emptyValue=""
+              className="w-full"
+            />
           </div>
 
           <div className="space-y-1.5">
             <Label>Направление</Label>
-            <select
+            <SimpleSelect
               value={directionId}
-              onChange={(e) => setDirectionId(e.target.value)}
-              disabled={directionDisabled}
-              className="h-9 w-full rounded border bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <option value="">
-                {!date || !branchId
+              onValueChange={setDirectionId}
+              options={directions}
+              emptyLabel={
+                !date || !branchId
                   ? "— сначала выберите дату и филиал —"
                   : loadingDay
                     ? "Загрузка направлений…"
                     : directions.length === 0
                       ? "— в эту дату нет занятий —"
-                      : "— выберите направление —"}
-              </option>
-              {directions.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
+                      : "— выберите направление —"
+              }
+              emptyValue=""
+              disabled={directionDisabled}
+              className="w-full"
+            />
             {date && branchId && !loadingDay && directions.length === 0 && !dayError && (
               <p className="text-xs text-muted-foreground">
                 В выбранную дату в этом филиале занятий нет — выберите другую дату или филиал.

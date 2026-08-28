@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import {
   Dialog,
   DialogContent,
@@ -140,61 +141,54 @@ export function StandaloneLessonDialog({ defaultDate }: { defaultDate: string })
 
           <div className="space-y-1.5">
             <Label>Филиал</Label>
-            <select
+            <SimpleSelect
               value={branchId}
-              onChange={(e) => setBranchId(e.target.value)}
-              className="h-9 w-full rounded border bg-background px-3 text-sm"
-            >
-              <option value="">— выберите филиал —</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+              onValueChange={setBranchId}
+              options={branches}
+              emptyLabel="— выберите филиал —"
+              emptyValue=""
+              className="w-full"
+            />
           </div>
 
           <div className="space-y-1.5">
             <Label>Кабинет</Label>
-            <select
+            <SimpleSelect
               value={roomId}
-              onChange={(e) => setRoomId(e.target.value)}
+              onValueChange={setRoomId}
+              options={rooms}
+              emptyLabel="— выберите кабинет —"
+              emptyValue=""
               disabled={!branchId}
-              className="h-9 w-full rounded border bg-background px-3 text-sm disabled:opacity-50"
-            >
-              <option value="">— выберите кабинет —</option>
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
+              className="w-full"
+            />
           </div>
 
           <div className="space-y-1.5">
             <Label>Направление</Label>
-            <select
+            <SimpleSelect
               value={directionId}
-              onChange={(e) => setDirectionId(e.target.value)}
-              className="h-9 w-full rounded border bg-background px-3 text-sm"
-            >
-              <option value="">— выберите направление —</option>
-              {directions.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
+              onValueChange={setDirectionId}
+              options={directions}
+              emptyLabel="— выберите направление —"
+              emptyValue=""
+              className="w-full"
+            />
           </div>
 
           <div className="space-y-1.5">
             <Label>{roleNames.instructor}</Label>
-            <select
+            <SimpleSelect
               value={instructorId}
-              onChange={(e) => setInstructorId(e.target.value)}
-              className="h-9 w-full rounded border bg-background px-3 text-sm"
-            >
-              <option value="">— выберите инструктора —</option>
-              {instructors.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {[i.lastName, i.firstName].filter(Boolean).join(" ") || "Без имени"}
-                </option>
-              ))}
-            </select>
+              onValueChange={setInstructorId}
+              options={instructors.map((i) => ({
+                id: i.id,
+                name: [i.lastName, i.firstName].filter(Boolean).join(" ") || "Без имени",
+              }))}
+              emptyLabel="— выберите инструктора —"
+              emptyValue=""
+              className="w-full"
+            />
           </div>
 
           <div className="grid grid-cols-3 gap-2">

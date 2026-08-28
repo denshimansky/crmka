@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { Input } from "@/components/ui/input"
+import { SimpleSelect } from "@/components/ui/simple-select"
 import { Search } from "lucide-react"
 import { EditableDateCell, EditableTextCell } from "../_components/editable-cell"
 import { RemoveFromContactButton } from "./remove-from-contact-button"
@@ -102,18 +103,13 @@ export function ContactTable({
         />
       </div>
       {showBranchFilter && (
-        <select
+        <SimpleSelect
           value={branchId ?? "all"}
-          onChange={(e) => setBranch(e.target.value)}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
-        >
-          <option value="all">Все филиалы</option>
-          {branches.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
+          onValueChange={setBranch}
+          options={branches}
+          emptyLabel="Все филиалы"
+          className="w-[180px]"
+        />
       )}
     </div>
   )
