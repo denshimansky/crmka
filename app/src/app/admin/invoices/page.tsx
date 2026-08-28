@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
+import { StickyHScroll } from "@/components/sticky-h-scroll"
 import Link from "next/link"
 
 interface Invoice {
@@ -110,10 +111,11 @@ export default function InvoicesPage() {
       {/* Платежи из выписки Т-Банк, которые не удалось сопоставить со счетами
           автоматически — разбираются вручную: найти счёт и отметить «Оплачен» */}
       {unmatchedOps.length > 0 && (
-        <div className="mb-6 rounded-md border border-destructive/40 bg-destructive/5 p-4 overflow-x-auto">
+        <div className="mb-6 rounded-md border border-destructive/40 bg-destructive/5 p-4">
           <h2 className="mb-2 font-semibold text-destructive">
             Неразобранные платежи из выписки ({unmatchedOps.length})
           </h2>
+          <StickyHScroll>
           <Table>
             <TableHeader>
               <TableRow>
@@ -142,13 +144,14 @@ export default function InvoicesPage() {
               ))}
             </TableBody>
           </Table>
+          </StickyHScroll>
         </div>
       )}
 
       {loading ? (
         <div className="text-muted-foreground">Загрузка...</div>
       ) : (
-        <div className="rounded-md border overflow-x-auto">
+        <StickyHScroll className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -227,7 +230,7 @@ export default function InvoicesPage() {
               )}
             </TableBody>
           </Table>
-        </div>
+        </StickyHScroll>
       )}
     </div>
   )
