@@ -107,13 +107,21 @@
           </div>
           <div id="action-form" class="action-form" hidden>
             <textarea id="action-text" rows="3"></textarea>
-            <label id="action-due-row" class="due-row">
-              <span>Срок</span>
+            <div id="action-due-row" class="due-row">
+              <span class="due-label">Срок</span>
+              <!-- Кнопки закрывают 90% случаев («перезвонить завтра»), поле —
+                   для остальных: по клику открывается календарь, набирать
+                   дату руками не нужно. -->
+              <div class="chips due-chips">
+                <button class="chip due-chip" type="button" data-due-days="0">Сегодня</button>
+                <button class="chip due-chip" type="button" data-due-days="1">Завтра</button>
+                <button class="chip due-chip" type="button" data-due-days="7">Через неделю</button>
+              </div>
               <input id="action-due" type="date" />
-            </label>
+            </div>
             <div class="action-buttons">
-              <button id="action-cancel" class="link-button" type="button">Отмена</button>
-              <button id="action-save" class="primary primary-compact" type="button">Сохранить</button>
+              <button id="action-cancel" class="secondary" type="button">Отмена</button>
+              <button id="action-save" class="primary" type="button">Сохранить</button>
             </div>
           </div>
         </div>

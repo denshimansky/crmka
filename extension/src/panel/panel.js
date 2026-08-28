@@ -557,12 +557,43 @@ el.aiDraft.addEventListener("click", async () => {
 /** Что сейчас заполняют: "task" | "note" | null. @type {"task"|"note"|null} */
 let actionKind = null
 
-/** Сегодня в формате поля type="date" — местная дата, а не UTC. */
-function todayInputValue() {
-  const now = new Date()
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
-  return now.toISOString().slice(0, 10)
+/**
+ * Дата для поля type="date" — местная, а не UTC: иначе вечером срок задачи
+ * уезжает на день вперёд.
+ * @param {number} plusDays
+ */
+function dateInputValue(plusDays = 0) {
+  const date = new Date()
+  date.setDate(date.getDate() + plusDays)
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
+  return date.toISOString().slice(0, 10)
 }
+
+/** Подсветить кнопку срока, которая совпадает с выбранной датой. */
+function syncDueChips() {
+  for (const node of el.actionDueRow.querySelectorAll("[data-due-days]")) {
+    const button = /** @type {HTMLButtonElement} */ (node)
+    const days = Number(button.dataset.dueDays)
+    button.setAttribute("aria-pressed", String(el.actionDue.value === dateInputValue(days)))
+  }
+}
+
+// Срок ставится кнопкой: «перезвонить завтра» — самый частый случай, а
+// набирать дату руками в узкой панели неудобно.
+for (const node of document.querySelectorAll("[data-due-days]")) {
+  const button = /** @type {HTMLButtonElement} */ (node)
+  button.addEventListener("click", () => {
+    el.actionDue.value = dateInputValue(Number(button.dataset.dueDays))
+    syncDueChips()
+  })
+}
+
+// Клик по полю открывает календарь целиком, а не только по иконке: попасть в
+// неё в узкой панели трудно, а вводить дату с клавиатуры — тем более.
+el.actionDue.addEventListener("click", () => {
+  el.actionDue.showPicker?.()
+})
+el.actionDue.addEventListener("change", () => syncDueChips())
 
 /** @param {"task"|"note"} kind */
 function openAction(kind) {
@@ -577,8 +608,10 @@ function openAction(kind) {
   el.actionDueRow.hidden = kind !== "task"
   el.actionText.placeholder =
     kind === "task" ? "Перезвонить, обсудить перенос…" : "Что записать в карточку клиента"
-  el.actionDue.value = todayInputValue()
+  el.actionDue.value = dateInputValue()
+  syncDueChips()
   el.actionText.value = ""
+  syncActionChips()
   el.actionText.focus()
 }
 
@@ -586,6 +619,13 @@ function closeAction() {
   actionKind = null
   el.actionForm.hidden = true
   el.actionText.value = ""
+  syncActionChips()
+}
+
+/** Подсветить кнопку открытой формы — иначе не видно, что именно заполняешь. */
+function syncActionChips() {
+  el.actionTask.setAttribute("aria-pressed", String(actionKind === "task"))
+  el.actionNote.setAttribute("aria-pressed", String(actionKind === "note"))
 }
 
 el.actionTask.addEventListener("click", () => openAction("task"))
