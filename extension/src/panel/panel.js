@@ -66,6 +66,11 @@ const el = {
   actionDueRow: /** @type {HTMLElement} */ (document.getElementById("action-due-row")),
   actionDue: /** @type {HTMLInputElement} */ (document.getElementById("action-due")),
   actionDuePick: /** @type {HTMLButtonElement} */ (document.getElementById("action-due-pick")),
+  dueCalendar: /** @type {HTMLElement} */ (document.getElementById("due-calendar")),
+  calTitle: /** @type {HTMLElement} */ (document.getElementById("cal-title")),
+  calGrid: /** @type {HTMLElement} */ (document.getElementById("cal-grid")),
+  calPrev: /** @type {HTMLButtonElement} */ (document.getElementById("cal-prev")),
+  calNext: /** @type {HTMLButtonElement} */ (document.getElementById("cal-next")),
   actionCancel: /** @type {HTMLButtonElement} */ (document.getElementById("action-cancel")),
   actionSave: /** @type {HTMLButtonElement} */ (document.getElementById("action-save")),
   wards: /** @type {HTMLElement} */ (document.getElementById("wards")),
@@ -566,8 +571,7 @@ let actionKind = null
 function dateInputValue(plusDays = 0) {
   const date = new Date()
   date.setDate(date.getDate() + plusDays)
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
-  return date.toISOString().slice(0, 10)
+  return toInputValue(date)
 }
 
 /** «2026-09-15» → «15.09.2026» — так дату читают, а не в ISO. */
@@ -600,21 +604,99 @@ for (const node of document.querySelectorAll("[data-due-days]")) {
   const button = /** @type {HTMLButtonElement} */ (node)
   button.addEventListener("click", () => {
     el.actionDue.value = dateInputValue(Number(button.dataset.dueDays))
+    // Выбрали быстрый срок — календарь больше не нужен.
+    el.dueCalendar.hidden = true
     syncDueChips()
   })
 }
 
-// Любой другой срок — через календарь. Само поле прозрачное и лежит под
-// кнопкой (см. panel.css): нужен только выбор, ручной ввод в узкой панели
-// мучителен.
-if (typeof el.actionDue.showPicker === "function") {
-  el.actionDuePick.addEventListener("click", () => el.actionDue.showPicker())
-} else {
-  // Старый браузер без showPicker — показываем обычное поле, а не оставляем
-  // кнопку, которая ничего не делает.
-  el.actionDuePick.parentElement?.classList.add("fallback")
+// ─── Календарь ───
+//
+// Свой, а не родной: `input[type=date]` в боковой панели Chrome не открывает
+// пикер ни по иконке, ни через showPicker() — кнопка просто не реагирует.
+// Здесь же он красится нашей темой и одинаков в светлой и тёмной.
+
+const WEEKDAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+const MONTHS = [
+  "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+  "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+]
+
+/** Первое число показываемого месяца. @type {Date|null} */
+let calendarMonth = null
+
+/** «2026-09-15» → Date в местной зоне (иначе UTC сдвинет день). */
+function parseInputDate(value) {
+  const [y, m, d] = value.split("-").map(Number)
+  return y && m && d ? new Date(y, m - 1, d) : new Date()
 }
-el.actionDue.addEventListener("change", () => syncDueChips())
+
+/** Date → «2026-09-15» без сдвига зоны. */
+function toInputValue(date) {
+  const shifted = new Date(date)
+  shifted.setMinutes(shifted.getMinutes() - shifted.getTimezoneOffset())
+  return shifted.toISOString().slice(0, 10)
+}
+
+function toggleCalendar() {
+  if (!el.dueCalendar.hidden) {
+    el.dueCalendar.hidden = true
+    return
+  }
+  const base = el.actionDue.value ? parseInputDate(el.actionDue.value) : new Date()
+  calendarMonth = new Date(base.getFullYear(), base.getMonth(), 1)
+  renderCalendar()
+  el.dueCalendar.hidden = false
+}
+
+/** @param {number} delta сдвиг в месяцах */
+function shiftMonth(delta) {
+  if (!calendarMonth) return
+  calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + delta, 1)
+  renderCalendar()
+}
+
+function renderCalendar() {
+  if (!calendarMonth) return
+  el.calTitle.textContent = `${MONTHS[calendarMonth.getMonth()]} ${calendarMonth.getFullYear()}`
+
+  const today = toInputValue(new Date())
+  const selected = el.actionDue.value
+  // Неделя начинается с понедельника: getDay() считает от воскресенья.
+  const firstShift = (calendarMonth.getDay() + 6) % 7
+
+  const cells = WEEKDAYS.map((day) => `<div class="cal-weekday">${day}</div>`)
+  // Шесть недель фиксированно — иначе высота календаря прыгает при листании.
+  for (let i = 0; i < 42; i++) {
+    const date = new Date(
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth(),
+      i - firstShift + 1,
+    )
+    const value = toInputValue(date)
+    const classes = ["cal-day"]
+    if (date.getMonth() !== calendarMonth.getMonth()) classes.push("other")
+    if (value === today) classes.push("today")
+    if (value === selected) classes.push("selected")
+    cells.push(
+      `<button type="button" class="${classes.join(" ")}" data-date="${value}">${date.getDate()}</button>`,
+    )
+  }
+  el.calGrid.innerHTML = cells.join("")
+
+  for (const node of el.calGrid.querySelectorAll("[data-date]")) {
+    const button = /** @type {HTMLButtonElement} */ (node)
+    button.addEventListener("click", () => {
+      el.actionDue.value = button.dataset.date ?? ""
+      el.dueCalendar.hidden = true
+      syncDueChips()
+    })
+  }
+}
+
+el.actionDuePick.addEventListener("click", () => toggleCalendar())
+el.calPrev.addEventListener("click", () => shiftMonth(-1))
+el.calNext.addEventListener("click", () => shiftMonth(1))
 
 /** @param {"task"|"note"} kind */
 function openAction(kind) {
@@ -630,6 +712,7 @@ function openAction(kind) {
   el.actionText.placeholder =
     kind === "task" ? "Перезвонить, обсудить перенос…" : "Что записать в карточку клиента"
   el.actionDue.value = dateInputValue()
+  el.dueCalendar.hidden = true
   syncDueChips()
   el.actionText.value = ""
   syncActionChips()
@@ -639,6 +722,7 @@ function openAction(kind) {
 function closeAction() {
   actionKind = null
   el.actionForm.hidden = true
+  el.dueCalendar.hidden = true
   el.actionText.value = ""
   syncActionChips()
 }

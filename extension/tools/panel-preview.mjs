@@ -117,20 +117,32 @@ const taskLayout = await page.evaluate(() => {
   }
 })
 
-// Сам календарь автоматизировать нельзя (это окно браузера), поэтому
-// проверяем реакцию на выбор даты: подпись кнопки и снятую подсветку «Сегодня».
-const afterPick = await page.evaluate(() => {
-  const input = document.getElementById("action-due")
-  input.value = "2026-09-15"
-  input.dispatchEvent(new Event("change", { bubbles: true }))
-  return {
-    подписьКалендаря: document.getElementById("action-due-pick").textContent.trim(),
-    календарьВыбран: document.getElementById("action-due-pick").getAttribute("aria-pressed"),
-    сегодняВыбрано: document
-      .querySelector('[data-due-days="0"]')
-      .getAttribute("aria-pressed"),
-  }
-})
+// Календарь свой, поэтому кликается как обычная разметка: открываем, листаем
+// на месяц вперёд, выбираем 15-е.
+await page.click("#action-due-pick")
+await page.waitForTimeout(150)
+await page.screenshot({ path: path.join(OUT_DIR, "task-calendar.png") })
+shots.push("task-calendar.png")
+
+const calendarOpened = await page.evaluate(() => ({
+  календарьВиден: document.getElementById("due-calendar").offsetParent !== null,
+  заголовок: document.getElementById("cal-title").textContent,
+  днейВСетке: document.querySelectorAll("#cal-grid [data-date]").length,
+}))
+
+await page.click("#cal-next")
+await page.waitForTimeout(100)
+const nextMonthTitle = await page.textContent("#cal-title")
+// 15-е число показываемого месяца (не из соседних) — берём кнопку без .other.
+await page.click("#cal-grid .cal-day:not(.other):text-is('15')")
+await page.waitForTimeout(150)
+
+const afterPick = await page.evaluate(() => ({
+  выбраннаяДата: document.getElementById("action-due").value,
+  подписьКалендаря: document.getElementById("action-due-pick").textContent.trim(),
+  календарьЗакрылся: document.getElementById("due-calendar").offsetParent === null,
+  сегодняВыбрано: document.querySelector('[data-due-days="0"]').getAttribute("aria-pressed"),
+}))
 await page.screenshot({ path: path.join(OUT_DIR, "task-custom-date.png") })
 shots.push("task-custom-date.png")
 
@@ -148,6 +160,7 @@ await browser.close()
 server.close()
 
 console.log("Задача:", JSON.stringify(taskLayout))
+console.log("Календарь открыт:", JSON.stringify(calendarOpened), "→", nextMonthTitle)
 console.log("После выбора даты:", JSON.stringify(afterPick))
 console.log("Комментарий:", JSON.stringify(noteLayout))
 console.log(`Скриншоты (${shots.join(", ")}): ${OUT_DIR}`)

@@ -115,15 +115,21 @@
               <div class="chips due-chips">
                 <button class="chip due-chip" type="button" data-due-days="0">Сегодня</button>
                 <button class="chip due-chip" type="button" data-due-days="1">Завтра</button>
-                <!-- Само поле даты прозрачное и лежит поверх кнопки: календарь
-                     Chrome прицепляется к элементу, поэтому он должен быть
-                     отрисован именно здесь. Кликом ловим кнопку. -->
-                <span class="due-pick">
-                  <button id="action-due-pick" class="chip due-chip" type="button">
-                    Выбрать дату
-                  </button>
-                  <input id="action-due" type="date" tabindex="-1" aria-label="Срок задачи" />
-                </span>
+                <button id="action-due-pick" class="chip due-chip" type="button">
+                  Выбрать дату
+                </button>
+              </div>
+              <!-- Календарь свой: родной пикер Chrome в боковой панели не
+                   открывается вовсе (ни по иконке поля, ни через showPicker).
+                   Само значение держит скрытое поле — его читает отправка. -->
+              <input id="action-due" type="hidden" />
+              <div id="due-calendar" class="due-calendar" hidden>
+                <div class="cal-head">
+                  <button id="cal-prev" class="cal-nav" type="button" aria-label="Предыдущий месяц">‹</button>
+                  <span id="cal-title"></span>
+                  <button id="cal-next" class="cal-nav" type="button" aria-label="Следующий месяц">›</button>
+                </div>
+                <div id="cal-grid" class="cal-grid"></div>
               </div>
             </div>
             <div class="action-buttons">

@@ -376,42 +376,84 @@ button.primary:disabled {
 }
 
 /*
- * Поле даты спрятано под кнопкой «Выбрать дату»: набирать дату руками в узкой
- * панели неудобно, нужен только календарь. Полностью убрать поле нельзя —
- * Chrome прицепляет календарь к отрисованному элементу, поэтому оно лежит
- * поверх кнопки прозрачным и не ловит клики (их получает кнопка).
+ * Свой календарь. Родной пикер `input[type=date]` в боковой панели Chrome не
+ * открывается ни по иконке, ни через showPicker() — поэтому рисуем сами. Заодно
+ * он красится нашими переменными и одинаково выглядит в обеих темах.
  */
-.due-pick {
-  position: relative;
-  display: inline-flex;
-}
-
-.due-pick input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  pointer-events: none;
-  border: none;
-  padding: 0;
-}
-
-/* Запасной путь, если showPicker недоступен: показываем обычное поле. */
-.due-pick.fallback input {
-  position: static;
-  opacity: 1;
-  pointer-events: auto;
-  font: inherit;
-  padding: 6px 8px;
+.due-calendar {
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--fg);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--surface);
 }
 
-.due-pick.fallback #action-due-pick {
-  display: none;
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cal-nav {
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.cal-nav:hover {
+  background: var(--bg);
+  color: var(--accent);
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.cal-weekday {
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+  padding-bottom: 2px;
+}
+
+.cal-day {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.cal-day:hover {
+  background: var(--bg);
+}
+
+/* Дни соседних месяцев показываем блёкло: без них сетка «прыгает». */
+.cal-day.other {
+  color: var(--muted);
+}
+
+.cal-day.today {
+  border-color: var(--border);
+}
+
+.cal-day.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
 .action-buttons {
