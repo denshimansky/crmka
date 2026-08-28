@@ -64,10 +64,16 @@ export function extCorsHeaders(req: Request): Record<string, string> {
  *   export const OPTIONS = extOptions
  */
 export function extOptions(req: Request): NextResponse {
+  const cors = extCorsHeaders(req)
+  // Источник не из списка — не отвечаем ничем полезным. Без Allow-Origin
+  // браузер всё равно заблокирует запрос, но и остальные Allow-* заголовки
+  // отдавать незачем: не подсказываем форму поверхности.
+  if (Object.keys(cors).length === 0) return new NextResponse(null, { status: 204 })
+
   return new NextResponse(null, {
     status: 204,
     headers: {
-      ...extCorsHeaders(req),
+      ...cors,
       "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Authorization, Content-Type",
       "Access-Control-Max-Age": "86400",
