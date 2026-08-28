@@ -32,7 +32,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       include: {
         employee: { select: { id: true, firstName: true, lastName: true } },
       },
-      orderBy: { createdAt: "desc" },
+      // По времени СОБЫТИЯ, а не записи в БД: сообщения мессенджеров приезжают
+      // из расширения задним числом (админ пролистал переписку вверх) и по
+      // createdAt всплыли бы наверх ленты. sent_at заполнен у всех строк —
+      // дефолт now() + бэкфилл (миграция 20260828150000); createdAt оставлен
+      // вторым ключом для строк, где sent_at всё же окажется пустым.
+      orderBy: [{ sentAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       take: limit,
       skip: offset,
     }),

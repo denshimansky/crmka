@@ -194,7 +194,9 @@ export async function GET(
           include: {
             employee: { select: { firstName: true, lastName: true } },
           },
-          orderBy: { createdAt: "desc" },
+          // По времени события: сообщения из расширения заливаются задним
+          // числом (см. communications/route.ts и миграцию 20260828150000).
+          orderBy: [{ sentAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
           take: 200,
         }),
     db.trialLesson.findMany({
@@ -413,6 +415,21 @@ export async function GET(
     task_result: "Результат задачи",
     call_campaign_result: "Результат обзвона",
   }
+  // Сообщения из браузерного расширения: тип общий на все мессенджеры, сам
+  // мессенджер несёт channel (docs/messenger-extension.md).
+  const CHANNEL_TITLES: Record<string, string> = {
+    whatsapp: "WhatsApp",
+    telegram: "Телеграм",
+    vk: "ВКонтакте",
+    max: "MAX",
+  }
+  const commTitle = (type: string, channel: string, direction: string): string => {
+    if (type === "messenger_incoming" || type === "messenger_outgoing") {
+      const channelName = CHANNEL_TITLES[channel] ?? "Сообщение"
+      return `${channelName} (${direction === "incoming" ? "входящее" : "исходящее"})`
+    }
+    return COMM_TITLES[type] || type
+  }
   for (const c of communications) {
     const empName = c.employee
       ? [c.employee.lastName, c.employee.firstName].filter(Boolean).join(" ")
@@ -420,8 +437,8 @@ export async function GET(
     events.push({
       id: `comm-${c.id}`,
       kind: "communication",
-      date: c.createdAt.toISOString(),
-      title: COMM_TITLES[c.type] || c.type,
+      date: (c.sentAt ?? c.createdAt).toISOString(),
+      title: commTitle(c.type, c.channel, c.direction),
       description: c.content || null,
       meta: { author: empName, channel: c.channel },
     })

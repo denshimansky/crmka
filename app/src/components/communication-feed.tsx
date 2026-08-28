@@ -14,7 +14,23 @@ interface Communication {
   content: string | null
   metadata: any
   createdAt: string
+  // Время события: у сообщений из мессенджеров — время отправки, а не записи
+  // в БД (расширение заливает переписку задним числом). Заполнено у всех строк.
+  sentAt: string | null
   employee: { id: string; firstName: string; lastName: string } | null
+}
+
+// Подписи каналов для сообщений, залитых расширением: тип у них общий
+// (messenger_incoming/outgoing), а мессенджер несёт поле channel.
+const CHANNEL_LABEL: Record<string, string> = {
+  whatsapp: "WhatsApp",
+  telegram: "Телеграм",
+  vk: "ВКонтакте",
+  max: "MAX",
+  sms: "SMS",
+  email: "Email",
+  phone: "Телефон",
+  internal: "CRM",
 }
 
 const TYPE_CONFIG: Record<string, { label: string; icon: typeof StickyNote; color: string }> = {
@@ -27,6 +43,9 @@ const TYPE_CONFIG: Record<string, { label: string; icon: typeof StickyNote; colo
   email_outgoing: { label: "Email", icon: Mail, color: "text-indigo-600 bg-indigo-50" },
   task_result: { label: "Результат задачи", icon: StickyNote, color: "text-gray-600 bg-gray-50" },
   call_campaign_result: { label: "Обзвон", icon: Phone, color: "text-amber-600 bg-amber-50" },
+  // Сообщения из браузерного расширения — любой мессенджер (docs/messenger-extension.md).
+  messenger_incoming: { label: "Сообщение (входящее)", icon: MessageSquare, color: "text-sky-600 bg-sky-50" },
+  messenger_outgoing: { label: "Сообщение (исходящее)", icon: MessageSquare, color: "text-sky-700 bg-sky-50" },
 }
 
 function formatDuration(seconds: number): string {
@@ -136,10 +155,14 @@ export function CommunicationFeed({ clientId }: { clientId: string }) {
                 : null
               const duration = c.metadata?.duration
               // Для результата обзвона показываем название кампании: «Обзвон «...»».
+              // Для сообщений из расширения тип общий на все мессенджеры —
+              // подставляем канал: «Телеграм (входящее)».
               const label =
                 c.type === "call_campaign_result" && c.metadata?.campaignName
                   ? `${config.label} «${c.metadata.campaignName}»`
-                  : config.label
+                  : c.type === "messenger_incoming" || c.type === "messenger_outgoing"
+                    ? `${CHANNEL_LABEL[c.channel] ?? "Сообщение"} (${c.direction === "incoming" ? "входящее" : "исходящее"})`
+                    : config.label
 
               return (
                 <div key={c.id} className="flex gap-3">
@@ -150,7 +173,7 @@ export function CommunicationFeed({ clientId }: { clientId: string }) {
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">{label}</span>
                       {employeeName && <span>· {employeeName}</span>}
-                      <span>{formatDateTime(c.createdAt)}</span>
+                      <span>{formatDateTime(c.sentAt ?? c.createdAt)}</span>
                       {duration != null && (
                         <span className="text-xs">· {formatDuration(duration)}</span>
                       )}
