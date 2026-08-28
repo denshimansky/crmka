@@ -225,19 +225,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // Снятие/смена статуса «Назначена отработка» — только владелец.
   // Админ/менеджер не могут передумать за владельца, чтобы не было «незаметной»
   // отмены назначения и неожиданного списания.
-  const existingForLockCheck = data.subscriptionId
-    ? await db.attendance.findUnique({
-        where: { tenantId_lessonId_subscriptionId: { tenantId, lessonId, subscriptionId: data.subscriptionId } },
-        include: { attendanceType: { select: { code: true } } },
-      })
-    : await db.attendance.findFirst({
-        // subscriptionId НЕ фиксируем: сетка «Посещения» шлёт null, а реальная
-        // отметка (в т.ч. «Назначена отработка») может нести subscriptionId.
-        // Ищем по (занятие, клиент, подопечный) — иначе роль-гейт «снять
-        // Назначена отработка / Был на отработке» обходился через null-путь сетки.
-        where: { lessonId, tenantId, clientId: data.clientId, wardId: data.wardId },
-        include: { attendanceType: { select: { code: true } } },
-      })
+  const existingForLockCheck =
+    (data.subscriptionId
+      ? await db.attendance.findUnique({
+          where: { tenantId_lessonId_subscriptionId: { tenantId, lessonId, subscriptionId: data.subscriptionId } },
+          include: { attendanceType: { select: { code: true } } },
+        })
+      : null) ??
+    (await db.attendance.findFirst({
+      // subscriptionId НЕ фиксируем: сетка «Посещения» шлёт null, а реальная
+      // отметка (в т.ч. «Назначена отработка») может нести subscriptionId.
+      // Ищем по (занятие, клиент, подопечный) — иначе роль-гейт «снять
+      // Назначена отработка / Был на отработке» обходился через null-путь сетки.
+      // Тот же фоллбэк нужен и когда subscriptionId ПРИШЁЛ, но не совпал с
+      // абонементом уже стоящей отметки (два покрывающих абонемента, FIFO
+      // переключился на второй) — иначе роль-гейт обходился переотметкой.
+      where: { lessonId, tenantId, clientId: data.clientId, wardId: data.wardId },
+      include: { attendanceType: { select: { code: true } } },
+    }))
   if (
     existingForLockCheck &&
     (existingForLockCheck.attendanceType.code === "makeup_scheduled" ||
@@ -708,6 +713,54 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         })
       }
 
+      // Дубль при ДВУХ покрывающих абонементах (кейс Тарасовой, занятие
+      // 26.08.2026): ключ отметки — (занятие, АБОНЕМЕНТ), поэтому когда резолвер
+      // сменил абонемент, повторная отметка не находила прежнюю строку и
+      // создавала ВТОРУЮ. Сценарий: пакет A исчерпан ретро-отметками, пакет B
+      // выписан задним числом с пересечением периода → FIFO
+      // (pickChargeableSubscription) на том же занятии выдаёт уже B, карточка
+      // занятия шлёт B явным subscriptionId, и одно занятие списывается с ДВУХ
+      // абонементов: перерасход пакета A (фантомный долг), сгоревшее занятие
+      // пакета B, задвоенные ЗП инструктора и выручка.
+      //
+      // Инвариант: один ребёнок на одном занятии = ОДНА отметка. Переиспользуем
+      // строку с другим абонементом — update ниже перецепляет её на резолвнутый
+      // subscriptionId и откатывает списание прежнего (плюс repriceSubscription
+      // для обоих). Замок отчислённого/закрытого абонемента отрабатывает выше
+      // (priorSubIds), поэтому перецепить «запертую» отметку этот путь не даст.
+      // Пробные (isTrial) и отработки — отдельные визиты со своей семантикой и
+      // своими строками: их не переиспользуем.
+      if (!existing) {
+        existing = await tx.attendance.findFirst({
+          where: {
+            tenantId,
+            lessonId,
+            clientId: data.clientId,
+            wardId: data.wardId,
+            subscriptionId: { not: null },
+            isTrial: false,
+            isMakeup: isMakeupArrival,
+          },
+          // Как и выше: предпочитаем финансово «нагруженную» строку — её и надо
+          // откатить, иначе списание прежнего абонемента останется висеть.
+          orderBy: [
+            { chargeAmount: "desc" },
+            { instructorPayAmount: "desc" },
+            { isPending: "asc" },
+            { markedAt: "desc" },
+          ],
+          include: { attendanceType: { select: { chargePercent: true } } },
+        })
+      }
+
+      // Абонемент, с которого отметку перецепляем (если перецепляем): его тоже
+      // надо репрайсить в конце — иначе на нём останется раздутый finalAmount /
+      // фантомный долг за занятие, ушедшее на другой абонемент.
+      const prevSubscriptionId =
+        existing?.subscriptionId && existing.subscriptionId !== subscriptionId
+          ? existing.subscriptionId
+          : null
+
       // Прочие «осиротевшие» финансово пустые строки без subscriptionId убираем
       // (кроме переиспользуемой выше по id) — иначе после смены типа остаётся
       // дубль. Только charge=0 И ЗП=0: денег такие записи не несут.
@@ -855,6 +908,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         subscriptionId,
         createdBy: employeeId,
       })
+
+      // Отметку перецепили с другого абонемента — выравниваем и его: списание
+      // уже откачено выше (chargedAmount decrement), но finalAmount/balance
+      // пересчитывает только reprice, без него на прежнем абонементе остаётся
+      // фантомный долг за занятие, которое теперь списано с другого.
+      if (prevSubscriptionId) {
+        await repriceSubscription(tx, {
+          tenantId,
+          subscriptionId: prevSubscriptionId,
+          createdBy: employeeId,
+        })
+      }
     } else {
       // No subscription — разовое посещение (или нет подходящего абонемента).
       // Для типов с chargesSubscription=true списываем стоимость разового
@@ -1250,6 +1315,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   // === Вся bulk-логика в одной транзакции ===
   const results = await db.$transaction(async (tx) => {
     const atts = []
+    // Абонементы, с которых отметку перецепили на другой (переиспользование
+    // чужой строки вместо дубля) — их тоже репрайсим в конце.
+    const detachedSubIds = new Set<string>()
 
     for (const enrollment of enrollments) {
       // Пакет — по FIFO/остатку занятий (полностью оплаченный тоже списывается);
@@ -1309,10 +1377,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       const subscriptionId = subscription?.id || null
 
       if (subscriptionId) {
-        // Ищем в предзагруженных (вместо N отдельных запросов)
-        const existing = existingAttendances.find(
-          (a) => a.subscriptionId === subscriptionId
-        )
+        // Ищем в предзагруженных (вместо N отдельных запросов).
+        // Фоллбэк по (клиент, подопечный) — тот же инвариант, что в POST: один
+        // ребёнок на занятии = одна отметка. Без него смена резолвнутого
+        // абонемента (пакет A исчерпан → FIFO выдал пакет B) не находила прежнюю
+        // строку и bulk создавал ВТОРУЮ: занятие списывалось с двух абонементов.
+        // Пробные и отработки — отдельные визиты, их не переиспользуем.
+        const existing =
+          existingAttendances.find((a) => a.subscriptionId === subscriptionId) ??
+          existingAttendances.find(
+            (a) =>
+              a.clientId === enrollment.clientId &&
+              a.wardId === enrollment.wardId &&
+              !a.isTrial &&
+              !a.isMakeup,
+          )
+        // Абонемент, с которого перецепляем — его тоже надо репрайсить в конце.
+        if (existing?.subscriptionId && existing.subscriptionId !== subscriptionId) {
+          detachedSubIds.add(existing.subscriptionId)
+        }
 
         // Откат предыдущего возврата (lesson_refund) при смене типа
         if (existing && Number(existing.chargeAmount) > 0) {
@@ -1344,10 +1427,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           att = await tx.attendance.update({
             where: { id: existing.id },
             data: {
+              // Перецепляем на резолвнутый абонемент: для обычного пути значение
+              // не меняется, для переиспользованной чужой строки (фоллбэк выше) —
+              // переносит отметку на актуальный абонемент вместо дубля.
+              subscriptionId,
               attendanceTypeId: effectiveType.id,
               chargeAmount,
               instructorPayAmount,
               instructorPayEnabled: effectiveType.paysInstructor,
+              isPending: false,
               markedBy: employeeId,
               markedAt: new Date(),
             },
@@ -1519,7 +1607,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     // Массовая отметка могла заменить несписывающую отметку (Уваж./Перерасчёт)
     // списывающей «Явкой» — расход слотов и chargedAmount изменились, выравниваем
     // finalAmount/balance затронутых абонементов (раньше bulk не пересчитывал).
-    const touchedSubIds = new Set<string>()
+    const touchedSubIds = new Set<string>(detachedSubIds)
     for (const a of atts) {
       if (a.subscriptionId) touchedSubIds.add(a.subscriptionId)
     }
