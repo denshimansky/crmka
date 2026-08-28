@@ -15,6 +15,9 @@ interface ExportOptions {
   metadata?: {
     org?: string
     period?: string
+    /** Какие фильтры были применены на экране — чтобы по файлу было понятно,
+     *  что это срез, а не вся база (у списков вместо периода именно фильтры). */
+    filters?: string
     generated?: string
   }
 }
@@ -37,6 +40,7 @@ export function exportToExcel({
   if (metadata) {
     if (metadata.org) wsData.push(["Организация:", metadata.org])
     if (metadata.period) wsData.push(["Период:", metadata.period])
+    if (metadata.filters) wsData.push(["Фильтры:", metadata.filters])
     if (metadata.generated) wsData.push(["Сформирован:", metadata.generated])
   }
 

@@ -19,11 +19,22 @@ import {
   useColumnWidths,
 } from "@/components/resizable-columns"
 import { CreateApplicationDialog } from "../_components/create-application-dialog"
-import { formatWardName } from "@/lib/format-name"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { useRoleNames } from "@/components/role-names-provider"
 import { truncateGroupName } from "@/lib/format-group"
-import { clientStateLabel } from "@/lib/clients/state-label"
+import {
+  SEGMENT_LABELS,
+  firstWardBirth,
+  fmtDate,
+  fullName,
+  sortRows,
+  sortStorageKey,
+  stateLabel,
+  wardsLabel,
+  type ColId,
+  type ContactsCellCtx,
+  type SortDir,
+} from "./contacts-export"
 import {
   EditableDateCell,
   EditableSelectCell,
@@ -110,61 +121,9 @@ interface EmployeeOption {
   lastName: string | null
 }
 
-const SEGMENT_LABELS: Record<string, string> = {
-  new_client: "Новый",
-  standard: "Стандартный",
-  regular: "Постоянный",
-  vip: "VIP",
-}
-
-function fullName(r: { firstName: string | null; lastName: string | null }): string {
-  return [r.lastName, r.firstName].filter(Boolean).join(" ") || "Без имени"
-}
-
-function wardsLabel(wards: WardLite[]): string {
-  if (!wards.length) return "—"
-  return wards.map((w) => formatWardName(w, "—")).join(", ")
-}
-
-function firstWardBirth(wards: WardLite[]): string {
-  const bd = wards.find((w) => w.birthDate)?.birthDate
-  if (!bd) return "—"
-  return new Date(bd).toLocaleDateString("ru-RU")
-}
-
-function fmtDate(iso: string | null): string {
-  if (!iso) return "—"
-  return new Date(iso).toLocaleDateString("ru-RU")
-}
-
-function stateLabel(r: ContactRow): string {
-  // Единый источник правды со статусом в обзвоне и др. (баг #84).
-  return clientStateLabel(r.funnelStatus, r.clientStatus)
-}
-
-// Идентификаторы контентных столбцов — общие для сортировки и ресайза.
-type ColId =
-  | "state"
-  | "parent"
-  | "phone"
-  | "social"
-  | "birth"
-  | "wards"
-  | "segment"
-  | "channel"
-  | "branch"
-  | "direction"
-  | "group"
-  | "instructor"
-  | "created"
-  | "nextContact"
-  | "comment"
-  | "assigned"
-
-type SortDir = "asc" | "desc"
-
-// Стартовые ширины (px): table-fixed требует явных ширин, иначе браузер
-// делит место поровну и узкие колонки («Телефон») расползаются.
+// Стартовые ширины (px) по ColId (идентификаторы столбцов — в contacts-export.ts,
+// общие для сортировки, ресайза и выгрузки): table-fixed требует явных ширин,
+// иначе браузер делит место поровну и узкие колонки («Телефон») расползаются.
 const DEFAULT_WIDTHS: Record<ColId, number> = {
   state: 110,
   parent: 220,
@@ -294,13 +253,13 @@ export function ContactsTable({
   // уходе в карточку клиента и обратно.
   const [sortKey, setSortKey] = useState<ColId | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>("asc")
-  const sortStorageKey = `contacts-sort:${tab}`
+  const storageKey = sortStorageKey(tab)
   const skipNextSave = useRef(true)
   useEffect(() => {
     let key: ColId | null = null
     let dir: SortDir = "asc"
     try {
-      const raw = sessionStorage.getItem(sortStorageKey)
+      const raw = sessionStorage.getItem(storageKey)
       if (raw) {
         const s = JSON.parse(raw) as { key?: ColId | null; dir?: SortDir }
         if (s?.key) {
@@ -314,19 +273,19 @@ export function ContactsTable({
     setSortKey(key)
     setSortDir(dir)
     skipNextSave.current = true
-  }, [sortStorageKey])
+  }, [storageKey])
   useEffect(() => {
     if (skipNextSave.current) {
       skipNextSave.current = false
       return
     }
     try {
-      if (sortKey) sessionStorage.setItem(sortStorageKey, JSON.stringify({ key: sortKey, dir: sortDir }))
-      else sessionStorage.removeItem(sortStorageKey)
+      if (sortKey) sessionStorage.setItem(storageKey, JSON.stringify({ key: sortKey, dir: sortDir }))
+      else sessionStorage.removeItem(storageKey)
     } catch {
       /* недоступный storage — игнорируем */
     }
-  }, [sortStorageKey, sortKey, sortDir])
+  }, [storageKey, sortKey, sortDir])
 
   function toggleSort(key: ColId) {
     if (sortKey !== key) {
@@ -339,66 +298,19 @@ export function ContactsTable({
     }
   }
 
-  /** Сравнимое значение для сортировки. Даты → ISO-строка (естественный
-   *  порядок), остальное → строка в нижнем регистре. Пустые — в конец. */
-  function sortValue(r: ContactRow, key: ColId): string {
-    switch (key) {
-      case "state":
-        return stateLabel(r).toLowerCase()
-      case "parent":
-        return fullName(r).toLowerCase()
-      case "phone":
-        return (r.phone || "").toLowerCase()
-      case "social":
-        return (r.socialLink || "").toLowerCase()
-      case "birth":
-        return r.wards.find((w) => w.birthDate)?.birthDate || ""
-      case "wards":
-        return wardsLabel(r.wards) === "—" ? "" : wardsLabel(r.wards).toLowerCase()
-      case "segment":
-        return (SEGMENT_LABELS[r.segment] || "").toLowerCase()
-      case "channel":
-        return (r.channelName || "").toLowerCase()
-      case "branch":
-        return (r.branchName || "").toLowerCase()
-      case "direction":
-        return (r.activeSubscription?.directionName || "").toLowerCase()
-      case "group":
-        return (r.activeSubscription?.groupName || "").toLowerCase()
-      case "instructor":
-        return r.activeSubscription?.instructor.name === "—"
-          ? ""
-          : (r.activeSubscription?.instructor.name || "").toLowerCase()
-      case "created":
-        return r.createdAt || ""
-      case "nextContact":
-        return r.nextContactDate || ""
-      case "comment":
-        return (r.comment || "").toLowerCase()
-      case "assigned":
-        return employeeLabel(r.assignedTo).toLowerCase()
-    }
-  }
+  // Контекст ячейки — общий с выгрузкой в Excel (подпись сотрудника, название
+  // роли инструктора).
+  const cellCtx: ContactsCellCtx = useMemo(
+    () => ({ employeeLabel, instructorLabel: roleNames.instructor }),
+    [employeeLabel, roleNames.instructor],
+  )
 
-  // Сервер уже отфильтровал по q и филиалу — здесь только сортировка.
-  const visibleRows = useMemo(() => {
-    if (!sortKey) return rows
-    const sign = sortDir === "asc" ? 1 : -1
-    const copy = [...rows]
-    copy.sort((a, b) => {
-      const va = sortValue(a, sortKey)
-      const vb = sortValue(b, sortKey)
-      // Пустые в конец независимо от направления
-      const ae = va === ""
-      const be = vb === ""
-      if (ae && !be) return 1
-      if (!ae && be) return -1
-      if (va === vb) return 0
-      return va.localeCompare(vb, "ru") * sign
-    })
-    return copy
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, sortKey, sortDir, employeeLabel])
+  // Сервер уже отфильтровал по q и филиалу — здесь только сортировка (та же
+  // функция, что у кнопки «Скачать Excel», чтобы файл шёл в порядке экрана).
+  const visibleRows = useMemo(
+    () => sortRows(rows, sortKey, sortDir, cellCtx),
+    [rows, sortKey, sortDir, cellCtx],
+  )
 
   // --- Ширина столбцов: тянется за полоску на правом крае заголовка,
   // хранится в localStorage per-вкладка (общий модуль resizable-columns).
