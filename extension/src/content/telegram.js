@@ -18,8 +18,18 @@
  */
 
 const MSG_CHAT_CHANGED = "chat-changed"
+const MSG_CHAT_ACTIVITY = "chat-activity"
 const MSG_COLLECT_MESSAGES = "collect-messages"
 const MSG_PING = "ping"
+
+/**
+ * Сколько последних пузырей отдаём панели. Дублирует SYNC_MESSAGES_LIMIT из
+ * common/types.js: content script в MV3 — классический скрипт, статический
+ * import сюда невозможен, а тянуть модуль ради одного числа не стоит.
+ * В открытом чате Telegram держит в DOM сотни сообщений — без хвоста мы бы
+ * гоняли на сервер всю подгруженную историю на каждое новое сообщение.
+ */
+const COLLECT_LIMIT = 10
 
 // Скрипт могут внедрить дважды: штатно при загрузке страницы и повторно из
 // service worker (он чинит вкладки, открытые до установки расширения). Второй
@@ -42,6 +52,8 @@ if (globalScope.__crmkaTelegramAdapter) {
 let parseTelegramChatId = null
 /** @type {typeof import("../common/telegram-hash.js").detectTelegramClient | null} */
 let detectTelegramClient = null
+/** @type {typeof import("../common/telegram-time.js").parseBubbleTitleDate | null} */
+let parseBubbleTitleDate = null
 
 /** Какой из двух клиентов открыт (до загрузки модуля считаем WebK — он чаще). @returns {"k"|"a"} */
 function detectClient() {
@@ -78,12 +90,55 @@ function readChatTitle() {
  *       время в data-timestamp (unix-секунды).
  * WebA: элемент с id="message-<id>", исходящее помечено классом own.
  *
- * Служебные сообщения («вступил в чат») пропускаем. Берём хвост: панель шлёт
- * на сервер последние N, сервер отбрасывает уже известные.
+ * Служебные сообщения («вступил в чат») пропускаем. Отдаём ТОЛЬКО хвост —
+ * последние COLLECT_LIMIT сообщений: в DOM открытого чата лежит вся
+ * подгруженная история, и заливать её целиком в CRM нельзя (лента коммуникаций
+ * утонет в старой переписке). Идём с конца — так же дёшево при сотнях пузырей.
  * @returns {ChatMessage[]}
  */
 function collectVisibleMessages() {
   return detectClient() === "a" ? collectWebA() : collectWebK()
+}
+
+/**
+ * Текст сообщения без служебной обвязки.
+ *
+ * Время в Telegram лежит ВНУТРИ блока текста (`<span class="time">` в конце
+ * пузыря), поэтому наивный textContent склеивал сообщение с часами:
+ * «дальше10:14». Режем по копии узла — оригинальную разметку страницы
+ * мессенджера трогать нельзя.
+ *
+ * @param {HTMLElement|null} node Блок текста (.message у WebK, .text-content у WebA).
+ * @param {string[]} junkSelectors Что выкинуть перед чтением текста.
+ * @returns {string}
+ */
+function readCleanText(node, junkSelectors) {
+  if (!node) return ""
+  const clone = /** @type {HTMLElement} */ (node.cloneNode(true))
+  for (const selector of junkSelectors) {
+    for (const junk of clone.querySelectorAll(selector)) junk.remove()
+  }
+  return clone.textContent?.trim() ?? ""
+}
+
+/**
+ * Время отправки пузыря WebK.
+ *
+ * Машинного времени в разметке нет вовсе — на пузыре только data-mid. Полная
+ * дата живёт в подсказке `title` у `.time-inner` (её показывает Telegram при
+ * наведении), разбор — в common/telegram-time.js. Не разобрали — null, и
+ * время проставит сервер: лучше время заливки, чем выдуманная дата.
+ *
+ * @param {HTMLElement} el
+ * @returns {string|null}
+ */
+function readWebKSentAt(el) {
+  // На старых сборках время лежало на самом пузыре — проверяем и это.
+  const timestamp = Number(el.dataset.timestamp)
+  if (Number.isFinite(timestamp) && timestamp > 0) return new Date(timestamp * 1000).toISOString()
+  if (!parseBubbleTitleDate) return null
+  const holder = el.querySelector(".time-inner[title], .time [title], .time[title]")
+  return parseBubbleTitleDate(holder?.getAttribute("title"))
 }
 
 /** @returns {ChatMessage[]} */
@@ -91,24 +146,30 @@ function collectWebK() {
   /** @type {ChatMessage[]} */
   const out = []
   const nodes = document.querySelectorAll(".bubble[data-mid]")
-  for (const node of nodes) {
+  for (let i = nodes.length - 1; i >= 0 && out.length < COLLECT_LIMIT; i--) {
+    const node = nodes[i]
     if (node.classList.contains("service")) continue
     const el = /** @type {HTMLElement} */ (node)
     const mid = el.dataset.mid
     if (!mid) continue
-    const text = el.querySelector(".message")?.textContent?.trim() ?? ""
+    // .time — часы в конце пузыря, .reply — цитата чужого сообщения,
+    // .reactions — эмодзи-реакции: в историю клиента это не переписка.
+    const text = readCleanText(el.querySelector(".message"), [
+      ".time",
+      ".reply",
+      ".reactions",
+      ".bubble-beside-button",
+    ])
     if (!text) continue
-    const timestamp = Number(el.dataset.timestamp)
     out.push({
       externalId: mid,
       direction: el.classList.contains("is-out") ? "outgoing" : "incoming",
       text,
-      sentAt: Number.isFinite(timestamp) && timestamp > 0
-        ? new Date(timestamp * 1000).toISOString()
-        : null,
+      sentAt: readWebKSentAt(el),
     })
   }
-  return out
+  // Шли с конца — возвращаем в хронологическом порядке.
+  return out.reverse()
 }
 
 /** @returns {ChatMessage[]} */
@@ -116,29 +177,68 @@ function collectWebA() {
   /** @type {ChatMessage[]} */
   const out = []
   const nodes = document.querySelectorAll('[id^="message-"]')
-  for (const node of nodes) {
-    const el = /** @type {HTMLElement} */ (node)
+  for (let i = nodes.length - 1; i >= 0 && out.length < COLLECT_LIMIT; i--) {
+    const el = /** @type {HTMLElement} */ (nodes[i])
     // «message-<id>» и «message-<id>-<index>» у альбомов: берём первую часть.
     const id = el.id.slice("message-".length).split("-")[0]
     if (!id || !/^\d+$/.test(id)) continue
     if (out.some((m) => m.externalId === id)) continue
-    const text = el.querySelector(".text-content")?.textContent?.trim() ?? ""
+    // .MessageMeta — время и галочки доставки, они внутри блока текста и без
+    // чистки приклеиваются к сообщению; .Reactions — эмодзи-реакции.
+    const text = readCleanText(el.querySelector(".text-content"), [
+      ".MessageMeta",
+      ".Reactions",
+      ".EmbeddedMessage",
+    ])
     if (!text) continue
     out.push({
       externalId: id,
       direction: el.classList.contains("own") ? "outgoing" : "incoming",
       text,
-      // WebA не отдаёт машинное время в разметке — сервер подставит своё.
+      // WebA не отдаёт машинного времени и подсказки с полной датой — сервер
+      // подставит своё.
       sentAt: null,
     })
   }
-  return out
+  return out.reverse()
+}
+
+/**
+ * Отпечаток «самого свежего сообщения в чате» — по нему понимаем, что пришло
+ * новое, не разбирая текст. Берём максимальный id: он растёт, а количество
+ * пузырей в DOM скачет само по себе (Telegram виртуализирует список и
+ * выгружает то, что уехало за экран), из-за чего счётчик врал бы на каждой
+ * прокрутке.
+ * @returns {string|null}
+ */
+function readLatestMessageKey() {
+  const isWebA = detectClient() === "a"
+  const nodes = isWebA
+    ? document.querySelectorAll('[id^="message-"]')
+    : document.querySelectorAll(".bubble[data-mid]")
+  let max = 0
+  for (const node of nodes) {
+    const el = /** @type {HTMLElement} */ (node)
+    const raw = isWebA ? el.id.slice("message-".length).split("-")[0] : el.dataset.mid
+    const value = Number(raw)
+    if (Number.isFinite(value) && value > max) max = value
+  }
+  return max > 0 ? String(max) : null
 }
 
 /** @type {string|null} */
 let lastChatId = null
 /** @type {string|null} */
 let lastTitle = null
+/** Отпечаток последнего сообщения — чтобы отличить «пришло новое» от перерисовки. @type {string|null} */
+let lastMessageKey = null
+
+/** Открытый чат как контекст для панели. @returns {ChatContext|null} */
+function readChat() {
+  const chatId = readChatIdFromHash()
+  if (!chatId) return null
+  return { channel: "telegram", chatId, title: readChatTitle(), phone: null }
+}
 
 /** Сообщить service worker, какой чат открыт. */
 function reportChat() {
@@ -146,8 +246,13 @@ function reportChat() {
   const chatId = readChatIdFromHash()
   const title = chatId ? readChatTitle() : null
   if (chatId === lastChatId && title === lastTitle) return
+  const chatSwitched = chatId !== lastChatId
   lastChatId = chatId
   lastTitle = title
+  // Новый чат — его последнее сообщение «новым» не считаем, иначе смена чата
+  // тут же вызвала бы лишнюю заливку поверх штатной (панель и так перечитывает
+  // всё при смене чата).
+  if (chatSwitched) lastMessageKey = readLatestMessageKey()
 
   /** @type {ChatContext|null} */
   const chat = chatId ? { channel: "telegram", chatId, title, phone: null } : null
@@ -155,18 +260,40 @@ function reportChat() {
   chrome.runtime.sendMessage({ type: MSG_CHAT_CHANGED, chat }).catch(() => {})
 }
 
+/**
+ * Сообщить, что в открытом чате появилось новое сообщение — ради этого панель
+ * и обновляется на лету, без перезагрузки страницы Telegram.
+ *
+ * Чат отдаём вместе с сигналом: service worker в MV3 засыпает и теряет память
+ * о том, какой чат открыт, а тут она как раз восстанавливается.
+ */
+function reportActivity() {
+  if (!parseTelegramChatId) return
+  const chat = readChat()
+  if (!chat) return
+  const key = readLatestMessageKey()
+  if (!key || key === lastMessageKey) return
+  lastMessageKey = key
+  chrome.runtime.sendMessage({ type: MSG_CHAT_ACTIVITY, chat }).catch(() => {})
+}
+
 // Смена чата — это смена хэша (клиент SPA, полноценной навигации нет).
 window.addEventListener("hashchange", () => reportChat())
 
 // Заголовок чата подгружается позже хэша, поэтому дожидаемся его наблюдателем.
-// Telegram перерисовывает разметку постоянно, поэтому: (1) дебаунс, (2) reportChat
-// сам сравнивает значения и молчит, если ничего не изменилось — иначе мы бы
-// заваливали service worker сообщениями на каждый кадр анимации.
+// Он же ловит новые сообщения: своего события у Telegram нет, а разметка при
+// приходе сообщения меняется всегда. Telegram перерисовывает DOM постоянно,
+// поэтому: (1) дебаунс, (2) обе функции сами сравнивают значения и молчат, если
+// ничего не изменилось — иначе мы бы заваливали service worker сообщениями на
+// каждый кадр анимации.
 /** @type {ReturnType<typeof setTimeout>|undefined} */
 let reportTimer
 const domObserver = new MutationObserver(() => {
   clearTimeout(reportTimer)
-  reportTimer = setTimeout(reportChat, 300)
+  reportTimer = setTimeout(() => {
+    reportChat()
+    reportActivity()
+  }, 300)
 })
 domObserver.observe(document.body, { childList: true, subtree: true })
 
@@ -186,18 +313,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       client: detectClient(),
       hash: location.hash || null,
       chatId: readChatIdFromHash(),
+      // Полный контекст чата: service worker в MV3 засыпает и забывает, какой
+      // чат открыт, а content script знает это всегда. Без этого панель после
+      // сна фонового скрипта писала «откройте чат» до перезагрузки страницы.
+      chat: readChat(),
     })
     return false
   }
   return false
 })
 
-// Старт: сначала подгружаем разбор хэша, потом сообщаем открытый чат.
-// До загрузки модуля reportChat не вызываем — иначе упадём на undefined.
-import(chrome.runtime.getURL("src/common/telegram-hash.js"))
-  .then((module) => {
-    parseTelegramChatId = module.parseTelegramChatId
-    detectTelegramClient = module.detectTelegramClient
+// Старт: сначала подгружаем чистые модули (разбор хэша и времени), потом
+// сообщаем открытый чат. До загрузки reportChat не вызываем — упадём на
+// undefined. Время разбирается тем же способом, но не блокирует работу: без
+// него сообщения всё равно доедут, просто со временем заливки.
+Promise.all([
+  import(chrome.runtime.getURL("src/common/telegram-hash.js")),
+  import(chrome.runtime.getURL("src/common/telegram-time.js")).catch(() => null),
+])
+  .then(([hash, time]) => {
+    parseTelegramChatId = hash.parseTelegramChatId
+    detectTelegramClient = hash.detectTelegramClient
+    parseBubbleTitleDate = time?.parseBubbleTitleDate ?? null
     reportChat()
   })
   .catch(() => {

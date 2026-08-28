@@ -37,7 +37,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["src/common/telegram-hash.js"],
+      "resources": ["src/common/telegram-hash.js", "src/common/telegram-time.js"],
       "matches": ["https://web.telegram.org/*"]
     }
   ]

@@ -9,11 +9,19 @@
   <body>
     <header class="header">
       <span class="brand">CRMka</span>
-      <button id="settings-toggle" class="icon-button" type="button" title="Настройки">⚙</button>
+      <div class="header-actions">
+        <button id="refresh" class="icon-button" type="button" title="Обновить данные">⟳</button>
+        <button id="settings-toggle" class="icon-button" type="button" title="Настройки">⚙</button>
+      </div>
     </header>
 
     <!-- Подключение: адрес CRM + токен из «Настройки → Расширение для мессенджеров» -->
     <section id="setup" class="screen" hidden>
+      <!-- Кнопка «назад» есть только когда возвращаться есть куда: без токена
+           главный экран пуст, и уходить с подключения некуда. -->
+      <button id="setup-back" class="back-button" type="button" hidden>
+        ← Назад, к карточке клиента
+      </button>
       <h2>Подключение к CRM</h2>
       <label class="field">
         <span>Адрес CRM</span>
@@ -33,6 +41,10 @@
         Убедитесь, что у центра есть согласие родителей на обработку переписки.
       </p>
       <button id="save-settings" class="primary" type="button">Сохранить</button>
+      <p class="hint">
+        Изменения применяются только по кнопке «Сохранить». Уйти отсюда, ничего
+        не меняя, можно ссылкой «Назад» вверху.
+      </p>
       <p id="setup-error" class="error" hidden></p>
     </section>
 

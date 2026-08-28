@@ -177,6 +177,8 @@ export async function buildClientCard(
     // Кросс-канальная история: последние сообщения по ВСЕМ каналам сразу — ради
     // этого расширение и пишет переписку в CRM. Сортировка по времени сообщения
     // (sentAt), а не по времени записи в БД: заливка идёт задним числом.
+    // Ровно 10 строк: панель узкая, а вся история и так открывается в CRM по
+    // ссылке с именем клиента.
     db.communication.findMany({
       where: { tenantId: ctx.tenantId, clientId },
       select: {
@@ -190,7 +192,7 @@ export async function buildClientCard(
         employee: { select: { firstName: true, lastName: true } },
       },
       orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
-      take: 6,
+      take: 10,
     }),
     db.groupEnrollment.findMany({
       where: { tenantId: ctx.tenantId, clientId, isActive: true, deletedAt: null },

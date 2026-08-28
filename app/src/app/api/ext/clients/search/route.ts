@@ -45,16 +45,30 @@ export async function GET(req: NextRequest) {
   const byPhone =
     digits.length >= 7 ? await findClientsByPhone(db, ctx.tenantId, q, { limit: LIMIT }) : []
 
+  // ФИО ищем по словам, а не строкой целиком: имя и фамилия лежат в РАЗНЫХ
+  // колонках, поэтому «Малафеев Дима» не совпадает ни с одной из них и поиск
+  // молча пустеет ровно тогда, когда человек уточняет запрос. Каждое слово
+  // должно найтись хоть в одном поле (AND слов × OR полей) — порядок слов
+  // при этом не важен, «Дима Малафеев» ищется так же.
+  //
+  // Условия по полям — именно в AND, а не в OR верхнего уровня: филиальный
+  // scope сам приходит с ключом OR, и соседний OR его бы просто перетёр
+  // (Prisma оставляет последний) — тогда поиск отдавал бы чужие филиалы.
+  const words = q.split(/\s+/).filter((w) => w.length >= 2)
+  const nameWords = words.length > 0 ? words : [q]
+
   const byName = await db.client.findMany({
     where: {
       tenantId: ctx.tenantId,
       deletedAt: null,
       ...scope,
-      OR: [
-        { firstName: { contains: q, mode: "insensitive" } },
-        { lastName: { contains: q, mode: "insensitive" } },
-        { patronymic: { contains: q, mode: "insensitive" } },
-      ],
+      AND: nameWords.map((word) => ({
+        OR: [
+          { firstName: { contains: word, mode: "insensitive" as const } },
+          { lastName: { contains: word, mode: "insensitive" as const } },
+          { patronymic: { contains: word, mode: "insensitive" as const } },
+        ],
+      })),
     },
     select,
     take: LIMIT,

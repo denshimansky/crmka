@@ -51,8 +51,21 @@
  * @property {string|null} chatId
  */
 
+/**
+ * Сколько последних сообщений чата заливаем в CRM за один проход.
+ *
+ * Ровно столько же панель и показывает в блоке «Переписка и события» — история
+ * целиком живёт в карточке клиента в CRM. Маленькое число здесь принципиально:
+ * иначе при первом открытии чата в ленту коммуникаций разом падает вся старая
+ * переписка и топит настоящие события CRM (задачи, звонки, заметки). Дальше
+ * новые сообщения долетают по одному — в реальном времени.
+ */
+export const SYNC_MESSAGES_LIMIT = 10
+
 /** Сообщения content script → service worker. */
 export const MSG_CHAT_CHANGED = "chat-changed"
+/** Content script → service worker: в открытом чате появились/изменились сообщения. */
+export const MSG_CHAT_ACTIVITY = "chat-activity"
 /** Сообщение service worker → content script: «отдай видимые сообщения». */
 export const MSG_COLLECT_MESSAGES = "collect-messages"
 /** Сообщения панели → service worker. */

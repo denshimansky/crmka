@@ -7,6 +7,7 @@
 
 import {
   MSG_API,
+  MSG_CHAT_ACTIVITY,
   MSG_GET_STATE,
   MSG_RELOAD_TAB,
   MSG_SAVE_SETTINGS,
@@ -14,16 +15,29 @@ import {
   MSG_SYNC_MESSAGES,
 } from "../common/types.js"
 
+/**
+ * Как часто панель обновляется сама.
+ *
+ * ACTIVITY_THROTTLE_MS — реакция на новое сообщение в чате. Мгновенно бежать в
+ * CRM на каждое движение DOM нельзя: Telegram шлёт события пачками.
+ * AUTO_REFRESH_MS — фоновая перепроверка карточки: оплату или отметку занятия
+ * сделали в CRM, а не в чате, и сигнала оттуда не будет.
+ */
+const ACTIVITY_THROTTLE_MS = 3000
+const AUTO_REFRESH_MS = 60_000
+
 /** @typedef {import("../common/types.js").ChatContext} ChatContext */
 /** @typedef {import("../common/types.js").ResolveResult} ResolveResult */
 
 const el = {
+  refresh: /** @type {HTMLButtonElement} */ (document.getElementById("refresh")),
   settingsToggle: /** @type {HTMLButtonElement} */ (document.getElementById("settings-toggle")),
   setup: /** @type {HTMLElement} */ (document.getElementById("setup")),
   main: /** @type {HTMLElement} */ (document.getElementById("main")),
   baseUrl: /** @type {HTMLInputElement} */ (document.getElementById("base-url")),
   token: /** @type {HTMLInputElement} */ (document.getElementById("token")),
   logMessages: /** @type {HTMLInputElement} */ (document.getElementById("log-messages")),
+  setupBack: /** @type {HTMLButtonElement} */ (document.getElementById("setup-back")),
   saveSettings: /** @type {HTMLButtonElement} */ (document.getElementById("save-settings")),
   setupError: /** @type {HTMLElement} */ (document.getElementById("setup-error")),
   status: /** @type {HTMLElement} */ (document.getElementById("status")),
@@ -55,6 +69,8 @@ const state = {
   showSetup: false,
   /** @type {{id: number|null, url: string|null, onMessenger: boolean, contentAlive: boolean}|null} */
   tab: null,
+  /** Идёт ручное обновление — второй клик по ⟳ игнорируем. */
+  refreshing: false,
 }
 
 /**
@@ -126,6 +142,8 @@ async function loadState() {
   if (!data.configured || state.showSetup) {
     el.setup.hidden = false
     el.main.hidden = true
+    // Возвращаться некуда, пока расширение не подключено: главный экран пуст.
+    el.setupBack.hidden = !data.configured
     return
   }
   el.setup.hidden = true
@@ -135,6 +153,15 @@ async function loadState() {
 
 el.settingsToggle.addEventListener("click", () => {
   state.showSetup = !state.showSetup
+  void loadState()
+})
+
+// Уход с настроек без сохранения: набранное в полях просто забываем — в
+// хранилище оно и не попадало.
+el.setupBack.addEventListener("click", () => {
+  el.token.value = ""
+  el.setupError.hidden = true
+  state.showSetup = false
   void loadState()
 })
 
@@ -327,27 +354,114 @@ el.searchInput.addEventListener("input", () => {
   }, 300)
 })
 
-/** @param {string} clientId */
-async function showClient(clientId) {
-  showStatus("Загружаем карточку…")
+/**
+ * @param {string} clientId
+ * @param {{silent?: boolean}} [options] silent — фоновое обновление: не мигаем
+ *   статусом «Загружаем карточку…» и молча переживаем ошибку сети.
+ */
+async function showClient(clientId, options = {}) {
+  const silent = options.silent === true
+  if (!silent) showStatus("Загружаем карточку…")
   let card
   try {
     card = await api("client-card", { clientId })
   } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Не удалось загрузить карточку")
+    if (!silent) showStatus(error instanceof Error ? error.message : "Не удалось загрузить карточку")
     return
   }
 
+  // Пока ходили за карточкой, человек мог переключить чат — чужую не рисуем.
+  if (silent && state.clientId !== clientId) return
+
   state.clientId = clientId
-  showStatus("")
+  if (!silent) showStatus("")
   el.unmatched.hidden = true
   el.card.hidden = false
   renderCard(card)
 
   // Переписку заливаем в фоне: она не должна задерживать показ карточки, а
   // сервер всё равно пропустит уже известные сообщения.
-  void send({ type: MSG_SYNC_MESSAGES, clientId }).catch(() => {})
+  void syncMessagesAndRefresh(clientId)
 }
+
+/**
+ * Залить увиденные сообщения и, если что-то действительно добавилось, тихо
+ * перечитать карточку.
+ *
+ * Порядок важен: карточку мы уже показали (человек не ждёт), а новые сообщения
+ * попадают в блок «Переписка и события» только после заливки. Без этого
+ * последнее сообщение появлялось бы в панели лишь при следующем открытии чата —
+ * ровно та жалоба, из-за которой приходилось перезагружать страницу Telegram.
+ * @param {string} clientId
+ */
+async function syncMessagesAndRefresh(clientId) {
+  let result
+  try {
+    result = await send({ type: MSG_SYNC_MESSAGES, clientId })
+  } catch {
+    // Запись переписки — необязательная часть: карточка уже на экране.
+    return
+  }
+  // null — запись переписки выключена в настройках; 0 — всё уже было в CRM.
+  if (!result?.created) return
+  if (state.clientId !== clientId) return
+
+  try {
+    const card = await api("client-card", { clientId })
+    if (state.clientId === clientId) renderCard(card)
+  } catch {
+    // Молча: на экране осталась предыдущая версия карточки.
+  }
+}
+
+// ─── Обновление: вручную (⟳), по новому сообщению и фоном ───
+
+/** Полное обновление по кнопке: перечитываем вкладку, чат, клиента и карточку. */
+async function refreshAll() {
+  if (state.refreshing) return
+  state.refreshing = true
+  el.refresh.disabled = true
+  el.refresh.classList.add("spinning")
+  try {
+    await loadState()
+  } catch (error) {
+    showStatus(error instanceof Error ? error.message : "Не удалось обновить")
+  } finally {
+    el.refresh.classList.remove("spinning")
+    el.refresh.disabled = false
+    state.refreshing = false
+  }
+}
+
+el.refresh.addEventListener("click", () => void refreshAll())
+
+/** @type {ReturnType<typeof setTimeout>|undefined} */
+let activityTimer
+let lastActivityAt = 0
+
+/**
+ * В открытом чате появилось новое сообщение. Дёргать сервер на каждое нельзя
+ * (в переписке сообщения идут очередями), поэтому не чаще раза в
+ * ACTIVITY_THROTTLE_MS — но обязательно с «хвостовым» запуском, иначе последнее
+ * сообщение серии так и не доедет.
+ */
+function scheduleActivityRefresh() {
+  if (!state.clientId || activityTimer) return
+  const wait = Math.max(0, ACTIVITY_THROTTLE_MS - (Date.now() - lastActivityAt))
+  activityTimer = setTimeout(() => {
+    activityTimer = undefined
+    lastActivityAt = Date.now()
+    if (state.clientId) void syncMessagesAndRefresh(state.clientId)
+  }, wait)
+}
+
+// Фоновая перепроверка: оплату провели в CRM, занятие отметили — в чате об
+// этом сигнала нет. Когда панель скрыта, браузер и так тормозит таймеры, но
+// лишний запрос из свёрнутого окна нам всё равно не нужен.
+setInterval(() => {
+  if (document.hidden || state.refreshing || !state.clientId) return
+  void showClient(state.clientId, { silent: true })
+}, AUTO_REFRESH_MS)
 
 function renderCard(card) {
   el.clientName.textContent = card.client.name
@@ -468,9 +582,14 @@ function channelLabel(channel) {
   )
 }
 
-// Смена вкладки или чата — перерисовываем.
-chrome.runtime.onMessage.addListener((message) => {
+// Смена вкладки или чата — перерисовываем; новое сообщение — тихо дообновляем.
+chrome.runtime.onMessage.addListener((message, sender) => {
+  // Content scripts шлют свои сигналы service worker'у, но получают их все
+  // страницы расширения. Панель слушает только его: он один знает, какая
+  // вкладка активна, и отсеивает чужие.
+  if (sender?.tab) return
   if (message?.type === MSG_STATE_CHANGED) void loadState()
+  if (message?.type === MSG_CHAT_ACTIVITY) scheduleActivityRefresh()
 })
 
 void loadState()

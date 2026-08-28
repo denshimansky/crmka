@@ -14,6 +14,7 @@
 
 import {
   MSG_API,
+  MSG_CHAT_ACTIVITY,
   MSG_CHAT_CHANGED,
   MSG_COLLECT_MESSAGES,
   MSG_GET_STATE,
@@ -22,6 +23,7 @@ import {
   MSG_SAVE_SETTINGS,
   MSG_STATE_CHANGED,
   MSG_SYNC_MESSAGES,
+  SYNC_MESSAGES_LIMIT,
 } from "../common/types.js"
 import {
   ApiError,
@@ -108,6 +110,38 @@ function notifyPanel() {
   chrome.runtime.sendMessage({ type: MSG_STATE_CHANGED }).catch(() => {})
 }
 
+/**
+ * Спросить content script вкладки, что там открыто.
+ *
+ * Нужен не только для диагностики: chatByTab живёт в памяти, а service worker
+ * в MV3 засыпает через ~30 секунд простоя и всё забывает. Content script при
+ * этом продолжает работать и чат знает — поэтому после сна состояние
+ * восстанавливаем у него, а не заставляем человека перезагружать Telegram.
+ *
+ * @param {number} tabId
+ * @returns {Promise<{alive: boolean, chat: ChatContext|null}>}
+ */
+async function pingTab(tabId) {
+  const pong = await chrome.tabs.sendMessage(tabId, { type: MSG_PING }).catch(() => null)
+  if (!pong?.alive) return { alive: false, chat: null }
+  const chat = /** @type {ChatContext|null} */ (pong.chat ?? null)
+  if (chat) chatByTab.set(tabId, chat)
+  return { alive: true, chat }
+}
+
+/**
+ * Чат вкладки: из памяти, а если её сдуло сном — у content script.
+ * @param {number|null} tabId
+ * @returns {Promise<ChatContext|null>}
+ */
+async function getChatForTab(tabId) {
+  if (tabId == null) return null
+  const known = chatByTab.get(tabId)
+  if (known) return known
+  const { chat } = await pingTab(tabId)
+  return chat
+}
+
 chrome.tabs.onActivated.addListener(() => notifyPanel())
 chrome.tabs.onRemoved.addListener((tabId) => {
   chatByTab.delete(tabId)
@@ -143,22 +177,37 @@ async function handleMessage(message, sender) {
       return null
     }
 
+    case MSG_CHAT_ACTIVITY: {
+      // В открытом чате появилось новое сообщение. Заодно освежаем память о
+      // чате: сигнал приходит и после сна service worker.
+      const tabId = sender.tab?.id
+      if (tabId == null) return null
+      const chat = /** @type {ChatContext|null} */ (message.chat)
+      if (chat) chatByTab.set(tabId, chat)
+      // Панель показывает активную вкладку — чужие вкладки её не касаются.
+      const activeTabId = await getActiveTabId()
+      if (tabId !== activeTabId) return null
+      chrome.runtime.sendMessage({ type: MSG_CHAT_ACTIVITY }).catch(() => {})
+      return null
+    }
+
     case MSG_GET_STATE: {
       const settings = await getSettings()
       const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
       const tabId = tab?.id ?? null
-      const chat = tabId != null ? (chatByTab.get(tabId) ?? null) : null
+      let chat = tabId != null ? (chatByTab.get(tabId) ?? null) : null
 
       // Когда чата нет, панель должна объяснить причину, а не просто молчать:
       // «не тот сайт», «скрипт ещё не подключился к странице» и «чат не выбран» —
       // три разные ситуации с разными действиями человека.
       const onMessenger = Boolean(tab?.url?.startsWith("https://web.telegram.org/"))
-      let contentAlive = false
+      let contentAlive = Boolean(chat)
       if (!chat && onMessenger && tabId != null) {
-        contentAlive = await chrome.tabs
-          .sendMessage(tabId, { type: MSG_PING })
-          .then((r) => Boolean(r?.alive))
-          .catch(() => false)
+        // Скрипт может знать чат, о котором мы забыли (сон service worker) —
+        // тогда панель нарисует карточку сразу, без перезагрузки страницы.
+        const probe = await pingTab(tabId)
+        contentAlive = probe.alive
+        chat = probe.chat
       }
 
       return {
@@ -241,7 +290,7 @@ async function syncVisibleMessages(clientId) {
 
   const tabId = await getActiveTabId()
   if (tabId == null) return null
-  const chat = chatByTab.get(tabId)
+  const chat = await getChatForTab(tabId)
   if (!chat) return null
 
   /** @type {{messages: import("../common/types.js").ChatMessage[]} | undefined} */
@@ -261,6 +310,8 @@ async function syncVisibleMessages(clientId) {
     clientId,
     channel: chat.channel,
     chatId: chat.chatId,
-    messages: messages.slice(-20),
+    // Только хвост: адаптер и так отдаёт последние N, но подстраховываемся —
+    // заливать всю подгруженную историю в ленту коммуникаций нельзя.
+    messages: messages.slice(-SYNC_MESSAGES_LIMIT),
   })
 }

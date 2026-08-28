@@ -58,6 +58,12 @@ body {
   letter-spacing: 0.02em;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .icon-button {
   border: none;
   background: transparent;
@@ -71,6 +77,22 @@ body {
 .icon-button:hover {
   background: var(--surface);
   color: var(--fg);
+}
+
+.icon-button:disabled {
+  cursor: default;
+}
+
+/* Кнопка «Обновить» крутится, пока идёт запрос: иначе непонятно, нажалось ли. */
+.icon-button.spinning {
+  animation: spin 0.8s linear infinite;
+  color: var(--accent);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 h2 {
@@ -145,6 +167,24 @@ button.primary:disabled {
   text-decoration: underline;
   cursor: pointer;
   padding: 0;
+}
+
+/* «Назад» с экрана настроек: без неё человек не понимает, что уйти можно, не
+   сохраняя, и ищет выход в шестерёнке. */
+.back-button {
+  display: inline-block;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 4px;
+}
+
+.back-button:hover {
+  text-decoration: underline;
 }
 
 .status {
