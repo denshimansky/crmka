@@ -240,11 +240,20 @@ export function ExtensionTokensContent() {
               Скопируйте его сейчас — показать повторно нельзя. Если потеряете, выпустите новый.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 overflow-x-auto rounded bg-muted px-3 py-2 font-mono text-xs">
+          <div className="flex items-start gap-2">
+            {/* min-w-0 обязателен: без него flex-элемент не сжимается уже своего
+                содержимого, и длинный токен растягивал диалог за края экрана.
+                break-all переносит строку — токен виден целиком, без прокрутки. */}
+            <code className="min-w-0 flex-1 break-all rounded bg-muted px-3 py-2 font-mono text-xs">
               {issuedSecret}
             </code>
-            <Button variant="outline" size="icon" onClick={copySecret} title="Скопировать">
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              onClick={copySecret}
+              title="Скопировать"
+            >
               {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
             </Button>
           </div>

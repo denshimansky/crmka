@@ -19,6 +19,17 @@
 
 const MSG_CHAT_CHANGED = "chat-changed"
 const MSG_COLLECT_MESSAGES = "collect-messages"
+const MSG_PING = "ping"
+
+// Скрипт могут внедрить дважды: штатно при загрузке страницы и повторно из
+// service worker (он чинит вкладки, открытые до установки расширения). Второй
+// экземпляр молча выходит, иначе получим два набора наблюдателей DOM.
+const globalScope = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (window))
+
+if (globalScope.__crmkaTelegramAdapter) {
+  // Уже работает.
+} else {
+  globalScope.__crmkaTelegramAdapter = true
 
 /** @typedef {import("../common/types.js").ChatContext} ChatContext */
 /** @typedef {import("../common/types.js").ChatMessage} ChatMessage */
@@ -26,14 +37,15 @@ const MSG_COLLECT_MESSAGES = "collect-messages"
 // Content script в MV3 — классический скрипт, статический import в нём
 // невозможен. Разбор хэша вынесен в отдельный модуль (он покрыт тестами),
 // поэтому подтягиваем его динамически; файл объявлен в web_accessible_resources.
-/** @type {typeof import("../common/telegram-hash.js").parseTelegramChatId} */
-let parseTelegramChatId
-/** @type {typeof import("../common/telegram-hash.js").detectTelegramClient} */
-let detectTelegramClient
+// null до загрузки модуля — по этому же признаку понимаем, готов ли адаптер.
+/** @type {typeof import("../common/telegram-hash.js").parseTelegramChatId | null} */
+let parseTelegramChatId = null
+/** @type {typeof import("../common/telegram-hash.js").detectTelegramClient | null} */
+let detectTelegramClient = null
 
-/** Какой из двух клиентов открыт. @returns {"k"|"a"} */
+/** Какой из двух клиентов открыт (до загрузки модуля считаем WebK — он чаще). @returns {"k"|"a"} */
 function detectClient() {
-  return detectTelegramClient(location.pathname)
+  return detectTelegramClient ? detectTelegramClient(location.pathname) : "k"
 }
 
 /**
@@ -42,7 +54,7 @@ function detectClient() {
  * @returns {string|null}
  */
 function readChatIdFromHash() {
-  return parseTelegramChatId(location.hash)
+  return parseTelegramChatId ? parseTelegramChatId(location.hash) : null
 }
 
 /** Имя собеседника из шапки чата — подсказка при ручной привязке. */
@@ -161,6 +173,21 @@ domObserver.observe(document.body, { childList: true, subtree: true })
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === MSG_COLLECT_MESSAGES) {
     sendResponse({ messages: collectVisibleMessages() })
+    return false
+  }
+  if (message?.type === MSG_PING) {
+    // Панель по этому ответу отличает «скрипт не подключён к странице» от
+    // «скрипт работает, но чат не выбран», и подсказывает человеку нужное.
+    sendResponse({
+      alive: true,
+      // ready=false значит модуль разбора хэша ещё не подгрузился — это уже
+      // другая причина «нет чата», чем «чат не выбран».
+      ready: Boolean(parseTelegramChatId),
+      client: detectClient(),
+      hash: location.hash || null,
+      chatId: readChatIdFromHash(),
+    })
+    return false
   }
   return false
 })
@@ -177,3 +204,4 @@ import(chrome.runtime.getURL("src/common/telegram-hash.js"))
     // Модуль не загрузился (крайне маловероятно — файл свой же). Панель
     // покажет «откройте чат»: лучше, чем сломанная страница мессенджера.
   })
+}

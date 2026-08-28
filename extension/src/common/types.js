@@ -62,5 +62,9 @@ export const MSG_API = "api-call"
 export const MSG_SYNC_MESSAGES = "sync-messages"
 /** Service worker → панель: состояние изменилось (сменился чат/вкладка). */
 export const MSG_STATE_CHANGED = "state-changed"
+/** Service worker → content script: «ты живой?» — отличаем «скрипт не подключён» от «чат не открыт». */
+export const MSG_PING = "ping"
+/** Панель → service worker: перезагрузить вкладку мессенджера (чтобы подхватился content script). */
+export const MSG_RELOAD_TAB = "reload-tab"
 
 export {}

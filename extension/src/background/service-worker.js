@@ -17,6 +17,8 @@ import {
   MSG_CHAT_CHANGED,
   MSG_COLLECT_MESSAGES,
   MSG_GET_STATE,
+  MSG_PING,
+  MSG_RELOAD_TAB,
   MSG_SAVE_SETTINGS,
   MSG_STATE_CHANGED,
   MSG_SYNC_MESSAGES,
@@ -56,9 +58,43 @@ async function getSettings() {
   return /** @type {ExtSettings} */ ({ ...DEFAULT_SETTINGS, ...stored })
 }
 
+/**
+ * Хосты, на которых работают адаптеры. Держим здесь, а не только в манифесте:
+ * по этому же списку чиним уже открытые вкладки (см. injectIntoOpenTabs).
+ */
+const MESSENGER_URL_PATTERNS = ["https://web.telegram.org/*"]
+
+/**
+ * Content script штатно попадает только в те вкладки, которые загрузились ПОСЛЕ
+ * установки расширения. Если Telegram был открыт заранее (обычный случай:
+ * поставил расширение — вкладка уже висит), панель не узнает про открытый чат,
+ * пока человек не нажмёт F5. Поэтому при установке и при старте браузера
+ * доинжектируем скрипт в уже открытые вкладки сами.
+ */
+async function injectIntoOpenTabs() {
+  const scripts = chrome.runtime.getManifest().content_scripts ?? []
+  const tabs = await chrome.tabs.query({ url: MESSENGER_URL_PATTERNS })
+  for (const tab of tabs) {
+    if (tab.id == null) continue
+    for (const entry of scripts) {
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: entry.js ?? [] })
+      } catch {
+        // Вкладка закрылась, страница ещё грузится или это служебный URL —
+        // не страшно: при следующей загрузке скрипт попадёт туда штатно.
+      }
+    }
+  }
+}
+
 /** Панель открывается кликом по иконке расширения. */
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {})
+  void injectIntoOpenTabs()
+})
+
+chrome.runtime.onStartup.addListener(() => {
+  void injectIntoOpenTabs()
 })
 
 /** Активная вкладка — та, чей чат показываем в панели. */
@@ -109,13 +145,34 @@ async function handleMessage(message, sender) {
 
     case MSG_GET_STATE: {
       const settings = await getSettings()
-      const tabId = await getActiveTabId()
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      const tabId = tab?.id ?? null
       const chat = tabId != null ? (chatByTab.get(tabId) ?? null) : null
+
+      // Когда чата нет, панель должна объяснить причину, а не просто молчать:
+      // «не тот сайт», «скрипт ещё не подключился к странице» и «чат не выбран» —
+      // три разные ситуации с разными действиями человека.
+      const onMessenger = Boolean(tab?.url?.startsWith("https://web.telegram.org/"))
+      let contentAlive = false
+      if (!chat && onMessenger && tabId != null) {
+        contentAlive = await chrome.tabs
+          .sendMessage(tabId, { type: MSG_PING })
+          .then((r) => Boolean(r?.alive))
+          .catch(() => false)
+      }
+
       return {
         settings: { ...settings, token: settings.token ? "saved" : "" },
         configured: Boolean(settings.baseUrl && settings.token),
         chat,
+        tab: { id: tabId, url: tab?.url ?? null, onMessenger, contentAlive },
       }
+    }
+
+    case MSG_RELOAD_TAB: {
+      const tabId = await getActiveTabId()
+      if (tabId != null) await chrome.tabs.reload(tabId)
+      return null
     }
 
     case MSG_SAVE_SETTINGS: {

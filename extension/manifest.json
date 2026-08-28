@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "description": "Карточка клиента CRMka рядом с чатом: подопечные, занятия, абонементы, баланс и переписка по всем каналам.",
 
-  "permissions": ["sidePanel", "storage", "tabs"],
+  "permissions": ["sidePanel", "storage", "tabs", "scripting"],
 
   "host_permissions": [
     "https://app.umnayacrm.ru/*",

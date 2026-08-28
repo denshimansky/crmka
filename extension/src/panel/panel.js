@@ -8,6 +8,7 @@
 import {
   MSG_API,
   MSG_GET_STATE,
+  MSG_RELOAD_TAB,
   MSG_SAVE_SETTINGS,
   MSG_STATE_CHANGED,
   MSG_SYNC_MESSAGES,
@@ -31,6 +32,9 @@ const el = {
   candidates: /** @type {HTMLElement} */ (document.getElementById("candidates")),
   searchInput: /** @type {HTMLInputElement} */ (document.getElementById("search-input")),
   searchResults: /** @type {HTMLElement} */ (document.getElementById("search-results")),
+  noChat: /** @type {HTMLElement} */ (document.getElementById("no-chat")),
+  noChatHint: /** @type {HTMLElement} */ (document.getElementById("no-chat-hint")),
+  reloadTab: /** @type {HTMLButtonElement} */ (document.getElementById("reload-tab")),
   card: /** @type {HTMLElement} */ (document.getElementById("card")),
   clientName: /** @type {HTMLAnchorElement} */ (document.getElementById("client-name")),
   clientMeta: /** @type {HTMLElement} */ (document.getElementById("client-meta")),
@@ -49,6 +53,8 @@ const state = {
   clientId: null,
   baseUrl: "",
   showSetup: false,
+  /** @type {{id: number|null, url: string|null, onMessenger: boolean, contentAlive: boolean}|null} */
+  tab: null,
 }
 
 /**
@@ -110,6 +116,7 @@ function showStatus(text) {
 async function loadState() {
   const data = await send({ type: MSG_GET_STATE })
   state.chat = data.chat
+  state.tab = data.tab ?? null
   state.baseUrl = data.settings.baseUrl
   el.baseUrl.value = data.settings.baseUrl
   el.logMessages.checked = data.settings.logMessages
@@ -159,10 +166,12 @@ el.saveSettings.addEventListener("click", async () => {
 async function renderForChat() {
   el.card.hidden = true
   el.unmatched.hidden = true
+  el.noChat.hidden = true
+  el.reloadTab.hidden = true
   state.clientId = null
 
   if (!state.chat) {
-    showStatus("Откройте чат в Telegram — покажу карточку клиента.")
+    showNoChatReason()
     return
   }
 
@@ -199,6 +208,50 @@ async function renderForChat() {
     el.unmatchedTitle.textContent = `Чат ${who} пока не связан с клиентом. Найдите его — связь запомнится.`
   }
 }
+
+/**
+ * Почему панель не показывает клиента. Три разные причины требуют трёх разных
+ * действий человека, поэтому не отделываемся общим «откройте чат».
+ */
+function showNoChatReason() {
+  showStatus("")
+  el.noChat.hidden = false
+  const tab = state.tab
+
+  if (!tab?.onMessenger) {
+    el.noChatHint.textContent =
+      "Панель работает поверх веб-мессенджера. Откройте в этой вкладке web.telegram.org и вернитесь сюда."
+    return
+  }
+
+  if (!tab.contentAlive) {
+    // Обычный случай сразу после установки: вкладка Telegram была открыта
+    // раньше расширения, и в неё не попал наш скрипт.
+    el.noChatHint.textContent =
+      "Расширение ещё не подключилось к этой странице — так бывает, если вкладка была открыта до установки. Обновите её."
+    el.reloadTab.hidden = false
+    return
+  }
+
+  el.noChatHint.textContent =
+    "Откройте слева чат с родителем — покажу карточку клиента. Если чат открыт, а карточки нет, обновите вкладку."
+  el.reloadTab.hidden = false
+}
+
+el.reloadTab.addEventListener("click", async () => {
+  el.reloadTab.disabled = true
+  try {
+    await send({ type: MSG_RELOAD_TAB })
+    // Страница перезагружается, content script сообщит о чате сам — панель
+    // получит state-changed. Даём немного времени и перечитываем состояние.
+    setTimeout(() => {
+      el.reloadTab.disabled = false
+      void loadState()
+    }, 1500)
+  } catch {
+    el.reloadTab.disabled = false
+  }
+})
 
 /**
  * @param {HTMLElement} container
