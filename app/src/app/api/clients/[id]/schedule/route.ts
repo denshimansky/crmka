@@ -114,6 +114,8 @@ export async function GET(
     const instructor = l.substituteInstructor || l.instructor
     return {
       id: l.id,
+      // Ссылка «Открыть занятие» — обычное групповое занятие всегда открывается.
+      lessonId: l.id,
       date: l.date.toISOString(),
       startTime: l.startTime,
       durationMinutes: l.durationMinutes,
@@ -130,6 +132,11 @@ export async function GET(
   const trialResult = trials.map((t) => ({
     id: t.lesson?.id || t.id,
     trialId: t.id,
+    // «Открыть занятие» ведёт в карточку занятия — она есть только у пробного
+    // на групповом занятии (реальный Lesson с группой). У индивидуального
+    // пробного занятие-держатель без группы: карточка занятия его не открывает
+    // (как и в сетке расписания), поэтому ссылку не показываем.
+    lessonId: t.group ? (t.lesson?.id ?? null) : null,
     date: t.scheduledDate.toISOString(),
     startTime: t.lesson?.startTime || t.startTime || "—",
     durationMinutes: t.lesson?.durationMinutes || t.durationMinutes || 0,

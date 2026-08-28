@@ -25,7 +25,7 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Pencil, Ban, CalendarDays, Undo2, CalendarPlus } from "lucide-react"
+import { Plus, Pencil, Ban, CalendarDays, Undo2, CalendarPlus, ExternalLink } from "lucide-react"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { AddWardForm } from "./add-ward-form"
 import { AttendanceTab } from "./attendance-tab"
@@ -1367,6 +1367,9 @@ interface DiscountTemplateOption {
 interface ScheduleLesson {
   id: string
   trialId?: string | null
+  // Занятие для кнопки «Открыть занятие»: у обычных занятий и групповых пробных
+  // это реальный Lesson, у индивидуальных пробных — null (открывать нечего).
+  lessonId?: string | null
   date: string
   startTime: string
   durationMinutes: number
@@ -1427,6 +1430,7 @@ function ScheduleTab({ clientId }: { clientId: string }) {
                 <TableHead>Группа</TableHead>
                 <TableHead>{roleNames.instructor}</TableHead>
                 <TableHead>Кабинет</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1445,6 +1449,17 @@ function ScheduleTab({ clientId }: { clientId: string }) {
                   <TableCell>{l.groupName}</TableCell>
                   <TableCell className="text-muted-foreground">{l.instructorName}</TableCell>
                   <TableCell className="text-muted-foreground">{l.roomName}</TableCell>
+                  <TableCell>
+                    {l.lessonId && (
+                      <Link
+                        href={`/schedule/lessons/${l.lessonId}`}
+                        title="Открыть занятие"
+                        className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        <ExternalLink className="size-3.5" />
+                      </Link>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
