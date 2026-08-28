@@ -112,6 +112,37 @@ export function buildMessageExternalId(chatId: string, messageId: string): strin
   return `${chatId}:${messageId}`
 }
 
+/**
+ * Время сообщения из мессенджера → Date, а «не смогли разобрать» → undefined,
+ * НЕ null.
+ *
+ * Разница принципиальная: Prisma трактует undefined как «поле не задано» и
+ * оставляет дефолт колонки (now(), миграция 20260828150000), а явный null
+ * пишет в базу NULL. Адаптеры отдают sentAt: null штатно — Telegram WebA
+ * машинного времени в разметке не имеет вовсе, — и с null сюда уезжала
+ * переписка без времени: в лентах CRM (сортировка nulls: "last") такие строки
+ * падают в самый низ истории, а в панели — наоборот всплывают наверх.
+ * Время заливки — плохое приближение, но монотонное и не ломающее порядок.
+ *
+ * Принимаем ISO-строку и unix-время в секундах (так отдаёт WhatsApp Store) или
+ * миллисекундах.
+ */
+export function parseMessageSentAt(
+  value: string | number | null | undefined,
+): Date | undefined {
+  if (value === null || value === undefined) return undefined
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0) return undefined
+    const ms = value > 1e12 ? value : value * 1000
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? undefined : d
+  }
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  const d = new Date(trimmed)
+  return Number.isNaN(d.getTime()) ? undefined : d
+}
+
 /** Тип коммуникации по направлению — универсальный, канал несёт поле channel. */
 export function messageTypeForDirection(direction: "incoming" | "outgoing") {
   return direction === "incoming" ? ("messenger_incoming" as const) : ("messenger_outgoing" as const)

@@ -81,6 +81,22 @@ export function extOptions(req: Request): NextResponse {
   })
 }
 
+/**
+ * Тело запроса как JSON, либо undefined, если это не JSON.
+ *
+ * Голый `await req.json()` на битом теле бросает, Next отвечает своей 500 —
+ * а она уходит БЕЗ CORS-заголовков, и панель видит «ошибку сети» вместо
+ * внятного 400. Разбор отделён от валидации, чтобы роут отдал свой ответ
+ * через extJson.
+ */
+export async function readExtJson(req: Request): Promise<unknown> {
+  try {
+    return await req.json()
+  } catch {
+    return undefined
+  }
+}
+
 /** JSON-ответ роута /api/ext/* с CORS-заголовками. */
 export function extJson(req: Request, data: unknown, init?: { status?: number }): NextResponse {
   return NextResponse.json(data, {

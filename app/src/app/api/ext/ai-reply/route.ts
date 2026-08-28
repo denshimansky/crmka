@@ -3,7 +3,7 @@ import { z } from "zod"
 import { db } from "@/lib/db"
 import { AI_DAILY_LIMIT, aiConfigured } from "@/lib/ai-provider"
 import { requireExtAuth } from "@/lib/ext-auth"
-import { extJson, extOptions } from "@/lib/ext-cors"
+import { extJson, extOptions, readExtJson } from "@/lib/ext-cors"
 import { buildAiReplyDraft } from "@/lib/ext/ai-reply"
 
 /**
@@ -44,7 +44,12 @@ export async function POST(req: NextRequest) {
     return extJson(req, { error: "ИИ не подключён. Обратитесь к администратору CRM." }, { status: 503 })
   }
 
-  const parsed = bodySchema.safeParse(await req.json())
+  // Битое тело больше не даёт 500 без CORS-заголовков (см. readExtJson).
+  const body = await readExtJson(req)
+  if (body === undefined) {
+    return extJson(req, { error: "Ожидался JSON в теле запроса" }, { status: 400 })
+  }
+  const parsed = bodySchema.safeParse(body)
   if (!parsed.success) {
     return extJson(
       req,

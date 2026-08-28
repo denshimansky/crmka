@@ -6,6 +6,7 @@ import {
   isMessengerChannel,
   normalizeChatId,
   normalizeHandle,
+  parseMessageSentAt,
 } from "../lib/ext/chat-identity"
 
 // Нормализация — фундамент матчинга «открытый чат ↔ карточка клиента»
@@ -116,5 +117,37 @@ describe("вспомогательные", () => {
     assert.equal(isMessengerChannel("telegram"), true)
     assert.equal(isMessengerChannel("internal"), false)
     assert.equal(isMessengerChannel("phone"), false)
+  })
+})
+
+// Время сообщения. Главное здесь — разница между undefined и null: Prisma по
+// undefined оставляет дефолт колонки (now()), а по null пишет в базу NULL.
+// Именно на этом сломалась заливка: адаптер Telegram WebA машинного времени не
+// видит и штатно шлёт null, и вся его переписка легла в CRM без времени —
+// в лентах такие строки проваливаются в конец истории, в панели всплывают вверх.
+describe("parseMessageSentAt", () => {
+  it("нет времени → undefined, а НЕ null: сработает дефолт now()", () => {
+    assert.equal(parseMessageSentAt(null), undefined)
+    assert.equal(parseMessageSentAt(undefined), undefined)
+  })
+  it("ISO-строка разбирается", () => {
+    const d = parseMessageSentAt("2026-08-27T10:14:00.000Z")
+    assert.equal(d?.toISOString(), "2026-08-27T10:14:00.000Z")
+  })
+  it("unix-секунды (так отдаёт WhatsApp Store)", () => {
+    const d = parseMessageSentAt(1756289640)
+    assert.equal(d?.getTime(), 1756289640 * 1000)
+  })
+  it("unix-миллисекунды тоже понимаем", () => {
+    const d = parseMessageSentAt(1756289640000)
+    assert.equal(d?.getTime(), 1756289640000)
+  })
+  it("мусор не выдумываем", () => {
+    assert.equal(parseMessageSentAt("вчера в 10:14"), undefined)
+    assert.equal(parseMessageSentAt(""), undefined)
+    assert.equal(parseMessageSentAt("   "), undefined)
+    assert.equal(parseMessageSentAt(Number.NaN), undefined)
+    assert.equal(parseMessageSentAt(0), undefined)
+    assert.equal(parseMessageSentAt(-5), undefined)
   })
 })

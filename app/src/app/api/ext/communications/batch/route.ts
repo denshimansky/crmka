@@ -3,12 +3,13 @@ import { z } from "zod"
 import { db } from "@/lib/db"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { requireExtAuth } from "@/lib/ext-auth"
-import { extJson, extOptions } from "@/lib/ext-cors"
+import { extJson, extOptions, readExtJson } from "@/lib/ext-cors"
 import {
   MESSENGER_CHANNELS,
   buildMessageExternalId,
   messageTypeForDirection,
   normalizeChatId,
+  parseMessageSentAt,
   toPrismaChannel,
 } from "@/lib/ext/chat-identity"
 
@@ -49,24 +50,17 @@ const bodySchema = z.object({
   messages: z.array(messageSchema).min(1).max(50),
 })
 
-function parseSentAt(value: string | number | null | undefined): Date | null {
-  if (value === null || value === undefined) return null
-  // Unix-секунды (так отдаёт WhatsApp Store) или миллисекунды.
-  if (typeof value === "number") {
-    const ms = value > 1e12 ? value : value * 1000
-    const d = new Date(ms)
-    return Number.isNaN(d.getTime()) ? null : d
-  }
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? null : d
-}
-
 export async function POST(req: NextRequest) {
   const guard = await requireExtAuth(req, "ext.write")
   if (!guard.ok) return guard.response
   const { ctx } = guard
 
-  const parsed = bodySchema.safeParse(await req.json())
+  // Битое тело больше не даёт 500 без CORS-заголовков (см. readExtJson).
+  const body = await readExtJson(req)
+  if (body === undefined) {
+    return extJson(req, { error: "Ожидался JSON в теле запроса" }, { status: 400 })
+  }
+  const parsed = bodySchema.safeParse(body)
   if (!parsed.success) {
     return extJson(
       req,
@@ -90,7 +84,13 @@ export async function POST(req: NextRequest) {
   })
   if (!client) return extJson(req, { error: "Клиент не найден" }, { status: 404 })
 
-  const rows = messages.map((m) => ({
+  // Сообщения без разобранного времени (Telegram WebA его не отдаёт вовсе)
+  // раскладываем по позиции в пачке: она приходит в хронологическом порядке, а
+  // один общий now() на всех схлопнул бы его — в ленте такие строки встали бы
+  // как попало относительно друг друга. Шаг в миллисекунду: порядок строгий,
+  // а отображаемое время (до минут) остаётся одним и тем же.
+  const uploadedAt = Date.now()
+  const rows = messages.map((m, index) => ({
     tenantId: ctx.tenantId,
     clientId,
     type: messageTypeForDirection(m.direction),
@@ -99,7 +99,8 @@ export async function POST(req: NextRequest) {
     content: m.text?.slice(0, MAX_TEXT_LENGTH) ?? null,
     // id сообщения уникален лишь внутри чата — ключ склеиваем с чатом.
     externalId: buildMessageExternalId(chatId, m.externalId),
-    sentAt: parseSentAt(m.sentAt),
+    sentAt:
+      parseMessageSentAt(m.sentAt) ?? new Date(uploadedAt - (messages.length - 1 - index)),
     // Исходящие писал сотрудник, чьим токеном работает панель. У входящих автора
     // нет — сообщение написал клиент.
     employeeId: m.direction === "outgoing" ? ctx.employeeId : null,

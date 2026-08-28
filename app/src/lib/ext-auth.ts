@@ -46,8 +46,13 @@ const SCOPE_PERMISSION: Record<ExtScope, PermissionKey> = {
   "ext.ai": "clients.view",
 }
 
-/** Скоупы, меняющие данные — их режем при блокировке за неоплату. */
-const WRITE_SCOPES: ReadonlySet<ExtScope> = new Set<ExtScope>(["ext.write"])
+/**
+ * Скоупы, недоступные при блокировке за неоплату: пишущие и платный ИИ.
+ * ext.ai стоит нам живых денег у провайдера, поэтому режется наравне с записью
+ * (читать карточку заблокированной организации по-прежнему можно — CRM в этом
+ * режиме тоже остаётся в просмотре).
+ */
+const BLOCKED_SCOPES: ReadonlySet<ExtScope> = new Set<ExtScope>(["ext.write", "ext.ai"])
 
 /** Токен, выдаваемый по умолчанию при выпуске из «Настройки → Расширение». */
 export const DEFAULT_EXT_SCOPES: ExtScope[] = ["ext.read", "ext.write", "ext.ai"]
@@ -158,7 +163,7 @@ export async function requireExtAuth(req: Request, scope: ExtScope): Promise<Ext
   if (!employee) return fail(req, 401, "Сотрудник неактивен")
 
   const org = employee.organization
-  if (org.billingStatus === "blocked" && WRITE_SCOPES.has(scope)) {
+  if (org.billingStatus === "blocked" && BLOCKED_SCOPES.has(scope)) {
     return fail(
       req,
       403,
@@ -174,12 +179,18 @@ export async function requireExtAuth(req: Request, scope: ExtScope): Promise<Ext
   }
 
   // Филиалы считаем из БД той же единой точкой, что и сессия (coversAllBranches
-  // и всё прочее), а не верим расширению на слово. Пустой список привязок = все
-  // филиалы — так же, как в auth.ts.
+  // и всё прочее), а не верим расширению на слово.
+  //
+  // Владелец и управляющий видят все филиалы ВСЕГДА, привязки им не сужают
+  // доступ — ровно как в lib/auth.ts. Без этого гарда расширение расходилось с
+  // CRM: у переведённого из администратора владельца строки в employee_branches
+  // остаются (их же оставляет и soft-delete филиала), и через панель он получал
+  // limited-scope и «Клиент не найден» там, где в CRM видит всех.
+  const seesAllBranches = employee.role === "owner" || employee.role === "manager"
   const branchIds = employee.employeeBranches.map((b) => b.branchId)
   const branchScope = await resolveBranchScope(
     token.tenantId,
-    branchIds.length > 0 ? branchIds : null,
+    seesAllBranches || branchIds.length === 0 ? null : branchIds,
   )
 
   // Отметка «когда токеном пользовались» — не чаще раза в минуту, чтобы не

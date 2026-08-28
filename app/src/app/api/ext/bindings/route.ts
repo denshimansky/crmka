@@ -3,7 +3,7 @@ import { z } from "zod"
 import { db } from "@/lib/db"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { requireExtAuth } from "@/lib/ext-auth"
-import { extJson, extOptions } from "@/lib/ext-cors"
+import { extJson, extOptions, readExtJson } from "@/lib/ext-cors"
 import {
   MESSENGER_CHANNELS,
   handleFieldForChannel,
@@ -85,7 +85,12 @@ export async function POST(req: NextRequest) {
   if (!guard.ok) return guard.response
   const { ctx } = guard
 
-  const parsed = createSchema.safeParse(await req.json())
+  // Битое тело больше не даёт 500 без CORS-заголовков (см. readExtJson).
+  const body = await readExtJson(req)
+  if (body === undefined) {
+    return extJson(req, { error: "Ожидался JSON в теле запроса" }, { status: 400 })
+  }
+  const parsed = createSchema.safeParse(body)
   if (!parsed.success) {
     return extJson(
       req,
@@ -160,7 +165,12 @@ export async function DELETE(req: NextRequest) {
   if (!guard.ok) return guard.response
   const { ctx } = guard
 
-  const parsed = deleteSchema.safeParse(await req.json())
+  // Битое тело больше не даёт 500 без CORS-заголовков (см. readExtJson).
+  const body = await readExtJson(req)
+  if (body === undefined) {
+    return extJson(req, { error: "Ожидался JSON в теле запроса" }, { status: 400 })
+  }
+  const parsed = deleteSchema.safeParse(body)
   if (!parsed.success) return extJson(req, { error: "Не указан чат" }, { status: 400 })
 
   const chatId = normalizeChatId(parsed.data.channel, parsed.data.chatId)

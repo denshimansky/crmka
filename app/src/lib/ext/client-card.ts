@@ -2,6 +2,7 @@ import { db } from "@/lib/db"
 import { formatAge } from "@/lib/age"
 import { clientStateLabel } from "@/lib/clients/state-label"
 import { scopeClientByBranch } from "@/lib/client-segments"
+import { currencySymbol } from "@/lib/currency"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import type { ExtContext } from "@/lib/ext-auth"
 
@@ -34,6 +35,8 @@ function personName(p: { firstName: string | null; lastName: string | null } | n
 }
 
 export interface ExtClientCard {
+  /** Символ валюты организации: панель не должна зашивать рубль. */
+  currencySymbol: string
   client: {
     id: string
     name: string
@@ -122,6 +125,15 @@ export async function buildClientCard(
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth() + 1
 
+  // Валюта организации: суммы по курсу не пересчитываются, меняется только
+  // символ (см. lib/currency.ts) — но панель обязана показывать её, а не ₽.
+  // Запрос стартует здесь, ждём его после основного пакета: так он идёт
+  // параллельно и ничего не задерживает.
+  const organizationPromise = db.organization.findUnique({
+    where: { id: ctx.tenantId },
+    select: { currency: true },
+  })
+
   const [subscriptions, payments, communications, enrollments, lastAttendances] = await Promise.all([
     // Активные абонементы. Критерий — как в ЛК родителя: pending/active, не
     // отчислен, период текущий или будущий; пакетные (periodYear = NULL) живут
@@ -191,7 +203,10 @@ export async function buildClientCard(
         createdAt: true,
         employee: { select: { firstName: true, lastName: true } },
       },
-      orderBy: [{ sentAt: "desc" }, { createdAt: "desc" }],
+      // nulls: "last" — как в лентах CRM (api/clients/[id]/communications и
+      // timeline). Без него Postgres при DESC ставит NULL первыми, и панель
+      // показывала бы не последние 10 сообщений, а 10 «безвременных».
+      orderBy: [{ sentAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       take: 10,
     }),
     db.groupEnrollment.findMany({
@@ -338,8 +353,10 @@ export async function buildClientCard(
       })
     : []
   const consumedMap = new Map(consumed.map((c) => [c.subscriptionId, c._count._all]))
+  const organization = await organizationPromise
 
   return {
+    currencySymbol: currencySymbol(organization?.currency),
     client: {
       id: client.id,
       name:

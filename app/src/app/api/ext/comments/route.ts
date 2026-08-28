@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { logClientNote } from "@/lib/communications/log-note"
 import { requireExtAuth } from "@/lib/ext-auth"
-import { extJson, extOptions } from "@/lib/ext-cors"
+import { extJson, extOptions, readExtJson } from "@/lib/ext-cors"
 
 /**
  * POST /api/ext/comments — комментарий в карточку клиента из чата.
@@ -29,7 +29,12 @@ export async function POST(req: NextRequest) {
   if (!guard.ok) return guard.response
   const { ctx } = guard
 
-  const parsed = bodySchema.safeParse(await req.json())
+  // Битое тело больше не даёт 500 без CORS-заголовков (см. readExtJson).
+  const body = await readExtJson(req)
+  if (body === undefined) {
+    return extJson(req, { error: "Ожидался JSON в теле запроса" }, { status: 400 })
+  }
+  const parsed = bodySchema.safeParse(body)
   if (!parsed.success) {
     return extJson(
       req,
