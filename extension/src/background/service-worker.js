@@ -39,7 +39,11 @@ const chatByTab = new Map()
 
 /** @type {ExtSettings} */
 const DEFAULT_SETTINGS = {
-  baseUrl: "https://app.umnayacrm.ru",
+  // Боевая база живёт на msk1 (Timeweb). app.umnayacrm.ru зарезервирован под
+  // будущее переключение, но сейчас у него сертификат на другое имя — fetch
+  // отсюда туда не пройдёт вовсе. Когда домен переключат и выпустят
+  // сертификат, адрес меняется в панели без обновления расширения.
+  baseUrl: "https://msk1.umnayacrm.ru",
   token: "",
   // Запись переписки в CRM выключена по умолчанию: это обработка персональных
   // данных, включать её должен человек осознанно (см. docs/messenger-extension.md).
