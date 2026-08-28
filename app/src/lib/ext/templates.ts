@@ -1,6 +1,7 @@
 import type { CommunicationChannel } from "@prisma/client"
 import { db } from "@/lib/db"
 import { formatMoney } from "@/lib/currency"
+import { lessonsWord } from "@/lib/plural"
 import { EMPTY_VALUE, expandTemplate } from "@/lib/ext/template-placeholders"
 import {
   collectClientFacts,
@@ -55,6 +56,7 @@ export function buildTemplateValues(
       formatScheduleText(facts.wards, { showNames: facts.showNames }) ?? EMPTY_VALUE,
     // Абонементов нет — честный ноль, а не «—»: «осталось 0 занятий» осмысленно.
     остаток: subscriptions.length ? String(remaining) : "0",
+    остаток_занятий: `${remaining} ${lessonsWord(remaining)}`,
     долг: formatMoney(debt, facts.currency),
     баланс: formatMoney(facts.balance, facts.currency),
     филиал: facts.branchName || EMPTY_VALUE,
