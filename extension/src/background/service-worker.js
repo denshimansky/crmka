@@ -73,6 +73,18 @@ async function getSettings() {
 const MESSENGER_URL_PATTERNS = ["https://web.telegram.org/*"]
 
 /**
+ * Те же хосты, но для сверки конкретного URL вкладки: match-паттерны со
+ * звёздочкой для startsWith не годятся. Держим рядом с паттернами, чтобы при
+ * добавлении канала нельзя было починить одно место и забыть другое.
+ */
+const MESSENGER_ORIGINS = ["https://web.telegram.org/"]
+
+/** @param {string|undefined} url */
+function isMessengerUrl(url) {
+  return Boolean(url && MESSENGER_ORIGINS.some((origin) => url.startsWith(origin)))
+}
+
+/**
  * Content script штатно попадает только в те вкладки, которые загрузились ПОСЛЕ
  * установки расширения. Если Telegram был открыт заранее (обычный случай:
  * поставил расширение — вкладка уже висит), панель не узнает про открытый чат,
@@ -105,10 +117,46 @@ chrome.runtime.onStartup.addListener(() => {
   void injectIntoOpenTabs()
 })
 
-/** Активная вкладка — та, чей чат показываем в панели. */
-async function getActiveTabId() {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+/**
+ * Активная вкладка окна, которому принадлежит панель.
+ *
+ * windowId важен: боковая панель своя в КАЖДОМ окне браузера, а
+ * lastFocusedWindow отдаёт вкладку того окна, что сейчас в фокусе. Без привязки
+ * панель окна A управляла вкладкой окна B — вставляла туда текст и забирала
+ * оттуда переписку. Панель передаёт свой windowId со всеми сообщениями;
+ * его отсутствие = старое поведение, чтобы ничего не отвалилось молча.
+ *
+ * @param {number|null|undefined} windowId
+ */
+async function getActiveTab(windowId) {
+  const [tab] = await chrome.tabs.query(
+    windowId != null ? { active: true, windowId } : { active: true, lastFocusedWindow: true },
+  )
+  return tab ?? null
+}
+
+/** @param {number|null|undefined} windowId */
+async function getActiveTabId(windowId) {
+  const tab = await getActiveTab(windowId)
   return tab?.id ?? null
+}
+
+/**
+ * Тот ли чат всё ещё открыт во вкладке.
+ *
+ * Панель принимает решение («залить переписку клиенту X», «вставить черновик»)
+ * до похода на сервер, а исполняется оно через секунды — за это время человек
+ * успевает переключить диалог. Промах здесь необратим: ключ дедупа не даёт
+ * переписать чужие сообщения в карточке, их пришлось бы чистить в БД руками.
+ *
+ * @param {number} tabId
+ * @param {string|null} expectedChatId null = панель не сказала, чего ждёт:
+ *   не блокируем, иначе старый вызов молча перестал бы работать.
+ */
+async function chatMatches(tabId, expectedChatId) {
+  if (!expectedChatId) return true
+  const chat = await getChatForTab(tabId)
+  return chat?.chatId === expectedChatId
 }
 
 /** Сообщить панели, что состояние изменилось. Панель может быть закрыта — ошибку глотаем. */
@@ -153,6 +201,14 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   chatByTab.delete(tabId)
 })
 
+// Вкладку увели с мессенджера (открыли в ней другой сайт) — чат из памяти надо
+// выбросить. Раньше chatByTab чистился только при ЗАКРЫТИИ вкладки, и панель
+// продолжала показывать карточку клиента поверх постороннего сайта.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (!changeInfo.url || isMessengerUrl(changeInfo.url)) return
+  if (chatByTab.delete(tabId)) notifyPanel()
+})
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender)
     .then((result) => sendResponse({ ok: true, result }))
@@ -191,22 +247,31 @@ async function handleMessage(message, sender) {
       const chat = /** @type {ChatContext|null} */ (message.chat)
       if (chat) chatByTab.set(tabId, chat)
       // Панель показывает активную вкладку — чужие вкладки её не касаются.
-      const activeTabId = await getActiveTabId()
+      // Сверяем внутри окна отправителя: в другом окне своя панель и свой чат.
+      const activeTabId = await getActiveTabId(sender.tab?.windowId)
       if (tabId !== activeTabId) return null
-      chrome.runtime.sendMessage({ type: MSG_CHAT_ACTIVITY }).catch(() => {})
+      // Окно прикладываем: сообщение получат панели ВСЕХ окон, а заливать
+      // переписку должна только та, чьё окно этот чат и показывает.
+      chrome.runtime
+        .sendMessage({ type: MSG_CHAT_ACTIVITY, windowId: sender.tab?.windowId })
+        .catch(() => {})
       return null
     }
 
     case MSG_GET_STATE: {
       const settings = await getSettings()
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      const tab = await getActiveTab(message.windowId)
       const tabId = tab?.id ?? null
-      let chat = tabId != null ? (chatByTab.get(tabId) ?? null) : null
 
       // Когда чата нет, панель должна объяснить причину, а не просто молчать:
       // «не тот сайт», «скрипт ещё не подключился к странице» и «чат не выбран» —
       // три разные ситуации с разными действиями человека.
-      const onMessenger = Boolean(tab?.url?.startsWith("https://web.telegram.org/"))
+      const onMessenger = isMessengerUrl(tab?.url)
+      // Вкладка уже не на мессенджере — её чат недействителен, даже если он
+      // остался в памяти (страховка на случай, если onUpdated не сработал).
+      if (tabId != null && !onMessenger) chatByTab.delete(tabId)
+
+      let chat = tabId != null && onMessenger ? (chatByTab.get(tabId) ?? null) : null
       let contentAlive = Boolean(chat)
       if (!chat && onMessenger && tabId != null) {
         // Скрипт может знать чат, о котором мы забыли (сон service worker) —
@@ -225,7 +290,7 @@ async function handleMessage(message, sender) {
     }
 
     case MSG_RELOAD_TAB: {
-      const tabId = await getActiveTabId()
+      const tabId = await getActiveTabId(message.windowId)
       if (tabId != null) await chrome.tabs.reload(tabId)
       return null
     }
@@ -250,18 +315,24 @@ async function handleMessage(message, sender) {
     }
 
     case MSG_SYNC_MESSAGES: {
-      return syncVisibleMessages(message.clientId)
+      return syncVisibleMessages(message.clientId, message.chatId ?? null, message.windowId)
     }
 
     case MSG_AI_DRAFT: {
-      return buildAiDraft(message.clientId ?? null)
+      return buildAiDraft(message.clientId ?? null, message.chatId ?? null, message.windowId)
     }
 
     case MSG_INSERT_TEXT: {
       // Текст едет в поле ввода активной вкладки. Отправку не инициируем ни
       // здесь, ни в адаптере — это принцип-щит спеки, а не деталь реализации.
-      const tabId = await getActiveTabId()
+      const tabId = await getActiveTabId(message.windowId)
       if (tabId == null) return { inserted: false }
+      // Пока готовился текст (ИИ-черновик — это секунды), человек мог открыть
+      // другой диалог. Ответ про одного клиента в переписке с другим — хуже,
+      // чем несработавшая вставка: панель отдаст текст через буфер обмена.
+      if (!(await chatMatches(tabId, message.chatId ?? null))) {
+        return { inserted: false, reason: "chat-changed" }
+      }
       const response = await chrome.tabs
         .sendMessage(tabId, { type: MSG_INSERT_TEXT, text: message.text })
         .catch(() => null)
@@ -321,11 +392,25 @@ async function collectMessages(tabId) {
  * остаётся за человеком.
  *
  * @param {string|null} clientId
+ * @param {string|null} expectedChatId Чат, для которого черновик заказывали.
+ * @param {number|null|undefined} windowId Окно панели.
  * @returns {Promise<{text: string, remaining?: number}>}
  */
-async function buildAiDraft(clientId) {
+async function buildAiDraft(clientId, expectedChatId, windowId) {
   const settings = await getSettings()
-  const tabId = await getActiveTabId()
+  // Черновик отправляет текст чата на сервер и дальше провайдеру ИИ — это тот
+  // же поток персональных данных, что и запись переписки, и он обязан жить под
+  // тем же согласием. Раньше кнопка работала при выключенном тумблере, то есть
+  // расширение делало ровно то, что в интерфейсе обещало не делать.
+  if (!settings.logMessages) {
+    throw new Error(
+      "Черновик читает переписку — включите «Записывать переписку» в настройках панели",
+    )
+  }
+  const tabId = await getActiveTabId(windowId)
+  if (tabId != null && !(await chatMatches(tabId, expectedChatId))) {
+    throw new Error("Чат сменился — откройте нужный диалог и повторите")
+  }
   const messages = tabId != null ? ((await collectMessages(tabId)) ?? []) : []
 
   return fetchAiReply(settings, {
@@ -344,16 +429,22 @@ async function buildAiDraft(clientId) {
  * повторные вызовы безопасны.
  *
  * @param {string} clientId
+ * @param {string|null} expectedChatId Чат, чью переписку заказывала панель.
+ * @param {number|null|undefined} windowId Окно панели.
  * @returns {Promise<{created: number, skipped: number} | null>}
  */
-async function syncVisibleMessages(clientId) {
+async function syncVisibleMessages(clientId, expectedChatId, windowId) {
   const settings = await getSettings()
   if (!settings.logMessages) return null
 
-  const tabId = await getActiveTabId()
+  const tabId = await getActiveTabId(windowId)
   if (tabId == null) return null
   const chat = await getChatForTab(tabId)
   if (!chat) return null
+  // Человек успел переключить диалог, пока панель решала. Сообщения чужого
+  // чата, попавшие в карточку, оттуда уже не убрать штатно — ключ дедупа не
+  // позволит их переписать.
+  if (expectedChatId && chat.chatId !== expectedChatId) return null
 
   // null — вкладку закрыли или content script не отвечает после обновления
   // мессенджера: панель продолжает работать без записи переписки.

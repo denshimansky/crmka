@@ -62,20 +62,28 @@ const page = await browser.newPage({
 })
 
 await page.addInitScript(() => {
-  // Панель при загрузке спрашивает состояние у service worker — отвечаем за него.
+  // Панель при загрузке спрашивает состояние у service worker, а затем ходит
+  // через него в API — отвечаем за оба. Один ответ на все запросы не годится:
+  // панель разбирает их по-разному, и на чужой форме падала бы с ошибкой.
+  const STATE = {
+    settings: { baseUrl: "https://msk1.umnayacrm.ru", logMessages: true },
+    configured: true,
+    chat: { channel: "telegram", chatId: "@test", title: "Родитель", phone: null },
+    tab: { id: 1, url: "https://web.telegram.org/k/", onMessenger: true, contentAlive: true },
+  }
   window.chrome = {
     runtime: {
-      sendMessage: async () => ({
-        ok: true,
-        result: {
-          settings: { baseUrl: "https://msk1.umnayacrm.ru", logMessages: true },
-          configured: true,
-          chat: { channel: "telegram", chatId: "@test", title: "Родитель", phone: null },
-          tab: { id: 1, url: "https://web.telegram.org/k/", onMessenger: true, contentAlive: true },
-        },
-      }),
+      sendMessage: async (message) => {
+        if (message?.type === "get-state") return { ok: true, result: STATE }
+        if (message?.type === "api" && message.action === "resolve") {
+          // Чат не привязан: карточку в предпросмотре рисуем руками ниже.
+          return { ok: true, result: { match: "none", clientId: null, candidates: [], chatId: "@test" } }
+        }
+        return { ok: true, result: {} }
+      },
       onMessage: { addListener: () => {} },
     },
+    windows: { getCurrent: async () => ({ id: 1 }) },
   }
 })
 

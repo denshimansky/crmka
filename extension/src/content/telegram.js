@@ -56,6 +56,35 @@ let detectTelegramClient = null
 /** @type {typeof import("../common/telegram-time.js").parseBubbleTitleDate | null} */
 let parseBubbleTitleDate = null
 
+/** Контекст скрипта умер (расширение обновили) — больше не дёргаемся. */
+let contextLost = false
+
+/** @type {MutationObserver|null} */
+let domObserver = null
+
+/**
+ * Сообщение в service worker.
+ *
+ * После обновления или перезагрузки расширения контекст этого экземпляра
+ * инвалидируется, и chrome.runtime.sendMessage бросает СИНХРОННО
+ * («Extension context invalidated») — .catch() такую ошибку не ловит, и падение
+ * уносило с собой колбэк наблюдателя DOM. Свежий экземпляр скрипта service
+ * worker внедряет сам, поэтому старому остаётся тихо замолчать и отцепиться.
+ *
+ * @param {any} message
+ */
+function sendToWorker(message) {
+  if (contextLost) return
+  try {
+    if (!chrome.runtime?.id) throw new Error("context lost")
+    const sent = chrome.runtime.sendMessage(message)
+    if (sent && typeof sent.catch === "function") sent.catch(() => {})
+  } catch {
+    contextLost = true
+    domObserver?.disconnect()
+  }
+}
+
 /** Какой из двух клиентов открыт (до загрузки модуля считаем WebK — он чаще). @returns {"k"|"a"} */
 function detectClient() {
   return detectTelegramClient ? detectTelegramClient(location.pathname) : "k"
@@ -98,7 +127,40 @@ function readChatTitle() {
  * @returns {ChatMessage[]}
  */
 function collectVisibleMessages() {
-  return detectClient() === "a" ? collectWebA() : collectWebK()
+  const isWebA = detectClient() === "a"
+  const root = messagesRoot()
+  // Контейнер нашёлся — верим ему, даже если он пуст. Пустой активный чат —
+  // штатное состояние (первый диалог с родителем, чат из одних фото), и
+  // подмена его документом означала бы ровно то, от чего сужение и защищает:
+  // Telegram держит в DOM контейнеры других открытых чатов, а ключ сообщения
+  // склеивается с chatId ТЕКУЩЕГО — чужая переписка осела бы в чужой карточке
+  // навсегда. Документ берём, только если ни один селектор не подошёл вовсе:
+  // это уже поломка вёрстки, и прежнее поведение здесь лучше, чем немота.
+  return isWebA ? collectWebA(root ?? document.body) : collectWebK(root ?? document.body)
+}
+
+/**
+ * Контейнер активного диалога.
+ *
+ * Собирать пузыри по всему документу нельзя: Telegram держит в DOM разметку и
+ * других недавно открытых чатов, а ключ сообщения склеивается с chatId ТЕКУЩЕГО
+ * диалога — чужая переписка уезжала бы в карточку этого клиента, и убрать её
+ * потом нечем: уникальный ключ не даёт переписать строку.
+ *
+ * Селекторы вёрстки хрупкие, поэтому возвращаем null, когда не подошёл ни
+ * один: решение «что делать дальше» принимает вызывающий.
+ * @returns {HTMLElement|null}
+ */
+function messagesRoot() {
+  const selectors =
+    detectClient() === "a"
+      ? ["#MiddleColumn .messages-container", "#MiddleColumn"]
+      : [".chats-container .chat.active", ".chat.active", "#column-center"]
+  for (const selector of selectors) {
+    const node = document.querySelector(selector)
+    if (node) return /** @type {HTMLElement} */ (node)
+  }
+  return null
 }
 
 /**
@@ -142,11 +204,11 @@ function readWebKSentAt(el) {
   return parseBubbleTitleDate(holder?.getAttribute("title"))
 }
 
-/** @returns {ChatMessage[]} */
-function collectWebK() {
+/** @param {HTMLElement} root @returns {ChatMessage[]} */
+function collectWebK(root) {
   /** @type {ChatMessage[]} */
   const out = []
-  const nodes = document.querySelectorAll(".bubble[data-mid]")
+  const nodes = root.querySelectorAll(".bubble[data-mid]")
   for (let i = nodes.length - 1; i >= 0 && out.length < COLLECT_LIMIT; i--) {
     const node = nodes[i]
     if (node.classList.contains("service")) continue
@@ -173,11 +235,11 @@ function collectWebK() {
   return out.reverse()
 }
 
-/** @returns {ChatMessage[]} */
-function collectWebA() {
+/** @param {HTMLElement} root @returns {ChatMessage[]} */
+function collectWebA(root) {
   /** @type {ChatMessage[]} */
   const out = []
-  const nodes = document.querySelectorAll('[id^="message-"]')
+  const nodes = root.querySelectorAll('[id^="message-"]')
   for (let i = nodes.length - 1; i >= 0 && out.length < COLLECT_LIMIT; i--) {
     const el = /** @type {HTMLElement} */ (nodes[i])
     // «message-<id>» и «message-<id>-<index>» у альбомов: берём первую часть.
@@ -196,8 +258,11 @@ function collectWebA() {
       externalId: id,
       direction: el.classList.contains("own") ? "outgoing" : "incoming",
       text,
-      // WebA не отдаёт машинного времени и подсказки с полной датой — сервер
-      // подставит своё.
+      // Времени здесь взять НЕОТКУДА, и это проверено по исходникам клиента:
+      // telegram-tt проставляет подсказку title у .message-time только по
+      // наведению курсора (useFlag + onMouseEnter), а машинных атрибутов на
+      // пузыре нет вовсе. Порядок сообщений при этом не теряется: сервер
+      // раскладывает пачку без времени по позиции в ней (см. batch/route.ts).
       sentAt: null,
     })
   }
@@ -214,9 +279,10 @@ function collectWebA() {
  */
 function readLatestMessageKey() {
   const isWebA = detectClient() === "a"
-  const nodes = isWebA
-    ? document.querySelectorAll('[id^="message-"]')
-    : document.querySelectorAll(".bubble[data-mid]")
+  const selector = isWebA ? '[id^="message-"]' : ".bubble[data-mid]"
+  // Та же область, что и у сбора сообщений: максимальный id по всему документу
+  // прыгал бы при переключении чатов и выдавал «пришло новое» на ровном месте.
+  const nodes = (messagesRoot() ?? document.body).querySelectorAll(selector)
   let max = 0
   for (const node of nodes) {
     const el = /** @type {HTMLElement} */ (node)
@@ -282,22 +348,24 @@ function insertIntoComposer(text) {
   el.focus()
   placeCaretAtEnd(el)
 
-  let ok = true
+  const before = el.textContent ?? ""
   const lines = String(text).split("\n")
   lines.forEach((line, index) => {
-    if (index > 0) ok = document.execCommand("insertLineBreak") && ok
-    if (line) ok = document.execCommand("insertText", false, line) && ok
+    if (index > 0) document.execCommand("insertLineBreak")
+    if (line) document.execCommand("insertText", false, line)
   })
 
-  if (!ok) {
-    // Запасной путь для случая, если execCommand когда-нибудь уберут: правим
-    // поле сами и сами сообщаем фреймворку об изменении.
-    el.textContent = `${el.textContent ?? ""}${text}`
-    el.dispatchEvent(
-      new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }),
-    )
-  }
-  return true
+  // Судим по факту, а не по коду возврата execCommand: он отдаёт false и при
+  // ЧАСТИЧНОМ успехе, и тогда запасной путь дописывал ВЕСЬ текст поверх уже
+  // вставленного — справка задваивалась прямо в поле ввода.
+  if ((el.textContent ?? "") !== before) return true
+
+  // Запасной путь на случай, если execCommand когда-нибудь уберут: правим поле
+  // сами и сами сообщаем фреймворку об изменении.
+  el.textContent = `${before}${text}`
+  el.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }))
+  // Честный ответ панели: не вышло — она положит текст в буфер обмена.
+  return (el.textContent ?? "") !== before
 }
 
 /** @type {string|null} */
@@ -331,7 +399,7 @@ function reportChat() {
   /** @type {ChatContext|null} */
   const chat = chatId ? { channel: "telegram", chatId, title, phone: null } : null
 
-  chrome.runtime.sendMessage({ type: MSG_CHAT_CHANGED, chat }).catch(() => {})
+  sendToWorker({ type: MSG_CHAT_CHANGED, chat })
 }
 
 /**
@@ -348,7 +416,7 @@ function reportActivity() {
   const key = readLatestMessageKey()
   if (!key || key === lastMessageKey) return
   lastMessageKey = key
-  chrome.runtime.sendMessage({ type: MSG_CHAT_ACTIVITY, chat }).catch(() => {})
+  sendToWorker({ type: MSG_CHAT_ACTIVITY, chat })
 }
 
 // Смена чата — это смена хэша (клиент SPA, полноценной навигации нет).
@@ -362,7 +430,8 @@ window.addEventListener("hashchange", () => reportChat())
 // каждый кадр анимации.
 /** @type {ReturnType<typeof setTimeout>|undefined} */
 let reportTimer
-const domObserver = new MutationObserver(() => {
+domObserver = new MutationObserver(() => {
+  if (contextLost) return
   clearTimeout(reportTimer)
   reportTimer = setTimeout(() => {
     reportChat()

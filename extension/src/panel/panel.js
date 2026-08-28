@@ -90,7 +90,67 @@ const state = {
   tab: null,
   /** Идёт ручное обновление — второй клик по ⟳ игнорируем. */
   refreshing: false,
+  /** Включена ли запись переписки: под тем же согласием живёт ИИ-черновик. */
+  logMessages: false,
+  /**
+   * Чат, из которого отрезолвился показанный клиент. Не то же самое, что
+   * открытый сейчас: между ними и живут все гонки.
+   * @type {string|null}
+   */
+  clientChatId: null,
 }
+
+/**
+ * Окно, которому принадлежит эта панель.
+ *
+ * Боковая панель своя в каждом окне браузера, а service worker без подсказки
+ * берёт вкладку окна «в фокусе» — и панель одного окна начинала управлять
+ * вкладкой другого. Узнаём своё окно один раз при старте и прикладываем ко
+ * всем сообщениям.
+ * @type {number|null}
+ */
+let panelWindowId = null
+
+/** Ключ чата для сравнения «тот же диалог или уже другой». */
+function chatKey(chat) {
+  return chat ? `${chat.channel}:${chat.chatId}` : null
+}
+
+/**
+ * Номер текущей отрисовки.
+ *
+ * renderForChat ходит на сервер дважды (resolve → client-card), а поводов
+ * перерисоваться много: смена чата, переключение вкладки, сигнал активности.
+ * Без номера ответы приходят вперемешку, и последним на экран мог лечь клиент
+ * ПРЕДЫДУЩЕГО чата — а следом за ним уходила заливка переписки уже открытого,
+ * то есть чужие сообщения оседали в чужой карточке навсегда.
+ */
+let renderSeq = 0
+
+/**
+ * Ключ того, ЧТО должно быть на экране: либо открытый чат, либо причина, по
+ * которой его нет. Причин три, у каждой своя подсказка и своё действие
+ * человека — без них панель оставила бы совет от прошлой ситуации.
+ * @param {ChatContext|null} chat
+ * @param {{onMessenger: boolean, contentAlive: boolean}|null} tab
+ */
+function screenKey(chat, tab) {
+  if (chat) return chatKey(chat)
+  if (!tab?.onMessenger) return "нет-чата:не-мессенджер"
+  if (!tab.contentAlive) return "нет-чата:скрипт-не-подключён"
+  return "нет-чата:диалог-не-выбран"
+}
+
+/**
+ * Что сейчас НАРИСОВАНО на экране (см. screenKey).
+ *
+ * Это не то же самое, что `state.chat`: состояние обновляется на каждом
+ * `loadState`, в том числе пока открыты настройки и экран вообще не трогается.
+ * Сравнивать «то же ли самое» надо именно с нарисованным, иначе панель считает
+ * экран актуальным там, где он устарел. `undefined` — ещё ни разу не рисовали.
+ * @type {string|null|undefined}
+ */
+let renderedScreenKey = undefined
 
 /**
  * Запрос к service worker. Он отвечает конвертом {ok, result|error}, чтобы
@@ -99,7 +159,9 @@ const state = {
  * @returns {Promise<any>}
  */
 async function send(message) {
-  const response = await chrome.runtime.sendMessage(message)
+  const response = await chrome.runtime.sendMessage(
+    panelWindowId == null ? message : { ...message, windowId: panelWindowId },
+  )
   if (!response?.ok) throw new Error(response?.error || "Нет связи с расширением")
   return response.result
 }
@@ -117,9 +179,17 @@ function escapeHtml(value) {
   )
 }
 
+/**
+ * Символ валюты организации. Приходит с карточкой (суммы по курсу никто не
+ * пересчитывает, меняется только символ); до первой карточки — рубль.
+ */
+let currencySign = "₽"
+
 /** @param {number} value */
 function money(value) {
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(value) + " ₽"
+  return (
+    new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(value) + " " + currencySign
+  )
 }
 
 /** «2026-08-29» → «29.08» */
@@ -148,11 +218,15 @@ function showStatus(text) {
 
 // ─── Настройки ───
 
-async function loadState() {
+/**
+ * @param {{force?: boolean}} [options] force — полное перечитывание (кнопка ⟳).
+ */
+async function loadState(options = {}) {
   const data = await send({ type: MSG_GET_STATE })
   state.chat = data.chat
   state.tab = data.tab ?? null
   state.baseUrl = data.settings.baseUrl
+  state.logMessages = Boolean(data.settings.logMessages)
   el.baseUrl.value = data.settings.baseUrl
   el.logMessages.checked = data.settings.logMessages
   // Токен не показываем: в хранилище он есть, но панель его не получает.
@@ -167,12 +241,45 @@ async function loadState() {
   }
   el.setup.hidden = true
   el.main.hidden = false
+
+  // Панель перечитывает состояние на КАЖДОЕ переключение вкладки браузера
+  // (tabs.onActivated) и на каждый сигнал от service worker, а renderForChat
+  // ходит на сервер и пересобирает экран. Пока на экране уже нарисован ровно
+  // этот чат — не трогаем его.
+  const unchanged =
+    renderedScreenKey !== undefined && screenKey(state.chat, state.tab) === renderedScreenKey
+  if (!options.force && unchanged) return
+
   await renderForChat()
+}
+
+/**
+ * loadState, который никогда не оставляет панель белой.
+ *
+ * Оба экрана в разметке скрыты, и любая ошибка по пути (service worker ещё не
+ * поднялся, связь оборвалась) раньше давала пустой прямоугольник без единой
+ * подсказки — даже #status невидим, он внутри скрытого #main.
+ * @param {{force?: boolean}} [options]
+ */
+async function safeLoadState(options) {
+  try {
+    await loadState(options)
+  } catch (error) {
+    el.setup.hidden = true
+    el.main.hidden = false
+    el.card.hidden = true
+    el.unmatched.hidden = true
+    el.noChat.hidden = true
+    showStatus(
+      (error instanceof Error ? error.message : "Не удалось получить состояние") +
+        " — нажмите ⟳ в шапке",
+    )
+  }
 }
 
 el.settingsToggle.addEventListener("click", () => {
   state.showSetup = !state.showSetup
-  void loadState()
+  void safeLoadState()
 })
 
 // Уход с настроек без сохранения: набранное в полях просто забываем — в
@@ -181,7 +288,7 @@ el.setupBack.addEventListener("click", () => {
   el.token.value = ""
   el.setupError.hidden = true
   state.showSetup = false
-  void loadState()
+  void safeLoadState()
 })
 
 el.saveSettings.addEventListener("click", async () => {
@@ -198,7 +305,11 @@ el.saveSettings.addEventListener("click", async () => {
     })
     el.token.value = ""
     state.showSetup = false
-    await loadState()
+    // force: сменились адрес CRM или токен — карточка, ссылка на клиента и
+    // сам clientId добыты прежними настройками и больше не годятся. Без этого
+    // панель оставалась на карточке со старого сервера, а задача из неё уходила
+    // на новый сервер со старым id (базы dev и прод — клоны с теми же UUID).
+    await loadState({ force: true })
   } catch (error) {
     el.setupError.textContent = error instanceof Error ? error.message : "Не удалось сохранить"
     el.setupError.hidden = false
@@ -210,18 +321,33 @@ el.saveSettings.addEventListener("click", async () => {
 // ─── Основной экран ───
 
 async function renderForChat() {
+  // Снимок чата: дальше два похода на сервер, и `state.chat` за это время
+  // меняется. Всё, что рисуем и чем потом пользуемся, должно относиться к
+  // ОДНОМУ диалогу — тому, с которого начали.
+  const chat = state.chat
+  const seq = ++renderSeq
+  renderedScreenKey = screenKey(chat, state.tab)
+
   el.card.hidden = true
   el.unmatched.hidden = true
   el.noChat.hidden = true
   el.reloadTab.hidden = true
   el.quick.hidden = true
-  closeAction()
+  // Недописанную задачу или комментарий сохраняем: перерисовок много (смена
+  // вкладки, уход с мессенджера, фоновые сигналы), и терять набранное нельзя.
+  actionDraft = captureActionDraft()
+  closeAction({ keepDraft: true })
   state.clientId = null
+  state.clientChatId = null
+  // Поиск: гасим отложенный запрос и обесцениваем висящие ответы, иначе выдача
+  // по прошлому чату дорисовывалась в новый и привязывала не тот диалог.
+  clearTimeout(searchTimer)
+  searchSeq++
   // Справку перечитываем заново: сменился чат — сменился и клиент, а по ⟳
   // человек как раз и ждёт свежие данные.
   quickInfoFor = null
 
-  if (!state.chat) {
+  if (!chat) {
     showNoChatReason()
     return
   }
@@ -231,17 +357,20 @@ async function renderForChat() {
   let resolved
   try {
     resolved = await api("resolve", {
-      channel: state.chat.channel,
-      chatId: state.chat.chatId,
-      phone: state.chat.phone,
+      channel: chat.channel,
+      chatId: chat.chatId,
+      phone: chat.phone,
     })
   } catch (error) {
+    if (seq !== renderSeq) return
     showStatus(error instanceof Error ? error.message : "Ошибка запроса")
     return
   }
+  // Пока искали клиента, человек открыл другой чат — эта отрисовка устарела.
+  if (seq !== renderSeq) return
 
   if (resolved.clientId) {
-    await showClient(resolved.clientId)
+    await showClient(resolved.clientId, { seq, chatId: chat.chatId })
     return
   }
 
@@ -251,10 +380,13 @@ async function renderForChat() {
   el.searchResults.innerHTML = ""
   el.searchInput.value = ""
 
-  const who = state.chat.title ? `«${state.chat.title}»` : `@${state.chat.chatId}`
-  if (resolved.candidates.length > 0) {
+  const who = chat.title ? `«${chat.title}»` : `@${chat.chatId}`
+  // Ответ сервера читаем оборонительно: подсказок может не быть вовсе, а
+  // исключение здесь оставило бы панель без единого объяснения.
+  const candidates = resolved?.candidates ?? []
+  if (candidates.length > 0) {
     el.unmatchedTitle.textContent = `Кого из клиентов означает чат ${who}?`
-    renderCandidates(el.candidates, resolved.candidates)
+    renderCandidates(el.candidates, candidates)
   } else {
     el.unmatchedTitle.textContent = `Чат ${who} пока не связан с клиентом. Найдите его — связь запомнится.`
   }
@@ -297,7 +429,7 @@ el.reloadTab.addEventListener("click", async () => {
     // получит state-changed. Даём немного времени и перечитываем состояние.
     setTimeout(() => {
       el.reloadTab.disabled = false
-      void loadState()
+      void safeLoadState()
     }, 1500)
   } catch {
     el.reloadTab.disabled = false
@@ -329,19 +461,25 @@ function renderCandidates(container, items) {
 
 /** Привязать текущий чат к клиенту и показать карточку. */
 async function bindTo(clientId) {
-  if (!state.chat) return
+  // Снимок: пока идёт запрос, человек может открыть другой диалог, и карточка
+  // привязалась бы к одному чату, а показалась в другом.
+  const chat = state.chat
+  if (!chat) return
+  const seq = renderSeq
   showStatus("Связываем…")
   try {
     await api("bind", {
-      channel: state.chat.channel,
-      chatId: state.chat.chatId,
+      channel: chat.channel,
+      chatId: chat.chatId,
       clientId,
-      displayName: state.chat.title,
+      displayName: chat.title,
       saveHandle: true,
     })
+    if (seq !== renderSeq) return
     el.unmatched.hidden = true
-    await showClient(clientId)
+    await showClient(clientId, { seq, chatId: chat.chatId })
   } catch (error) {
+    if (seq !== renderSeq) return
     showStatus(error instanceof Error ? error.message : "Не удалось связать")
   }
 }
@@ -359,18 +497,27 @@ el.unbind.addEventListener("click", async () => {
 
 /** Поиск клиента для ручной привязки. */
 let searchTimer
+/** Номер последнего отправленного запроса поиска. */
+let searchSeq = 0
 el.searchInput.addEventListener("input", () => {
   clearTimeout(searchTimer)
   const query = el.searchInput.value.trim()
   if (query.length < 2) {
+    searchSeq++
     el.searchResults.innerHTML = ""
     return
   }
   searchTimer = setTimeout(async () => {
+    // Ответы приходят не в том порядке, в каком уходили запросы: без счётчика
+    // выдача по короткому запросу перекрывала выдачу по уточнённому, и человек
+    // видел «не тех» клиентов, дописав второе слово.
+    const seq = ++searchSeq
     try {
       const data = await api("search", { q: query })
+      if (seq !== searchSeq) return
       renderCandidates(el.searchResults, data.clients ?? [])
     } catch (error) {
+      if (seq !== searchSeq) return
       el.searchResults.innerHTML = `<p class="error">${escapeHtml(
         error instanceof Error ? error.message : "Ошибка поиска",
       )}</p>`
@@ -380,32 +527,41 @@ el.searchInput.addEventListener("input", () => {
 
 /**
  * @param {string} clientId
- * @param {{silent?: boolean}} [options] silent — фоновое обновление: не мигаем
- *   статусом «Загружаем карточку…» и молча переживаем ошибку сети.
+ * @param {{silent?: boolean, seq?: number, chatId?: string|null}} [options]
+ *   silent — фоновое обновление: не мигаем статусом «Загружаем карточку…» и
+ *   молча переживаем ошибку сети. seq — номер отрисовки, из которой пришли.
+ *   chatId — чат, из которого этот клиент отрезолвился.
  */
 async function showClient(clientId, options = {}) {
   const silent = options.silent === true
+  const seq = options.seq ?? renderSeq
   if (!silent) showStatus("Загружаем карточку…")
   let card
   try {
     card = await api("client-card", { clientId })
   } catch (error) {
+    if (seq !== renderSeq) return
     if (!silent) showStatus(error instanceof Error ? error.message : "Не удалось загрузить карточку")
     return
   }
 
   // Пока ходили за карточкой, человек мог переключить чат — чужую не рисуем.
+  if (seq !== renderSeq) return
   if (silent && state.clientId !== clientId) return
 
   state.clientId = clientId
+  if (options.chatId !== undefined) state.clientChatId = options.chatId
   if (!silent) showStatus("")
   el.unmatched.hidden = true
   el.card.hidden = false
   renderCard(card)
+  if (!silent) restoreActionDraft(clientId)
 
   // Переписку заливаем в фоне: она не должна задерживать показ карточки, а
-  // сервер всё равно пропустит уже известные сообщения.
-  void syncMessagesAndRefresh(clientId)
+  // сервер всё равно пропустит уже известные сообщения. При фоновом
+  // обновлении (раз в минуту) не заливаем: новые сообщения и так приносит
+  // сигнал активности, а так каждый открытый чат гнал на сервер батч в минуту.
+  if (!silent) void syncMessagesAndRefresh(clientId)
   // Справка — отдельным запросом и только при смене клиента (см. quickInfoFor).
   void loadQuickInfo(clientId)
 }
@@ -421,9 +577,13 @@ async function showClient(clientId, options = {}) {
  * @param {string} clientId
  */
 async function syncMessagesAndRefresh(clientId) {
+  // Чат берём ТОТ, ИЗ КОТОРОГО ОТРЕЗОЛВИЛСЯ ЭТОТ КЛИЕНТ, а не открытый сейчас.
+  // Иначе при быстром переключении диалогов сообщения нового чата уезжали в
+  // карточку прежнего клиента — навсегда: ключ дедупа не даёт их переписать.
+  const chatId = state.clientChatId
   let result
   try {
-    result = await send({ type: MSG_SYNC_MESSAGES, clientId })
+    result = await send({ type: MSG_SYNC_MESSAGES, clientId, chatId })
   } catch {
     // Запись переписки — необязательная часть: карточка уже на экране.
     return
@@ -497,7 +657,10 @@ function renderChips(container, items, className) {
     const button = /** @type {HTMLButtonElement} */ (node)
     const item = items[Number(button.dataset.index)]
     if (!item) continue
-    button.addEventListener("click", () => void insertIntoChat(item.text, button))
+    button.addEventListener(
+      "click",
+      () => void insertIntoChat(item.text, button, state.clientChatId),
+    )
   }
 }
 
@@ -505,25 +668,40 @@ function renderChips(container, items, className) {
  * Вставить текст в поле ввода мессенджера. Именно вставить: отправляет человек.
  * @param {string} text
  * @param {HTMLButtonElement} button
+ * @param {string|null} [expectedChatId] Чат, для которого текст готовили. Если
+ *   человек успел открыть другой диалог — не вставляем: чужой ответ в чужой
+ *   переписке хуже, чем несработавшая кнопка.
+ * @returns {Promise<boolean>} удалось ли вставить в поле ввода
  */
-async function insertIntoChat(text, button) {
+async function insertIntoChat(text, button, expectedChatId) {
   button.disabled = true
   try {
-    const result = await send({ type: MSG_INSERT_TEXT, text })
+    const result = await send({
+      type: MSG_INSERT_TEXT,
+      text,
+      chatId: expectedChatId ?? state.clientChatId,
+    })
     if (result?.inserted) {
       flashStatus("Текст вставлен в поле ввода — проверьте и отправьте")
-      return
+      return true
     }
-    // Поле ввода не нашли (чат закрыт, непривычная вёрстка) — отдаём текст
-    // через буфер обмена, чтобы человек не перенабирал его руками.
+    // Поле ввода не нашли (чат закрыт, непривычная вёрстка) либо диалог уже
+    // сменился — отдаём текст через буфер обмена, чтобы он не пропал.
+    const chatChanged = result?.reason === "chat-changed"
     try {
       await navigator.clipboard.writeText(text)
-      flashStatus("Поле ввода не найдено — текст скопирован, вставьте вручную")
+      flashStatus(
+        chatChanged
+          ? "Чат сменился — текст скопирован, вставьте в нужный диалог"
+          : "Поле ввода не найдено — текст скопирован, вставьте вручную",
+      )
     } catch {
       flashStatus("Не удалось вставить текст")
     }
+    return false
   } catch {
     flashStatus("Не удалось вставить текст")
+    return false
   } finally {
     button.disabled = false
   }
@@ -537,17 +715,31 @@ async function insertIntoChat(text, button) {
  * Результат попадает в поле ввода — отправляет его человек, прочитав.
  */
 el.aiDraft.addEventListener("click", async () => {
+  // Черновик показывает модели последние сообщения чата — это тот же поток
+  // персональных данных, что и запись переписки, и он живёт под тем же
+  // согласием. Ничего не отправляем и объясняем причину прямо здесь.
+  if (!state.logMessages) {
+    flashStatus("Черновик читает переписку — включите её запись в настройках панели")
+    return
+  }
+  // Чат берём тот, из которого взят показанный клиент: модель отвечает
+  // несколько секунд, за это время человек успевает открыть другой диалог, и
+  // ответ про одного родителя не должен попасть в переписку с другим.
+  const chatId = state.clientChatId
   el.aiDraft.disabled = true
   const label = el.aiDraft.textContent
   el.aiDraft.textContent = "✨ Готовим…"
   try {
-    const result = await send({ type: MSG_AI_DRAFT, clientId: state.clientId })
+    const result = await send({ type: MSG_AI_DRAFT, clientId: state.clientId, chatId })
     if (!result?.text) {
       flashStatus("ИИ не вернул черновик — попробуйте ещё раз")
       return
     }
-    await insertIntoChat(result.text, el.aiDraft)
-    flashStatus("Черновик вставлен — прочитайте и поправьте перед отправкой")
+    // Только по факту вставки: иначе бодрое «Черновик вставлен» затирало
+    // сообщение о том, что текст ушёл в буфер обмена.
+    if (await insertIntoChat(result.text, el.aiDraft, chatId)) {
+      flashStatus("Черновик вставлен — прочитайте и поправьте перед отправкой")
+    }
   } catch (error) {
     // Здесь ошибки осмысленные (нет доступа к ИИ, дневной лимит, релей лежит) —
     // показываем текст сервера как есть.
@@ -562,6 +754,43 @@ el.aiDraft.addEventListener("click", async () => {
 
 /** Что сейчас заполняют: "task" | "note" | null. @type {"task"|"note"|null} */
 let actionKind = null
+
+/**
+ * Недописанная задача или комментарий, пережидающие перерисовку экрана.
+ *
+ * Панель пересобирается по многим поводам, которые человек не инициировал:
+ * переключился на соседнюю вкладку браузера, ушёл с мессенджера, прилетел
+ * сигнал от service worker. Каждый такой повод раньше стирал набранный текст.
+ * Черновик привязан к клиенту, чтобы не переехать в чужую карточку.
+ * @type {{clientId: string, kind: "task"|"note", text: string, due: string}|null}
+ */
+let actionDraft = null
+
+/** Снять черновик перед перерисовкой. Пустой текст черновиком не считаем. */
+function captureActionDraft() {
+  if (!actionKind || !state.clientId) return null
+  const text = el.actionText.value
+  if (!text.trim()) return null
+  return { clientId: state.clientId, kind: actionKind, text, due: el.actionDue.value }
+}
+
+/**
+ * Вернуть черновик, если карточка снова того же клиента.
+ * @param {string} clientId
+ */
+function restoreActionDraft(clientId) {
+  const draft = actionDraft
+  if (!draft || draft.clientId !== clientId) return
+  actionDraft = null
+  // Без фокуса: перерисовка чаще всего фоновая, и уводить каретку в панель,
+  // пока человек печатает в мессенджере, нельзя.
+  openAction(draft.kind, { focus: false })
+  el.actionText.value = draft.text
+  if (draft.due) {
+    el.actionDue.value = draft.due
+    syncDueChips()
+  }
+}
 
 /**
  * Дата для поля type="date" — местная, а не UTC: иначе вечером срок задачи
@@ -698,8 +927,11 @@ el.actionDuePick.addEventListener("click", () => toggleCalendar())
 el.calPrev.addEventListener("click", () => shiftMonth(-1))
 el.calNext.addEventListener("click", () => shiftMonth(1))
 
-/** @param {"task"|"note"} kind */
-function openAction(kind) {
+/**
+ * @param {"task"|"note"} kind
+ * @param {{focus?: boolean}} [options] focus — ставить ли каретку в поле.
+ */
+function openAction(kind, options = {}) {
   // Повторное нажатие по той же кнопке закрывает форму — так понятнее, чем
   // искать «Отмену» глазами.
   if (actionKind === kind) {
@@ -716,14 +948,19 @@ function openAction(kind) {
   syncDueChips()
   el.actionText.value = ""
   syncActionChips()
-  el.actionText.focus()
+  if (options.focus !== false) el.actionText.focus()
 }
 
-function closeAction() {
+/**
+ * @param {{keepDraft?: boolean}} [options] keepDraft — форму закрывает не
+ *   человек, а перерисовка: набранное сохраняем и вернём (см. actionDraft).
+ */
+function closeAction(options = {}) {
   actionKind = null
   el.actionForm.hidden = true
   el.dueCalendar.hidden = true
   el.actionText.value = ""
+  if (!options.keepDraft) actionDraft = null
   syncActionChips()
 }
 
@@ -785,7 +1022,8 @@ async function refreshAll() {
   el.refresh.disabled = true
   el.refresh.classList.add("spinning")
   try {
-    await loadState()
+    // force: по ⟳ человек ждёт именно полного перечитывания, даже если чат тот же.
+    await loadState({ force: true })
   } catch (error) {
     showStatus(error instanceof Error ? error.message : "Не удалось обновить")
   } finally {
@@ -826,6 +1064,7 @@ setInterval(() => {
 }, AUTO_REFRESH_MS)
 
 function renderCard(card) {
+  currencySign = card.currencySymbol || "₽"
   el.clientName.textContent = card.client.name
   el.clientName.href = state.baseUrl + card.client.cardPath
   el.clientMeta.textContent = [card.client.stateLabel, card.client.branchName, card.client.phone]
@@ -839,7 +1078,7 @@ function renderCard(card) {
       ? `Долг по балансу: ${money(-balance)}`
       : balance > 0
         ? `Баланс: ${money(balance)}`
-        : "Баланс: 0 ₽"
+        : `Баланс: ${money(0)}`
 
   el.wards.innerHTML = card.wards.length
     ? card.wards
@@ -950,8 +1189,29 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   // страницы расширения. Панель слушает только его: он один знает, какая
   // вкладка активна, и отсеивает чужие.
   if (sender?.tab) return
-  if (message?.type === MSG_STATE_CHANGED) void loadState()
-  if (message?.type === MSG_CHAT_ACTIVITY) scheduleActivityRefresh()
+  if (message?.type === MSG_STATE_CHANGED) void safeLoadState()
+  if (message?.type === MSG_CHAT_ACTIVITY) {
+    // Сигнал широковещательный: панель соседнего окна тоже его получает.
+    // Без сверки окна она заливала бы переписку своего чата на чужой сигнал.
+    if (
+      message.windowId != null &&
+      panelWindowId != null &&
+      message.windowId !== panelWindowId
+    ) {
+      return
+    }
+    scheduleActivityRefresh()
+  }
 })
 
-void loadState()
+// Своё окно узнаём ДО первого запроса: иначе service worker возьмёт вкладку
+// того окна, что сейчас в фокусе, и панель начнёт работать с чужим чатом.
+void (async () => {
+  try {
+    const win = await chrome.windows.getCurrent()
+    panelWindowId = win?.id ?? null
+  } catch {
+    // Не узнали окно — остаёмся на старом правиле «последнее активное».
+  }
+  await safeLoadState()
+})()
