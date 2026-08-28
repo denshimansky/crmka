@@ -5,7 +5,7 @@ import { getRoleNames, getOrgUiSettings } from "@/lib/role-names"
 import { currencySymbol } from "@/lib/currency"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { hasPermission, type RolePermissions } from "@/lib/permissions"
-import { scopeBookableAccount, scopeSubscription } from "@/lib/branch-scope"
+import { scopeBookableAccount, scopeSubscription, isUnscoped } from "@/lib/branch-scope"
 import { notFound } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -143,6 +143,7 @@ export async function ClientCardContent({
       group: {
         select: {
           name: true,
+          branchId: true,
           branch: { select: { name: true } },
           instructor: { select: { firstName: true, lastName: true } },
         },
@@ -187,7 +188,7 @@ export async function ClientCardContent({
     include: {
       ward: { select: { firstName: true, lastName: true } },
       direction: { select: { name: true } },
-      group: { select: { name: true, branch: { select: { name: true } } } },
+      group: { select: { name: true, branchId: true, branch: { select: { name: true } } } },
     },
     orderBy: [{ startDate: "desc" }],
   })
@@ -200,7 +201,7 @@ export async function ClientCardContent({
       wardId: string | null
       ward: { firstName: string; lastName: string | null } | null
       direction: { name: string }
-      group: { name: string; branch: { name: string } | null }
+      group: { name: string; branchId: string; branch: { name: string } | null }
       lessonPrice: unknown
       periodYear: number | null
       periodMonth: number | null
@@ -213,7 +214,15 @@ export async function ClientCardContent({
     const k = `${s.wardId ?? ""}|${s.directionId}|${s.groupId}`
     if (!renewSourceByKey.has(k)) renewSourceByKey.set(k, s)
   }
-  const renewSources = [...renewSourceByKey.values()]
+  // ADM-04: не предлагаем продлить абонемент чужого филиала — роут
+  // /api/subscriptions/[id]/renew такой запрос всё равно отклонит (403).
+  const allRenewSources = [...renewSourceByKey.values()]
+  const renewSources = allRenewSources.filter(
+    (s) => isUnscoped(scope) || scope.branchIds.includes(s.group.branchId),
+  )
+  // Сколько отсеяли по филиалу — чтобы подсказка у выключённой кнопки
+  // «Продление абонемента» объясняла причину, а не отрицала наличие абонементов.
+  const renewOutOfScopeCount = allRenewSources.length - renewSources.length
 
   // Счета компании для диалога «Оплата» — «на что можно провести оплату»:
   // общий счёт остаётся выбираемым (админ может записать безнал клиента),
@@ -510,6 +519,7 @@ export async function ClientCardContent({
                 прошлый/текущий месяц абонемента на следующий период.
                 Для нового направления/группы — кнопка «+ Заявка». */}
             <QuickRenewSubscriptionDialog
+              outOfScopeCount={renewOutOfScopeCount}
               subscriptions={renewSources
                 .map((s) => ({
                   id: s.id,

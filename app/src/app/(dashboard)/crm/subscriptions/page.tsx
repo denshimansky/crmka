@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { currencySymbol } from "@/lib/currency"
 import { getOrgUiSettings } from "@/lib/role-names"
+import { hasPermission, type RolePermissions } from "@/lib/permissions"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { suggestDefaultRenewRange } from "@/lib/subscriptions/bulk-renew"
 import { paidBySubscriptions } from "@/lib/subscriptions/net-paid"
@@ -88,7 +89,9 @@ export default async function SubscriptionsPage({
 }) {
   const session = await getSession()
   const tenantId = session.user.tenantId
-  const currency = (await getOrgUiSettings(tenantId))?.currency ?? "RUB"
+  const orgUi = await getOrgUiSettings(tenantId)
+  const currency = orgUi?.currency ?? "RUB"
+  const orgPerms = (orgUi?.rolePermissions as RolePermissions | null) ?? null
   const scope = await getBranchScope()
   const sp = await searchParams
   const tab: SubsTabKey = (TAB_ORDER as string[]).includes(sp.tab ?? "")
@@ -200,13 +203,18 @@ export default async function SubscriptionsPage({
   }
   const tabs = TAB_ORDER.map((t) => ({ value: t, label: TAB_LABELS[t], count: counts[t] }))
 
-  const canRenew = session.user.role === "owner" || session.user.role === "manager"
+  // Массовая выписка = создание абонементов, гейт по праву «Создание и
+  // редактирование абонементов» (у админа включено по умолчанию). Прежний
+  // хардкод owner/manager прятал кнопку у администраторов.
+  const canRenew = hasPermission(session.user.role, "subscriptions.edit", orgPerms)
+  // ADM-04: подсказанный месяц считаем по тем же филиалам, что уйдут в прогон.
+  const allowedBranchIds = isUnscoped(scope) ? null : scope.branchIds
   // (а) Умный дефолт периода массовой выписки. Считаем только когда кнопка
   // реально показывается (вкладка «Ожидающие оплаты» + права), чтобы не тратить
   // запросы на остальных вкладках.
   const renewDefault =
     canRenew && tab === "pending"
-      ? await suggestDefaultRenewRange(tenantId, { branchId, directionId })
+      ? await suggestDefaultRenewRange(tenantId, { branchId, directionId, allowedBranchIds })
       : null
 
   return (

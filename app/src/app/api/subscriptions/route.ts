@@ -23,6 +23,7 @@ import {
 } from "@/lib/subscriptions/lesson-price-guard"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import { branchScopeFromSession, scopeSubscription } from "@/lib/branch-scope"
+import { requirePermission } from "@/lib/api-permissions"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
@@ -159,8 +160,14 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  // Гейт как у остальных путей создания абонемента (воронка, массовая выписка,
+  // продление): право «Создание и редактирование абонементов». Раньше роут
+  // требовал только залогиненности.
+  const guard = await requirePermission("subscriptions.edit")
+  if (!guard.ok) return guard.response
+  const session = guard.session! as {
+    user: { role: string; tenantId: string; employeeId: string | null; allowedBranchIds: string[] | null }
+  }
 
   // Tenant rate limiting (L-1 audit fix)
   const rl = rateLimitTenant(session.user.tenantId)
@@ -184,6 +191,11 @@ export async function POST(req: NextRequest) {
     where: { id: data.groupId, tenantId: session.user.tenantId, deletedAt: null },
   })
   if (!group) return NextResponse.json({ error: "Группа не найдена" }, { status: 404 })
+  // ADM-04: абонемент создаётся только в филиале, доступном роли.
+  const postAllowedBranchIds = session.user.allowedBranchIds ?? null
+  if (postAllowedBranchIds && !postAllowedBranchIds.includes(group.branchId)) {
+    return NextResponse.json({ error: "Нет доступа к этому филиалу" }, { status: 403 })
+  }
 
   // Достаём настройки организации для развилки по типу абонемента
   const org = await db.organization.findUnique({

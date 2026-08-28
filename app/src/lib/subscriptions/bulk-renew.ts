@@ -40,6 +40,14 @@ export interface BulkRenewInput {
   rangeEnd: Date
   branchId?: string | null
   directionId?: string | null
+  /**
+   * ADM-04: филиалы, доступные вызывающей роли (session.user.allowedBranchIds).
+   * null/undefined — доступ ко всем (владелец, управляющий, админ без привязок).
+   * Массив — источники продления берутся ТОЛЬКО из групп этих филиалов, поэтому
+   * ограниченный админ не может выписать абонементы чужого филиала ни массово,
+   * ни точечно. Пустой массив = ни одного филиала → выписка ничего не найдёт.
+   */
+  allowedBranchIds?: string[] | null
   /** Если задано — продлеваем только этот конкретный source-абонемент (точечное продление из карточки клиента). */
   subscriptionId?: string | null
   createdBy?: string | null
@@ -108,6 +116,28 @@ interface SourceRow {
   startDate: Date
 }
 
+/**
+ * WHERE-фрагмент по филиалу группы: пересечение выбранного в интерфейсе фильтра
+ * «Филиал» и scope роли (allowedBranchIds). Возвращает null, когда ограничивать
+ * нечем (владелец/управляющий без фильтра) — тогда `where.group` не трогаем.
+ *
+ * Если явный branchId не входит в scope, отдаём заведомо пустой `{ in: [] }`:
+ * подделанный параметр не должен молча расширять выборку до всего тенанта.
+ * Роуты дополнительно возвращают на такой запрос 403 — это второй рубеж.
+ */
+export function groupBranchWhere(opts: {
+  branchId?: string | null
+  allowedBranchIds?: string[] | null
+}): Prisma.GroupWhereInput | null {
+  const allowed = opts.allowedBranchIds ?? null
+  if (opts.branchId) {
+    if (allowed && !allowed.includes(opts.branchId)) return { branchId: { in: [] } }
+    return { branchId: opts.branchId }
+  }
+  if (allowed) return { branchId: { in: allowed } }
+  return null
+}
+
 function fullClient(c: { firstName: string | null; lastName: string | null }): string {
   return [c.lastName, c.firstName].filter(Boolean).join(" ") || "Без имени"
 }
@@ -162,7 +192,13 @@ function monthRangeStrings(year: number, month1: number): { rangeStart: string; 
  */
 export async function suggestDefaultRenewRange(
   tenantId: string,
-  filters?: { branchId?: string | null; directionId?: string | null },
+  filters?: {
+    branchId?: string | null
+    directionId?: string | null
+    // ADM-04: тот же scope, что уйдёт в прогон выписки, — иначе админу филиала
+    // подсказывался бы месяц, посчитанный по всему тенанту.
+    allowedBranchIds?: string[] | null
+  },
 ): Promise<{ rangeStart: string; rangeEnd: string; reason: "current_backlog" | "next_period" }> {
   // «Сейчас» = серверные часы (getMonth локально). Осознанно согласовано с
   // гейтом «выписка задним числом» в роутах (currentMonthStart = new Date()):
@@ -174,6 +210,7 @@ export async function suggestDefaultRenewRange(
   const cur = { year: now.getFullYear(), month: now.getMonth() + 1 }
   const branchId = filters?.branchId ?? null
   const directionId = filters?.directionId ?? null
+  const allowedBranchIds = filters?.allowedBranchIds ?? null
 
   // Источники для выписки в ТЕКУЩИЙ месяц — через сам loadSources (одна и та же
   // eligibility, без дрейфа: active + closed/pending-непустые за прошлый месяц).
@@ -182,7 +219,14 @@ export async function suggestDefaultRenewRange(
   // считался тенант-широко и расходился с отфильтрованным прогоном).
   const curStart = new Date(cur.year, cur.month - 1, 1)
   const curEnd = new Date(cur.year, cur.month, 0)
-  const sources = await loadSources({ tenantId, rangeStart: curStart, rangeEnd: curEnd, branchId, directionId })
+  const sources = await loadSources({
+    tenantId,
+    rangeStart: curStart,
+    rangeEnd: curEnd,
+    branchId,
+    directionId,
+    allowedBranchIds,
+  })
   if (sources.length === 0) {
     const t = nextMonthOf(cur.year, cur.month)
     return { ...monthRangeStrings(t.year, t.month), reason: "next_period" }
@@ -197,7 +241,10 @@ export async function suggestDefaultRenewRange(
       periodYear: cur.year,
       periodMonth: cur.month,
       ...(directionId ? { directionId } : {}),
-      ...(branchId ? { group: { branchId } } : {}),
+      ...(() => {
+        const g = groupBranchWhere({ branchId, allowedBranchIds })
+        return g ? { group: g } : {}
+      })(),
     },
     select: { clientId: true, wardId: true, directionId: true, groupId: true },
   })
@@ -242,7 +289,8 @@ async function loadSources(opts: BulkRenewInput): Promise<SourceRow[]> {
     ],
   }
   if (opts.directionId) where.directionId = opts.directionId
-  if (opts.branchId) where.group = { branchId: opts.branchId }
+  const branchWhere = groupBranchWhere(opts)
+  if (branchWhere) where.group = branchWhere
   if (opts.subscriptionId) where.id = opts.subscriptionId
 
   const rows = await db.subscription.findMany({
@@ -414,7 +462,8 @@ async function loadOffPeriodClosed(opts: BulkRenewInput): Promise<OffPeriodBucke
     client: { deletedAt: null, funnelStatus: { notIn: ["archived", "blacklisted"] } },
   }
   if (opts.directionId) where.directionId = opts.directionId
-  if (opts.branchId) where.group = { branchId: opts.branchId }
+  const offBranchWhere = groupBranchWhere(opts)
+  if (offBranchWhere) where.group = offBranchWhere
 
   const candidates = await db.subscription.findMany({
     where,
@@ -813,6 +862,11 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
           totalIssuedAmount: totalIssuedAmount.toNumber(),
           branchId: opts.branchId ?? null,
           directionId: opts.directionId ?? null,
+          // Фактический охват прогона: у админа филиала opts.branchId часто
+          // null (фильтр в таблице не выставлен), но выписаны были только его
+          // филиалы. Без этого поля запись выглядела бы как «выписка по всей
+          // организации» — теперь массовую выписку запускают и админы.
+          scopedBranchIds: opts.allowedBranchIds ?? null,
         },
       },
     })

@@ -115,9 +115,11 @@ export function AwaitingPaymentDialog({
     setLoadingOptions(true)
     setError(null)
     Promise.all([
-      fetch("/api/branches").then((r) => (r.ok ? r.json() : [])),
+      // scoped=1 — ADM-04: администратору филиала не предлагаем чужие филиалы
+      // и их группы, иначе выбор упрётся в 403 при переводе в ожидание оплаты.
+      fetch("/api/branches?scoped=1").then((r) => (r.ok ? r.json() : [])),
       fetch("/api/directions").then((r) => (r.ok ? r.json() : [])),
-      fetch("/api/groups").then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/groups?scoped=1").then((r) => (r.ok ? r.json() : [])),
       fetch("/api/organization").then((r) => (r.ok ? r.json() : null)),
       fetch("/api/package-templates").then((r) => (r.ok ? r.json() : [])),
     ])

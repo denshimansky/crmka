@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { z } from "zod"
 import { previewBulkRenew } from "@/lib/subscriptions/bulk-renew"
 
@@ -24,12 +23,14 @@ function parseDay(s: string): Date | null {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-  if (session.user.role !== "owner" && session.user.role !== "manager") {
-    return NextResponse.json({ error: "Только владелец или управляющий" }, { status: 403 })
+  // Зеркалит гейт основного роута: право «Создание и редактирование
+  // абонементов» вместо прежнего хардкода owner/manager.
+  const guard = await requirePermission("subscriptions.edit")
+  if (!guard.ok) return guard.response
+  const user = guard.session!.user as {
+    role: string
+    tenantId: string
+    allowedBranchIds: string[] | null
   }
 
   const json = await req.json().catch(() => null)
@@ -56,13 +57,21 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // ADM-04: предосмотр показывает ровно то, что выпишется, — только филиалы роли.
+  const allowedBranchIds = user.allowedBranchIds ?? null
+  const branchId = parsed.data.branchId ?? null
+  if (branchId && allowedBranchIds && !allowedBranchIds.includes(branchId)) {
+    return NextResponse.json({ error: "Нет доступа к этому филиалу" }, { status: 403 })
+  }
+
   try {
     const preview = await previewBulkRenew({
-      tenantId: session.user.tenantId,
+      tenantId: user.tenantId,
       rangeStart,
       rangeEnd,
-      branchId: parsed.data.branchId ?? null,
+      branchId,
       directionId: parsed.data.directionId ?? null,
+      allowedBranchIds,
     })
     return NextResponse.json(preview)
   } catch (e) {

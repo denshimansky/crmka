@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { db } from "@/lib/db"
 import { previewBulkRenew, applyBulkRenew } from "@/lib/subscriptions/bulk-renew"
 
@@ -17,11 +16,20 @@ import { previewBulkRenew, applyBulkRenew } from "@/lib/subscriptions/bulk-renew
 // ребёнок ушёл. Если источника нет, эндпойнт возвращает 404 — в этом случае
 // нужно заводить заявку для нового направления/группы.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  // Тот же гейт, что у массовой выписки: продление — это создание абонемента.
+  const guard = await requirePermission("subscriptions.edit")
+  if (!guard.ok) return guard.response
+  const user = guard.session!.user as {
+    role: string
+    tenantId: string
+    employeeId: string | null
+    allowedBranchIds: string[] | null
+  }
 
   const { id } = await params
-  const tenantId = session.user.tenantId
+  const tenantId = user.tenantId
+  // ADM-04: админ с привязкой к филиалам продлевает только «свои» абонементы.
+  const allowedBranchIds = user.allowedBranchIds ?? null
 
   const source = await db.subscription.findFirst({
     where: {
@@ -39,6 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       clientId: true,
       periodYear: true,
       periodMonth: true,
+      group: { select: { branchId: true } },
       client: { select: { funnelStatus: true } },
     },
   })
@@ -46,6 +55,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json(
       { error: "Календарный абонемент для продления не найден (отчисленные не продлеваются). Заведите заявку для нового направления/группы." },
       { status: 404 },
+    )
+  }
+  if (allowedBranchIds && !allowedBranchIds.includes(source.group.branchId)) {
+    return NextResponse.json(
+      { error: "Абонемент относится к другому филиалу — продление недоступно." },
+      { status: 403 },
     )
   }
   if (
@@ -94,7 +109,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     rangeStart,
     rangeEnd,
     subscriptionId: source.id,
-    createdBy: session.user.employeeId ?? null,
+    // Второй рубеж: даже если проверка выше кем-то обойдена, loadSources не
+    // возьмёт источник из чужого филиала.
+    allowedBranchIds,
+    createdBy: user.employeeId ?? null,
   }
 
   if (body.dryRun) {

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
@@ -65,9 +64,14 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  // Выписка абонемента через воронку («Заявка» → «В ожидание оплаты») — это
+  // создание абонемента, поэтому гейт тот же, что у массовой выписки и
+  // продления: право «Создание и редактирование абонементов». Раньше здесь
+  // была только проверка залогиненности — абонемент мог создать кто угодно.
+  const guard = await requirePermission("subscriptions.edit")
+  if (!guard.ok) return guard.response
+  const session = guard.session! as {
+    user: { role: string; tenantId: string; employeeId: string | null; allowedBranchIds: string[] | null }
   }
 
   const { id: wardId } = await params
@@ -180,6 +184,17 @@ export async function POST(
     return NextResponse.json(
       { error: "Группа не относится к выбранному филиалу" },
       { status: 400 },
+    )
+  }
+  // ADM-04: филиал группы должен входить в scope роли. Проверка выше сверяет
+  // лишь согласованность branchId и группы между собой — без этого гарда админ
+  // филиала А мог штатным диалогом выписать абонемент в группу филиала Б
+  // (селекторы диалога наполняются из /api/branches и /api/groups).
+  const allowedBranchIds = session.user.allowedBranchIds ?? null
+  if (allowedBranchIds && !allowedBranchIds.includes(group.branchId)) {
+    return NextResponse.json(
+      { error: "Нет доступа к этому филиалу" },
+      { status: 403 },
     )
   }
 

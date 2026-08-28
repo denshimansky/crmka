@@ -8,10 +8,10 @@ import {
 } from "@/lib/schedule/generate-group-lessons"
 import { bracketSchema, validateForScheme } from "@/lib/salary/rate-schema"
 import { findDuplicateTemplateIndexes } from "@/lib/schedule/group-conflicts"
-import { scopeGroupForInstructor } from "@/lib/branch-scope"
+import { scopeGroupForInstructor, scopeGroup, branchScopeFromSession } from "@/lib/branch-scope"
 
 // GET /api/groups — список групп организации
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getSession()
   const tenantId = session.user.tenantId
 
@@ -21,10 +21,18 @@ export async function GET() {
       ? scopeGroupForInstructor(session.user.employeeId)
       : {}
 
+  // ?scoped=1 — только группы филиалов, доступных роли (ADM-04). Как и у
+  // /api/branches, включается точечно теми диалогами, где из списка выбирают
+  // группу для операции, ограниченной филиалом.
+  const scoped = req.nextUrl.searchParams.get("scoped") === "1"
+  const branchFilter = scoped
+    ? scopeGroup(branchScopeFromSession(session.user.allowedBranchIds))
+    : {}
+
   const groups = await db.group.findMany({
     // Скрываем технические одноразовые группы — они существуют только как
     // контейнер для разового Lesson и не должны светиться в списках.
-    where: { tenantId, deletedAt: null, isOneTime: false, ...instructorFilter },
+    where: { tenantId, deletedAt: null, isOneTime: false, ...instructorFilter, ...branchFilter },
     include: {
       direction: true,
       branch: true,

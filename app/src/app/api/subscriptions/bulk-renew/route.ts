@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { requirePermission } from "@/lib/api-permissions"
 import { z } from "zod"
 import { applyBulkRenew } from "@/lib/subscriptions/bulk-renew"
 
@@ -24,12 +23,17 @@ function parseDay(s: string): Date | null {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-  if (session.user.role !== "owner" && session.user.role !== "manager") {
-    return NextResponse.json({ error: "Только владелец или управляющий" }, { status: 403 })
+  // Гейт — право «Создание и редактирование абонементов»: массовая выписка это
+  // и есть создание абонементов. Раньше здесь стоял хардкод owner/manager,
+  // из-за которого кнопка пропадала у администратора; теперь доступ
+  // настраивается матрицей прав (у админа право включено по умолчанию).
+  const guard = await requirePermission("subscriptions.edit")
+  if (!guard.ok) return guard.response
+  const user = guard.session!.user as {
+    role: string
+    tenantId: string
+    employeeId: string | null
+    allowedBranchIds: string[] | null
   }
 
   const json = await req.json().catch(() => null)
@@ -57,14 +61,24 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // ADM-04: админ с привязкой к филиалам выписывает только по своим филиалам.
+  // Явно выбранный чужой филиал — 403 (не тихий ноль), сам прогон дополнительно
+  // ограничен allowedBranchIds внутри applyBulkRenew.
+  const allowedBranchIds = user.allowedBranchIds ?? null
+  const branchId = parsed.data.branchId ?? null
+  if (branchId && allowedBranchIds && !allowedBranchIds.includes(branchId)) {
+    return NextResponse.json({ error: "Нет доступа к этому филиалу" }, { status: 403 })
+  }
+
   try {
     const result = await applyBulkRenew({
-      tenantId: session.user.tenantId,
+      tenantId: user.tenantId,
       rangeStart,
       rangeEnd,
-      branchId: parsed.data.branchId ?? null,
+      branchId,
       directionId: parsed.data.directionId ?? null,
-      createdBy: session.user.employeeId ?? null,
+      allowedBranchIds,
+      createdBy: user.employeeId ?? null,
     })
     return NextResponse.json(result)
   } catch (e) {

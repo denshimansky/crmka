@@ -110,7 +110,9 @@ export function CreateApplicationDialog({
     ;(async () => {
       try {
         const [bRes, dRes] = await Promise.all([
-          fetch("/api/branches"),
+          // scoped=1 — ADM-04: POST /api/applications всё равно отклонит
+          // чужой филиал (canAccessBranch), не предлагаем его в списке.
+          fetch("/api/branches?scoped=1"),
           fetch("/api/directions"),
         ])
         if (cancelled) return

@@ -58,8 +58,13 @@ function nextPeriodLabel(s: ActiveSubscriptionOption): string {
 
 export function QuickRenewSubscriptionDialog({
   subscriptions,
+  outOfScopeCount = 0,
 }: {
   subscriptions: ActiveSubscriptionOption[]
+  // ADM-04: сколько абонементов клиента отсеяно как «чужой филиал». Нужно, чтобы
+  // подсказка у выключённой кнопки не врала «абонементов нет», когда они видны
+  // тут же во вкладке «Абонементы», просто относятся к другому филиалу.
+  outOfScopeCount?: number
 }) {
   const router = useRouter()
   const fmtMoney = useMoneyFormat()
@@ -114,7 +119,13 @@ export function QuickRenewSubscriptionDialog({
           <Button
             variant="outline"
             disabled={disabled}
-            title={disabled ? "Нет действующих или недавно закрытых абонементов. Заведите заявку для нового направления." : undefined}
+            title={
+              disabled
+                ? outOfScopeCount > 0
+                  ? "Действующие абонементы этого клиента относятся к другим филиалам — продление вам недоступно."
+                  : "Нет действующих или недавно закрытых абонементов. Заведите заявку для нового направления."
+                : undefined
+            }
           />
         }
       >
