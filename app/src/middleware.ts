@@ -81,6 +81,11 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    "/((?!login|offer|lp|help|testing|bugs|forgot-password|reset-password|roadmap|reps|changelog|dev|admin|portal|p/|api/auth|api/admin|api/portal|api/cron|api/kb/media|_next/static|_next/image|favicon.ico|manifest|sw|icons).*)",
+    // api/ext — поверхность браузерного расширения-панели: авторизация идёт по
+    // заголовку Authorization: Bearer (PAT), а не по cookie next-auth, которую
+    // страница мессенджера не отправит. Без исключения withAuth редиректил бы
+    // такие запросы на /login. Права и режим неплательщика энфорсит
+    // requireExtAuth (lib/ext-auth.ts) — сюда они не попадают.
+    "/((?!login|offer|lp|help|testing|bugs|forgot-password|reset-password|roadmap|reps|changelog|dev|admin|portal|p/|api/auth|api/admin|api/portal|api/cron|api/ext|api/kb/media|_next/static|_next/image|favicon.ico|manifest|sw|icons).*)",
   ],
 }
