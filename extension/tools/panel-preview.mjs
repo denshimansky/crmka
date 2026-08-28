@@ -111,10 +111,28 @@ const taskLayout = await page.evaluate(() => {
   return {
     датаПодставлена: document.getElementById("action-due").value,
     строкаСрокаВидна: document.getElementById("action-due-row").offsetParent !== null,
+    подписьКалендаря: document.getElementById("action-due-pick").textContent.trim(),
     ширинаСохранить: Math.round(save.width),
     ширинаОтмена: Math.round(cancel.width),
   }
 })
+
+// Сам календарь автоматизировать нельзя (это окно браузера), поэтому
+// проверяем реакцию на выбор даты: подпись кнопки и снятую подсветку «Сегодня».
+const afterPick = await page.evaluate(() => {
+  const input = document.getElementById("action-due")
+  input.value = "2026-09-15"
+  input.dispatchEvent(new Event("change", { bubbles: true }))
+  return {
+    подписьКалендаря: document.getElementById("action-due-pick").textContent.trim(),
+    календарьВыбран: document.getElementById("action-due-pick").getAttribute("aria-pressed"),
+    сегодняВыбрано: document
+      .querySelector('[data-due-days="0"]')
+      .getAttribute("aria-pressed"),
+  }
+})
+await page.screenshot({ path: path.join(OUT_DIR, "task-custom-date.png") })
+shots.push("task-custom-date.png")
 
 await page.click("#action-note")
 await page.waitForTimeout(150)
@@ -130,5 +148,6 @@ await browser.close()
 server.close()
 
 console.log("Задача:", JSON.stringify(taskLayout))
+console.log("После выбора даты:", JSON.stringify(afterPick))
 console.log("Комментарий:", JSON.stringify(noteLayout))
 console.log(`Скриншоты (${shots.join(", ")}): ${OUT_DIR}`)

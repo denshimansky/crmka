@@ -65,6 +65,7 @@ const el = {
   actionText: /** @type {HTMLTextAreaElement} */ (document.getElementById("action-text")),
   actionDueRow: /** @type {HTMLElement} */ (document.getElementById("action-due-row")),
   actionDue: /** @type {HTMLInputElement} */ (document.getElementById("action-due")),
+  actionDuePick: /** @type {HTMLButtonElement} */ (document.getElementById("action-due-pick")),
   actionCancel: /** @type {HTMLButtonElement} */ (document.getElementById("action-cancel")),
   actionSave: /** @type {HTMLButtonElement} */ (document.getElementById("action-save")),
   wards: /** @type {HTMLElement} */ (document.getElementById("wards")),
@@ -569,13 +570,28 @@ function dateInputValue(plusDays = 0) {
   return date.toISOString().slice(0, 10)
 }
 
-/** Подсветить кнопку срока, которая совпадает с выбранной датой. */
+/** «2026-09-15» → «15.09.2026» — так дату читают, а не в ISO. */
+function humanDate(value) {
+  const [y, m, d] = value.split("-")
+  return y && m && d ? `${d}.${m}.${y}` : value
+}
+
+/**
+ * Подсветить кнопку срока, которая совпадает с выбранной датой, а на кнопке
+ * календаря показать саму дату, если выбрана своя: иначе после выбора не видно,
+ * на какой день поставлена задача.
+ */
 function syncDueChips() {
+  let matched = false
   for (const node of el.actionDueRow.querySelectorAll("[data-due-days]")) {
     const button = /** @type {HTMLButtonElement} */ (node)
-    const days = Number(button.dataset.dueDays)
-    button.setAttribute("aria-pressed", String(el.actionDue.value === dateInputValue(days)))
+    const isCurrent = el.actionDue.value === dateInputValue(Number(button.dataset.dueDays))
+    button.setAttribute("aria-pressed", String(isCurrent))
+    matched = matched || isCurrent
   }
+  el.actionDuePick.setAttribute("aria-pressed", String(!matched))
+  el.actionDuePick.textContent =
+    matched || !el.actionDue.value ? "Выбрать дату" : humanDate(el.actionDue.value)
 }
 
 // Срок ставится кнопкой: «перезвонить завтра» — самый частый случай, а
@@ -588,11 +604,16 @@ for (const node of document.querySelectorAll("[data-due-days]")) {
   })
 }
 
-// Клик по полю открывает календарь целиком, а не только по иконке: попасть в
-// неё в узкой панели трудно, а вводить дату с клавиатуры — тем более.
-el.actionDue.addEventListener("click", () => {
-  el.actionDue.showPicker?.()
-})
+// Любой другой срок — через календарь. Само поле прозрачное и лежит под
+// кнопкой (см. panel.css): нужен только выбор, ручной ввод в узкой панели
+// мучителен.
+if (typeof el.actionDue.showPicker === "function") {
+  el.actionDuePick.addEventListener("click", () => el.actionDue.showPicker())
+} else {
+  // Старый браузер без showPicker — показываем обычное поле, а не оставляем
+  // кнопку, которая ничего не делает.
+  el.actionDuePick.parentElement?.classList.add("fallback")
+}
 el.actionDue.addEventListener("change", () => syncDueChips())
 
 /** @param {"task"|"note"} kind */

@@ -115,9 +115,16 @@
               <div class="chips due-chips">
                 <button class="chip due-chip" type="button" data-due-days="0">Сегодня</button>
                 <button class="chip due-chip" type="button" data-due-days="1">Завтра</button>
-                <button class="chip due-chip" type="button" data-due-days="7">Через неделю</button>
+                <!-- Само поле даты прозрачное и лежит поверх кнопки: календарь
+                     Chrome прицепляется к элементу, поэтому он должен быть
+                     отрисован именно здесь. Кликом ловим кнопку. -->
+                <span class="due-pick">
+                  <button id="action-due-pick" class="chip due-chip" type="button">
+                    Выбрать дату
+                  </button>
+                  <input id="action-due" type="date" tabindex="-1" aria-label="Срок задачи" />
+                </span>
               </div>
-              <input id="action-due" type="date" />
             </div>
             <div class="action-buttons">
               <button id="action-cancel" class="secondary" type="button">Отмена</button>

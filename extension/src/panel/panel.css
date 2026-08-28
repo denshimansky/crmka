@@ -375,17 +375,43 @@ button.primary:disabled {
   color: var(--accent);
 }
 
-.due-row input {
+/*
+ * Поле даты спрятано под кнопкой «Выбрать дату»: набирать дату руками в узкой
+ * панели неудобно, нужен только календарь. Полностью убрать поле нельзя —
+ * Chrome прицепляет календарь к отрисованному элементу, поэтому оно лежит
+ * поверх кнопки прозрачным и не ловит клики (их получает кнопка).
+ */
+.due-pick {
+  position: relative;
+  display: inline-flex;
+}
+
+.due-pick input {
+  position: absolute;
+  inset: 0;
   width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+  border: none;
+  padding: 0;
+}
+
+/* Запасной путь, если showPicker недоступен: показываем обычное поле. */
+.due-pick.fallback input {
+  position: static;
+  opacity: 1;
+  pointer-events: auto;
   font: inherit;
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);
   color: var(--fg);
-  /* Календарь открывается кликом по всему полю (см. panel.js), поэтому и
-     курсор показываем как у кнопки. */
-  cursor: pointer;
+}
+
+.due-pick.fallback #action-due-pick {
+  display: none;
 }
 
 .action-buttons {
