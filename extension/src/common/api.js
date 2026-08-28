@@ -128,6 +128,24 @@ export function createBinding(settings, payload) {
 }
 
 /**
+ * Задача по клиенту из чата. Исполнитель — сам сотрудник (см. роут).
+ * @param {ExtSettings} settings
+ * @param {{clientId: string, title: string, dueDate?: string}} payload
+ */
+export function createTask(settings, payload) {
+  return request(settings, "/api/ext/tasks", { method: "POST", body: payload })
+}
+
+/**
+ * Комментарий в карточку клиента (лента коммуникаций, тип «заметка»).
+ * @param {ExtSettings} settings
+ * @param {{clientId: string, text: string}} payload
+ */
+export function createComment(settings, payload) {
+  return request(settings, "/api/ext/comments", { method: "POST", body: payload })
+}
+
+/**
  * Отвязать чат.
  * @param {ExtSettings} settings
  * @param {{channel: Channel, chatId: string}} payload

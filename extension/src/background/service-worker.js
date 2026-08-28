@@ -30,6 +30,8 @@ import {
 import {
   ApiError,
   createBinding,
+  createComment,
+  createTask,
   fetchAiReply,
   deleteBinding,
   fetchClientCard,
@@ -284,6 +286,10 @@ async function callApi(settings, action, payload) {
       return fetchClientCard(settings, payload.clientId)
     case "quick-info":
       return fetchQuickInfo(settings, payload.clientId)
+    case "task":
+      return createTask(settings, payload)
+    case "comment":
+      return createComment(settings, payload)
     case "bind":
       return createBinding(settings, payload)
     case "unbind":

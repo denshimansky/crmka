@@ -98,6 +98,26 @@
           </p>
         </div>
 
+        <!-- Записать в CRM то, о чём договорились в переписке. -->
+        <div id="actions" class="section">
+          <h3>Добавить в CRM</h3>
+          <div class="chips">
+            <button id="action-task" class="chip" type="button">Задача</button>
+            <button id="action-note" class="chip" type="button">Комментарий</button>
+          </div>
+          <div id="action-form" class="action-form" hidden>
+            <textarea id="action-text" rows="3"></textarea>
+            <label id="action-due-row" class="due-row">
+              <span>Срок</span>
+              <input id="action-due" type="date" />
+            </label>
+            <div class="action-buttons">
+              <button id="action-cancel" class="link-button" type="button">Отмена</button>
+              <button id="action-save" class="primary primary-compact" type="button">Сохранить</button>
+            </div>
+          </div>
+        </div>
+
         <div id="wards" class="wards"></div>
         <div id="subscriptions" class="section"></div>
         <div id="payments" class="section"></div>

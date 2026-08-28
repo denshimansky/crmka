@@ -59,6 +59,14 @@ const el = {
   quick: /** @type {HTMLElement} */ (document.getElementById("quick")),
   quickButtons: /** @type {HTMLElement} */ (document.getElementById("quick-buttons")),
   aiDraft: /** @type {HTMLButtonElement} */ (document.getElementById("ai-draft")),
+  actionTask: /** @type {HTMLButtonElement} */ (document.getElementById("action-task")),
+  actionNote: /** @type {HTMLButtonElement} */ (document.getElementById("action-note")),
+  actionForm: /** @type {HTMLElement} */ (document.getElementById("action-form")),
+  actionText: /** @type {HTMLTextAreaElement} */ (document.getElementById("action-text")),
+  actionDueRow: /** @type {HTMLElement} */ (document.getElementById("action-due-row")),
+  actionDue: /** @type {HTMLInputElement} */ (document.getElementById("action-due")),
+  actionCancel: /** @type {HTMLButtonElement} */ (document.getElementById("action-cancel")),
+  actionSave: /** @type {HTMLButtonElement} */ (document.getElementById("action-save")),
   wards: /** @type {HTMLElement} */ (document.getElementById("wards")),
   subscriptions: /** @type {HTMLElement} */ (document.getElementById("subscriptions")),
   payments: /** @type {HTMLElement} */ (document.getElementById("payments")),
@@ -201,6 +209,7 @@ async function renderForChat() {
   el.noChat.hidden = true
   el.reloadTab.hidden = true
   el.quick.hidden = true
+  closeAction()
   state.clientId = null
   // Справку перечитываем заново: сменился чат — сменился и клиент, а по ⟳
   // человек как раз и ждёт свежие данные.
@@ -540,6 +549,77 @@ el.aiDraft.addEventListener("click", async () => {
   } finally {
     el.aiDraft.textContent = label
     el.aiDraft.disabled = false
+  }
+})
+
+// ─── Записать в CRM: задача и комментарий ───
+
+/** Что сейчас заполняют: "task" | "note" | null. @type {"task"|"note"|null} */
+let actionKind = null
+
+/** Сегодня в формате поля type="date" — местная дата, а не UTC. */
+function todayInputValue() {
+  const now = new Date()
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset())
+  return now.toISOString().slice(0, 10)
+}
+
+/** @param {"task"|"note"} kind */
+function openAction(kind) {
+  // Повторное нажатие по той же кнопке закрывает форму — так понятнее, чем
+  // искать «Отмену» глазами.
+  if (actionKind === kind) {
+    closeAction()
+    return
+  }
+  actionKind = kind
+  el.actionForm.hidden = false
+  el.actionDueRow.hidden = kind !== "task"
+  el.actionText.placeholder =
+    kind === "task" ? "Перезвонить, обсудить перенос…" : "Что записать в карточку клиента"
+  el.actionDue.value = todayInputValue()
+  el.actionText.value = ""
+  el.actionText.focus()
+}
+
+function closeAction() {
+  actionKind = null
+  el.actionForm.hidden = true
+  el.actionText.value = ""
+}
+
+el.actionTask.addEventListener("click", () => openAction("task"))
+el.actionNote.addEventListener("click", () => openAction("note"))
+el.actionCancel.addEventListener("click", () => closeAction())
+
+el.actionSave.addEventListener("click", async () => {
+  const text = el.actionText.value.trim()
+  const clientId = state.clientId
+  if (!actionKind || !clientId) return
+  if (!text) {
+    flashStatus(actionKind === "task" ? "Опишите задачу" : "Напишите комментарий")
+    el.actionText.focus()
+    return
+  }
+
+  el.actionSave.disabled = true
+  const kind = actionKind
+  try {
+    if (kind === "task") {
+      await api("task", { clientId, title: text, dueDate: el.actionDue.value || undefined })
+      flashStatus("Задача создана — она в вашем списке задач")
+    } else {
+      await api("comment", { clientId, text })
+      flashStatus("Комментарий записан в карточку")
+    }
+    closeAction()
+    // Комментарий попадает в ленту коммуникаций — сразу показываем его в
+    // блоке «Переписка и события», не дожидаясь фонового обновления.
+    if (kind === "note") void showClient(clientId, { silent: true })
+  } catch (error) {
+    flashStatus(error instanceof Error ? error.message : "Не удалось сохранить")
+  } finally {
+    el.actionSave.disabled = false
   }
 })
 

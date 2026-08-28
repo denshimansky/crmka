@@ -321,6 +321,56 @@ button.primary:disabled {
   margin: 6px 0 0;
 }
 
+/* Форма задачи/комментария: раскрывается по кнопке, чтобы в свёрнутом виде
+   не занимать место в узкой панели. */
+.action-form {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.action-form textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.due-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.due-row input {
+  flex: 1;
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.primary-compact {
+  width: auto;
+  padding: 6px 14px;
+}
+
 .section h3 {
   font-size: 11px;
   text-transform: uppercase;
