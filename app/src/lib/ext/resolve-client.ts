@@ -1,6 +1,7 @@
 import { db } from "@/lib/db"
 import { findClientsByPhone } from "@/lib/clients/find-by-phone"
 import { scopeClientByBranch } from "@/lib/client-segments"
+import { clientStateLabel } from "@/lib/clients/state-label"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import type { ExtContext } from "@/lib/ext-auth"
 import {
@@ -33,6 +34,8 @@ export interface ExtClientCandidate {
   phone: string | null
   funnelStatus: string
   clientStatus: string | null
+  /** Человеческий статус («Активный», «Лид», «Архив») — панель показывает его рядом с именем. */
+  stateLabel: string
 }
 
 export type ExtResolveMatch = "binding" | "phone" | "handle" | "none"
@@ -130,6 +133,7 @@ export async function resolveClientForChat(
           phone: maskPhone(c.phone, ctx.role, ctx.instructorsSeePhones),
           funnelStatus: c.funnelStatus,
           clientStatus: c.clientStatus,
+          stateLabel: clientStateLabel(c.funnelStatus, c.clientStatus),
         }))
       if (candidates.length === 1) {
         return { match: "phone", clientId: candidates[0].id, candidates, chatId }
@@ -176,6 +180,7 @@ export async function resolveClientForChat(
         phone: maskPhone(c.phone, ctx.role, ctx.instructorsSeePhones),
         funnelStatus: c.funnelStatus as string,
         clientStatus: c.clientStatus as string | null,
+        stateLabel: clientStateLabel(c.funnelStatus, c.clientStatus),
       }))
       return {
         match: "handle",
