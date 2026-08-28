@@ -133,14 +133,44 @@ export function formatBalanceText(balance: number, currency?: string | null): st
 /** Сколько ближайших занятий показываем — дальше родителю уже не нужно. */
 const UPCOMING_LESSONS = 5
 
+/** Один подопечный с тем, что о нём нужно знать для текста родителю. */
+export interface WardFacts {
+  name: string
+  lessons: Array<{ date: string; startTime: string; direction: string | null; room: string | null }>
+  subscriptions: Array<{
+    direction: string | null
+    periodYear: number | null
+    periodMonth: number | null
+    totalLessons: number
+    remainingLessons: number
+    debt: number
+  }>
+}
+
 /**
- * Собрать справки по клиенту. null — клиента нет или он вне филиалов сотрудника
+ * Факты о клиенте, из которых собирается любой текст для родителя — и справка,
+ * и раскрытые плейсхолдеры шаблонов. Единый источник, чтобы «остаток» в
+ * шаблоне и «остаток» в справке не разошлись со временем.
+ */
+export interface ClientFacts {
+  clientName: string
+  parentFirstName: string | null
+  branchName: string | null
+  balance: number
+  currency: string | null
+  /** Имена показываем только когда детей несколько — иначе это шум. */
+  showNames: boolean
+  wards: WardFacts[]
+}
+
+/**
+ * Собрать факты о клиенте. null — клиента нет или он вне филиалов сотрудника
  * (не подтверждаем существование, как и в client-card).
  */
-export async function buildQuickInfo(
+export async function collectClientFacts(
   ctx: ExtContext,
   clientId: string,
-): Promise<{ blocks: QuickInfoBlock[] } | null> {
+): Promise<ClientFacts | null> {
   const client = await db.client.findFirst({
     where: {
       id: clientId,
@@ -150,7 +180,11 @@ export async function buildQuickInfo(
     },
     select: {
       id: true,
+      firstName: true,
+      lastName: true,
+      patronymic: true,
       clientBalance: true,
+      branch: { select: { name: true } },
       wards: {
         orderBy: [{ firstName: "asc" }, { createdAt: "asc" }],
         select: { id: true, firstName: true, lastName: true },
@@ -276,7 +310,32 @@ export async function buildQuickInfo(
     }
   })
 
-  const currency = organization?.currency
+  return {
+    clientName:
+      [client.lastName, client.firstName, client.patronymic].filter(Boolean).join(" ").trim() ||
+      "Без имени",
+    parentFirstName: client.firstName?.trim() || null,
+    branchName: client.branch?.name ?? null,
+    // Деньги клиента: минус = долг.
+    balance: Number(client.clientBalance),
+    currency: organization?.currency ?? null,
+    showNames,
+    wards,
+  }
+}
+
+/**
+ * Справки для панели: расписание, остаток по абонементу, баланс.
+ * null — клиента нет или он вне филиалов сотрудника.
+ */
+export async function buildQuickInfo(
+  ctx: ExtContext,
+  clientId: string,
+): Promise<{ blocks: QuickInfoBlock[] } | null> {
+  const facts = await collectClientFacts(ctx, clientId)
+  if (!facts) return null
+
+  const { currency, showNames, wards } = facts
   const blocks: QuickInfoBlock[] = []
 
   const schedule = formatScheduleText(wards, { showNames })
@@ -285,11 +344,7 @@ export async function buildQuickInfo(
   const subs = formatSubscriptionsText(wards, { showNames, currency })
   if (subs) blocks.push({ key: "subscriptions", title: "Абонемент", text: subs })
 
-  blocks.push({
-    key: "balance",
-    title: "Баланс",
-    text: formatBalanceText(Number(client.clientBalance), currency),
-  })
+  blocks.push({ key: "balance", title: "Баланс", text: formatBalanceText(facts.balance, currency) })
 
   return { blocks }
 }

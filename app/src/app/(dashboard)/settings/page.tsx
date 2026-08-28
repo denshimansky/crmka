@@ -26,6 +26,7 @@ import {
   Plug,
   Target,
   Copy,
+  MessageSquareText,
 } from "lucide-react"
 import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
@@ -152,6 +153,12 @@ export default async function SettingsPage() {
       title: "Шаблоны скидок",
       description: "Готовые шаблоны для быстрого применения скидок",
       icon: Palette,
+    },
+    {
+      href: "/settings/message-templates",
+      title: "Шаблоны сообщений",
+      description: "Готовые ответы родителям для панели в мессенджерах",
+      icon: MessageSquareText,
     },
     {
       href: "/settings/segmentation",

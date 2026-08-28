@@ -306,6 +306,20 @@ button.primary:disabled {
   cursor: default;
 }
 
+/* Шаблоны отделяем от справки: справка — факты о клиенте, шаблон — готовая
+   фраза. Визуально разные вещи, вперемешку в них не разобраться. */
+.chips-templates {
+  margin-top: 6px;
+}
+
+.chips-templates:empty {
+  margin-top: 0;
+}
+
+.chip-template {
+  border-style: dashed;
+}
+
 .hint-inline {
   margin: 6px 0 0;
 }

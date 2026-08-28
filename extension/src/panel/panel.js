@@ -57,6 +57,7 @@ const el = {
   balance: /** @type {HTMLElement} */ (document.getElementById("balance")),
   quick: /** @type {HTMLElement} */ (document.getElementById("quick")),
   quickButtons: /** @type {HTMLElement} */ (document.getElementById("quick-buttons")),
+  templateButtons: /** @type {HTMLElement} */ (document.getElementById("template-buttons")),
   wards: /** @type {HTMLElement} */ (document.getElementById("wards")),
   subscriptions: /** @type {HTMLElement} */ (document.getElementById("subscriptions")),
   payments: /** @type {HTMLElement} */ (document.getElementById("payments")),
@@ -440,41 +441,51 @@ async function loadQuickInfo(clientId) {
   quickInfoFor = clientId
   el.quick.hidden = true
   el.quickButtons.innerHTML = ""
+  el.templateButtons.innerHTML = ""
 
-  let data
-  try {
-    data = await api("quick-info", { clientId })
-  } catch {
-    // Справка — вспомогательная вещь: карточка уже на экране, молчим.
+  // Справка и шаблоны — два независимых запроса: пустые шаблоны (их может не
+  // быть вовсе) не должны прятать справку, и наоборот.
+  const [info, templates] = await Promise.all([
+    api("quick-info", { clientId }).catch(() => null),
+    api("templates", { clientId, channel: state.chat?.channel ?? null }).catch(() => null),
+  ])
+  if (state.clientId !== clientId) return
+  if (!info && !templates) {
+    // Оба запроса не прошли — дадим следующему показу шанс попробовать снова.
     quickInfoFor = null
     return
   }
-  if (state.clientId !== clientId) return
-  renderQuickInfo(data?.blocks ?? [])
+
+  renderChips(el.quickButtons, info?.blocks ?? [], "chip")
+  renderChips(el.templateButtons, templates?.templates ?? [], "chip chip-template")
+  el.quick.hidden = el.quickButtons.childElementCount + el.templateButtons.childElementCount === 0
 }
 
-/** @param {Array<{key: string, title: string, text: string}>} blocks */
-function renderQuickInfo(blocks) {
-  if (blocks.length === 0) {
-    el.quick.hidden = true
-    return
-  }
-  el.quickButtons.innerHTML = blocks
+/**
+ * Кнопки вставки. Подпись — короткая (title блока или название шаблона), сам
+ * текст уходит в подсказку при наведении: в узкой панели он не поместится, а
+ * увидеть, что вставится, надо до клика.
+ *
+ * @param {HTMLElement} container
+ * @param {Array<{title: string, text: string}>} items
+ * @param {string} className
+ */
+function renderChips(container, items, className) {
+  container.innerHTML = items
     .map(
-      (block, index) =>
-        `<button class="chip" type="button" data-index="${index}" title="${escapeHtml(
-          block.text,
-        )}">${escapeHtml(block.title)}</button>`,
+      (item, index) =>
+        `<button class="${className}" type="button" data-index="${index}" title="${escapeHtml(
+          item.text,
+        )}">${escapeHtml(item.title)}</button>`,
     )
     .join("")
 
-  for (const node of el.quickButtons.querySelectorAll("[data-index]")) {
+  for (const node of container.querySelectorAll("[data-index]")) {
     const button = /** @type {HTMLButtonElement} */ (node)
-    const block = blocks[Number(button.dataset.index)]
-    if (!block) continue
-    button.addEventListener("click", () => void insertIntoChat(block.text, button))
+    const item = items[Number(button.dataset.index)]
+    if (!item) continue
+    button.addEventListener("click", () => void insertIntoChat(item.text, button))
   }
-  el.quick.hidden = false
 }
 
 /**

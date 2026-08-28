@@ -99,6 +99,19 @@ export function fetchQuickInfo(settings, clientId) {
 }
 
 /**
+ * Шаблоны ответов организации — уже с подставленными данными клиента
+ * (подстановка на сервере: в расширении не должно быть бизнес-логики).
+ * @param {ExtSettings} settings
+ * @param {{clientId?: string|null, channel?: Channel|null}} payload
+ * @returns {Promise<{templates: Array<{id: string, title: string, text: string}>}>}
+ */
+export function fetchTemplates(settings, payload) {
+  return request(settings, "/api/ext/templates", {
+    query: { clientId: payload.clientId, channel: payload.channel },
+  })
+}
+
+/**
  * Поиск клиента для ручной привязки (в Telegram телефона нет — ищет человек).
  * @param {ExtSettings} settings
  * @param {string} q
