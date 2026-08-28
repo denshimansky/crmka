@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 import crypto from "crypto"
+import { findClientsByPhone } from "@/lib/clients/find-by-phone"
+import { buildMessageExternalId } from "@/lib/ext/chat-identity"
 
 interface WazzupMessage {
   chatId: string
@@ -8,6 +10,8 @@ interface WazzupMessage {
   type: string
   isFromMe: boolean
   timestamp: number
+  /** Идентификатор самого сообщения — ключ дедупликации при повторной доставке. */
+  messageId?: string
 }
 
 export async function POST(req: NextRequest) {
@@ -54,43 +58,65 @@ async function processMessages(body: { messages?: WazzupMessage[] }, tenantId: s
   const messages = body.messages || []
 
   let created = 0
+  let skipped = 0
   for (const msg of messages) {
     // chatId в Wazzup = номер телефона (без +)
-    const phone = msg.chatId?.replace(/\D/g, "")
-    if (!phone) continue
+    if (!msg.chatId) continue
 
-    // Поиск клиента по телефону (пробуем разные форматы)
-    const client = await db.client.findFirst({
-      where: {
-        tenantId,
-        deletedAt: null,
-        OR: [
-          { phone: { contains: phone.slice(-10) } },
-          { phone2: { contains: phone.slice(-10) } },
-        ],
-      },
-      select: { id: true },
-    })
-
-    if (!client) {
-      console.log(`[wazzup webhook] Client not found for phone ${phone}, tenant ${tenantId}`)
+    // Поиск клиента по телефону единой точкой: findClientsByPhone нормализует
+    // ХРАНИМЫЙ номер на стороне БД, поэтому «+7 (999) 12-34-56» находится так же,
+    // как «89991234 56». Прежний `phone contains last-10` по сырой строке
+    // форматированные номера не находил, и сообщения молча терялись.
+    const matches = await findClientsByPhone(db, tenantId, msg.chatId, { limit: 2 })
+    if (matches.length === 0) {
+      console.log(`[wazzup webhook] Client not found for chat ${msg.chatId}, tenant ${tenantId}`)
       continue
+    }
+    // Несколько клиентов с одним номером (семья, дубли) — записать сообщение
+    // произвольному было бы хуже, чем не записать: чужая переписка в карточке.
+    if (matches.length > 1) {
+      console.log(
+        `[wazzup webhook] Ambiguous phone ${msg.chatId} (${matches.length} clients), tenant ${tenantId}`,
+      )
+      continue
+    }
+
+    // Ключ идемпотентности — id СООБЩЕНИЯ (в паре с чатом), а не chatId: раньше
+    // сюда клали телефон чата, и при повторной доставке вебхука (а Wazzup
+    // ретраит) в карточке появлялись дубли. Если messageId не пришёл — пишем
+    // без ключа: лучше возможный дубль, чем потерянное сообщение.
+    const externalId = msg.messageId
+      ? buildMessageExternalId(msg.chatId.replace(/\D/g, ""), msg.messageId)
+      : null
+
+    if (externalId) {
+      const exists = await db.communication.findFirst({
+        where: { tenantId, channel: "whatsapp", externalId },
+        select: { id: true },
+      })
+      if (exists) {
+        skipped++
+        continue
+      }
     }
 
     await db.communication.create({
       data: {
         tenantId,
-        clientId: client.id,
+        clientId: matches[0].id,
         type: msg.isFromMe ? "whatsapp_outgoing" : "whatsapp_incoming",
         channel: "whatsapp",
         direction: msg.isFromMe ? "outgoing" : "incoming",
         content: msg.text || null,
-        externalId: msg.chatId,
-        metadata: { messageType: msg.type, timestamp: msg.timestamp },
+        externalId,
+        // Время отправки в мессенджере, а не момент обработки вебхука — иначе
+        // при задержке доставки сообщение встаёт в ленте не на своё место.
+        sentAt: msg.timestamp ? new Date(msg.timestamp * 1000) : undefined,
+        metadata: { messageType: msg.type, timestamp: msg.timestamp, chatId: msg.chatId },
       },
     })
     created++
   }
 
-  return NextResponse.json({ ok: true, created })
+  return NextResponse.json({ ok: true, created, skipped })
 }
