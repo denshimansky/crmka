@@ -1715,6 +1715,16 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
           clientId: data.clientId,
           wardId: data.wardId ?? null,
         },
+        // Фолбэк без attendanceId (все UI-поверхности шлют id, но не все клиенты
+        // им располагают): без orderBy выбор строки недетерминирован. Берём
+        // финансово «нагруженную» — если исторический дубль всё же есть, снимать
+        // надо ту, что несёт списание и ЗП, а не пустую заглушку.
+        orderBy: [
+          { chargeAmount: "desc" },
+          { instructorPayAmount: "desc" },
+          { isPending: "asc" },
+          { markedAt: "desc" },
+        ],
         include: {
           attendanceType: { select: { chargePercent: true } },
           lesson: { select: { group: { select: { directionId: true } } } },

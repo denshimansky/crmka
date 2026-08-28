@@ -481,12 +481,29 @@ export function AttendanceTable({
     scheduledMakeupLessonId: string | null = null
   ) {
     const uniqueKey = student.enrollmentId
-    setLoadingStudentId(uniqueKey)
 
     // Тип дня без начисления инструктору → галочка «Оплата инструктору»
     // снимается автоматически (сервер тоже нормализует).
     const markType = attendanceTypes.find((t) => t.id === attendanceTypeId)
     const payEnabled = markType?.paysInstructor === false ? false : instructorPayEnabled
+
+    // Повторный выбор того же пункта — не шлём запрос. Base UI Select зовёт
+    // onValueChange и когда значение не изменилось (SelectRoot.setValue не
+    // сравнивает со старым), поэтому лишний клик по уже стоящей отметке уходил
+    // полноценным POST: он переписывал markedAt/markedBy, гонял откат и повторное
+    // списание и плодил шум в аудите. Именно так и родился дубль 26.08.2026 —
+    // повторная отметка ушла с уже другим абонементом (см. фикс дедупликации на
+    // сервере). Сервер намеренно НЕ делает такой no-op: переотметка — рабочий
+    // способ пересчитать деньги после смены цены/скидки.
+    const a = student.attendance
+    const unchanged =
+      !!a &&
+      a.attendanceTypeId === attendanceTypeId &&
+      a.instructorPayEnabled === payEnabled &&
+      (a.scheduledMakeupLessonId ?? null) === scheduledMakeupLessonId
+    if (unchanged) return
+
+    setLoadingStudentId(uniqueKey)
 
     try {
       const res = await fetch(`/api/lessons/${lessonId}/attendance`, {
