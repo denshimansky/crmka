@@ -58,7 +58,6 @@ const el = {
   balance: /** @type {HTMLElement} */ (document.getElementById("balance")),
   quick: /** @type {HTMLElement} */ (document.getElementById("quick")),
   quickButtons: /** @type {HTMLElement} */ (document.getElementById("quick-buttons")),
-  templateButtons: /** @type {HTMLElement} */ (document.getElementById("template-buttons")),
   aiDraft: /** @type {HTMLButtonElement} */ (document.getElementById("ai-draft")),
   wards: /** @type {HTMLElement} */ (document.getElementById("wards")),
   subscriptions: /** @type {HTMLElement} */ (document.getElementById("subscriptions")),
@@ -443,25 +442,19 @@ async function loadQuickInfo(clientId) {
   quickInfoFor = clientId
   el.quick.hidden = true
   el.quickButtons.innerHTML = ""
-  el.templateButtons.innerHTML = ""
 
-  // Справка и шаблоны — два независимых запроса: пустые шаблоны (их может не
-  // быть вовсе) не должны прятать справку, и наоборот.
-  const [info, templates] = await Promise.all([
-    api("quick-info", { clientId }).catch(() => null),
-    api("templates", { clientId, channel: state.chat?.channel ?? null }).catch(() => null),
-  ])
-  if (state.clientId !== clientId) return
-  if (!info && !templates) {
-    // Оба запроса не прошли — дадим следующему показу шанс попробовать снова.
+  let info
+  try {
+    info = await api("quick-info", { clientId })
+  } catch {
+    // Справка — вспомогательная вещь: карточка уже на экране. Дадим следующему
+    // показу шанс попробовать снова.
     quickInfoFor = null
     return
   }
+  if (state.clientId !== clientId) return
 
   renderChips(el.quickButtons, info?.blocks ?? [], "chip")
-  renderChips(el.templateButtons, templates?.templates ?? [], "chip chip-template")
-  // Черновик работает и без карточки (по одной переписке), но кнопку показываем
-  // только когда блок вообще виден.
   el.aiDraft.hidden = false
   el.quick.hidden = false
 }

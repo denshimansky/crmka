@@ -34,7 +34,6 @@ import {
   deleteBinding,
   fetchClientCard,
   fetchQuickInfo,
-  fetchTemplates,
   resolveChat,
   searchClients,
   syncMessages,
@@ -285,8 +284,6 @@ async function callApi(settings, action, payload) {
       return fetchClientCard(settings, payload.clientId)
     case "quick-info":
       return fetchQuickInfo(settings, payload.clientId)
-    case "templates":
-      return fetchTemplates(settings, payload)
     case "bind":
       return createBinding(settings, payload)
     case "unbind":

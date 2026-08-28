@@ -99,19 +99,6 @@ export function fetchQuickInfo(settings, clientId) {
 }
 
 /**
- * Шаблоны ответов организации — уже с подставленными данными клиента
- * (подстановка на сервере: в расширении не должно быть бизнес-логики).
- * @param {ExtSettings} settings
- * @param {{clientId?: string|null, channel?: Channel|null}} payload
- * @returns {Promise<{templates: Array<{id: string, title: string, text: string}>}>}
- */
-export function fetchTemplates(settings, payload) {
-  return request(settings, "/api/ext/templates", {
-    query: { clientId: payload.clientId, channel: payload.channel },
-  })
-}
-
-/**
  * ИИ-черновик ответа. Возвращает ТЕКСТ для поля ввода — отправляет человек.
  * @param {ExtSettings} settings
  * @param {{clientId?: string|null, messages?: ChatMessage[], instruction?: string|null}} payload
