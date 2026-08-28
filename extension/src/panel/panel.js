@@ -9,6 +9,7 @@ import {
   MSG_API,
   MSG_CHAT_ACTIVITY,
   MSG_GET_STATE,
+  MSG_INSERT_TEXT,
   MSG_RELOAD_TAB,
   MSG_SAVE_SETTINGS,
   MSG_STATE_CHANGED,
@@ -54,6 +55,8 @@ const el = {
   clientMeta: /** @type {HTMLElement} */ (document.getElementById("client-meta")),
   unbind: /** @type {HTMLButtonElement} */ (document.getElementById("unbind")),
   balance: /** @type {HTMLElement} */ (document.getElementById("balance")),
+  quick: /** @type {HTMLElement} */ (document.getElementById("quick")),
+  quickButtons: /** @type {HTMLElement} */ (document.getElementById("quick-buttons")),
   wards: /** @type {HTMLElement} */ (document.getElementById("wards")),
   subscriptions: /** @type {HTMLElement} */ (document.getElementById("subscriptions")),
   payments: /** @type {HTMLElement} */ (document.getElementById("payments")),
@@ -195,7 +198,11 @@ async function renderForChat() {
   el.unmatched.hidden = true
   el.noChat.hidden = true
   el.reloadTab.hidden = true
+  el.quick.hidden = true
   state.clientId = null
+  // Справку перечитываем заново: сменился чат — сменился и клиент, а по ⟳
+  // человек как раз и ждёт свежие данные.
+  quickInfoFor = null
 
   if (!state.chat) {
     showNoChatReason()
@@ -382,6 +389,8 @@ async function showClient(clientId, options = {}) {
   // Переписку заливаем в фоне: она не должна задерживать показ карточки, а
   // сервер всё равно пропустит уже известные сообщения.
   void syncMessagesAndRefresh(clientId)
+  // Справка — отдельным запросом и только при смене клиента (см. quickInfoFor).
+  void loadQuickInfo(clientId)
 }
 
 /**
@@ -412,6 +421,96 @@ async function syncMessagesAndRefresh(clientId) {
   } catch {
     // Молча: на экране осталась предыдущая версия карточки.
   }
+}
+
+// ─── «Вставить в чат»: справка по клиенту ───
+
+/**
+ * Для какого клиента справка уже загружена. Она меняется редко (расписание,
+ * остаток, баланс), а карточка перечитывается раз в минуту — гонять сборку
+ * текста на каждое фоновое обновление незачем. Сбрасывается при смене чата и
+ * по кнопке ⟳.
+ * @type {string|null}
+ */
+let quickInfoFor = null
+
+/** @param {string} clientId */
+async function loadQuickInfo(clientId) {
+  if (quickInfoFor === clientId) return
+  quickInfoFor = clientId
+  el.quick.hidden = true
+  el.quickButtons.innerHTML = ""
+
+  let data
+  try {
+    data = await api("quick-info", { clientId })
+  } catch {
+    // Справка — вспомогательная вещь: карточка уже на экране, молчим.
+    quickInfoFor = null
+    return
+  }
+  if (state.clientId !== clientId) return
+  renderQuickInfo(data?.blocks ?? [])
+}
+
+/** @param {Array<{key: string, title: string, text: string}>} blocks */
+function renderQuickInfo(blocks) {
+  if (blocks.length === 0) {
+    el.quick.hidden = true
+    return
+  }
+  el.quickButtons.innerHTML = blocks
+    .map(
+      (block, index) =>
+        `<button class="chip" type="button" data-index="${index}" title="${escapeHtml(
+          block.text,
+        )}">${escapeHtml(block.title)}</button>`,
+    )
+    .join("")
+
+  for (const node of el.quickButtons.querySelectorAll("[data-index]")) {
+    const button = /** @type {HTMLButtonElement} */ (node)
+    const block = blocks[Number(button.dataset.index)]
+    if (!block) continue
+    button.addEventListener("click", () => void insertIntoChat(block.text, button))
+  }
+  el.quick.hidden = false
+}
+
+/**
+ * Вставить текст в поле ввода мессенджера. Именно вставить: отправляет человек.
+ * @param {string} text
+ * @param {HTMLButtonElement} button
+ */
+async function insertIntoChat(text, button) {
+  button.disabled = true
+  try {
+    const result = await send({ type: MSG_INSERT_TEXT, text })
+    if (result?.inserted) {
+      flashStatus("Текст вставлен в поле ввода — проверьте и отправьте")
+      return
+    }
+    // Поле ввода не нашли (чат закрыт, непривычная вёрстка) — отдаём текст
+    // через буфер обмена, чтобы человек не перенабирал его руками.
+    try {
+      await navigator.clipboard.writeText(text)
+      flashStatus("Поле ввода не найдено — текст скопирован, вставьте вручную")
+    } catch {
+      flashStatus("Не удалось вставить текст")
+    }
+  } catch {
+    flashStatus("Не удалось вставить текст")
+  } finally {
+    button.disabled = false
+  }
+}
+
+/** Показать сообщение и убрать через несколько секунд, если его не перебили. */
+function flashStatus(text) {
+  showStatus(text)
+  setTimeout(() => {
+    if (el.status.textContent === text) showStatus("")
+  }, 4000)
 }
 
 // ─── Обновление: вручную (⟳), по новому сообщению и фоном ───

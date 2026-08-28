@@ -20,6 +20,7 @@
 const MSG_CHAT_CHANGED = "chat-changed"
 const MSG_CHAT_ACTIVITY = "chat-activity"
 const MSG_COLLECT_MESSAGES = "collect-messages"
+const MSG_INSERT_TEXT = "insert-text"
 const MSG_PING = "ping"
 
 /**
@@ -226,6 +227,79 @@ function readLatestMessageKey() {
   return max > 0 ? String(max) : null
 }
 
+/**
+ * Поле ввода сообщения. У обоих клиентов это contenteditable, но в разметке
+ * таких полей несколько (поиск, подпись к медиа, скрытые чаты) — берём видимое.
+ * @returns {HTMLElement|null}
+ */
+function findComposer() {
+  const selectors =
+    detectClient() === "a"
+      ? ["#editable-message-text", ".form-control[contenteditable='true']"]
+      : [".chat-input .input-message-input[contenteditable='true']", ".input-message-input[contenteditable='true']"]
+  for (const selector of selectors) {
+    for (const node of document.querySelectorAll(selector)) {
+      const el = /** @type {HTMLElement} */ (node)
+      // offsetParent = null у скрытых элементов; getClientRects страхует случай
+      // position: fixed, где offsetParent тоже null, но поле видно.
+      if (el.isContentEditable && (el.offsetParent || el.getClientRects().length > 0)) return el
+    }
+  }
+  return null
+}
+
+/** Каретка в конец поля — вставляем в конец черновика, не затирая набранное. */
+function placeCaretAtEnd(el) {
+  const selection = window.getSelection()
+  if (!selection) return
+  // Если человек уже стоит курсором внутри поля, его позицию не трогаем.
+  if (selection.rangeCount > 0 && el.contains(selection.getRangeAt(0).commonAncestorContainer)) return
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+/**
+ * Вставить текст в поле ввода — НЕ отправляя.
+ *
+ * Через execCommand, а не правкой textContent: мессенджеры — SPA (Solid у WebK,
+ * React у WebA), они следят за полем через события ввода. Прямая правка DOM их
+ * не будит — поле выглядит заполненным, но клиент считает его пустым и не
+ * активирует кнопку отправки. execCommand идёт через штатный конвейер
+ * редактирования и порождает настоящие beforeinput/input.
+ *
+ * Переводы строк вставляем отдельной командой: «\n» внутри insertText
+ * обрабатывается браузерами по-разному, а справка у нас многострочная.
+ *
+ * @param {string} text
+ * @returns {boolean} удалось ли найти поле и вставить
+ */
+function insertIntoComposer(text) {
+  const el = findComposer()
+  if (!el || !text) return false
+  el.focus()
+  placeCaretAtEnd(el)
+
+  let ok = true
+  const lines = String(text).split("\n")
+  lines.forEach((line, index) => {
+    if (index > 0) ok = document.execCommand("insertLineBreak") && ok
+    if (line) ok = document.execCommand("insertText", false, line) && ok
+  })
+
+  if (!ok) {
+    // Запасной путь для случая, если execCommand когда-нибудь уберут: правим
+    // поле сами и сами сообщаем фреймворку об изменении.
+    el.textContent = `${el.textContent ?? ""}${text}`
+    el.dispatchEvent(
+      new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }),
+    )
+  }
+  return true
+}
+
 /** @type {string|null} */
 let lastChatId = null
 /** @type {string|null} */
@@ -300,6 +374,10 @@ domObserver.observe(document.body, { childList: true, subtree: true })
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === MSG_COLLECT_MESSAGES) {
     sendResponse({ messages: collectVisibleMessages() })
+    return false
+  }
+  if (message?.type === MSG_INSERT_TEXT) {
+    sendResponse({ inserted: insertIntoComposer(String(message.text ?? "")) })
     return false
   }
   if (message?.type === MSG_PING) {

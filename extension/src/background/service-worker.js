@@ -18,6 +18,7 @@ import {
   MSG_CHAT_CHANGED,
   MSG_COLLECT_MESSAGES,
   MSG_GET_STATE,
+  MSG_INSERT_TEXT,
   MSG_PING,
   MSG_RELOAD_TAB,
   MSG_SAVE_SETTINGS,
@@ -30,6 +31,7 @@ import {
   createBinding,
   deleteBinding,
   fetchClientCard,
+  fetchQuickInfo,
   resolveChat,
   searchClients,
   syncMessages,
@@ -247,6 +249,17 @@ async function handleMessage(message, sender) {
       return syncVisibleMessages(message.clientId)
     }
 
+    case MSG_INSERT_TEXT: {
+      // Текст едет в поле ввода активной вкладки. Отправку не инициируем ни
+      // здесь, ни в адаптере — это принцип-щит спеки, а не деталь реализации.
+      const tabId = await getActiveTabId()
+      if (tabId == null) return { inserted: false }
+      const response = await chrome.tabs
+        .sendMessage(tabId, { type: MSG_INSERT_TEXT, text: message.text })
+        .catch(() => null)
+      return { inserted: Boolean(response?.inserted) }
+    }
+
     default:
       return null
   }
@@ -263,6 +276,8 @@ async function callApi(settings, action, payload) {
       return resolveChat(settings, payload)
     case "client-card":
       return fetchClientCard(settings, payload.clientId)
+    case "quick-info":
+      return fetchQuickInfo(settings, payload.clientId)
     case "bind":
       return createBinding(settings, payload)
     case "unbind":

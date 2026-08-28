@@ -88,6 +88,17 @@ export function fetchClientCard(settings, clientId) {
 }
 
 /**
+ * «Вставить справку»: готовые куски текста для ответа родителю — расписание,
+ * остаток по абонементу, баланс. Отправляет их всегда человек.
+ * @param {ExtSettings} settings
+ * @param {string} clientId
+ * @returns {Promise<{blocks: Array<{key: string, title: string, text: string}>}>}
+ */
+export function fetchQuickInfo(settings, clientId) {
+  return request(settings, "/api/ext/quick-info", { query: { clientId } })
+}
+
+/**
  * Поиск клиента для ручной привязки (в Telegram телефона нет — ищет человек).
  * @param {ExtSettings} settings
  * @param {string} q

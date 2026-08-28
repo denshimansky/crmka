@@ -68,6 +68,13 @@ export const MSG_CHAT_CHANGED = "chat-changed"
 export const MSG_CHAT_ACTIVITY = "chat-activity"
 /** Сообщение service worker → content script: «отдай видимые сообщения». */
 export const MSG_COLLECT_MESSAGES = "collect-messages"
+/**
+ * Панель → service worker → content script: вставить текст в поле ввода
+ * мессенджера. Именно ВСТАВИТЬ — отправляет всегда человек (принцип-щит
+ * docs/messenger-extension.md §3: ноль автоотправки, иначе это рассылочный
+ * инструмент со всеми последствиями в сторах и у самих мессенджеров).
+ */
+export const MSG_INSERT_TEXT = "insert-text"
 /** Сообщения панели → service worker. */
 export const MSG_GET_STATE = "get-state"
 export const MSG_SAVE_SETTINGS = "save-settings"
