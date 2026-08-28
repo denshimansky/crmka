@@ -9,6 +9,10 @@ import {
   CLIENT_STATUS_CHANGE_REASON_LABELS,
   type ClientStatusChangeReason,
 } from "@/lib/clients/status-history"
+import {
+  subscriptionPeriodLabel,
+  type SubscriptionPeriodInput,
+} from "@/lib/subscriptions/period-label"
 
 // Точные типы результатов findMany c include — нужны, чтобы в ward-режиме
 // (когда мы возвращаем пустой массив вместо запроса) типизация сохранилась.
@@ -60,32 +64,8 @@ type TimelineBalanceTxn = Prisma.ClientBalanceTransactionGetPayload<{
  * старт – окончание). null, если данных нет. Для пакета нужны type/startDate/
  * expiresAt (в подзапросах с урезанным select они отсутствуют → период не покажем).
  */
-function periodLabel(
-  s:
-    | {
-        periodMonth: number | null
-        periodYear: number | null
-        type?: string | null
-        startDate?: Date | null
-        endDate?: Date | null
-        expiresAt?: Date | null
-      }
-    | null
-    | undefined,
-): string | null {
-  if (!s) return null
-  if (s.type === "package") {
-    const fmt = (d: Date) => d.toLocaleDateString("ru-RU")
-    const start = s.startDate ? fmt(s.startDate) : null
-    const end = s.endDate ?? s.expiresAt
-    const endStr = end ? fmt(end) : null
-    if (start && endStr) return `${start} – ${endStr}`
-    if (start) return `с ${start}`
-    if (endStr) return `до ${endStr}`
-    return null
-  }
-  if (!s.periodMonth || !s.periodYear) return null
-  return `${String(s.periodMonth).padStart(2, "0")}.${s.periodYear}`
+function periodLabel(s: SubscriptionPeriodInput): string | null {
+  return subscriptionPeriodLabel(s, "numeric")
 }
 
 /**

@@ -30,22 +30,7 @@ import { ClipboardCheck, ExternalLink, X, Sparkles } from "lucide-react"
 import { useRoleNames } from "@/components/role-names-provider"
 import { useMoneyFormat } from "@/components/currency-provider"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
-
-const MONTH_SHORT = [
-  "",
-  "янв",
-  "фев",
-  "мар",
-  "апр",
-  "май",
-  "июн",
-  "июл",
-  "авг",
-  "сен",
-  "окт",
-  "ноя",
-  "дек",
-]
+import { subscriptionPeriodLabel } from "@/lib/subscriptions/period-label"
 
 interface AttendanceItem {
   id: string
@@ -74,7 +59,17 @@ interface AttendanceItem {
     countsAsRevenue: boolean
   }
   absenceReason: string | null
-  subscription: { id: string; periodYear: number; periodMonth: number } | null
+  // Пакетный абонемент живёт интервалом дат, а не месяцем: periodYear/
+  // periodMonth у него null (подпись строит subscriptionPeriodLabel).
+  subscription: {
+    id: string
+    periodYear: number | null
+    periodMonth: number | null
+    type: string
+    startDate: string | null
+    endDate: string | null
+    expiresAt: string | null
+  } | null
 }
 
 interface Ward {
@@ -444,9 +439,7 @@ function AttendanceItemsTable({
               )}
             </TableCell>
             <TableCell className="text-muted-foreground">
-              {a.subscription
-                ? `${MONTH_SHORT[a.subscription.periodMonth]} ${a.subscription.periodYear}`
-                : "—"}
+              {subscriptionPeriodLabel(a.subscription, "short") || "—"}
             </TableCell>
             <TableCell className="text-right tabular-nums">
               {a.chargeAmount > 0 ? (

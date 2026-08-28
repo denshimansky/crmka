@@ -37,6 +37,7 @@ import { formatAge } from "@/lib/age"
 import { useRoleNames } from "@/components/role-names-provider"
 import { useMoneyFormat, useCurrencySymbol } from "@/components/currency-provider"
 import { EditPackageLessonsDialog } from "@/app/(dashboard)/crm/_components/edit-package-lessons-dialog"
+import { subscriptionPeriodLabel } from "@/lib/subscriptions/period-label"
 
 interface Ward {
   id: string
@@ -132,6 +133,8 @@ const METHOD_LABELS: Record<string, string> = {
   sbp_qr: "СБП",
 }
 
+// Подпись периода — общая с остальными местами (пакет: интервал дат, у него
+// periodMonth/periodYear = null); здесь фоллбэки этой вкладки.
 function formatSubPeriod(s: {
   periodMonth: number | null
   periodYear: number | null
@@ -139,27 +142,8 @@ function formatSubPeriod(s: {
   expiresAt?: string | null
   type?: string
 }): string {
-  if (s.type === "package") {
-    // Пакет: показываем явный период старт – окончание, чтобы у партнёров не было
-    // вопросов, почему занятия покрываются именно в этих датах.
-    const fmt = (iso: string) => new Date(iso).toLocaleDateString("ru-RU")
-    const start = s.startDate ? fmt(s.startDate) : null
-    const end = s.expiresAt ? fmt(s.expiresAt) : null
-    if (start && end) return `${start} – ${end}`
-    if (start) return `с ${start}`
-    if (end) return `до ${end}`
-    return "Пакет"
-  }
-  if (s.periodMonth != null && s.periodYear != null) {
-    return `${MONTH_NAMES[s.periodMonth]} ${s.periodYear}`
-  }
-  return "—"
+  return subscriptionPeriodLabel(s) ?? (s.type === "package" ? "Пакет" : "—")
 }
-
-const MONTH_NAMES = [
-  "", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-  "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
-]
 
 // ===== Edit Subscription Dialog =====
 

@@ -94,7 +94,18 @@ export async function GET(
       },
       absenceReason: { select: { name: true } },
       subscription: {
-        select: { id: true, periodYear: true, periodMonth: true },
+        // type/startDate/expiresAt нужны для подписи периода ПАКЕТНОГО
+        // абонемента: у него periodYear/periodMonth = NULL и период — интервал
+        // дат (см. subscriptionPeriodLabel).
+        select: {
+          id: true,
+          periodYear: true,
+          periodMonth: true,
+          type: true,
+          startDate: true,
+          endDate: true,
+          expiresAt: true,
+        },
       },
     },
     orderBy: [{ lesson: { date: "desc" } }, { lesson: { startTime: "desc" } }],
