@@ -1,0 +1,299 @@
+/*
+ * Панель узкая (Chrome Side Panel ≈ 320–400 px), поэтому всё в одну колонку,
+ * без таблиц и горизонтальной прокрутки. Тема следует системной: панель стоит
+ * рядом с мессенджером, и светлая плашка возле тёмного Telegram режет глаз.
+ */
+
+:root {
+  --bg: #ffffff;
+  --fg: #18181b;
+  --muted: #71717a;
+  --border: #e4e4e7;
+  --accent: #2563eb;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --surface: #f4f4f5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #18181b;
+    --fg: #fafafa;
+    --muted: #a1a1aa;
+    --border: #3f3f46;
+    --accent: #60a5fa;
+    --danger: #f87171;
+    --ok: #4ade80;
+    --surface: #27272a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 12px 16px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+  z-index: 1;
+}
+
+.brand {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.icon-button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.icon-button:hover {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+h2 {
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+
+.field {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.field > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.field input {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+
+.field small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 10px 0;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 0 0 12px;
+}
+
+button.primary {
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+button.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.link-button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+.status {
+  color: var(--muted);
+  padding: 6px 0;
+}
+
+.error {
+  color: var(--danger);
+  margin: 8px 0 0;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.block {
+  margin-bottom: 12px;
+}
+
+.candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.candidate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.candidate:hover {
+  border-color: var(--accent);
+}
+
+.search input {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.client-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.client-name:hover {
+  text-decoration: underline;
+}
+
+.balance {
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  margin-bottom: 10px;
+}
+
+.balance.debt {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.section {
+  margin-top: 12px;
+}
+
+.section h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.ward {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.ward-name {
+  font-weight: 600;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.row + .row {
+  border-top: 1px dashed var(--border);
+}
+
+.row .label {
+  color: var(--muted);
+}
+
+.msg {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  margin-bottom: 6px;
+}
+
+.msg.outgoing {
+  border-left: 2px solid var(--accent);
+}
+
+.msg .meta {
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: 2px;
+}
+
+.debt-value {
+  color: var(--danger);
+}
+
+.ok-value {
+  color: var(--ok);
+}

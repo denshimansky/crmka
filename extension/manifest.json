@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "CRMka — панель в мессенджерах",
+  "short_name": "CRMka",
+  "version": "0.1.0",
+  "description": "Карточка клиента CRMka рядом с чатом: подопечные, занятия, абонементы, баланс и переписка по всем каналам.",
+
+  "permissions": ["sidePanel", "storage", "tabs"],
+
+  "host_permissions": [
+    "https://app.umnayacrm.ru/*",
+    "https://dev.umnayacrm.ru/*",
+    "https://msk1.umnayacrm.ru/*",
+    "https://web.telegram.org/*"
+  ],
+
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+
+  "side_panel": {
+    "default_path": "src/panel/panel.html"
+  },
+
+  "action": {
+    "default_title": "CRMka — панель клиента"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://web.telegram.org/*"],
+      "js": ["src/content/telegram.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["src/common/telegram-hash.js"],
+      "matches": ["https://web.telegram.org/*"]
+    }
+  ]
+}

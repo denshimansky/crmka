@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CRMka</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <header class="header">
+      <span class="brand">CRMka</span>
+      <button id="settings-toggle" class="icon-button" type="button" title="Настройки">⚙</button>
+    </header>
+
+    <!-- Подключение: адрес CRM + токен из «Настройки → Расширение для мессенджеров» -->
+    <section id="setup" class="screen" hidden>
+      <h2>Подключение к CRM</h2>
+      <label class="field">
+        <span>Адрес CRM</span>
+        <input id="base-url" type="url" placeholder="https://app.umnayacrm.ru" />
+      </label>
+      <label class="field">
+        <span>Токен доступа</span>
+        <input id="token" type="password" placeholder="crmka_…" autocomplete="off" />
+        <small>Выпускается в CRM: Настройки → Расширение для мессенджеров</small>
+      </label>
+      <label class="checkbox">
+        <input id="log-messages" type="checkbox" />
+        <span>Записывать переписку в историю клиента</span>
+      </label>
+      <p class="hint">
+        Записываются только сообщения открытого чата, которые вы видите на экране.
+        Убедитесь, что у центра есть согласие родителей на обработку переписки.
+      </p>
+      <button id="save-settings" class="primary" type="button">Сохранить</button>
+      <p id="setup-error" class="error" hidden></p>
+    </section>
+
+    <!-- Основной экран -->
+    <section id="main" class="screen" hidden>
+      <div id="status" class="status"></div>
+
+      <!-- Клиент не определён: выбрать из кандидатов или привязать вручную -->
+      <div id="unmatched" class="block" hidden>
+        <p id="unmatched-title" class="muted"></p>
+        <div id="candidates" class="candidates"></div>
+        <div class="search">
+          <input id="search-input" type="search" placeholder="Найти клиента по имени или телефону" />
+          <div id="search-results" class="candidates"></div>
+        </div>
+      </div>
+
+      <!-- Карточка клиента -->
+      <article id="card" class="card" hidden>
+        <div class="card-head">
+          <div>
+            <a id="client-name" class="client-name" href="#" target="_blank" rel="noreferrer"></a>
+            <div id="client-meta" class="muted"></div>
+          </div>
+          <button id="unbind" class="link-button" type="button" title="Отвязать чат от клиента">
+            отвязать
+          </button>
+        </div>
+
+        <div id="balance" class="balance"></div>
+        <div id="wards" class="wards"></div>
+        <div id="subscriptions" class="section"></div>
+        <div id="payments" class="section"></div>
+        <div id="communications" class="section"></div>
+      </article>
+    </section>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "crmka-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Панель клиента CRMka в веб-мессенджерах (MV3). Сборки нет: браузер грузит ES-модули как есть, npm нужен только для проверки типов.",
+  "scripts": {
+    "typecheck": "tsc -p jsconfig.json",
+    "test": "node --test src/__tests__/*.test.js"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
