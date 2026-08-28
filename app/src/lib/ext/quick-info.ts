@@ -1,5 +1,6 @@
 import { db } from "@/lib/db"
 import { formatMoney } from "@/lib/currency"
+import { lessonsWord } from "@/lib/plural"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import type { ExtContext } from "@/lib/ext-auth"
 
@@ -44,6 +45,17 @@ export function formatLessonDate(iso: string): string {
   return `${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")} (${weekday})`
 }
 
+/**
+ * Название кабинета для родителя. Приписку «каб.» добавляем только если её нет
+ * в самом названии: у центров кабинеты часто названы «1 кабинет» или
+ * «Кабинет 2», и получалось «каб. 1 кабинет».
+ */
+export function formatRoom(room: string | null): string | null {
+  const name = room?.trim()
+  if (!name) return null
+  return /каб/i.test(name) ? name : `каб. ${name}`
+}
+
 /** Занятие одной строкой: «01.09 (пн) 17:00 — Ментальная арифметика, каб. Синий». */
 export function formatLessonLine(lesson: {
   date: string
@@ -51,9 +63,7 @@ export function formatLessonLine(lesson: {
   direction: string | null
   room: string | null
 }): string {
-  const tail = [lesson.direction, lesson.room ? `каб. ${lesson.room}` : null]
-    .filter(Boolean)
-    .join(", ")
+  const tail = [lesson.direction, formatRoom(lesson.room)].filter(Boolean).join(", ")
   const head = `${formatLessonDate(lesson.date)} ${lesson.startTime}`
   return tail ? `${head} — ${tail}` : head
 }
@@ -104,7 +114,8 @@ export function formatSubscriptionsText(
         sub.periodYear && sub.periodMonth ? ` в ${MONTHS_IN[sub.periodMonth - 1]}` : ""
       const what = sub.direction ?? "занятия"
       lines.push(
-        `${who}${what}${period}: оплачено ${sub.totalLessons} занятий, осталось ${sub.remainingLessons}.` +
+        `${who}${what}${period}: оплачено ${sub.totalLessons} ${lessonsWord(sub.totalLessons)}, ` +
+          `осталось ${sub.remainingLessons}.` +
           (sub.debt > 0 ? ` К оплате ${formatMoney(sub.debt, opts.currency)}.` : ""),
       )
     }

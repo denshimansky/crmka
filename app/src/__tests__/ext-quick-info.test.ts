@@ -4,6 +4,7 @@ import {
   formatBalanceText,
   formatLessonDate,
   formatLessonLine,
+  formatRoom,
   formatScheduleText,
   formatSubscriptionsText,
 } from "@/lib/ext/quick-info"
@@ -167,5 +168,67 @@ describe("formatBalanceText", () => {
   })
   it("валюта организации подставляется", () => {
     assert.equal(norm(formatBalanceText(1200, "KZT")), "На балансе: 1 200 ₸.")
+  })
+})
+
+describe("formatSubscriptionsText — склонение «занятий»", () => {
+  const base = {
+    direction: "Развивайка",
+    periodYear: 2026,
+    periodMonth: 9,
+    remainingLessons: 1,
+    debt: 0,
+  }
+
+  it("одно занятие", () => {
+    assert.equal(
+      formatSubscriptionsText([{ name: "Дима", subscriptions: [{ ...base, totalLessons: 1 }] }], {
+        showNames: false,
+      }),
+      "Развивайка в сентябре: оплачено 1 занятие, осталось 1.",
+    )
+  })
+
+  it("два-четыре — «занятия»", () => {
+    assert.equal(
+      formatSubscriptionsText([{ name: "Дима", subscriptions: [{ ...base, totalLessons: 3 }] }], {
+        showNames: false,
+      }),
+      "Развивайка в сентябре: оплачено 3 занятия, осталось 1.",
+    )
+  })
+
+  it("одиннадцать — исключение из правила «оканчивается на 1»", () => {
+    assert.equal(
+      formatSubscriptionsText([{ name: "Дима", subscriptions: [{ ...base, totalLessons: 11 }] }], {
+        showNames: false,
+      }),
+      "Развивайка в сентябре: оплачено 11 занятий, осталось 1.",
+    )
+  })
+
+  it("двадцать одно — снова «занятие»", () => {
+    assert.equal(
+      formatSubscriptionsText([{ name: "Дима", subscriptions: [{ ...base, totalLessons: 21 }] }], {
+        showNames: false,
+      }),
+      "Развивайка в сентябре: оплачено 21 занятие, осталось 1.",
+    )
+  })
+})
+
+describe("formatRoom", () => {
+  it("обычное название получает приписку", () => {
+    assert.equal(formatRoom("Синий"), "каб. Синий")
+  })
+  it("«1 кабинет» не превращаем в «каб. 1 кабинет»", () => {
+    assert.equal(formatRoom("1 кабинет"), "1 кабинет")
+  })
+  it("«Кабинет 2» — тоже как есть", () => {
+    assert.equal(formatRoom("Кабинет 2"), "Кабинет 2")
+  })
+  it("пусто — строки не будет", () => {
+    assert.equal(formatRoom(null), null)
+    assert.equal(formatRoom("   "), null)
   })
 })

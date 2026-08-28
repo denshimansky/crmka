@@ -1,14 +1,6 @@
 import { db } from "@/lib/db"
 import { consumedPackageLessonsMap, packageLessonsRemaining } from "@/lib/subscriptions/package-remaining"
-
-/** Склонение «занятие/занятия/занятий». */
-function lessonsWord(n: number): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return "занятие"
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "занятия"
-  return "занятий"
-}
+import { lessonsWord } from "@/lib/plural"
 
 /**
  * Исполнитель задачи «Пакет скоро истекает»: приоритет — активный администратор,
