@@ -180,10 +180,24 @@ matcher `middleware.ts` (иначе next-auth редиректит на /login),
 - [x] Поля-хендлы `telegram`/`vk`/`max` в карточке клиента (28.08.2026).
 - [x] Глубокая аналитика + план (28.08.2026): порядок каналов, side panel,
       ChatBinding, PAT, состав MVP, дистрибуция, юридика.
-- [ ] **Фаза 1 — бэкенд:** миграция (Communication + ApiToken + ChatBinding +
-      MessageTemplate) → `lib/ext-auth.ts` + CORS + matcher → `/api/api-tokens` +
-      `/settings/extension` → `/api/ext/{resolve,bindings,client-card,
-      communications/batch}` → фикс вебхука Wazzup.
+- [x] **Фаза 1 — бэкенд (28.08.2026, задеплоено на прод):**
+      - миграции `20260828140000_ext_messenger_backend` (sent_at, unique-ключ
+        дедупа, каналы vk/max, типы messenger_*, таблицы chat_bindings /
+        message_templates / api_tokens) и `20260828150000_communication_sent_at_default`
+        (дефолт now() + бэкфилл: sent_at = «время события» у всех 12 548 строк);
+      - `lib/ext-auth.ts` (PAT sha256, проверка из БД на каждый запрос),
+        `lib/ext-cors.ts` (allow-list + preflight), `api/ext` в исключениях matcher;
+      - `/api/api-tokens` + скрытая страница `/settings/extension` + PageHelp;
+      - `/api/ext/{resolve,bindings,client-card,communications/batch}`,
+        `lib/ext/{chat-identity,resolve-client,client-card}.ts`, 30 юнит-тестов;
+      - фикс вебхука Wazzup: дедуп по id сообщения, `findClientsByPhone`, sent_at.
+      **Проверено на боевых данных msk1:** резолв по номеру (в т.ч.
+      форматированному), карточка (подопечный + возраст + прошедшее/ближайшее
+      занятие + абонементы с долгом + платежи), привязка чата, идемпотентная
+      заливка (повтор → `created:0, skipped:3`), кириллица в UTF-8, отзыв токена
+      действует мгновенно, чужой origin не получает CORS. Тестовые данные удалены.
+      **Осталось от фазы:** `/api/ext/{leads,tasks,comments}` — сделаем вместе с
+      панелью, когда станет виден нужный формат.
 - [ ] **Фаза 2 — расширение:** скелет MV3 (`extension/`), side panel, онбординг с
       PAT, Telegram-адаптер (WebK + WebA).
 - [ ] **Фаза 3:** шаблоны, «вставить справку», ИИ-черновик.
