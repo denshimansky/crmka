@@ -343,18 +343,27 @@ function renderCard(card) {
         .join("")
     : `<p class="muted">Подопечные не заведены</p>`
 
+  // Чей это абонемент — важно, когда детей несколько: направления у них часто
+  // разные, но по названию не догадаешься. Одного ребёнка не подписываем.
+  const wardNames = new Map(card.wards.map((w) => [w.id, w.name]))
+  const showWard = card.wards.length > 1
+
   el.subscriptions.innerHTML = card.subscriptions.length
     ? `<h3>Абонементы</h3>` +
       card.subscriptions
-        .map(
-          (s) => `
+        .map((s) => {
+          const wardName = showWard ? wardNames.get(s.wardId) : null
+          const title = [s.direction, s.period].filter(Boolean).join(" · ")
+          return `
       <div class="row">
-        <span>${escapeHtml([s.direction, s.period].filter(Boolean).join(" · "))}</span>
-        <span>${s.remainingLessons}/${s.totalLessons}${
-          s.debt > 0 ? ` · <span class="debt-value">долг ${money(s.debt)}</span>` : ""
+        <span>${escapeHtml(title)}${
+          wardName ? `<br><span class="muted">${escapeHtml(wardName)}</span>` : ""
         }</span>
-      </div>`,
-        )
+        <span>ост. ${s.remainingLessons} из ${s.totalLessons}${
+          s.debt > 0 ? `<br><span class="debt-value">долг ${money(s.debt)}</span>` : ""
+        }</span>
+      </div>`
+        })
         .join("")
     : ""
 
