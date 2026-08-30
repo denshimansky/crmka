@@ -11,19 +11,7 @@ import { SimpleSelect } from "@/components/ui/simple-select"
 import { Search } from "lucide-react"
 import { EditableDateCell, EditableTextCell } from "../_components/editable-cell"
 import { RemoveFromContactButton } from "./remove-from-contact-button"
-
-// Ярлыки статусов совпадают с табами «Клиенты» (/crm/contacts) и подсказкой дублей.
-const STATUS_LABELS: Record<string, string> = {
-  new: "Лид",
-  trial_scheduled: "Пробное записано",
-  trial_attended: "Пробное пройдено",
-  awaiting_payment: "Ожидание оплаты",
-  active_client: "Активный",
-  potential: "Потенциал",
-  non_target: "Нецелевой",
-  blacklisted: "Чёрный список",
-  archived: "Архив",
-}
+import { clientStateLabel } from "@/lib/clients/state-label"
 
 export interface ContactWard {
   id: string
@@ -44,11 +32,6 @@ export interface ContactRow {
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
-}
-
-function statusLabel(funnelStatus: string, clientStatus: string | null): string {
-  if (clientStatus === "churned") return "Выбывший"
-  return STATUS_LABELS[funnelStatus] ?? funnelStatus
 }
 
 /** Вкладка «Связь» раздела «Продажи»: клиенты/лиды с назначенной датой связи.
@@ -162,7 +145,7 @@ export function ContactTable({
               return (
                 <TableRow key={r.clientId}>
                   <TableCell>
-                    <Badge variant="outline">{statusLabel(r.funnelStatus, r.clientStatus)}</Badge>
+                    <Badge variant="outline">{clientStateLabel(r.funnelStatus, r.clientStatus)}</Badge>
                   </TableCell>
                   <TableCell>
                     <Link href={`/crm/clients/${r.clientId}`} className="font-medium text-primary hover:underline">

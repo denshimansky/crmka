@@ -12,6 +12,7 @@ import { scopeBranch, scopeApplication, type BranchScope, isUnscoped } from "@/l
 import { scopeClientByBranch, clientInBranch } from "@/lib/client-segments"
 import { formatMoney as fmtCurrency } from "@/lib/currency"
 import { getOrgUiSettings } from "@/lib/role-names"
+import { clientStateLabel } from "@/lib/clients/state-label"
 
 // Раздел «Продажи» = 4 этапа воронки заявок + вкладка «Связь» (клиенты с
 // назначенной датой связи). «Связь» ведётся по клиенту, а не по заявке.
@@ -80,9 +81,15 @@ const CLIENT_SELECT = {
   nextContactDate: true,
   assignedTo: true,
   createdAt: true,
+  // Статус клиента в первой колонке = та же метка, что в столбце «Состояние»
+  // на «Клиенты → Все» (clientStateLabel), поэтому нужны оба поля статуса.
+  // Именно метка, а не вкладка: у вкладки «Лиды» есть ещё денежный предикат.
+  // Прежнее «Состояние» (Лид/Клиент по наличию платежей) убрано вместе с
+  // _count.payments.
+  funnelStatus: true,
+  clientStatus: true,
   branch: { select: { id: true, name: true } },
   channel: { select: { id: true, name: true } },
-  _count: { select: { payments: true } },
 } as const
 
 export default async function SalesPage({
@@ -230,7 +237,7 @@ export default async function SalesPage({
       rowId: a.id,
       applicationId: a.id,
       clientId: a.client.id,
-      state: a.client._count.payments > 0 ? "client" : "lead",
+      statusLabel: clientStateLabel(a.client.funnelStatus, a.client.clientStatus),
       firstName: a.client.firstName,
       lastName: a.client.lastName,
       phone: maskPhone(a.client.phone, role, session.user.instructorsSeePhones),
@@ -294,7 +301,7 @@ export default async function SalesPage({
         rowId: a.id,
         applicationId: a.id,
         clientId: a.client.id,
-        state: a.client._count.payments > 0 ? "client" : "lead",
+        statusLabel: clientStateLabel(a.client.funnelStatus, a.client.clientStatus),
         firstName: a.client.firstName,
         lastName: a.client.lastName,
         phone: maskPhone(a.client.phone, role, session.user.instructorsSeePhones),
@@ -383,7 +390,7 @@ export default async function SalesPage({
         rowId: a.id,
         applicationId: a.id,
         clientId: a.client.id,
-        state: a.client._count.payments > 0 ? "client" : "lead",
+        statusLabel: clientStateLabel(a.client.funnelStatus, a.client.clientStatus),
         firstName: a.client.firstName,
         lastName: a.client.lastName,
         phone: maskPhone(a.client.phone, role, session.user.instructorsSeePhones),

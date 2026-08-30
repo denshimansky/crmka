@@ -10,6 +10,7 @@ import {
   RESIZABLE_TABLE_CLASS,
   useColumnWidths,
 } from "@/components/resizable-columns"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -47,7 +48,8 @@ export interface SalesRow {
   rowId: string
   clientId: string
   applicationId?: string
-  state: "lead" | "client"
+  /** Статус клиента одной меткой — та же, что на «Клиентах» (clientStateLabel). */
+  statusLabel: string
   firstName: string | null
   lastName: string | null
   phone: string | null
@@ -157,23 +159,26 @@ function TrialConfirmedCheckbox({
 }
 
 /** Все сортируемые колонки таблицы Продаж. */
-type SortKey =
-  | "state"
-  | "confirmed"
-  | "parent"
-  | "phone"
-  | "channel"
-  | "nextContact"
-  | "ward"
-  | "scheduled"
-  | "branch"
-  | "direction"
-  | "group"
-  | "createdAt"
-  | "firstPaid"
-  | "expected"
-  | "comment"
-  | "assigned"
+const SORT_KEYS = [
+  "status",
+  "confirmed",
+  "parent",
+  "phone",
+  "channel",
+  "nextContact",
+  "ward",
+  "scheduled",
+  "branch",
+  "direction",
+  "group",
+  "createdAt",
+  "firstPaid",
+  "expected",
+  "comment",
+  "assigned",
+] as const
+
+type SortKey = (typeof SORT_KEYS)[number]
 
 type SortDir = "asc" | "desc"
 
@@ -182,8 +187,10 @@ type ColId = SortKey | "social"
 
 // Стартовые ширины столбцов (px): table-fixed требует явных ширин; даты с
 // инпутом (EditableDateCell w-[140px]) получают 160, чтобы не клипался край.
+// «Статус» считан по самой длинной ДОСТИЖИМОЙ здесь метке («Потенциал»/
+// «Нецелевой»): Архив и Чёрный список в воронку не попадают (notArchivedClient).
 const DEFAULT_WIDTHS: Record<ColId, number> = {
-  state: 105,
+  status: 130,
   confirmed: 100,
   parent: 220,
   phone: 130,
@@ -280,7 +287,11 @@ export function SalesTable({
       const raw = sessionStorage.getItem(sortStorageKey)
       if (raw) {
         const s = JSON.parse(raw) as { key?: SortKey | null; dir?: SortDir }
-        if (s?.key) {
+        // Ключ из хранилища проверяем по актуальному списку колонок: столбцы
+        // переименовываются (например «state» → «status»), а sortValue не знает
+        // старых ключей — без проверки сортировка по мёртвому ключу роняла бы
+        // таблицу на localeCompare(undefined).
+        if (s?.key && (SORT_KEYS as readonly string[]).includes(s.key)) {
           key = s.key
           dir = s.dir === "desc" ? "desc" : "asc"
         }
@@ -334,8 +345,8 @@ export function SalesTable({
    *  остальное → строка в нижнем регистре. Пустые значения сортируются в конец. */
   function sortValue(r: SalesRow, key: SortKey): string {
     switch (key) {
-      case "state":
-        return r.state
+      case "status":
+        return r.statusLabel.toLowerCase()
       case "confirmed":
         return r.trialConfirmed ? "1" : "0"
       case "parent":
@@ -499,7 +510,7 @@ export function SalesTable({
         <Table className={RESIZABLE_TABLE_CLASS}>
           <TableHeader>
             <TableRow>
-              <SortableHead label="Состояние" k="state" width={widthOf("state")} {...thProps} />
+              <SortableHead label="Статус" k="status" width={widthOf("status")} {...thProps} />
               {tab === "trial" && (
                 <SortableHead label="Подтвердил" k="confirmed" width={widthOf("confirmed")} {...thProps} />
               )}
@@ -546,8 +557,14 @@ export function SalesTable({
                     : undefined
                 }
               >
-                <TableCell className="text-xs font-medium">
-                  {r.state === "client" ? "Клиент" : "Лид"}
+                <TableCell>
+                  {/* Бейдж w-fit + whitespace-nowrap не сжимается, а таблица
+                      table-fixed: без max-w-full/truncate суженная колонка
+                      срезала бы бейдж вместе с рамкой (тот же приём, что в
+                      SortableHead выше). */}
+                  <Badge variant="outline" className="max-w-full">
+                    <span className="truncate">{r.statusLabel}</span>
+                  </Badge>
                 </TableCell>
                 {tab === "trial" && (
                   <TableCell>
