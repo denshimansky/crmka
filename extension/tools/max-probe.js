@@ -27,9 +27,10 @@
  *   4. Повторить в ГРУППЕ, в КАНАЛЕ, в «Избранном» и на списке чатов — формы
  *      адреса у них разные, адаптеру нужно их различать.
  *
- * ДОПОЛНИТЕЛЬНО (по одной команде за раз):
- *   crmkaMaxProbe.composerDeep()  — из чего сделано поле ввода (главный вопрос v2)
- *   crmkaMaxProbe.tryInsert()     — какой способ вставки будит Svelte
+ * ДОПОЛНИТЕЛЬНО (по одной команде за раз, поле ввода при этом пустое):
+ *   crmkaMaxProbe.composerDeep()   — из чего сделано поле ввода
+ *   await crmkaMaxProbe.tryInsert("paste") — рекомендуемый способ вставки
+ *   await crmkaMaxProbe.tryInsert("exec")  — телеграмный путь, для сравнения
  *   crmkaMaxProbe.scrollCheck()   — виртуализируется ли список сообщений
  *   crmkaMaxProbe.watch()         — ловит ли MutationObserver новое сообщение
  */
@@ -201,16 +202,35 @@
     },
 
     /**
-     * Какой способ вставки принимает редактор. Поле ввода MAX — Lexical
-     * (data-lexical-editor), а он держит СВОЁ состояние документа и прямую правку
-     * DOM игнорирует либо откатывает. Поэтому пробуем по очереди и смотрим не
-     * только на текст, но и на то, ожила ли кнопка отправки: это и есть признак,
-     * что редактор увидел ввод, а не только браузер нарисовал символы.
+     * Какой способ вставки принимает редактор MAX. Это Lexical, и он устроен так,
+     * что наивная проверка вводит в заблуждение — поэтому здесь три тонкости.
+     *
+     * ПЕРВАЯ. `execCommand` в Chrome НЕ порождает `beforeinput` (закреплено тестом
+     * WPT «execCommand() should only trigger input»), а Lexical построен вокруг
+     * `beforeinput`. Вставка попадает в его резервный путь: одиночный `insertText`
+     * там принимается, а вот `insertLineBreak` приходит с `data === null`, перенос
+     * не регистрируется, и вставленный браузером `<br>` сносит собственный
+     * MutationObserver Lexical («editor state is source of truth»). То есть
+     * телеграмный способ на MAX сработает лишь наполовину: строки склеятся.
+     *
+     * ВТОРАЯ. Lexical реконсилирует DOM на МИКРОТАСКЕ, а не синхронно. Чтение
+     * textContent сразу после вставки показывает СТАРЫЙ текст даже при полном
+     * успехе — ровно тот механизм, из-за которого у нас однажды задваивалась
+     * справка в Telegram. Поэтому проверяем асинхронно, опросом до 400 мс.
+     *
+     * ТРЕТЬЯ. Код возврата execCommand бесполезен: ExecuteInsertText в Blink
+     * возвращает true БЕЗУСЛОВНО, даже если ничего не вставилось.
      *
      * ВНИМАНИЕ: текст появится в поле ввода — Enter НЕ нажимать, потом стереть
-     * руками. Ничего не отправляется.
+     * руками. Ничего не отправляется. Синтезировать keydown Enter в отладке
+     * КАТЕГОРИЧЕСКИ нельзя: именно этот обработчик в MAX отправляет сообщение, и
+     * Lexical не проверяет isTrusted.
+     *
+     * @param {"paste"|"exec"} способ paste — синтетический ClipboardEvent (Lexical
+     *   перехватывает его сам и кладёт текст прямо в модель); exec — телеграмный
+     *   путь через execCommand, для сравнения.
      */
-    tryInsert(text = "проверка вставки") {
+    async tryInsert(способ = "paste", text = "строка один\nстрока два") {
       const root = document.querySelector('[data-testid="composer"]')
       const target =
         root?.querySelector("[contenteditable]") ??
@@ -219,12 +239,12 @@
 
       const sendBtn = document.querySelector('button[aria-label="Отправить сообщение"]')
       const снимок = () => ({
-        text: target.textContent ?? "",
+        текст: target.innerText ?? "",
         кнопкаАктивна: sendBtn ? !sendBtn.disabled : null,
       })
 
-      // Каретка в конец: без валидного выделения внутри редактора вставка не
-      // пройдёт вовсе.
+      // Каретка в конец. Lexical подхватывает позицию из DOM-выделения через
+      // selectionchange, а не мгновенно, поэтому дальше отдаём тик.
       target.focus()
       const selection = window.getSelection()
       if (selection) {
@@ -234,46 +254,49 @@
         selection.removeAllRanges()
         selection.addRange(range)
       }
+      await new Promise((r) => setTimeout(r, 50))
 
       const было = снимок()
-      const результаты = {}
 
-      // Способ 1 — execCommand: идёт через штатный конвейер редактирования и
-      // порождает НАСТОЯЩИЙ beforeinput. Так работает наш адаптер Telegram.
-      document.execCommand("insertText", false, text)
-      результаты.execCommand = снимок()
-
-      // Способ 2 — синтетический beforeinput. Ключевой вопрос: примет ли Lexical
-      // НЕДОВЕРЕННОЕ событие (isTrusted:false) — расширение других слать не может.
-      if (результаты.execCommand.text === было.text) {
+      if (способ === "paste") {
+        // Lexical перехватывает paste, делает preventDefault и вставляет текст
+        // средствами JS — отсутствие настоящей нативной вставки ему не мешает.
+        const dt = new DataTransfer()
+        dt.setData("text/plain", text)
         target.dispatchEvent(
-          new InputEvent("beforeinput", {
-            inputType: "insertText",
-            data: text,
-            bubbles: true,
-            cancelable: true,
-          }),
+          new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }),
         )
-        target.dispatchEvent(
-          new InputEvent("input", { inputType: "insertText", data: text, bubbles: true }),
-        )
-        результаты.синтетическийBeforeinput = снимок()
+      } else {
+        // Телеграмный путь: построчно, переносы отдельной командой.
+        text.split("\n").forEach((line, index) => {
+          if (index > 0) document.execCommand("insertLineBreak")
+          if (line) document.execCommand("insertText", false, line)
+        })
       }
 
+      // Ждём реконсиляцию: синхронная проверка соврёт.
+      const крайний = Date.now() + 400
+      let стало = снимок()
+      while (Date.now() < крайний && стало.текст === было.текст) {
+        await new Promise((r) => requestAnimationFrame(() => r(null)))
+        стало = снимок()
+      }
+
+      const вставлено = стало.текст.slice(было.текст.length)
       return {
+        способ,
         поле: {
-          tag: target.tagName.toLowerCase(),
           classes: classParts(target),
-          editable: target.isContentEditable,
           lexical: target.dataset?.lexicalEditor === "true",
         },
         было,
-        результаты,
+        стало,
+        вставлено,
+        переносСохранён: вставлено.includes("\n"),
         подсказка:
-          "Стереть текст руками. Смотри поле кнопкаАктивна: текст на экране без активной кнопки означает, что редактор ввод НЕ принял.",
+          "Стереть текст руками. Главный признак успеха — кнопкаАктивна: символы на экране без активной кнопки означают, что редактор ввод НЕ принял.",
       }
     },
-
     /** Виртуализируется ли список: прокрутить вверх и сравнить число узлов. */
     scrollCheck() {
       const box = scroller ?? document.scrollingElement
