@@ -9,6 +9,7 @@ import {
   MSG_AI_DRAFT,
   MSG_API,
   MSG_CHAT_ACTIVITY,
+  MSG_DIAG,
   MSG_GET_STATE,
   MSG_INSERT_TEXT,
   MSG_RELOAD_TAB,
@@ -434,7 +435,49 @@ function renderChatDiag() {
     return
   }
   const ids = chat.altIds?.length ? chat.altIds.join(", ") : chat.chatId
-  el.chatDiag.textContent = `Чат: ${ids}` + (chat.peerSource ? ` · канон: ${chat.peerSource}` : "")
+  const base = `Чат: ${ids}` + (chat.peerSource ? ` · канон: ${chat.peerSource}` : "")
+  el.chatDiag.textContent = base
+  // Подробности спрашиваем у адаптера, только когда человек СМОТРИТ на настройки:
+  // это лишний обмен с content script, а на главном экране его всё равно не видно.
+  if (state.showSetup) void appendAdapterDiag(base)
+}
+
+/**
+ * Дописать к строке диагностики то, что видит адаптер: сколько сообщений собрано
+ * и сколько пропущено (и почему), какие селекторы действуют.
+ *
+ * Зачем это на экране, а не только в консоли service worker: поломка разметки
+ * мессенджера МОЛЧАЛИВА по устройству. Панель продолжает показывать карточку, а
+ * переписка тихо перестаёт заливаться — без этих счётчиков мы узнали бы о
+ * поломке через месяц по пустой истории в карточках. Особенно важно в неделю
+ * обкатки MAX (docs/messenger-extension.md §8, «Условие выката»).
+ *
+ * @param {string} base Текст строки на момент запроса: пока идёт обмен, человек
+ *   успевает открыть другой чат, и дописывать в чужую строку нельзя.
+ */
+async function appendAdapterDiag(base) {
+  let pong = null
+  try {
+    pong = await send({ type: MSG_DIAG })
+  } catch {
+    // Content script не ответил — это не ошибка панели, просто нечего показать.
+    return
+  }
+  if (!pong || el.chatDiag.textContent !== base) return
+
+  // Общие поля ответа на ping панель уже показала выше; интересно канальное.
+  const skip = new Set(["alive", "channel", "ready", "chatId", "chat", "peerSource"])
+  const parts = Object.entries(pong)
+    .filter(([key]) => !skip.has(key))
+    .map(([key, value]) => `${key}: ${typeof value === "object" ? shortJson(value) : value}`)
+  if (parts.length) el.chatDiag.textContent = `${base}\n${parts.join(" · ")}`
+}
+
+/** Компактный JSON без кавычек у ключей — строка диагностики узкая. */
+function shortJson(value) {
+  return JSON.stringify(value ?? null)
+    .replace(/"([^"]+)":/g, "$1:")
+    .replace(/[{}"]/g, "")
 }
 
 /**

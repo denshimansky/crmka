@@ -18,6 +18,7 @@ import {
   MSG_CHAT_ACTIVITY,
   MSG_CHAT_CHANGED,
   MSG_COLLECT_MESSAGES,
+  MSG_DIAG,
   MSG_GET_STATE,
   MSG_INSERT_TEXT,
   MSG_PING,
@@ -415,6 +416,15 @@ async function handleMessage(message, sender) {
       const tabId = await getActiveTabId(message.windowId)
       if (tabId != null) await chrome.tabs.reload(tabId)
       return null
+    }
+
+    case MSG_DIAG: {
+      // Ответ адаптера на ping целиком — панель показывает его на экране
+      // настроек. Молчание content script (вкладка не мессенджер, скрипт не
+      // подключился) — не ошибка: панель просто не покажет строку.
+      const tabId = await getActiveTabId(message.windowId)
+      if (tabId == null) return null
+      return await chrome.tabs.sendMessage(tabId, { type: MSG_PING }).catch(() => null)
     }
 
     case MSG_SAVE_SETTINGS: {
