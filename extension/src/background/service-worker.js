@@ -463,6 +463,13 @@ async function buildAiDraft(clientId, expectedChatKey, windowId) {
   if (tabId != null && !(await chatMatches(tabId, expectedChatKey))) {
     throw new Error("Чат сменился — откройте нужный диалог и повторите")
   }
+  // Черновик отправляет переписку провайдеру ИИ — для группового чата это тот
+  // же поток чужих персональных данных, что и заливка, и живёт под тем же
+  // запретом. Панель до сюда не доведёт (карточки у группы нет), но гард
+  // дешевле, чем доверие к панели: её сборка в браузере может быть старой.
+  if (tabId != null && (await getChatForTab(tabId))?.unsupported) {
+    throw new Error("Групповой чат — панель работает только с личной перепиской")
+  }
   const messages = tabId != null ? ((await collectMessages(tabId)) ?? []) : []
 
   return fetchAiReply(settings, {
@@ -493,6 +500,12 @@ async function syncVisibleMessages(clientId, expectedChatKey, windowId) {
   if (tabId == null) return null
   const chat = await getChatForTab(tabId)
   if (!chat) return null
+  // Групповой чат (сегодня это MAX): панель его не обслуживает, и заливать
+  // групповую переписку в карточку одного человека нельзя — убрать её оттуда
+  // потом нечем. Второй из четырёх рубежей: первый в адаптере, третий в панели,
+  // четвёртый на сервере. Серверный переживает старую сборку расширения в
+  // браузере сотрудника, этот — старую панель.
+  if (chat.unsupported) return null
   // Человек успел переключить диалог, пока панель решала. Сообщения чужого
   // чата, попавшие в карточку, оттуда уже не убрать штатно — ключ дедупа не
   // позволит их переписать.

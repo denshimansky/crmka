@@ -11,7 +11,8 @@
     "https://app.umnayacrm.ru/*",
     "https://dev.umnayacrm.ru/*",
     "https://msk1.umnayacrm.ru/*",
-    "https://web.telegram.org/*"
+    "https://web.telegram.org/*",
+    "https://web.max.ru/*"
   ],
 
   "background": {
@@ -35,6 +36,14 @@
         "src/content/telegram.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://web.max.ru/*"],
+      "js": [
+        "src/content/adapter-core.js",
+        "src/content/max.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
 
@@ -46,6 +55,14 @@
         "src/common/telegram-peer.js"
       ],
       "matches": ["https://web.telegram.org/*"]
+    },
+    {
+      "resources": [
+        "src/common/max-path.js",
+        "src/common/max-time.js",
+        "src/common/max-message.js"
+      ],
+      "matches": ["https://web.max.ru/*"]
     }
   ]
 }

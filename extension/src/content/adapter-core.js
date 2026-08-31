@@ -29,7 +29,8 @@
  *                       за такт наблюдателя, см. reportChat)
  *   collectMessages() — видимые сообщения открытого чата
  *   latestMessageKey()— отпечаток самого свежего сообщения
- *   insertText(text)  — вставить текст в поле ввода, НЕ отправляя
+ *   insertText(text)  — вставить текст в поле ввода, НЕ отправляя; можно
+ *                       вернуть Promise (MAX ждёт реконсиляцию Lexical)
  *   watch(onChange)   — канальный детект смены чата, возвращает отписку
  *   diag()            — произвольные поля в ответ на ping, для диагностики
  */
@@ -87,7 +88,7 @@
    *   readChat: (options?: {commit?: boolean}) => any,
    *   collectMessages: () => any[],
    *   latestMessageKey: () => string|null,
-   *   insertText: (text: string) => boolean,
+   *   insertText: (text: string) => boolean|Promise<boolean>,
    *   watch: (onChange: () => void) => (() => void)|void,
    *   diag?: () => Record<string, unknown>,
    * }} adapter
@@ -207,7 +208,19 @@
         return false
       }
       if (message?.type === MSG_INSERT_TEXT) {
-        sendResponse({ inserted: adapter.insertText(String(message.text ?? "")) })
+        // Ответ может быть асинхронным: в Telegram вставка синхронная
+        // (execCommand), а в MAX редактор Lexical реконсилирует DOM на
+        // микротаске — там честный ответ «вставилось ли» получается только
+        // ожиданием. Панель по этому ответу решает, класть ли текст в буфер
+        // обмена, поэтому соврать синхронным true нельзя.
+        const result = adapter.insertText(String(message.text ?? ""))
+        if (result && typeof (/** @type {any} */ (result).then) === "function") {
+          Promise.resolve(result)
+            .then((inserted) => sendResponse({ inserted: Boolean(inserted) }))
+            .catch(() => sendResponse({ inserted: false }))
+          return true
+        }
+        sendResponse({ inserted: Boolean(result) })
         return false
       }
       if (message?.type === MSG_PING) {
