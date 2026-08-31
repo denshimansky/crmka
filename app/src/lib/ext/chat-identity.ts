@@ -34,7 +34,10 @@ export function isMessengerChannel(value: string): value is MessengerChannel {
  * WhatsApp: «79991234567@c.us», «+7 (999) 123-45-67» → последние 10 цифр
  *           (тот же ключ, что у findClientsByPhone); LID-идентификаторы
  *           («12345@lid») сохраняем как «lid:12345» — номера за ними нет.
- * MAX:      номер телефона → последние 10 цифр; иначе — как есть.
+ * MAX:      «web.max.ru/1234567890123» → «1234567890123»;
+ *           «web.max.ru/c/1234567890123/987» → «1234567890123» (первый значащий
+ *           сегмент пути); состояния интерфейса («/:chat-list») → null.
+ *           chatId хранится КАК ЕСТЬ: это не телефон (см. normalizeMaxChatId).
  *
  * Возвращает null, если после очистки ничего не осталось.
  */
@@ -50,6 +53,11 @@ export function normalizeChatId(channel: MessengerChannel, raw: string | null | 
     "",
   )
   value = value.replace(/^@+/, "").trim()
+
+  // MAX разбираем ДО общей обрезки: у него путь многосегментный, и обрезка по
+  // первому «/» схлопывала бы ВСЕ групповые чаты в один ключ «c».
+  if (channel === "max") return normalizeMaxChatId(value)
+
   // Отрезаем query/хвост пути: «durov?w=wall1_1» → «durov».
   value = value.split(/[?#/]/)[0]?.trim() ?? ""
   if (!value) return null
@@ -64,16 +72,59 @@ export function normalizeChatId(channel: MessengerChannel, raw: string | null | 
       const digitsSource = jid ? jid[1] : value
       return phoneMatchKey(digitsSource) ?? value.toLowerCase()
     }
-    case "max": {
-      // MAX завязан на номер телефона; если пришёл не номер — оставляем как есть.
-      const key = phoneMatchKey(value)
-      return key ?? value.toLowerCase()
-    }
     case "telegram":
     case "vk":
       // Регистр в username не значим: «Durov» и «durov» — один аккаунт.
       return value.toLowerCase()
   }
+}
+
+/**
+ * Служебные префиксы маршрутов MAX — не часть идентификатора чата.
+ * «/c/<chatId>/<messageId>» — сообщение в канале, «/u/<id>» — профиль и т.д.
+ */
+const MAX_ROUTE_PREFIXES = new Set([
+  "c",
+  "u",
+  "join",
+  "joincall",
+  "stickerset",
+  "_storybook",
+])
+
+/**
+ * Идентификатор чата MAX — ПЕРВЫЙ ЗНАЧАЩИЙ СЕГМЕНТ ПУТИ, как есть.
+ *
+ * Здесь было две мины, и обе вели к чужой переписке в карточке клиента.
+ *
+ * ПЕРВАЯ: chatId прогонялся через phoneMatchKey с комментарием «MAX завязан на
+ * номер телефона». Но chatId в MAX — это длинное число, а не номер: phoneMatchKey
+ * брал у него последние 10 цифр (старшие разряды терялись молча), а у строки с
+ * буквами выбрасывал буквы целиком. Дальше resolve-client искал по этому обрезку
+ * КЛИЕНТА ПО ТЕЛЕФОНУ и при единственном совпадении подставлял его без участия
+ * человека. Телефон теперь принимается только отдельным явным полем — так же,
+ * как это давно сделано для Telegram.
+ *
+ * ВТОРАЯ: общая обрезка пути по первому «/» превращала «web.max.ru/c/123/987» в
+ * «c». Все групповые чаты и каналы схлопывались в ОДИН ключ, а уникальный индекс
+ * (tenantId, channel, externalChatId) склеивал их в одну привязку. Эта коллизия
+ * опаснее телефонной: она не случайная, а системная.
+ *
+ * Значение возвращаем в нижнем регистре — как у telegram/vk, регистр не значим.
+ */
+function normalizeMaxChatId(value: string): string | null {
+  // Query и хэш отрезаем, путь разбираем целиком.
+  const path = value.split(/[?#]/)[0] ?? ""
+  for (const segment of path.split("/")) {
+    const part = segment.trim()
+    if (!part) continue
+    // Псевдо-маршруты состояния интерфейса («:chat-list», «:settings/...») —
+    // это не чат, и привязывать их к клиенту нельзя.
+    if (part.startsWith(":")) return null
+    if (MAX_ROUTE_PREFIXES.has(part.toLowerCase())) continue
+    return part.toLowerCase()
+  }
+  return null
 }
 
 /**

@@ -70,12 +70,48 @@ describe("normalizeChatId — WhatsApp", () => {
   })
 })
 
+// MAX: chatId — это НЕ телефон, а длинное число из адреса. Прежняя реализация
+// гнала его через phoneMatchKey и обрезала путь по первому «/» — обе ошибки вели
+// к чужой переписке в карточке клиента, поэтому граница зафиксирована тестами.
 describe("normalizeChatId — MAX", () => {
-  it("номер телефона сводится к ключу последних 10 цифр", () => {
-    assert.equal(normalizeChatId("max", "+7 999 123-45-67"), "9991234567")
+  it("длинный chatId НЕ обрезается до последних 10 цифр", () => {
+    // Раньше «0123456789012» превращалось в «3456789012»: старшие разряды
+    // терялись молча, а резолв искал по обрезку клиента ПО ТЕЛЕФОНУ.
+    assert.equal(normalizeChatId("max", "https://web.max.ru/0123456789012"), "0123456789012")
   })
-  it("не-номер остаётся как есть в нижнем регистре", () => {
+  it("похожий на номер chatId остаётся собой, а не ключом телефона", () => {
+    assert.equal(normalizeChatId("max", "79991234567"), "79991234567")
+  })
+  it("буквы в идентификаторе не теряются", () => {
+    // phoneMatchKey выбрасывал всё нецифровое: «chat-1234567890» → «1234567890».
+    assert.equal(normalizeChatId("max", "chat-1234567890"), "chat-1234567890")
+  })
+  it("групповой чат: берём chatId, а не префикс маршрута", () => {
+    // Раньше ЛЮБАЯ такая ссылка давала ключ «c», и все групповые чаты
+    // схлопывались в одну привязку — коллизия системная, а не случайная.
+    assert.equal(normalizeChatId("max", "https://web.max.ru/c/1234567890123/987"), "1234567890123")
+  })
+  it("профиль: префикс u тоже пропускаем", () => {
+    assert.equal(normalizeChatId("max", "https://web.max.ru/u/12345"), "12345")
+  })
+  it("две разные группы дают РАЗНЫЕ ключи", () => {
+    assert.notEqual(
+      normalizeChatId("max", "web.max.ru/c/111/1"),
+      normalizeChatId("max", "web.max.ru/c/222/1"),
+    )
+  })
+  it("состояние интерфейса — не чат", () => {
+    assert.equal(normalizeChatId("max", "https://web.max.ru/:chat-list"), null)
+    assert.equal(normalizeChatId("max", "web.max.ru/:settings/profile"), null)
+  })
+  it("query отрезаем", () => {
+    assert.equal(normalizeChatId("max", "web.max.ru/123456789?from=push"), "123456789")
+  })
+  it("регистр не значим", () => {
     assert.equal(normalizeChatId("max", "SomeId"), "someid")
+  })
+  it("пустой путь", () => {
+    assert.equal(normalizeChatId("max", "https://web.max.ru/"), null)
   })
 })
 

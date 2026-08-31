@@ -176,11 +176,17 @@ export async function resolveClientForChat(
     }
   }
 
-  // 2. Телефон. Для WhatsApp/MAX нормализованный chatId — это уже ключ номера
-  // (последние 10 цифр), тот же, что использует findClientsByPhone.
+  // 2. Телефон. Только WhatsApp: там аккаунт И ЕСТЬ номер, поэтому
+  // нормализованный chatId — уже ключ номера, тот же, что у findClientsByPhone.
+  //
+  // MAX сюда НЕ входит, хотя раньше входил: его chatId — длинное число, а не
+  // телефон, и поиск клиента по нему как по номеру подставлял ЧУЖОГО человека с
+  // совпадающим хвостом. Телефон в MAX приходит отдельным явным полем params.phone
+  // (как в Telegram) — если канал вообще сможет его отдать: он закрыт настройкой
+  // приватности.
   const phoneInput =
     params.phone ??
-    (params.channel === "whatsapp" || params.channel === "max"
+    (params.channel === "whatsapp"
       ? chatId && !chatId.startsWith("lid:")
         ? chatId
         : null
