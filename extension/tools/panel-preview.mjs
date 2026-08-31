@@ -164,6 +164,42 @@ const noteLayout = await page.evaluate(() => ({
   строкаСрокаВидна: document.getElementById("action-due-row").offsetParent !== null,
 }))
 
+// Длинная ссылка БЕЗ ПРОБЕЛОВ в переписке. Родитель прислал такую в MAX, и она
+// вылезла за карточку, включив горизонтальную прокрутку всей панели.
+//
+// Проверяем на УЗКОЙ панели: боковая панель Chrome тянется, и при 400px эта
+// ссылка помещается — первая версия проверки поэтому молча зеленела. Замер на
+// 280px даёт 106px переполнения без фикса и ноль с ним (проверено обоими
+// прогонами). Меряем не только документ, но и каждый элемент: длинная строка
+// распирает сначала свой блок и только потом страницу.
+await page.click("#action-cancel").catch(() => {})
+await page.setViewportSize({ width: 280, height: 900 })
+await page.evaluate(() => {
+  const url = "https://max.ru/u/f9LHodD0cOL2lsi2nx3QLUwgeKrZupsXvX3-actqkac3uRUx-D8-i48"
+  document.getElementById("communications").innerHTML =
+    "<h3>Переписка и события</h3>" +
+    '<div class="msg"><div class="meta">31.08, 12:49 · MAX</div><div>' + url + "</div></div>"
+})
+await page.waitForTimeout(150)
+await page.screenshot({ path: path.join(OUT_DIR, "long-link.png") })
+shots.push("long-link.png")
+// Меряем не только документ, но и КАЖДЫЙ элемент: длинная строка распирает
+// сначала свой блок, и только потом — страницу. Замер по одному
+// documentElement.scrollWidth пропускал баг (проверено: без фикса он молчал).
+const overflowPx = await page.evaluate(() => {
+  const doc = document.documentElement
+  let worst = doc.scrollWidth - doc.clientWidth
+  let culprit = "документ"
+  for (const el of document.querySelectorAll("body *")) {
+    const over = el.scrollWidth - el.clientWidth
+    if (over > worst) {
+      worst = over
+      culprit = el.className || el.tagName.toLowerCase()
+    }
+  }
+  return { worst, culprit }
+})
+
 await browser.close()
 server.close()
 
@@ -172,3 +208,14 @@ console.log("Календарь открыт:", JSON.stringify(calendarOpened), 
 console.log("После выбора даты:", JSON.stringify(afterPick))
 console.log("Комментарий:", JSON.stringify(noteLayout))
 console.log(`Скриншоты (${shots.join(", ")}): ${OUT_DIR}`)
+
+if (overflowPx.worst > 1) {
+  console.error(
+    `РАЗЪЕХАЛОСЬ ВБОК на ${overflowPx.worst}px (элемент: ${overflowPx.culprit}):` +
+      " длинная ссылка распирает карточку." +
+      " Чинится переносом длинных строк в panel.css (overflow-wrap).",
+  )
+  process.exitCode = 1
+} else {
+  console.log("Ничего не разъехалось — длинная ссылка переносится")
+}
