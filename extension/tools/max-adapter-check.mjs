@@ -299,6 +299,16 @@ const renamed = await page.evaluate(() => {
 })
 check("переименование класса ломает сбор (это и есть авария)", renamed === 0, renamed)
 
+// «Конфиг не приезжал» и «конфиг приехал пустым» выглядят одинаково — работаем на
+// встроенных. Но в первом случае механизм починки мёртв, и знать об этом надо ДО
+// аварии, а не в ней.
+const configSilence = await page.evaluate(() => window.__adapter.diag()["селекторы"])
+check(
+  "видно, что конфиг ещё не приезжал",
+  /не получен/.test(configSilence),
+  configSilence,
+)
+
 const broken = await page.evaluate(async () => {
   window.__pushConfig({ version: 6, channels: { max: { bubble: "[[сломанный", bubbles: ".x" } } })
   await new Promise((r) => setTimeout(r, 30))
@@ -341,12 +351,21 @@ const rolledBack = await page.evaluate(async () => {
   for (const el of document.querySelectorAll('[class*="msgWrap"]')) {
     el.className = el.className.replace(/msgWrap/g, "messageWrapper")
   }
-  return { пусто, снова: window.__adapter.collectMessages().length }
+  return {
+    пусто,
+    снова: window.__adapter.collectMessages().length,
+    диагностика: window.__adapter.diag()["селекторы"],
+  }
 })
 check(
   "снятое переопределение возвращает встроенные селекторы",
   rolledBack.пусто === 0 && rolledBack.снова === 3,
   rolledBack,
+)
+check(
+  "и это отличается от «конфиг не приезжал»",
+  /пуст — это норма/.test(rolledBack.диагностика),
+  rolledBack.диагностика,
 )
 
 // ── Вставка текста ─────────────────────────────────────────────────────────
