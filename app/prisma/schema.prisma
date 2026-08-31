@@ -2768,18 +2768,30 @@ model Communication {
 // externalChatId — нормализованный id чата: @username или числовой id (Telegram),
 // peer id (VK), номер/LID (WhatsApp).
 model ChatBinding {
-  id             String               @id @default(uuid()) @db.Uuid
-  tenantId       String               @map("tenant_id") @db.Uuid
-  channel        CommunicationChannel
-  externalChatId String               @map("external_chat_id")
-  clientId       String               @map("client_id") @db.Uuid
+  id              String               @id @default(uuid()) @db.Uuid
+  tenantId        String               @map("tenant_id") @db.Uuid
+  channel         CommunicationChannel
+  externalChatId  String               @map("external_chat_id")
+  // Под каким из идентификаторов чата ведётся ЭТА группа строк.
+  //
+  // Один и тот же собеседник приходит из разных клиентов мессенджера под
+  // разными идентификаторами: Telegram WebK (/k) пишет в адрес «@username»,
+  // WebA (/a) — числовой peer id. Поэтому на одного клиента может быть
+  // НЕСКОЛЬКО строк — по одной на идентификатор, и все они указывают на общий
+  // канон. Ключ дедупа сообщений строится именно по канону: иначе переписка
+  // одного человека, залитая из двух клиентов, задваивается в карточке.
+  //
+  // NULL = канон не определён (так живут все привязки, сделанные до 31.08.2026,
+  // и все каналы, где канонизировать нечего) — поведение прежнее.
+  canonicalChatId String?              @map("canonical_chat_id")
+  clientId        String               @map("client_id") @db.Uuid
   // Необязательное уточнение: чат конкретно про этого подопечного.
-  wardId         String?              @map("ward_id") @db.Uuid
+  wardId          String?              @map("ward_id") @db.Uuid
   // Отображаемое имя собеседника в мессенджере — для списка привязок в CRM.
-  displayName    String?              @map("display_name")
-  createdBy      String?              @map("created_by") @db.Uuid
-  createdAt      DateTime             @default(now()) @map("created_at")
-  lastSeenAt     DateTime?            @map("last_seen_at")
+  displayName     String?              @map("display_name")
+  createdBy       String?              @map("created_by") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at")
+  lastSeenAt      DateTime?            @map("last_seen_at")
 
   organization Organization @relation(fields: [tenantId], references: [id])
   client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -2788,6 +2800,7 @@ model ChatBinding {
 
   @@unique([tenantId, channel, externalChatId])
   @@index([tenantId, clientId])
+  @@index([tenantId, channel, canonicalChatId])
   @@map("chat_bindings")
 }
 
