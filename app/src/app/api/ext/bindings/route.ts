@@ -7,6 +7,7 @@ import { extJson, extOptions, readExtJson } from "@/lib/ext-cors"
 import {
   MESSENGER_CHANNELS,
   handleFieldForChannel,
+  isMaxGroupChatId,
   isPositiveNumericChatId,
   toPrismaChannel,
 } from "@/lib/ext/chat-identity"
@@ -115,6 +116,21 @@ export async function POST(req: NextRequest) {
 
   const ids = splitChatIds(channel, [parsed.data.chatId, ...(parsed.data.altIds ?? [])])
   if (!ids.canonical) return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
+
+  // Групповой чат MAX к клиенту не привязываем. Рубеж серверный, потому что
+  // клиентский переживает не всякую сборку расширения: в браузере сотрудника
+  // какое-то время живёт старая. Цена пропуска необратима — вся групповая
+  // переписка чужих родителей уедет в карточку одного человека.
+  if (isMaxGroupChatId(channel, ids.canonical)) {
+    return extJson(
+      req,
+      {
+        error:
+          "Групповые чаты MAX панель не ведёт: переписку группы нельзя положить в карточку одного клиента",
+      },
+      { status: 400 },
+    )
+  }
 
   // Группу разворачиваем по базе: канон, уже закреплённый за этим чатом,
   // важнее канона текущего наблюдения — по нему построены ключи залитых
@@ -248,6 +264,10 @@ export async function DELETE(req: NextRequest) {
   ])
   if (!ids.canonical) return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
 
+  // Групповой чат MAX здесь НЕ гардим сознательно. Привязка, созданная старой
+  // сборкой расширения до появления запрета, должна остаться удаляемой — иначе
+  // мы своим же гардом сделали бы её вечной.
+  //
   // Разворачиваем группу по базе: если числовой peer id в этот момент не
   // прочитался, наивная чистка сняла бы одну строку из двух — и чат остался
   // бы привязанным в другом клиенте Telegram.

@@ -1,9 +1,11 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import {
+  acceptsPhoneParam,
   buildMessageExternalId,
   handleFieldForChannel,
   isLocalMessageId,
+  isMaxGroupChatId,
   isMessengerChannel,
   isPositiveNumericChatId,
   normalizeChatId,
@@ -240,5 +242,44 @@ describe("isLocalMessageId — второй рубеж против неотпр
   it("пусто", () => {
     assert.equal(isLocalMessageId(null), false)
     assert.equal(isLocalMessageId(""), false)
+  })
+})
+
+describe("isMaxGroupChatId — групповые чаты MAX панель не ведёт", () => {
+  it("отрицательный id MAX — это группа", () => {
+    // Живая проверка: web.max.ru/-78377804395205 — групповой чат.
+    assert.equal(isMaxGroupChatId("max", "-78377804395205"), true)
+  })
+  it("личный чат — не группа", () => {
+    assert.equal(isMaxGroupChatId("max", "437719203"), false)
+  })
+  it("ЗАМОК: на Telegram запрет не распространяется", () => {
+    // У Telegram отрицательные id тоже группы, но там они привязываются и
+    // работают уже сегодня — распространить проверку значит сломать живой канал.
+    assert.equal(isMaxGroupChatId("telegram", "-1001234567890"), false)
+  })
+  it("пустые значения", () => {
+    assert.equal(isMaxGroupChatId("max", null), false)
+    assert.equal(isMaxGroupChatId("max", ""), false)
+  })
+  it("минус посреди строки не считается", () => {
+    assert.equal(isMaxGroupChatId("max", "12-34"), false)
+  })
+})
+
+describe("acceptsPhoneParam — откуда телефону вообще взяться", () => {
+  it("WhatsApp: аккаунт и есть номер", () => {
+    assert.equal(acceptsPhoneParam("whatsapp"), true)
+  })
+  it("Telegram: тракт для телефона проложен", () => {
+    assert.equal(acceptsPhoneParam("telegram"), true)
+  })
+  it("MAX: номер закрыт настройкой приватности — принимать нечего", () => {
+    // Второй путь к мине Шага 0: панель шлёт chat.phone насквозь, и если туда
+    // попадёт идентификатор чата, сервер снова пойдёт искать клиента ПО НОМЕРУ.
+    assert.equal(acceptsPhoneParam("max"), false)
+  })
+  it("VK: телефона нет вовсе", () => {
+    assert.equal(acceptsPhoneParam("vk"), false)
   })
 })

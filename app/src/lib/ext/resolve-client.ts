@@ -5,7 +5,9 @@ import { clientStateLabel } from "@/lib/clients/state-label"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
 import type { ExtContext } from "@/lib/ext-auth"
 import {
+  acceptsPhoneParam,
   handleFieldForChannel,
+  isMaxGroupChatId,
   normalizeHandle,
   toPrismaChannel,
   type MessengerChannel,
@@ -39,7 +41,14 @@ export interface ExtClientCandidate {
   stateLabel: string
 }
 
-export type ExtResolveMatch = "binding" | "phone" | "handle" | "conflict" | "none"
+export type ExtResolveMatch =
+  | "binding"
+  | "phone"
+  | "handle"
+  | "conflict"
+  /** Чат такого рода панель не обслуживает — например, групповой чат MAX. */
+  | "unsupported"
+  | "none"
 
 export interface ExtResolveResult {
   match: ExtResolveMatch
@@ -82,6 +91,20 @@ export async function resolveClientForChat(
 ): Promise<ExtResolveResult> {
   const ids = splitChatIds(params.channel, [params.chatId, ...(params.altIds ?? [])])
   const chatId = ids.canonical
+
+  // Групповой чат MAX не обслуживаем. Гард стоит ИМЕННО ЗДЕСЬ, до всякого
+  // поиска: этот рубеж переживает старую сборку расширения в браузере
+  // сотрудника, а клиентские — нет.
+  if (isMaxGroupChatId(params.channel, chatId)) {
+    return {
+      match: "unsupported",
+      clientId: null,
+      candidates: [],
+      chatId,
+      canonicalChatId: chatId,
+    }
+  }
+
   const scope = scopeClientByBranch(ctx.branchScope)
   const empty: ExtResolveResult = {
     match: "none",
@@ -185,7 +208,7 @@ export async function resolveClientForChat(
   // (как в Telegram) — если канал вообще сможет его отдать: он закрыт настройкой
   // приватности.
   const phoneInput =
-    params.phone ??
+    (acceptsPhoneParam(params.channel) ? params.phone : null) ??
     (params.channel === "whatsapp"
       ? chatId && !chatId.startsWith("lid:")
         ? chatId

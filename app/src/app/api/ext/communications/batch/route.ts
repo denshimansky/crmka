@@ -8,6 +8,7 @@ import {
   MESSENGER_CHANNELS,
   buildMessageExternalId,
   isLocalMessageId,
+  isMaxGroupChatId,
   messageTypeForDirection,
   normalizeChatId,
   parseMessageSentAt,
@@ -106,6 +107,20 @@ export async function POST(req: NextRequest) {
 
   const ids = splitChatIds(channel, [parsed.data.chatId, ...(parsed.data.altIds ?? [])])
   if (!ids.canonical) return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
+
+  // Групповой чат MAX не заливаем. Этот роут опаснее прочих: существующей
+  // привязки он не требует вовсе — clientId приходит от панели, — поэтому
+  // именно здесь гард обязателен.
+  if (isMaxGroupChatId(channel, ids.canonical)) {
+    return extJson(
+      req,
+      {
+        error:
+          "Групповые чаты MAX панель не ведёт: переписку группы нельзя положить в карточку одного клиента",
+      },
+      { status: 400 },
+    )
+  }
 
   // Канон берём из БАЗЫ, а не из текущего наблюдения: числовой peer id
   // читается из разметки не всегда, и канон «по мешку запроса» скакал бы от
