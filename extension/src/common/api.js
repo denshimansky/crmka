@@ -120,6 +120,22 @@ export function fetchAiReply(settings, payload) {
 }
 
 /**
+ * Удалённый конфиг селекторов адаптеров (docs/messenger-extension.md §3).
+ *
+ * Разметка мессенджеров меняется без предупреждения, а починка селектора,
+ * зашитого в код, означает публикацию в Chrome Web Store — дни ревью, всё это
+ * время канал мёртв у всех сразу. MV3 запрещает удалённый КОД, но разрешает
+ * удалённые ДАННЫЕ, и селекторы — данные. В норме сервер отдаёт пустой набор:
+ * встроенные значения остаются источником правды.
+ *
+ * @param {ExtSettings} settings
+ * @returns {Promise<{version: number, updatedAt: string, channels: Record<string, Record<string, string|string[]>>}>}
+ */
+export function fetchSelectorConfig(settings) {
+  return request(settings, "/api/ext/selectors")
+}
+
+/**
  * Поиск клиента для ручной привязки (в Telegram телефона нет — ищет человек).
  * @param {ExtSettings} settings
  * @param {string} q

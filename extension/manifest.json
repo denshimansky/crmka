@@ -60,7 +60,8 @@
       "resources": [
         "src/common/max-path.js",
         "src/common/max-time.js",
-        "src/common/max-message.js"
+        "src/common/max-message.js",
+        "src/common/selector-config.js"
       ],
       "matches": ["https://web.max.ru/*"]
     }

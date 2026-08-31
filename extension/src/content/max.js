@@ -45,16 +45,17 @@
   /** @typedef {import("../common/types.js").ChatMessage} ChatMessage */
 
   /**
-   * СЕЛЕКТОРЫ. Классы Svelte хешируются на каждой сборке
+   * ВСТРОЕННЫЕ СЕЛЕКТОРЫ. Классы Svelte хешируются на каждой сборке
    * («messageWrapper svelte-1kh0oxy»), поэтому цепляемся ТОЛЬКО за авторскую
    * часть класса через `[class*="…"]` либо за `data-testid`/`data-*`.
    *
-   * Отсюда же следует, что для MAX remote-конфиг селекторов (Шаг 4, §3 спеки)
-   * обязателен, а не опционален: авторскую часть класса тоже могут
-   * переименовать, и тогда канал чинится конфигом, а не публикацией в стор.
-   * Пока конфига нет — всё в одном месте, чтобы правка была однострочной.
+   * Всё, что вообще знает адаптер о разметке MAX, лежит здесь — и это же набор
+   * ключей, которые можно переопределить удалённым конфигом (Шаг 4, §3 спеки:
+   * авторскую часть класса тоже могут переименовать, и тогда канал чинится
+   * правкой на сервере, а не публикацией в стор с многодневным ревью).
+   * Значения из конфига проходят проверку типа и разбора — common/selector-config.js.
    */
-  const SEL = {
+  const DEFAULTS = {
     /** Пузырь сообщения. */
     bubble: '[class*="messageWrapper"]',
     /** Капсула-разделитель с датой («Сегодня», «2 июля 2026»). */
@@ -63,8 +64,19 @@
     variant: "[data-bubbles-variant]",
     /** Часы и галочки доставки. Лежат ВНУТРИ блока текста. */
     meta: '[class*="meta"]',
+    /**
+     * Блок текста внутри пузыря. `:not(…messageWrapper…)` обязателен: «Wrapper»
+     * тоже содержит «message», и без исключения селектор ловил бы сам пузырь.
+     */
+    text: '[class*="message"]:not([class*="messageWrapper"])',
     /** Поле ввода — Lexical, редактор Meta. */
     composerRoot: '[data-testid="composer"]',
+    /**
+     * Само редактируемое поле. `[contenteditable]` без значения — не небрежность:
+     * MAX пишет `contenteditable=""` (пустое = true по спецификации), и селектор
+     * `[contenteditable="true"]` его НЕ находит.
+     */
+    composerField: '[data-lexical-editor="true"], [contenteditable]',
     /** Шапка чата: имя собеседника — подсказка человеку при ручной привязке. */
     title: [
       '[data-testid="chat-header"] [class*="title"]',
@@ -72,18 +84,26 @@
       '[class*="headerTitle"]',
       'header [class*="title"]',
     ],
+    /**
+     * Что вычищаем из пузыря перед чтением текста.
+     *
+     * `meta` обязателен: часы лежат ВНУТРИ блока текста, и наивный textContent
+     * склеивал бы их с сообщением («дальше16:15») — ровно та ошибка, которую мы
+     * уже ловили в Telegram. Остальное — предположения по аналогии с Telegram:
+     * если таких узлов в MAX нет, вычистка безвредна, а если есть — это ровно
+     * то, что в переписку клиента попадать не должно.
+     */
+    junk: [
+      '[class*="meta"]',
+      '[class*="reaction"]',
+      '[class*="reply"]',
+      '[class*="quote"]',
+      '[class*="forward"]',
+    ],
   }
 
-  /**
-   * Что вычищаем из пузыря перед чтением текста.
-   *
-   * `.meta` обязателен: часы лежат ВНУТРИ блока текста, и наивный textContent
-   * склеивал бы их с сообщением («дальше16:15») — ровно та ошибка, которую мы
-   * уже ловили в Telegram. Остальное — предположения по аналогии с Telegram:
-   * если таких узлов в MAX нет, вычистка безвредна, а если есть — это ровно то,
-   * что в переписку клиента попадать не должно.
-   */
-  const JUNK = [SEL.meta, '[class*="reaction"]', '[class*="reply"]', '[class*="quote"]', '[class*="forward"]']
+  /** Действующие селекторы: встроенные плюс переопределения из конфига. */
+  let SEL = { ...DEFAULTS }
 
   /** Как часто сверяем адрес: у MAX нет ни хэша, ни события навигации. */
   const PATH_POLL_MS = 400
@@ -117,6 +137,56 @@
   let maxTime = null
   /** @type {typeof import("../common/max-message.js") | null} */
   let maxMessage = null
+  /** @type {typeof import("../common/selector-config.js") | null} */
+  let selectorConfig = null
+
+  /** Что сейчас с конфигом селекторов — строкой, для диагностики в ping. */
+  let configState = "встроенные селекторы"
+
+  /**
+   * Разбирается ли строка как CSS-селектор.
+   *
+   * Это главная защита от опечатки в удалённом конфиге: невалидный селектор
+   * бросает SyntaxError прямо в `querySelectorAll`, и механизм починки канала
+   * стал бы способом сломать его сильнее. Фрагмент документа берём вместо
+   * `document`, чтобы ничего не искать по-настоящему.
+   *
+   * @param {string} selector
+   */
+  function isValidSelector(selector) {
+    try {
+      document.createDocumentFragment().querySelector(selector)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Применить кэш удалённого конфига поверх встроенных селекторов.
+   *
+   * Считаем от DEFAULTS каждый раз, а не от текущего SEL: конфиг может и УБРАТЬ
+   * переопределение (аварию починили — вернули встроенное), и накопление правок
+   * поверх правок дало бы залипшее значение.
+   *
+   * @param {any} cached Значение chrome.storage.local[SELECTOR_CONFIG_KEY].
+   */
+  function applySelectorConfig(cached) {
+    if (!selectorConfig) return
+    const overrides = selectorConfig.readChannelOverrides(cached, "max")
+    const merged = selectorConfig.mergeSelectors(DEFAULTS, overrides, isValidSelector)
+    SEL = merged.selectors
+    if (!merged.applied.length && !merged.rejected.length) {
+      configState = "встроенные селекторы"
+      return
+    }
+    // Отклонённые ключи показываем ОБЯЗАТЕЛЬНО: конфиг правят в аварии, и
+    // «применил, но не то» без этой строки выглядит как «не помогло».
+    configState =
+      `конфиг v${cached?.version ?? "?"}: ` +
+      `применено [${merged.applied.join(", ") || "—"}]` +
+      (merged.rejected.length ? `, ОТКЛОНЕНО [${merged.rejected.join(", ")}]` : "")
+  }
 
   /** Адрес, который видели в прошлый раз, и момент, когда он сменился. */
   let lastPath = location.pathname
@@ -292,11 +362,9 @@
       }
 
       // Текст берём из внутреннего блока сообщения, если он есть: в самом
-      // wrapper лежит ещё и обвязка. `:not([class*="messageWrapper"])` нужен
-      // потому, что «messageWrapper» тоже содержит «message».
-      const textNode =
-        el.querySelector('[class*="message"]:not([class*="messageWrapper"])') ?? el
-      const text = readCleanText(textNode, JUNK)
+      // wrapper лежит ещё и обвязка.
+      const textNode = el.querySelector(SEL.text) ?? el
+      const text = readCleanText(textNode, SEL.junk)
       if (!text) {
         // Штатно: стикеры и фото без подписи после вычистки `.meta` пустеют.
         lastCollect.пустых++
@@ -359,7 +427,7 @@
     return maxMessage.buildMaxActivityKey({
       direction: readDirection(last) ?? "incoming",
       clock: last.querySelector(SEL.meta)?.textContent ?? null,
-      text: readCleanText(last.querySelector('[class*="message"]:not([class*="messageWrapper"])') ?? last, JUNK),
+      text: readCleanText(last.querySelector(SEL.text) ?? last, SEL.junk),
     })
   }
 
@@ -374,7 +442,7 @@
     const scopes = [document.querySelector(SEL.composerRoot), document]
     for (const scope of scopes) {
       if (!scope) continue
-      for (const node of scope.querySelectorAll('[data-lexical-editor="true"], [contenteditable]')) {
+      for (const node of scope.querySelectorAll(SEL.composerField)) {
         const el = /** @type {HTMLElement} */ (node)
         if (!el.isContentEditable) continue
         // offsetParent = null у скрытых элементов; getClientRects страхует
@@ -499,11 +567,35 @@
     import(chrome.runtime.getURL("src/common/max-path.js")),
     import(chrome.runtime.getURL("src/common/max-time.js")).catch(() => null),
     import(chrome.runtime.getURL("src/common/max-message.js")).catch(() => null),
+    import(chrome.runtime.getURL("src/common/selector-config.js")).catch(() => null),
   ])
-    .then(([path, time, message]) => {
+    .then(([path, time, message, config]) => {
       parseMaxPath = path.parseMaxPath
       maxTime = time
       maxMessage = message
+      selectorConfig = config
+
+      // Удалённый конфиг селекторов (§3 спеки). Кэш кладёт service worker, а мы
+      // только читаем: content script в чужую страницу за сеть не ходит, да и
+      // фоновый скрипт в MV3 спит — через storage связь надёжнее сообщений.
+      if (selectorConfig) {
+        const key = selectorConfig.SELECTOR_CONFIG_KEY
+        try {
+          chrome.storage.local
+            .get(key)
+            .then((stored) => applySelectorConfig(stored?.[key]))
+            .catch(() => {})
+          // Конфиг мог приехать уже после старта скрипта — тогда селекторы
+          // подменяются на лету, без перезагрузки страницы мессенджера.
+          chrome.storage.onChanged.addListener((changes, area) => {
+            if (area !== "local" || !changes[key]) return
+            applySelectorConfig(changes[key].newValue)
+          })
+        } catch {
+          // Контекст расширения умер (обновили расширение) — работаем на
+          // встроенных селекторах, как и до Шага 4.
+        }
+      }
 
       core.start({
         channel: "max",
@@ -533,6 +625,7 @@
           path: location.pathname,
           kind: parseMaxPath ? parseMaxPath(location.pathname).kind : null,
           сбор: lastCollect,
+          селекторы: configState,
         }),
       })
     })

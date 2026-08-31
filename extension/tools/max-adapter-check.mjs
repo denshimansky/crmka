@@ -134,6 +134,10 @@ await page.addInitScript((base) => {
   const sent = []
   window.__sentToWorker = sent
   window.__listeners = listeners
+  // Мини-хранилище: через него service worker передаёт адаптеру удалённый
+  // конфиг селекторов, поэтому заглушка обязана уметь и get, и onChanged.
+  const store = {}
+  const storageListeners = []
   window.chrome = {
     runtime: {
       id: "test",
@@ -144,6 +148,21 @@ await page.addInitScript((base) => {
       },
       onMessage: { addListener: (fn) => listeners.push(fn) },
     },
+    storage: {
+      local: {
+        get: (key) => Promise.resolve({ [key]: store[key] }),
+        set: (patch) => {
+          Object.assign(store, patch)
+          return Promise.resolve()
+        },
+      },
+      onChanged: { addListener: (fn) => storageListeners.push(fn) },
+    },
+  }
+  // Так конфиг «приезжает» из service worker в живом расширении.
+  window.__pushConfig = (value) => {
+    store.selectorConfig = value
+    for (const fn of storageListeners) fn({ selectorConfig: { newValue: value } }, "local")
   }
 }, origin)
 
@@ -267,6 +286,67 @@ check(
   JSON.stringify(grouped.сообщения.map((m) => m.externalId)) ===
     JSON.stringify(messages.map((m) => m.externalId)),
   grouped.сообщения.map((m) => m.externalId),
+)
+
+// ── Удалённый конфиг селекторов (Шаг 4) ────────────────────────────────────
+// Разыгрываем настоящую аварию: MAX переименовал класс пузыря. Канал умирает,
+// и починить его надо БЕЗ публикации новой версии расширения в стор.
+const renamed = await page.evaluate(() => {
+  for (const el of document.querySelectorAll('[class*="messageWrapper"]')) {
+    el.className = el.className.replace(/messageWrapper/g, "msgWrap")
+  }
+  return window.__adapter.collectMessages().length
+})
+check("переименование класса ломает сбор (это и есть авария)", renamed === 0, renamed)
+
+const broken = await page.evaluate(async () => {
+  window.__pushConfig({ version: 6, channels: { max: { bubble: "[[сломанный", bubbles: ".x" } } })
+  await new Promise((r) => setTimeout(r, 30))
+  return {
+    сообщения: window.__adapter.collectMessages().length,
+    диагностика: window.__adapter.diag()["селекторы"],
+  }
+})
+check(
+  "негодный конфиг не применяется и отказ виден в диагностике",
+  broken.сообщения === 0 && /ОТКЛОНЕНО/.test(broken.диагностика),
+  broken,
+)
+
+const repaired = await page.evaluate(async () => {
+  window.__pushConfig({ version: 7, channels: { max: { bubble: '[class*="msgWrap"]' } } })
+  await new Promise((r) => setTimeout(r, 30))
+  return {
+    сообщения: window.__adapter.collectMessages(),
+    диагностика: window.__adapter.diag()["селекторы"],
+  }
+})
+check(
+  "конфиг чинит канал без переустановки расширения",
+  repaired.сообщения.length === 3 && /применено \[bubble\]/.test(repaired.диагностика),
+  repaired.диагностика,
+)
+check(
+  "после починки ключи прежние — дублей в карточке не будет",
+  JSON.stringify(repaired.сообщения.map((m) => m.externalId)) ===
+    JSON.stringify(messages.map((m) => m.externalId)),
+  repaired.сообщения.map((m) => m.externalId),
+)
+
+const rolledBack = await page.evaluate(async () => {
+  // Аварию починили в самом расширении — переопределение убирают с сервера.
+  window.__pushConfig({ version: 8, channels: {} })
+  await new Promise((r) => setTimeout(r, 30))
+  const пусто = window.__adapter.collectMessages().length
+  for (const el of document.querySelectorAll('[class*="msgWrap"]')) {
+    el.className = el.className.replace(/msgWrap/g, "messageWrapper")
+  }
+  return { пусто, снова: window.__adapter.collectMessages().length }
+})
+check(
+  "снятое переопределение возвращает встроенные селекторы",
+  rolledBack.пусто === 0 && rolledBack.снова === 3,
+  rolledBack,
 )
 
 // ── Вставка текста ─────────────────────────────────────────────────────────

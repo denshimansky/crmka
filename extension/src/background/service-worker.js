@@ -28,6 +28,11 @@ import {
   SYNC_MESSAGES_LIMIT,
 } from "../common/types.js"
 import {
+  SELECTOR_CONFIG_KEY,
+  SELECTOR_CONFIG_TTL_MS,
+  parseSelectorConfig,
+} from "../common/selector-config.js"
+import {
   ApiError,
   createBinding,
   createComment,
@@ -36,6 +41,7 @@ import {
   deleteBinding,
   fetchClientCard,
   fetchQuickInfo,
+  fetchSelectorConfig,
   resolveChat,
   searchClients,
   syncMessages,
@@ -64,6 +70,64 @@ const DEFAULT_SETTINGS = {
 async function getSettings() {
   const stored = await chrome.storage.local.get(DEFAULT_SETTINGS)
   return /** @type {ExtSettings} */ ({ ...DEFAULT_SETTINGS, ...stored })
+}
+
+/**
+ * Через сколько повторяем попытку, если конфиг селекторов не приехал.
+ *
+ * Нужен отдельно от TTL успеха: у сотрудника может стоять расширение новее, чем
+ * CRM (роут ещё не задеплоен) — тогда каждый запрос состояния панели ходил бы за
+ * 404. Полчаса это утихомиривают, а починку канала не задерживают: на неё
+ * отведены часы, не минуты.
+ */
+const SELECTOR_CONFIG_RETRY_MS = 30 * 60 * 1000
+
+/** Одновременно больше одного запроса конфига не нужно. */
+let selectorConfigInFlight = false
+
+/**
+ * Обновить кэш удалённого конфига селекторов (docs/messenger-extension.md §3).
+ *
+ * Кэш лежит в chrome.storage.local, потому что читают его CONTENT SCRIPTS — им
+ * так не нужен ни новый тип сообщения, ни живой service worker (в MV3 он спит).
+ * Ошибки глотаем: конфиг — это способ починить канал, а не условие его работы.
+ * Не приехал — адаптеры работают на встроенных селекторах, как и до Шага 4.
+ *
+ * @param {{force?: boolean}} [options] force — настройки только что сменились
+ *   (другая CRM или новый токен), кэш прошлой связки больше не наш.
+ */
+async function refreshSelectorConfig(options = {}) {
+  if (selectorConfigInFlight) return
+  const settings = await getSettings()
+  if (!settings.baseUrl || !settings.token) return
+
+  const stored = (await chrome.storage.local.get(SELECTOR_CONFIG_KEY))[SELECTOR_CONFIG_KEY]
+  if (!options.force) {
+    const freshEnough =
+      stored?.fetchedAt && Date.now() - stored.fetchedAt < SELECTOR_CONFIG_TTL_MS
+    const triedRecently =
+      stored?.attemptedAt && Date.now() - stored.attemptedAt < SELECTOR_CONFIG_RETRY_MS
+    if (freshEnough || triedRecently) return
+  }
+
+  selectorConfigInFlight = true
+  try {
+    const config = parseSelectorConfig(await fetchSelectorConfig(settings))
+    // Отметку о попытке пишем в любом случае, а сам конфиг — только когда он
+    // разобрался: иначе неудачный ответ (404 со старой CRM, страница логина в
+    // публичном Wi-Fi) затёр бы рабочие переопределения пустотой.
+    await chrome.storage.local.set({
+      [SELECTOR_CONFIG_KEY]: config
+        ? { ...config, fetchedAt: Date.now(), attemptedAt: Date.now() }
+        : { ...(stored ?? {}), attemptedAt: Date.now() },
+    })
+  } catch {
+    await chrome.storage.local
+      .set({ [SELECTOR_CONFIG_KEY]: { ...(stored ?? {}), attemptedAt: Date.now() } })
+      .catch(() => {})
+  } finally {
+    selectorConfigInFlight = false
+  }
 }
 
 /**
@@ -147,10 +211,12 @@ async function injectIntoOpenTabs() {
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {})
   void injectIntoOpenTabs()
+  void refreshSelectorConfig()
 })
 
 chrome.runtime.onStartup.addListener(() => {
   void injectIntoOpenTabs()
+  void refreshSelectorConfig()
 })
 
 /**
@@ -312,6 +378,10 @@ async function handleMessage(message, sender) {
 
     case MSG_GET_STATE: {
       const settings = await getSettings()
+      // Панель открыли или переключили вкладку — удобный момент подтянуть
+      // конфиг селекторов. Не ждём его: он сам себе ограничитель по TTL, а
+      // состояние панели от него не зависит.
+      void refreshSelectorConfig()
       const tab = await getActiveTab(message.windowId)
       const tabId = tab?.id ?? null
 
@@ -357,6 +427,9 @@ async function handleMessage(message, sender) {
       if (!patch.token) next.token = current.token
       if (next.baseUrl) next.baseUrl = next.baseUrl.trim().replace(/\/+$/, "")
       await chrome.storage.local.set(next)
+      // Сменились адрес CRM или токен — конфиг селекторов принадлежал прошлой
+      // связке, перечитываем принудительно.
+      void refreshSelectorConfig({ force: true })
       notifyPanel()
       return { configured: Boolean(next.baseUrl && next.token) }
     }
