@@ -131,8 +131,14 @@
   report.composer = {
     корень: describe(composerRoot),
     дерево: tree(composerRoot),
-    // contenteditable ищем в ЛЮБОМ значении атрибута, а не только «true».
-    contenteditable: [...document.querySelectorAll("[contenteditable]")].map(describe),
+    // contenteditable ищем в ЛЮБОМ значении атрибута, а не только «true»: MAX
+    // пишет contenteditable="" (пустое = true по спецификации), и селектор
+    // [contenteditable="true"] его НЕ находит — на этом первый probe и промахнулся.
+    contenteditable: [...document.querySelectorAll("[contenteditable]")].map((el) => ({
+      ...describe(el),
+      isContentEditable: el.isContentEditable,
+      lexical: el.dataset.lexicalEditor === "true",
+    })),
     textarea: [...document.querySelectorAll("textarea")].map(describe),
     input: [...document.querySelectorAll('input:not([type="file"])')].map(describe),
   }
@@ -148,11 +154,34 @@
   report.svelteHashes = { count: svelteHashes.length, sample: svelteHashes.slice(0, 10) }
 
   // ── 6. Контейнер прокрутки ─────────────────────────────────────────────────
-  const scroller =
-    wrappers[0]?.closest('[class*="scrollList"], [class*="scroll"], [class*="messages"]') ?? null
+  // Ищем ПРОКРУЧИВАЕМОГО предка, а не первый подходящий класс: «.scrollListContent»
+  // объявлен как height:min-content, у него scrollHeight === clientHeight, и
+  // выставлять ему scrollTop бессмысленно — прокрутка живёт выше.
+  const findScroller = (from) => {
+    let node = from?.parentElement ?? null
+    while (node && node !== document.body) {
+      if (node.scrollHeight > node.clientHeight + 8) return node
+      node = node.parentElement
+    }
+    return document.scrollingElement
+  }
+  const scroller = findScroller(wrappers[0])
   report.scrollContainer = scroller
     ? { ...describe(scroller), scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight }
     : null
+
+  // ── 7. Служебные строки ленты ──────────────────────────────────────────────
+  // «Отменённый вызов Видео 19:12», «Пропущенный вызов Аудио» и системные
+  // уведомления рисуются в той же ленте. Если они окажутся обычными пузырями,
+  // наивный сбор утащит их в карточку клиента как реплики — надо знать заранее,
+  // чем они отличаются.
+  const listRoot = wrappers[0]?.parentElement ?? null
+  report.служебныеСтроки = listRoot
+    ? [...listRoot.children]
+        .filter((el) => !/messageWrapper|capsule/i.test(el.className))
+        .slice(0, 8)
+        .map(describe)
+    : []
 
   const api = {
     last: report,
@@ -172,40 +201,76 @@
     },
 
     /**
-     * Какой способ вставки будит Svelte. Пробуем по очереди и смотрим, изменилось
-     * ли значение. ВНИМАНИЕ: текст появится в поле ввода — Enter НЕ нажимать,
-     * потом стереть руками. Ничего не отправляется.
+     * Какой способ вставки принимает редактор. Поле ввода MAX — Lexical
+     * (data-lexical-editor), а он держит СВОЁ состояние документа и прямую правку
+     * DOM игнорирует либо откатывает. Поэтому пробуем по очереди и смотрим не
+     * только на текст, но и на то, ожила ли кнопка отправки: это и есть признак,
+     * что редактор увидел ввод, а не только браузер нарисовал символы.
+     *
+     * ВНИМАНИЕ: текст появится в поле ввода — Enter НЕ нажимать, потом стереть
+     * руками. Ничего не отправляется.
      */
     tryInsert(text = "проверка вставки") {
       const root = document.querySelector('[data-testid="composer"]')
       const target =
-        root?.querySelector("textarea, input, [contenteditable]") ??
-        document.querySelector("textarea, [contenteditable]")
+        root?.querySelector("[contenteditable]") ??
+        document.querySelector('[data-lexical-editor="true"], [contenteditable]')
       if (!target) return "поле ввода не найдено — сначала crmkaMaxProbe.composerDeep()"
 
-      const kind = target.tagName.toLowerCase()
+      const sendBtn = document.querySelector('button[aria-label="Отправить сообщение"]')
+      const снимок = () => ({
+        text: target.textContent ?? "",
+        кнопкаАктивна: sendBtn ? !sendBtn.disabled : null,
+      })
+
+      // Каретка в конец: без валидного выделения внутри редактора вставка не
+      // пройдёт вовсе.
       target.focus()
-      const before = kind === "textarea" || kind === "input" ? target.value : target.textContent
+      const selection = window.getSelection()
+      if (selection) {
+        const range = document.createRange()
+        range.selectNodeContents(target)
+        range.collapse(false)
+        selection.removeAllRanges()
+        selection.addRange(range)
+      }
+
+      const было = снимок()
       const результаты = {}
 
-      // Способ 1 — execCommand (так работает адаптер Telegram).
+      // Способ 1 — execCommand: идёт через штатный конвейер редактирования и
+      // порождает НАСТОЯЩИЙ beforeinput. Так работает наш адаптер Telegram.
       document.execCommand("insertText", false, text)
-      результаты.execCommand = (kind === "textarea" || kind === "input" ? target.value : target.textContent) !== before
+      результаты.execCommand = снимок()
 
-      // Способ 2 — нативный сеттер + событие input. Так будят React/Svelte, когда
-      // прямая правка value их не трогает.
-      if (!результаты.execCommand && (kind === "textarea" || kind === "input")) {
-        const proto = kind === "textarea" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
-        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set
-        setter?.call(target, `${before}${text}`)
-        target.dispatchEvent(new Event("input", { bubbles: true }))
-        результаты.нативныйСеттер = target.value !== before
+      // Способ 2 — синтетический beforeinput. Ключевой вопрос: примет ли Lexical
+      // НЕДОВЕРЕННОЕ событие (isTrusted:false) — расширение других слать не может.
+      if (результаты.execCommand.text === было.text) {
+        target.dispatchEvent(
+          new InputEvent("beforeinput", {
+            inputType: "insertText",
+            data: text,
+            bubbles: true,
+            cancelable: true,
+          }),
+        )
+        target.dispatchEvent(
+          new InputEvent("input", { inputType: "insertText", data: text, bubbles: true }),
+        )
+        результаты.синтетическийBeforeinput = снимок()
       }
 
       return {
-        поле: { tag: kind, classes: classParts(target), editable: target.isContentEditable },
+        поле: {
+          tag: target.tagName.toLowerCase(),
+          classes: classParts(target),
+          editable: target.isContentEditable,
+          lexical: target.dataset?.lexicalEditor === "true",
+        },
+        было,
         результаты,
-        подсказка: "Стереть текст руками. Активировалась ли кнопка отправки?",
+        подсказка:
+          "Стереть текст руками. Смотри поле кнопкаАктивна: текст на экране без активной кнопки означает, что редактор ввод НЕ принял.",
       }
     },
 
