@@ -142,6 +142,21 @@ async function getActiveTabId(windowId) {
 }
 
 /**
+ * Ключ чата для сравнения «тот же диалог или уже другой».
+ *
+ * КАНАЛ обязателен: голого chatId мало. У Telegram он бывает числовым, у MAX
+ * числовой всегда — и как только каналов станет больше одного, два разных
+ * диалога в двух вкладках одного окна смогут дать одинаковый chatId. Тогда
+ * гард ниже пропустил бы чужую переписку как «тот же чат».
+ *
+ * @param {{channel: string, chatId: string}|null|undefined} chat
+ * @returns {string|null}
+ */
+function chatKey(chat) {
+  return chat ? `${chat.channel}:${chat.chatId}` : null
+}
+
+/**
  * Тот ли чат всё ещё открыт во вкладке.
  *
  * Панель принимает решение («залить переписку клиенту X», «вставить черновик»)
@@ -150,13 +165,14 @@ async function getActiveTabId(windowId) {
  * переписать чужие сообщения в карточке, их пришлось бы чистить в БД руками.
  *
  * @param {number} tabId
- * @param {string|null} expectedChatId null = панель не сказала, чего ждёт:
- *   не блокируем, иначе старый вызов молча перестал бы работать.
+ * @param {string|null} expectedChatKey «канал:id» ожидаемого чата. null =
+ *   панель не сказала, чего ждёт: не блокируем, иначе старый вызов молча
+ *   перестал бы работать.
  */
-async function chatMatches(tabId, expectedChatId) {
-  if (!expectedChatId) return true
+async function chatMatches(tabId, expectedChatKey) {
+  if (!expectedChatKey) return true
   const chat = await getChatForTab(tabId)
-  return chat?.chatId === expectedChatId
+  return chatKey(chat) === expectedChatKey
 }
 
 /** Сообщить панели, что состояние изменилось. Панель может быть закрыта — ошибку глотаем. */
@@ -315,11 +331,11 @@ async function handleMessage(message, sender) {
     }
 
     case MSG_SYNC_MESSAGES: {
-      return syncVisibleMessages(message.clientId, message.chatId ?? null, message.windowId)
+      return syncVisibleMessages(message.clientId, message.chatKey ?? null, message.windowId)
     }
 
     case MSG_AI_DRAFT: {
-      return buildAiDraft(message.clientId ?? null, message.chatId ?? null, message.windowId)
+      return buildAiDraft(message.clientId ?? null, message.chatKey ?? null, message.windowId)
     }
 
     case MSG_INSERT_TEXT: {
@@ -330,7 +346,7 @@ async function handleMessage(message, sender) {
       // Пока готовился текст (ИИ-черновик — это секунды), человек мог открыть
       // другой диалог. Ответ про одного клиента в переписке с другим — хуже,
       // чем несработавшая вставка: панель отдаст текст через буфер обмена.
-      if (!(await chatMatches(tabId, message.chatId ?? null))) {
+      if (!(await chatMatches(tabId, message.chatKey ?? null))) {
         return { inserted: false, reason: "chat-changed" }
       }
       const response = await chrome.tabs
@@ -392,11 +408,11 @@ async function collectMessages(tabId) {
  * остаётся за человеком.
  *
  * @param {string|null} clientId
- * @param {string|null} expectedChatId Чат, для которого черновик заказывали.
+ * @param {string|null} expectedChatKey Чат («канал:id»), для которого черновик заказывали.
  * @param {number|null|undefined} windowId Окно панели.
  * @returns {Promise<{text: string, remaining?: number}>}
  */
-async function buildAiDraft(clientId, expectedChatId, windowId) {
+async function buildAiDraft(clientId, expectedChatKey, windowId) {
   const settings = await getSettings()
   // Черновик отправляет текст чата на сервер и дальше провайдеру ИИ — это тот
   // же поток персональных данных, что и запись переписки, и он обязан жить под
@@ -408,7 +424,7 @@ async function buildAiDraft(clientId, expectedChatId, windowId) {
     )
   }
   const tabId = await getActiveTabId(windowId)
-  if (tabId != null && !(await chatMatches(tabId, expectedChatId))) {
+  if (tabId != null && !(await chatMatches(tabId, expectedChatKey))) {
     throw new Error("Чат сменился — откройте нужный диалог и повторите")
   }
   const messages = tabId != null ? ((await collectMessages(tabId)) ?? []) : []
@@ -429,11 +445,11 @@ async function buildAiDraft(clientId, expectedChatId, windowId) {
  * повторные вызовы безопасны.
  *
  * @param {string} clientId
- * @param {string|null} expectedChatId Чат, чью переписку заказывала панель.
+ * @param {string|null} expectedChatKey Чат («канал:id»), чью переписку заказывала панель.
  * @param {number|null|undefined} windowId Окно панели.
  * @returns {Promise<{created: number, skipped: number} | null>}
  */
-async function syncVisibleMessages(clientId, expectedChatId, windowId) {
+async function syncVisibleMessages(clientId, expectedChatKey, windowId) {
   const settings = await getSettings()
   if (!settings.logMessages) return null
 
@@ -444,7 +460,7 @@ async function syncVisibleMessages(clientId, expectedChatId, windowId) {
   // Человек успел переключить диалог, пока панель решала. Сообщения чужого
   // чата, попавшие в карточку, оттуда уже не убрать штатно — ключ дедупа не
   // позволит их переписать.
-  if (expectedChatId && chat.chatId !== expectedChatId) return null
+  if (expectedChatKey && chatKey(chat) !== expectedChatKey) return null
 
   // null — вкладку закрыли или content script не отвечает после обновления
   // мессенджера: панель продолжает работать без записи переписки.
@@ -456,6 +472,9 @@ async function syncVisibleMessages(clientId, expectedChatId, windowId) {
     clientId,
     channel: chat.channel,
     chatId: chat.chatId,
+    // Весь набор идентификаторов чата: по нему сервер находит уже залитую из
+    // ДРУГОГО клиента Telegram переписку и не заводит её второй раз.
+    altIds: chat.altIds ?? [],
     // Только хвост: адаптер и так отдаёт последние N, но подстраховываемся —
     // заливать всю подгруженную историю в ленту коммуникаций нельзя.
     messages: messages.slice(-SYNC_MESSAGES_LIMIT),

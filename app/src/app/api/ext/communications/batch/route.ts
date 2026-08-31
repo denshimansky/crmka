@@ -7,11 +7,17 @@ import { extJson, extOptions, readExtJson } from "@/lib/ext-cors"
 import {
   MESSENGER_CHANNELS,
   buildMessageExternalId,
+  isLocalMessageId,
   messageTypeForDirection,
   normalizeChatId,
   parseMessageSentAt,
   toPrismaChannel,
 } from "@/lib/ext/chat-identity"
+import { planCommunicationKeyRepair, splitChatIds } from "@/lib/ext/chat-canonical"
+import {
+  applyCommunicationKeyRepair,
+  resolveChatGroup,
+} from "@/lib/ext/chat-binding-sync"
 
 /**
  * POST /api/ext/communications/batch — заливка увиденных сообщений в единую
@@ -34,6 +40,13 @@ export const OPTIONS = extOptions
 /** Ограничение длины текста: в БД поле text, но мегабайтные простыни нам не нужны. */
 const MAX_TEXT_LENGTH = 4000
 
+/** metadata.sentAtSource: «message» — настоящее время сообщения, «upload» — время заливки. */
+function readSentAtSource(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
+  const value = (metadata as Record<string, unknown>).sentAtSource
+  return typeof value === "string" ? value : null
+}
+
 const messageSchema = z.object({
   /** Стабильный id сообщения В ПРЕДЕЛАХ чата (Telegram mid, WhatsApp MsgKey.id). */
   externalId: z.string().trim().min(1).max(200),
@@ -47,6 +60,12 @@ const bodySchema = z.object({
   clientId: z.string().uuid(),
   channel: z.enum(MESSENGER_CHANNELS),
   chatId: z.string().min(1),
+  /**
+   * Прочие идентификаторы ТОГО ЖЕ чата, увиденные расширением одновременно.
+   * По ним находится переписка, залитая из другого клиента мессенджера, —
+   * иначе она задваивается: ключ дедупа склеивается с идентификатором чата.
+   */
+  altIds: z.array(z.string().min(1)).max(4).optional(),
   messages: z.array(messageSchema).min(1).max(50),
 })
 
@@ -68,10 +87,36 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     )
   }
-  const { clientId, channel, messages } = parsed.data
+  const { clientId, channel } = parsed.data
 
-  const chatId = normalizeChatId(channel, parsed.data.chatId)
-  if (!chatId) return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
+  // Ещё не отправленные сообщения отсеиваем: у них временный id, и через
+  // секунду то же самое приедет с настоящим — второй строкой в карточке.
+  // Это второй рубеж поверх фильтра в адаптере: в браузерах сотрудников
+  // какое-то время живут старые сборки расширения.
+  const messages = parsed.data.messages.filter((m) => !isLocalMessageId(m.externalId))
+  if (messages.length === 0) {
+    return extJson(req, {
+      created: 0,
+      skipped: parsed.data.messages.length,
+      repaired: 0,
+      removed: 0,
+      conflicts: 0,
+    })
+  }
+
+  const ids = splitChatIds(channel, [parsed.data.chatId, ...(parsed.data.altIds ?? [])])
+  if (!ids.canonical) return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
+
+  // Канон берём из БАЗЫ, а не из текущего наблюдения: числовой peer id
+  // читается из разметки не всегда, и канон «по мешку запроса» скакал бы от
+  // захода к заходу — то самое задваивание, ради которого всё и делалось.
+  const group = await resolveChatGroup(ctx.tenantId, channel, ids.all, ids.canonical)
+  const chatId = group.canonical
+  // Под каким идентификатором сообщение приехало ИМЕННО СЕЙЧАС — по нему видно,
+  // из какого клиента мессенджера пришла строка. Кладём НОРМАЛИЗОВАННЫМ, а не
+  // сырым: ровно так лежат все строки, залитые до 31.08.2026, и по этому же
+  // полю ищет перенос переписки при перепривязке чата.
+  const incomingChatId = normalizeChatId(channel, parsed.data.chatId) ?? chatId
 
   const client = await db.client.findFirst({
     where: {
@@ -84,33 +129,96 @@ export async function POST(req: NextRequest) {
   })
   if (!client) return extJson(req, { error: "Клиент не найден" }, { status: 404 })
 
+  // Алиасы — вся группа, кроме канона: при заходе из /a «@username» в разметке
+  // нет вовсе, а история залита из /k именно под ним, и найти её можно только
+  // через привязки.
+  const aliases = group.allIds.filter((id) => id !== chatId)
+
+  // Разобранное время нужно дважды: и для новых строк, и для починки старых.
+  const sentAtByIndex = messages.map((m) => parseMessageSentAt(m.sentAt))
+
+  // ДВОЙНОЕ ЧТЕНИЕ КЛЮЧА — и по канону, и по алиасам. Именно оно делает правку
+  // двусторонней дверью: откат кода не порождает дублей, а разовую чистку
+  // истории можно откладывать сколько угодно.
+  const candidateKeys = [chatId, ...aliases].flatMap((id) =>
+    messages.map((m) => buildMessageExternalId(id, m.externalId)),
+  )
+  const existingRows = await db.communication.findMany({
+    where: {
+      tenantId: ctx.tenantId,
+      clientId,
+      channel: toPrismaChannel(channel),
+      externalId: { in: candidateKeys },
+    },
+    select: { id: true, externalId: true, content: true, metadata: true },
+  })
+
+  const plan = planCommunicationKeyRepair({
+    canonical: chatId,
+    aliases,
+    messages: messages.map((m, index) => ({
+      externalId: m.externalId,
+      content: m.text?.slice(0, MAX_TEXT_LENGTH) ?? null,
+      sentAt: sentAtByIndex[index] ?? null,
+    })),
+    existing: existingRows.map((row) => ({
+      id: row.id,
+      externalId: row.externalId ?? "",
+      content: row.content,
+      sentAtSource: readSentAtSource(row.metadata),
+    })),
+    buildKey: buildMessageExternalId,
+  })
+
+  const repair = await applyCommunicationKeyRepair(ctx.tenantId, channel, clientId, chatId, plan)
+
   // Сообщения без разобранного времени (Telegram WebA его не отдаёт вовсе)
   // раскладываем по позиции в пачке: она приходит в хронологическом порядке, а
   // один общий now() на всех схлопнул бы его — в ленте такие строки встали бы
   // как попало относительно друг друга. Шаг в миллисекунду: порядок строгий,
   // а отображаемое время (до минут) остаётся одним и тем же.
+  const toInsert = new Set(plan.insert.map((m) => m.externalId))
   const uploadedAt = Date.now()
-  const rows = messages.map((m, index) => ({
-    tenantId: ctx.tenantId,
-    clientId,
-    type: messageTypeForDirection(m.direction),
-    channel: toPrismaChannel(channel),
-    direction: m.direction,
-    content: m.text?.slice(0, MAX_TEXT_LENGTH) ?? null,
-    // id сообщения уникален лишь внутри чата — ключ склеиваем с чатом.
-    externalId: buildMessageExternalId(chatId, m.externalId),
-    sentAt:
-      parseMessageSentAt(m.sentAt) ?? new Date(uploadedAt - (messages.length - 1 - index)),
-    // Исходящие писал сотрудник, чьим токеном работает панель. У входящих автора
-    // нет — сообщение написал клиент.
-    employeeId: m.direction === "outgoing" ? ctx.employeeId : null,
-    metadata: { source: "extension", chatId },
-  }))
+  const rows = messages
+    .map((m, index) => ({ m, index }))
+    .filter(({ m }) => toInsert.has(m.externalId))
+    .map(({ m, index }) => ({
+      tenantId: ctx.tenantId,
+      clientId,
+      type: messageTypeForDirection(m.direction),
+      channel: toPrismaChannel(channel),
+      direction: m.direction,
+      content: m.text?.slice(0, MAX_TEXT_LENGTH) ?? null,
+      // id сообщения уникален лишь внутри чата — ключ склеиваем с КАНОНОМ,
+      // иначе одно сообщение из /k и из /a даёт две строки.
+      externalId: buildMessageExternalId(chatId, m.externalId),
+      sentAt:
+        sentAtByIndex[index] ?? new Date(uploadedAt - (messages.length - 1 - index)),
+      // Исходящие писал сотрудник, чьим токеном работает панель. У входящих автора
+      // нет — сообщение написал клиент.
+      employeeId: m.direction === "outgoing" ? ctx.employeeId : null,
+      metadata: {
+        source: "extension",
+        chatId: incomingChatId,
+        canonicalChatId: chatId,
+        // "message" — настоящее время из разметки, "upload" — время заливки.
+        // Без этой пометки порядок заходов навсегда решал бы качество данных:
+        // зашли сперва из /a, где времени в разметке нет вовсе, — и безвременная
+        // строка глушила бы нормальную из /k, которую skipDuplicates выбросит.
+        sentAtSource: sentAtByIndex[index] ? "message" : "upload",
+      },
+    }))
 
-  const result = await db.communication.createMany({ data: rows, skipDuplicates: true })
+  const result =
+    rows.length > 0
+      ? await db.communication.createMany({ data: rows, skipDuplicates: true })
+      : { count: 0 }
 
   return extJson(req, {
     created: result.count,
-    skipped: rows.length - result.count,
+    skipped: parsed.data.messages.length - result.count,
+    repaired: repair.repaired,
+    removed: repair.removed,
+    conflicts: plan.conflicts,
   })
 }

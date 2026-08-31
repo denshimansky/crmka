@@ -6,11 +6,12 @@ import { maskPhone } from "@/lib/permissions/phone-visibility"
 import type { ExtContext } from "@/lib/ext-auth"
 import {
   handleFieldForChannel,
-  normalizeChatId,
   normalizeHandle,
   toPrismaChannel,
   type MessengerChannel,
 } from "@/lib/ext/chat-identity"
+import { decideBindingLink, splitChatIds } from "@/lib/ext/chat-canonical"
+import { linkCanonicalBinding } from "@/lib/ext/chat-binding-sync"
 
 /**
  * Поиск клиента по открытому чату (docs/messenger-extension.md).
@@ -38,7 +39,7 @@ export interface ExtClientCandidate {
   stateLabel: string
 }
 
-export type ExtResolveMatch = "binding" | "phone" | "handle" | "none"
+export type ExtResolveMatch = "binding" | "phone" | "handle" | "conflict" | "none"
 
 export interface ExtResolveResult {
   match: ExtResolveMatch
@@ -48,6 +49,12 @@ export interface ExtResolveResult {
   candidates: ExtClientCandidate[]
   /** Нормализованный id чата — его же расширение шлёт при привязке. */
   chatId: string | null
+  /**
+   * Под каким идентификатором сервер ведёт этот чат. По нему же строится ключ
+   * дедупа сообщений, поэтому переписка одного человека из /k и из /a больше
+   * не задваивается.
+   */
+  canonicalChatId?: string | null
 }
 
 function clientName(c: { firstName: string | null; lastName: string | null }): string {
@@ -61,45 +68,110 @@ function clientName(c: { firstName: string | null; lastName: string | null }): s
  */
 export async function resolveClientForChat(
   ctx: ExtContext,
-  params: { channel: MessengerChannel; chatId?: string | null; phone?: string | null },
+  params: {
+    channel: MessengerChannel
+    chatId?: string | null
+    /**
+     * Прочие идентификаторы ЭТОГО ЖЕ чата, увиденные расширением в один
+     * момент. В Telegram это @username из адресной строки и числовой peer id
+     * из разметки: один и тот же человек, два разных ключа.
+     */
+    altIds?: readonly string[]
+    phone?: string | null
+  },
 ): Promise<ExtResolveResult> {
-  const chatId = normalizeChatId(params.channel, params.chatId)
+  const ids = splitChatIds(params.channel, [params.chatId, ...(params.altIds ?? [])])
+  const chatId = ids.canonical
   const scope = scopeClientByBranch(ctx.branchScope)
-  const empty: ExtResolveResult = { match: "none", clientId: null, candidates: [], chatId }
+  const empty: ExtResolveResult = {
+    match: "none",
+    clientId: null,
+    candidates: [],
+    chatId,
+    canonicalChatId: chatId,
+  }
 
-  // 1. Готовая привязка. Проверяем, что клиент всё ещё виден этому сотруднику:
-  // привязку мог сделать коллега с доступом к другому филиалу.
+  // 1. Готовая привязка. Ищем по ВСЕМ известным идентификаторам чата, а не
+  // только по канону: привязку могли сделать в другом клиенте мессенджера,
+  // где тот же человек называется иначе (в /k «@username», в /a число).
+  // Проверяем и то, что клиент всё ещё виден этому сотруднику — привязку мог
+  // сделать коллега с доступом к другому филиалу.
   if (chatId) {
-    const binding = await db.chatBinding.findUnique({
+    const rows = await db.chatBinding.findMany({
       where: {
-        tenantId_channel_externalChatId: {
-          tenantId: ctx.tenantId,
-          channel: toPrismaChannel(params.channel),
-          externalChatId: chatId,
-        },
+        tenantId: ctx.tenantId,
+        channel: toPrismaChannel(params.channel),
+        externalChatId: { in: ids.all },
       },
-      select: { clientId: true },
+      select: { clientId: true, externalChatId: true, canonicalChatId: true },
     })
-    if (binding) {
+
+    const boundClientIds = [...new Set(rows.map((row) => row.clientId))]
+    if (boundClientIds.length > 1) {
+      // Идентификаторы ОДНОГО чата ведут к РАЗНЫМ клиентам: так бывает, если
+      // привязку в /k и в /a сделали на разных людей. Выбрать молча нельзя —
+      // промах необратим, ключ дедупа не даёт переписать чужую переписку.
+      // Показываем обоих и ждём человека; заливку панель в этом состоянии
+      // не запускает.
+      const visible = await db.client.findMany({
+        where: { id: { in: boundClientIds }, tenantId: ctx.tenantId, deletedAt: null, ...scope },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          funnelStatus: true,
+          clientStatus: true,
+        },
+      })
+      if (visible.length > 1) {
+        return {
+          match: "conflict",
+          clientId: null,
+          candidates: visible.map((c) => ({
+            id: c.id,
+            name: clientName(c),
+            phone: maskPhone(c.phone, ctx.role, ctx.instructorsSeePhones),
+            funnelStatus: c.funnelStatus as string,
+            clientStatus: c.clientStatus as string | null,
+            stateLabel: clientStateLabel(c.funnelStatus, c.clientStatus),
+          })),
+          chatId,
+          canonicalChatId: chatId,
+        }
+      }
+    }
+
+    if (rows.length > 0) {
+      const boundClientId = rows[0].clientId
       const visible = await db.client.findFirst({
-        where: { id: binding.clientId, tenantId: ctx.tenantId, deletedAt: null, ...scope },
+        where: { id: boundClientId, tenantId: ctx.tenantId, deletedAt: null, ...scope },
         select: { id: true },
       })
       if (visible) {
+        // Достраиваем каноническую строку по уже подтверждённой человеком —
+        // именно это делает привязку из /k находимой в /a, где @username в
+        // разметке не существует вовсе. Побочный эффект в GET осознан:
+        // рядом тем же образом обновляется lastSeenAt.
+        if (ids.aliases.length > 0 && decideBindingLink({ rows, canonical: chatId }) === "link") {
+          await linkCanonicalBinding(ctx.tenantId, params.channel, {
+            canonical: chatId,
+            aliases: ids.aliases,
+            employeeId: ctx.employeeId,
+          }).catch(() => {})
+        }
         // Отметка «чат виден сейчас» — по ней в CRM видно живые привязки.
         void db.chatBinding
-          .update({
+          .updateMany({
             where: {
-              tenantId_channel_externalChatId: {
-                tenantId: ctx.tenantId,
-                channel: toPrismaChannel(params.channel),
-                externalChatId: chatId,
-              },
+              tenantId: ctx.tenantId,
+              channel: toPrismaChannel(params.channel),
+              externalChatId: { in: ids.all },
             },
             data: { lastSeenAt: new Date() },
           })
           .catch(() => {})
-        return { match: "binding", clientId: binding.clientId, candidates: [], chatId }
+        return { match: "binding", clientId: boundClientId, candidates: [], chatId, canonicalChatId: chatId }
       }
     }
   }
@@ -119,9 +191,9 @@ export async function resolveClientForChat(
     if (found.length > 0) {
       // Филиальный scope findClientsByPhone не применяет (это обязанность
       // вызывающего) — досеиваем сами.
-      const ids = found.map((c) => c.id)
+      const foundIds = found.map((c) => c.id)
       const visible = await db.client.findMany({
-        where: { id: { in: ids }, tenantId: ctx.tenantId, deletedAt: null, ...scope },
+        where: { id: { in: foundIds }, tenantId: ctx.tenantId, deletedAt: null, ...scope },
         select: { id: true },
       })
       const visibleIds = new Set(visible.map((c) => c.id))
@@ -136,10 +208,10 @@ export async function resolveClientForChat(
           stateLabel: clientStateLabel(c.funnelStatus, c.clientStatus),
         }))
       if (candidates.length === 1) {
-        return { match: "phone", clientId: candidates[0].id, candidates, chatId }
+        return { match: "phone", clientId: candidates[0].id, candidates, chatId, canonicalChatId: chatId }
       }
       if (candidates.length > 1) {
-        return { match: "phone", clientId: null, candidates, chatId }
+        return { match: "phone", clientId: null, candidates, chatId, canonicalChatId: chatId }
       }
     }
   }
@@ -170,9 +242,14 @@ export async function resolveClientForChat(
       },
       take: 500,
     })
-    const matched = withHandle.filter(
-      (c) => normalizeHandle(params.channel, c[field]) === chatId,
-    )
+    // Сверяем со всеми идентификаторами чата: в карточке человек вписал
+    // «@masha», а каноном стало число — по одному канону совпадение бы
+    // потерялось.
+    const wanted = new Set(ids.all)
+    const matched = withHandle.filter((c) => {
+      const handle = normalizeHandle(params.channel, c[field])
+      return handle !== null && wanted.has(handle)
+    })
     if (matched.length > 0) {
       const candidates = matched.map((c) => ({
         id: c.id,
@@ -187,6 +264,7 @@ export async function resolveClientForChat(
         clientId: candidates.length === 1 ? candidates[0].id : null,
         candidates,
         chatId,
+        canonicalChatId: chatId,
       }
     }
   }

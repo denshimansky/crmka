@@ -11,6 +11,10 @@
  *     либо внутренний вид «#/im?p=@username&post=123»;
  *   • WebA (/a): всегда числовой «#<chatId>», части через «_»:
  *     «#<chatId>_<threadId>_<type>».
+ *
+ * Хэш — НЕ канонический идентификатор собеседника: в /k он зависит от того, есть
+ * ли у человека ник, и меняется вместе с ником. Канон (числовой peer id) живёт в
+ * common/telegram-peer.js; здесь только «что открыто прямо сейчас».
  */
 
 /**
@@ -39,30 +43,48 @@ export function parseTelegramChatId(hash) {
   if (!raw) return null
 
   // Внутренний вид WebK: «/im?p=@username&post=…».
+  //
+  // Числовой «p» здесь значит НЕ то же, что число в хэше: tweb трактует его как
+  // p.toPeerId(true), то есть как ЧАТ (со знаком минус), а не как пользователя.
+  // Приняв его за peer id собеседника, мы выдали бы группу за человека и
+  // привязали к клиенту чужую переписку — поэтому числа отсюда не берём вовсе.
+  // Канон в этом случае приедет из DOM (common/telegram-peer.js), а @username
+  // работает как и работал.
   if (raw.startsWith("/")) {
     const queryStart = raw.indexOf("?")
     if (queryStart === -1) return null
     const peer = new URLSearchParams(raw.slice(queryStart + 1)).get("p")
     if (!peer) return null
-    return normalizePeer(peer)
+    return normalizePeer(peer, { allowNumeric: false })
   }
 
   // Служебное «?tgaddr=tg://…» — не про открытый чат.
   if (raw.startsWith("?")) return null
 
-  // WebA складывает части через «_» — нужен только первый сегмент.
+  // WebA складывает части через «_»: «#<chatId>_<threadId>_<type>» — нужен
+  // только первый сегмент.
+  //
+  // ИЗВЕСТНОЕ ОГРАНИЧЕНИЕ: сохранённые диалоги («Избранное», разложенное по
+  // собеседникам) имеют ту же форму «#<мой_id>_<peerId>», где первый сегмент —
+  // id ТЕКУЩЕГО пользователя. Отличить их от обычного треда по одному хэшу
+  // нельзя: threadId тоже число. Схлопывание здесь оставлено сознательно —
+  // отказ от формы «число_число» ломал бы узнавание обычных чатов с суффиксом
+  // (см. тест «части через подчёркивание»), а привязка своего «Избранного» к
+  // клиенту требует отдельного осознанного действия человека.
   return normalizePeer(raw.split("_")[0])
 }
 
 /**
  * @param {string} value
+ * @param {{allowNumeric?: boolean}} [options] allowNumeric:false — источник, где
+ *   число значит не peer id собеседника (см. форму «/im?p=»).
  * @returns {string|null}
  */
-function normalizePeer(value) {
+function normalizePeer(value, options = {}) {
   const peer = value.replace(/^@/, "").trim()
   if (!peer) return null
   // Число (в т.ч. отрицательное — группы и каналы) либо @username.
-  if (/^-?\d+$/.test(peer)) return peer
+  if (/^-?\d+$/.test(peer)) return options.allowNumeric === false ? null : peer
   if (/^[a-zA-Z0-9_]{3,}$/.test(peer)) return peer
   return null
 }

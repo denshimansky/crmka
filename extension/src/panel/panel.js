@@ -46,6 +46,7 @@ const el = {
   unmatched: /** @type {HTMLElement} */ (document.getElementById("unmatched")),
   unmatchedTitle: /** @type {HTMLElement} */ (document.getElementById("unmatched-title")),
   candidates: /** @type {HTMLElement} */ (document.getElementById("candidates")),
+  chatDiag: /** @type {HTMLElement} */ (document.getElementById("chat-diag")),
   searchInput: /** @type {HTMLInputElement} */ (document.getElementById("search-input")),
   searchResults: /** @type {HTMLElement} */ (document.getElementById("search-results")),
   noChat: /** @type {HTMLElement} */ (document.getElementById("no-chat")),
@@ -95,9 +96,15 @@ const state = {
   /**
    * Чат, из которого отрезолвился показанный клиент. Не то же самое, что
    * открытый сейчас: между ними и живут все гонки.
+   *
+   * Ключ КАНАЛО-КВАЛИФИЦИРОВАННЫЙ («telegram:masha»), а не голый chatId:
+   * идентификаторы у разных мессенджеров бывают числовыми и с появлением
+   * второго канала могут совпасть между вкладками одного окна. Цена промаха
+   * необратима — чужая переписка или черновик в карточке, а ключ дедупа не
+   * даёт их переписать.
    * @type {string|null}
    */
-  clientChatId: null,
+  clientChatKey: null,
 }
 
 /**
@@ -226,6 +233,7 @@ async function loadState(options = {}) {
   state.chat = data.chat
   state.tab = data.tab ?? null
   state.baseUrl = data.settings.baseUrl
+  renderChatDiag()
   state.logMessages = Boolean(data.settings.logMessages)
   el.baseUrl.value = data.settings.baseUrl
   el.logMessages.checked = data.settings.logMessages
@@ -338,7 +346,7 @@ async function renderForChat() {
   actionDraft = captureActionDraft()
   closeAction({ keepDraft: true })
   state.clientId = null
-  state.clientChatId = null
+  state.clientChatKey = null
   // Поиск: гасим отложенный запрос и обесцениваем висящие ответы, иначе выдача
   // по прошлому чату дорисовывалась в новый и привязывала не тот диалог.
   clearTimeout(searchTimer)
@@ -359,6 +367,10 @@ async function renderForChat() {
     resolved = await api("resolve", {
       channel: chat.channel,
       chatId: chat.chatId,
+      // Без altIds сервер видит только идентификатор из адресной строки:
+      // привязка, сделанная в другом клиенте Telegram, не находится, канон
+      // не достраивается и конфликт не определяется. Это ГЛАВНЫЙ путь.
+      altIds: chat.altIds,
       phone: chat.phone,
     })
   } catch (error) {
@@ -370,7 +382,7 @@ async function renderForChat() {
   if (seq !== renderSeq) return
 
   if (resolved.clientId) {
-    await showClient(resolved.clientId, { seq, chatId: chat.chatId })
+    await showClient(resolved.clientId, { seq, chatKey: chatKey(chat) })
     return
   }
 
@@ -380,16 +392,46 @@ async function renderForChat() {
   el.searchResults.innerHTML = ""
   el.searchInput.value = ""
 
-  const who = chat.title ? `«${chat.title}»` : `@${chat.chatId}`
+  // «@» ставим только у ника: у числового id «@987654321» читается как
+  // несуществующий ник и сбивает с толку.
+  const who = chat.title
+    ? `«${chat.title}»`
+    : /^-?\d+$/.test(chat.chatId)
+      ? chat.chatId
+      : `@${chat.chatId}`
   // Ответ сервера читаем оборонительно: подсказок может не быть вовсе, а
   // исключение здесь оставило бы панель без единого объяснения.
   const candidates = resolved?.candidates ?? []
-  if (candidates.length > 0) {
+  if (resolved?.match === "conflict") {
+    // Идентификаторы одного чата ведут к РАЗНЫМ клиентам. Сшивать молча
+    // нельзя: ошибка необратима, переписка осядет в чужой карточке. Решает
+    // человек, и до его выбора мы ничего не заливаем.
+    el.unmatchedTitle.textContent = `Чат ${who} привязан к разным клиентам — выберите верного, остальные привязки исправятся.`
+    renderCandidates(el.candidates, candidates)
+  } else if (candidates.length > 0) {
     el.unmatchedTitle.textContent = `Кого из клиентов означает чат ${who}?`
     renderCandidates(el.candidates, candidates)
   } else {
     el.unmatchedTitle.textContent = `Чат ${who} пока не связан с клиентом. Найдите его — связь запомнится.`
   }
+}
+
+/**
+ * Строка диагностики на экране настроек: какой чат видит адаптер и удалось ли
+ * определить канонический идентификатор собеседника.
+ *
+ * Нужна не для красоты: поломка селекторов Telegram молчалива по устройству —
+ * канон не прочитался, расширение тихо вернулось к прежнему поведению, и без
+ * этой строки мы узнали бы о поломке через месяц по новым дублям в карточках.
+ */
+function renderChatDiag() {
+  const chat = state.chat
+  if (!chat) {
+    el.chatDiag.textContent = ""
+    return
+  }
+  const ids = chat.altIds?.length ? chat.altIds.join(", ") : chat.chatId
+  el.chatDiag.textContent = `Чат: ${ids}` + (chat.peerSource ? ` · канон: ${chat.peerSource}` : "")
 }
 
 /**
@@ -471,13 +513,17 @@ async function bindTo(clientId) {
     await api("bind", {
       channel: chat.channel,
       chatId: chat.chatId,
+      // Весь набор: сервер запомнит чат под каждым из идентификаторов, и
+      // привязка, сделанная в /k, найдётся в /a — там @username в разметке
+      // нет вовсе, поэтому связать их можно только отсюда.
+      altIds: chat.altIds,
       clientId,
       displayName: chat.title,
       saveHandle: true,
     })
     if (seq !== renderSeq) return
     el.unmatched.hidden = true
-    await showClient(clientId, { seq, chatId: chat.chatId })
+    await showClient(clientId, { seq, chatKey: chatKey(chat) })
   } catch (error) {
     if (seq !== renderSeq) return
     showStatus(error instanceof Error ? error.message : "Не удалось связать")
@@ -488,7 +534,13 @@ el.unbind.addEventListener("click", async () => {
   if (!state.chat) return
   showStatus("Отвязываем…")
   try {
-    await api("unbind", { channel: state.chat.channel, chatId: state.chat.chatId })
+    // altIds обязателен: без него отвязка в /a снимала бы только числовую
+    // строку, а привязка по @username из /k оставалась бы жить.
+    await api("unbind", {
+      channel: state.chat.channel,
+      chatId: state.chat.chatId,
+      altIds: state.chat.altIds,
+    })
     await renderForChat()
   } catch (error) {
     showStatus(error instanceof Error ? error.message : "Не удалось отвязать")
@@ -527,10 +579,10 @@ el.searchInput.addEventListener("input", () => {
 
 /**
  * @param {string} clientId
- * @param {{silent?: boolean, seq?: number, chatId?: string|null}} [options]
+ * @param {{silent?: boolean, seq?: number, chatKey?: string|null}} [options]
  *   silent — фоновое обновление: не мигаем статусом «Загружаем карточку…» и
  *   молча переживаем ошибку сети. seq — номер отрисовки, из которой пришли.
- *   chatId — чат, из которого этот клиент отрезолвился.
+ *   chatKey — чат, из которого этот клиент отрезолвился («канал:id»).
  */
 async function showClient(clientId, options = {}) {
   const silent = options.silent === true
@@ -550,7 +602,7 @@ async function showClient(clientId, options = {}) {
   if (silent && state.clientId !== clientId) return
 
   state.clientId = clientId
-  if (options.chatId !== undefined) state.clientChatId = options.chatId
+  if (options.chatKey !== undefined) state.clientChatKey = options.chatKey
   if (!silent) showStatus("")
   el.unmatched.hidden = true
   el.card.hidden = false
@@ -580,10 +632,10 @@ async function syncMessagesAndRefresh(clientId) {
   // Чат берём ТОТ, ИЗ КОТОРОГО ОТРЕЗОЛВИЛСЯ ЭТОТ КЛИЕНТ, а не открытый сейчас.
   // Иначе при быстром переключении диалогов сообщения нового чата уезжали в
   // карточку прежнего клиента — навсегда: ключ дедупа не даёт их переписать.
-  const chatId = state.clientChatId
+  const expectedChatKey = state.clientChatKey
   let result
   try {
-    result = await send({ type: MSG_SYNC_MESSAGES, clientId, chatId })
+    result = await send({ type: MSG_SYNC_MESSAGES, clientId, chatKey: expectedChatKey })
   } catch {
     // Запись переписки — необязательная часть: карточка уже на экране.
     return
@@ -659,7 +711,7 @@ function renderChips(container, items, className) {
     if (!item) continue
     button.addEventListener(
       "click",
-      () => void insertIntoChat(item.text, button, state.clientChatId),
+      () => void insertIntoChat(item.text, button, state.clientChatKey),
     )
   }
 }
@@ -668,18 +720,18 @@ function renderChips(container, items, className) {
  * Вставить текст в поле ввода мессенджера. Именно вставить: отправляет человек.
  * @param {string} text
  * @param {HTMLButtonElement} button
- * @param {string|null} [expectedChatId] Чат, для которого текст готовили. Если
- *   человек успел открыть другой диалог — не вставляем: чужой ответ в чужой
- *   переписке хуже, чем несработавшая кнопка.
+ * @param {string|null} [expectedChatKey] Чат («канал:id»), для которого текст
+ *   готовили. Если человек успел открыть другой диалог — не вставляем: чужой
+ *   ответ в чужой переписке хуже, чем несработавшая кнопка.
  * @returns {Promise<boolean>} удалось ли вставить в поле ввода
  */
-async function insertIntoChat(text, button, expectedChatId) {
+async function insertIntoChat(text, button, expectedChatKey) {
   button.disabled = true
   try {
     const result = await send({
       type: MSG_INSERT_TEXT,
       text,
-      chatId: expectedChatId ?? state.clientChatId,
+      chatKey: expectedChatKey ?? state.clientChatKey,
     })
     if (result?.inserted) {
       flashStatus("Текст вставлен в поле ввода — проверьте и отправьте")
@@ -725,19 +777,19 @@ el.aiDraft.addEventListener("click", async () => {
   // Чат берём тот, из которого взят показанный клиент: модель отвечает
   // несколько секунд, за это время человек успевает открыть другой диалог, и
   // ответ про одного родителя не должен попасть в переписку с другим.
-  const chatId = state.clientChatId
+  const expectedChatKey = state.clientChatKey
   el.aiDraft.disabled = true
   const label = el.aiDraft.textContent
   el.aiDraft.textContent = "✨ Готовим…"
   try {
-    const result = await send({ type: MSG_AI_DRAFT, clientId: state.clientId, chatId })
+    const result = await send({ type: MSG_AI_DRAFT, clientId: state.clientId, chatKey: expectedChatKey })
     if (!result?.text) {
       flashStatus("ИИ не вернул черновик — попробуйте ещё раз")
       return
     }
     // Только по факту вставки: иначе бодрое «Черновик вставлен» затирало
     // сообщение о том, что текст ушёл в буфер обмена.
-    if (await insertIntoChat(result.text, el.aiDraft, chatId)) {
+    if (await insertIntoChat(result.text, el.aiDraft, expectedChatKey)) {
       flashStatus("Черновик вставлен — прочитайте и поправьте перед отправкой")
     }
   } catch (error) {

@@ -3,7 +3,9 @@ import assert from "node:assert/strict"
 import {
   buildMessageExternalId,
   handleFieldForChannel,
+  isLocalMessageId,
   isMessengerChannel,
+  isPositiveNumericChatId,
   normalizeChatId,
   normalizeHandle,
   parseMessageSentAt,
@@ -149,5 +151,40 @@ describe("parseMessageSentAt", () => {
     assert.equal(parseMessageSentAt(Number.NaN), undefined)
     assert.equal(parseMessageSentAt(0), undefined)
     assert.equal(parseMessageSentAt(-5), undefined)
+  })
+})
+describe("isPositiveNumericChatId — что можно канонизировать", () => {
+  it("личный чат Telegram: положительное число", () => {
+    assert.equal(isPositiveNumericChatId("987654321"), true)
+  })
+  it("группа/канал со знаком минус — НЕЛЬЗЯ", () => {
+    // Арифметика клиентов там расходится, а отличить базовую группу от
+    // супергруппы по одному числу невозможно.
+    assert.equal(isPositiveNumericChatId("-1001234567890"), false)
+  })
+  it("ноль — это NULL_PEER_ID, не идентификатор", () => {
+    assert.equal(isPositiveNumericChatId("0"), false)
+  })
+  it("ник — не число", () => {
+    assert.equal(isPositiveNumericChatId("masha"), false)
+  })
+  it("пусто", () => {
+    assert.equal(isPositiveNumericChatId(null), false)
+    assert.equal(isPositiveNumericChatId(undefined), false)
+  })
+})
+
+describe("isLocalMessageId — второй рубеж против неотправленных", () => {
+  it("временный дробный id", () => {
+    // Старые сборки расширения в браузерах сотрудников ещё какое-то время
+    // шлют такие id: сообщение легло бы в карточку второй строкой.
+    assert.equal(isLocalMessageId("222237.0001"), true)
+  })
+  it("обычный id", () => {
+    assert.equal(isLocalMessageId("222237"), false)
+  })
+  it("пусто", () => {
+    assert.equal(isLocalMessageId(null), false)
+    assert.equal(isLocalMessageId(""), false)
   })
 })

@@ -20,7 +20,14 @@
  * Открытый чат глазами адаптера мессенджера.
  * @typedef {object} ChatContext
  * @property {Channel} channel
- * @property {string} chatId    Идентификатор собеседника (@username или числовой id).
+ * @property {string} chatId    Идентификатор собеседника из адресной строки
+ *   (@username или числовой id). НЕ канон: в Telegram он зависит от того, есть ли
+ *   у человека ник, и меняется вместе с ником.
+ * @property {string[]} [altIds] Все идентификаторы этого же чата, увиденные в
+ *   ОДИН момент в ОДНОМ открытом диалоге: значение из хэша плюс числовой peer id
+ *   из разметки. Канон из них выбирает сервер — правило разное по каналам.
+ * @property {string|null} [peerSource] Откуда взялся канон либо почему его нет.
+ *   Только для диагностики в панели: поломка селекторов иначе молчалива.
  * @property {string|null} title Отображаемое имя собеседника, если удалось прочитать.
  * @property {string|null} phone Телефон, если канал его отдаёт (Telegram — почти никогда).
  */
@@ -45,10 +52,15 @@
 /**
  * Ответ /api/ext/resolve.
  * @typedef {object} ResolveResult
- * @property {"binding"|"phone"|"handle"|"none"} match
+ * @property {"binding"|"phone"|"handle"|"conflict"|"none"} match
+ *   conflict — идентификаторы одного и того же чата ведут к РАЗНЫМ клиентам
+ *   (например, привязку в /k и в /a сделали на разных людей). Сшивать молча
+ *   нельзя: ошибка необратима, поэтому выбирает человек.
  * @property {string|null} clientId
  * @property {Array<{id: string, name: string, phone: string|null, funnelStatus: string, clientStatus: string|null}>} candidates
  * @property {string|null} chatId
+ * @property {string|null} [canonicalChatId] Под каким идентификатором сервер
+ *   ведёт этот чат — по нему же строится ключ дедупа сообщений.
  */
 
 /**

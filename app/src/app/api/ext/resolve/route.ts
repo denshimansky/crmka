@@ -23,9 +23,19 @@ export async function GET(req: NextRequest) {
     return extJson(req, { error: "Неизвестный канал" }, { status: 400 })
   }
 
+  // Прочие идентификаторы того же чата, увиденные расширением в один
+  // момент. Старое расширение их не шлёт — тогда список пуст и поведение
+  // ровно прежнее.
+  const altIds = (searchParams.get("altIds") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+
   const result = await resolveClientForChat(guard.ctx, {
     channel,
     chatId: searchParams.get("chatId"),
+    altIds,
     phone: searchParams.get("phone"),
   })
 

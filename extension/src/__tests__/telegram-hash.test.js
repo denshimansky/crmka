@@ -30,8 +30,12 @@ describe("parseTelegramChatId — WebK", () => {
   it("внутренний вид /im?p=@username", () => {
     assert.equal(parseTelegramChatId("#/im?p=@masha&post=42"), "masha")
   })
-  it("внутренний вид с числовым peer", () => {
-    assert.equal(parseTelegramChatId("#/im?p=123456"), "123456")
+  it("внутренний вид с числовым peer — НЕ идентификатор собеседника", () => {
+    // tweb читает «p» как p.toPeerId(true), то есть как ЧАТ со знаком минус.
+    // Приняв число за peer id пользователя, мы склеили бы группу 123456 с
+    // человеком, у которого user id 123456, — и переписка одного уехала бы в
+    // карточку другого. Канон в этом случае берётся из DOM (telegram-peer.js).
+    assert.equal(parseTelegramChatId("#/im?p=123456"), null)
   })
   it("процентное кодирование раскрывается", () => {
     assert.equal(parseTelegramChatId("#%40masha"), "masha")

@@ -55,6 +55,12 @@ let parseTelegramChatId = null
 let detectTelegramClient = null
 /** @type {typeof import("../common/telegram-time.js").parseBubbleTitleDate | null} */
 let parseBubbleTitleDate = null
+/**
+ * Модуль каноникализации собеседника. null до загрузки — тогда работаем ровно
+ * как раньше: ключом чата остаётся значение из адресной строки.
+ * @type {typeof import("../common/telegram-peer.js") | null}
+ */
+let peerModule = null
 
 /** Контекст скрипта умер (расширение обновили) — больше не дёргаемся. */
 let contextLost = false
@@ -155,12 +161,146 @@ function messagesRoot() {
   const selectors =
     detectClient() === "a"
       ? ["#MiddleColumn .messages-container", "#MiddleColumn"]
-      : [".chats-container .chat.active", ".chat.active", "#column-center"]
+      : [
+          // Предпросмотр диалога (shift+click по списку) открывается ОТДЕЛЬНЫМ
+          // блоком с теми же классами chat+active, но вне #column-center. Без
+          // :not(.chat-preview) прежний фоллбэк «.chat.active» ловил его — и
+          // переписка чужого диалога уехала бы в открытую карточку.
+          "#column-center .chats-container > .chat.active:not(.chat-preview)",
+          ".chats-container .chat.active:not(.chat-preview)",
+          ".chat.active:not(.chat-preview)",
+          "#column-center",
+        ]
   for (const selector of selectors) {
     const node = document.querySelector(selector)
     if (node) return /** @type {HTMLElement} */ (node)
   }
   return null
+}
+
+/**
+ * Числовой peer id открытого чата из ВИДИМОЙ разметки WebK.
+ *
+ * Только /k: в WebA число и так лежит в адресной строке. Читаем ровно те
+ * атрибуты, которые клиент проставляет сам (см. common/telegram-peer.js) —
+ * никакого localStorage, IndexedDB и внедрения скриптов в страницу.
+ *
+ * Решение «принять или отказаться» принимает чистый pickPeerId; здесь только
+ * сбор кандидатов. Пустой список — штатный исход.
+ *
+ * @returns {Array<{source: string, value: string}>}
+ */
+function readNumericPeerId() {
+  if (detectClient() !== "k") return []
+  const chat =
+    document.querySelector("#column-center .chats-container > .chat.active:not(.chat-preview)") ??
+    document.querySelector("#column-center .chat.active:not(.chat-preview)")
+  if (!chat) return []
+
+  /** @type {Array<{source: string, value: string}>} */
+  const out = []
+  /** @param {string} source @param {Element|null|undefined} node */
+  const push = (source, node) => {
+    if (!(node instanceof HTMLElement)) return
+    const value = node.dataset.peerId
+    if (value) out.push({ source, value })
+  }
+
+  // Поле ввода несёт чистый chat.peerId. Зеркало для расчёта высоты
+  // (.input-field-input-fake) тоже contenteditable — его берём мимо.
+  push(
+    "composer",
+    chat.querySelector(".input-message-input[data-peer-id]:not(.input-field-input-fake)"),
+  )
+  // На САМОМ пузыре лежит пир ДИАЛОГА (message.peerId). Внутрь пузыря лезть
+  // нельзя: там data-peer-id ОТПРАВИТЕЛЯ и автора пересылки — в группе это
+  // разные люди, и канон уехал бы на постороннего.
+  const bubbles = chat.querySelectorAll(".bubble[data-mid][data-peer-id]")
+  push("bubble", bubbles[bubbles.length - 1])
+  push("avatar", chat.querySelector(".chat-info .person-avatar[data-peer-id]"))
+  push("title", chat.querySelector(".chat-info .peer-title[data-peer-id]"))
+  // Прод-сборка может отставать от master, где <avatar-element> уже убрали.
+  push("avatar-legacy", chat.querySelector("avatar-element[data-peer-id]"))
+  // Перекрёстная проверка из списка диалогов — он живёт вне контейнера чата.
+  push("chatlist", document.querySelector("#column-left .chatlist-chat.active[data-peer-id]"))
+  return out
+}
+
+/**
+ * Канон открытого чата и полный набор его идентификаторов.
+ *
+ * @param {string} chatId Значение из адресной строки.
+ * @param {{commit?: boolean}} [options] commit — можно двигать состояние
+ *   подтверждения. Только reportChat: он вызывается раз на такт наблюдателя,
+ *   а значит два его вызова подряд — это два РАЗНЫХ кадра разметки. readChat
+ *   же дёргается по ping и по сигналу активности, и разрешив ему двигать
+ *   состояние, мы бы «подтвердили» stale-число по одному и тому же кадру.
+ * @returns {{altIds: string[], peerId: string|null, source: string|null, reason: string}}
+ */
+function pickPeer(chatId, options = {}) {
+  if (!peerModule) {
+    return { altIds: [chatId], peerId: null, source: null, reason: "модуль канона не загружен" }
+  }
+  const picked = peerModule.pickPeerId({
+    hashId: chatId,
+    sources: readNumericPeerId(),
+    previousPeerId: lastPeerId,
+    // Гард «кадр перехода» держим до тех пор, пока канон не принят для ЭТОГО
+    // чата: разметка прошлого диалога живёт ещё несколько кадров после смены.
+    chatSwitched: chatId !== lastPeerChatId,
+  })
+
+  let peerId = picked.peerId
+  let reason = picked.reason
+  if (peerId && picked.needsConfirmation) {
+    // Число взято ТОЛЬКО из разметки. Одиночному наблюдению здесь верить
+    // нельзя: tweb переиспользует контейнер чата, и сразу после переключения
+    // диалога в нём ещё живёт пир ПРОШЛОГО собеседника. Сравнения с последним
+    // принятым каноном мало — если для промежуточного чата канон не приняли,
+    // сравнивать будет не с чем. Поэтому ждём, пока одно и то же число придёт
+    // дважды подряд для одного и того же чата.
+    const confirmed = pendingPeerChatId === chatId && pendingPeerId === peerId
+    if (!confirmed) {
+      if (options.commit) {
+        pendingPeerChatId = chatId
+        pendingPeerId = peerId
+      }
+      peerId = null
+      reason = "ждём подтверждения вторым наблюдением"
+    }
+  } else if (options.commit && !peerId) {
+    pendingPeerChatId = null
+    pendingPeerId = null
+  }
+
+  return {
+    altIds: peerModule.buildAltIds({ hashId: chatId, peerId }),
+    peerId,
+    source: peerId ? picked.source : null,
+    reason,
+  }
+}
+
+/**
+ * Id сообщения WebK. Без модуля канона — прежнее поведение.
+ * @param {HTMLElement} el @returns {string|null}
+ */
+function messageIdWebK(el) {
+  const raw = el.dataset.mid ?? null
+  if (!peerModule) return raw
+  return peerModule.parseWebKMessageId(raw)
+}
+
+/**
+ * Id сообщения WebA. Без модуля канона — прежнее поведение.
+ * @param {HTMLElement} el @returns {string|null}
+ */
+function messageIdWebA(el) {
+  if (peerModule) {
+    return peerModule.parseWebAMessageId({ dataMessageId: el.dataset.messageId, htmlId: el.id })
+  }
+  const id = el.id.slice("message-".length).split("-")[0]
+  return id && /^\d+$/.test(id) ? id : null
 }
 
 /**
@@ -213,7 +353,9 @@ function collectWebK(root) {
     const node = nodes[i]
     if (node.classList.contains("service")) continue
     const el = /** @type {HTMLElement} */ (node)
-    const mid = el.dataset.mid
+    // Локальный (ещё не отправленный) id пропускаем: через секунду это же
+    // сообщение приедет с настоящим id и легло бы в карточку второй строкой.
+    const mid = messageIdWebK(el)
     if (!mid) continue
     // .time — часы в конце пузыря, .reply — цитата чужого сообщения,
     // .reactions — эмодзи-реакции: в историю клиента это не переписка.
@@ -242,9 +384,11 @@ function collectWebA(root) {
   const nodes = root.querySelectorAll('[id^="message-"]')
   for (let i = nodes.length - 1; i >= 0 && out.length < COLLECT_LIMIT; i--) {
     const el = /** @type {HTMLElement} */ (nodes[i])
-    // «message-<id>» и «message-<id>-<index>» у альбомов: берём первую часть.
-    const id = el.id.slice("message-".length).split("-")[0]
-    if (!id || !/^\d+$/.test(id)) continue
+    // «message-<id>» и «message-<id>-<index>» у альбомов дают один и тот же id;
+    // «message-<id>-<000001>» — ЛОКАЛЬНОЕ, ещё не отправленное сообщение, его
+    // заливать нельзя (разбор — в common/telegram-peer.js).
+    const id = messageIdWebA(el)
+    if (!id) continue
     if (out.some((m) => m.externalId === id)) continue
     // .MessageMeta — время и галочки доставки, они внутри блока текста и без
     // чистки приклеиваются к сообщению; .Reactions — эмодзи-реакции.
@@ -286,7 +430,9 @@ function readLatestMessageKey() {
   let max = 0
   for (const node of nodes) {
     const el = /** @type {HTMLElement} */ (node)
-    const raw = isWebA ? el.id.slice("message-".length).split("-")[0] : el.dataset.mid
+    // Через те же парсеры: дробный временный id иначе давал бы ложный сигнал
+    // «пришло новое» на каждое своё же отправленное сообщение.
+    const raw = isWebA ? messageIdWebA(el) : messageIdWebK(el)
     const value = Number(raw)
     if (Number.isFinite(value) && value > max) max = value
   }
@@ -302,7 +448,12 @@ function findComposer() {
   const selectors =
     detectClient() === "a"
       ? ["#editable-message-text", ".form-control[contenteditable='true']"]
-      : [".chat-input .input-message-input[contenteditable='true']", ".input-message-input[contenteditable='true']"]
+      : [
+          // .input-field-input-fake — невидимое зеркало для расчёта высоты, оно
+          // тоже contenteditable и стоит РАНЬШЕ настоящего поля в разметке.
+          ".chat-input .input-message-input[contenteditable='true']:not(.input-field-input-fake)",
+          ".input-message-input[contenteditable='true']:not(.input-field-input-fake)",
+        ]
   for (const selector of selectors) {
     for (const node of document.querySelectorAll(selector)) {
       const el = /** @type {HTMLElement} */ (node)
@@ -374,12 +525,30 @@ let lastChatId = null
 let lastTitle = null
 /** Отпечаток последнего сообщения — чтобы отличить «пришло новое» от перерисовки. @type {string|null} */
 let lastMessageKey = null
+/** Принятый канон и чат, для которого он принят: пара нужна гарду «кадр перехода». @type {string|null} */
+let lastPeerId = null
+/** @type {string|null} */
+let lastPeerChatId = null
+/** Число, увиденное на прошлом такте, и чат, в котором его видели. @type {string|null} */
+let pendingPeerId = null
+/** @type {string|null} */
+let pendingPeerChatId = null
+/** Набор идентификаторов прошлого доклада — канон приезжает позже хэша. @type {string|null} */
+let lastAltKey = null
 
 /** Открытый чат как контекст для панели. @returns {ChatContext|null} */
 function readChat() {
   const chatId = readChatIdFromHash()
   if (!chatId) return null
-  return { channel: "telegram", chatId, title: readChatTitle(), phone: null }
+  const picked = pickPeer(chatId)
+  return {
+    channel: "telegram",
+    chatId,
+    altIds: picked.altIds,
+    peerSource: picked.source ?? picked.reason,
+    title: readChatTitle(),
+    phone: null,
+  }
 }
 
 /** Сообщить service worker, какой чат открыт. */
@@ -387,17 +556,39 @@ function reportChat() {
   if (!parseTelegramChatId) return
   const chatId = readChatIdFromHash()
   const title = chatId ? readChatTitle() : null
-  if (chatId === lastChatId && title === lastTitle) return
+  const picked = chatId ? pickPeer(chatId, { commit: true }) : null
+  const altKey = picked ? picked.altIds.join(",") : null
+
+  // «Ничего не изменилось» считаем и по набору идентификаторов тоже: канон
+  // приезжает ПОЗЖЕ хэша (разметка дорисовывается), и на прежнем условии первый
+  // доклад без канона остался бы единственным — привязка из /k так и не стала бы
+  // находиться в /a.
+  if (chatId === lastChatId && title === lastTitle && altKey === lastAltKey) return
+
   const chatSwitched = chatId !== lastChatId
   lastChatId = chatId
   lastTitle = title
+  lastAltKey = altKey
+  if (picked?.peerId) {
+    lastPeerId = picked.peerId
+    lastPeerChatId = chatId
+  }
   // Новый чат — его последнее сообщение «новым» не считаем, иначе смена чата
   // тут же вызвала бы лишнюю заливку поверх штатной (панель и так перечитывает
   // всё при смене чата).
   if (chatSwitched) lastMessageKey = readLatestMessageKey()
 
   /** @type {ChatContext|null} */
-  const chat = chatId ? { channel: "telegram", chatId, title, phone: null } : null
+  const chat = chatId
+    ? {
+        channel: "telegram",
+        chatId,
+        altIds: picked?.altIds ?? [chatId],
+        peerSource: picked ? (picked.source ?? picked.reason) : null,
+        title,
+        phone: null,
+      }
+    : null
 
   sendToWorker({ type: MSG_CHAT_CHANGED, chat })
 }
@@ -452,6 +643,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === MSG_PING) {
     // Панель по этому ответу отличает «скрипт не подключён к странице» от
     // «скрипт работает, но чат не выбран», и подсказывает человеку нужное.
+    const pinged = readChat()
     sendResponse({
       alive: true,
       // ready=false значит модуль разбора хэша ещё не подгрузился — это уже
@@ -460,10 +652,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       client: detectClient(),
       hash: location.hash || null,
       chatId: readChatIdFromHash(),
+      // Откуда взялся канон либо почему его нет. Поломка селекторов иначе
+      // молчалива: система просто тихо вернётся к прежнему поведению, а узнаем
+      // мы об этом через месяц по новым дублям в карточках.
+      peerSource: pinged?.peerSource ?? null,
       // Полный контекст чата: service worker в MV3 засыпает и забывает, какой
       // чат открыт, а content script знает это всегда. Без этого панель после
       // сна фонового скрипта писала «откройте чат» до перезагрузки страницы.
-      chat: readChat(),
+      chat: pinged,
     })
     return false
   }
@@ -477,11 +673,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 Promise.all([
   import(chrome.runtime.getURL("src/common/telegram-hash.js")),
   import(chrome.runtime.getURL("src/common/telegram-time.js")).catch(() => null),
+  // Канон необязателен: не загрузился — работаем как раньше, ключом чата
+  // остаётся значение из адресной строки.
+  import(chrome.runtime.getURL("src/common/telegram-peer.js")).catch(() => null),
 ])
-  .then(([hash, time]) => {
+  .then(([hash, time, peer]) => {
     parseTelegramChatId = hash.parseTelegramChatId
     detectTelegramClient = hash.detectTelegramClient
     parseBubbleTitleDate = time?.parseBubbleTitleDate ?? null
+    peerModule = peer ?? null
     reportChat()
   })
   .catch(() => {

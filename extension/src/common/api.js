@@ -68,13 +68,24 @@ async function request(settings, path, options = {}) {
 
 /**
  * Кто открыт в чате.
+ *
+ * altIds — все идентификаторы этого же чата, увиденные адаптером в один момент
+ * (значение из адресной строки плюс числовой peer id из разметки). Канон из них
+ * выбирает СЕРВЕР: правило разное по каналам, и держать его в трёх адаптерах
+ * значило бы чинить одно и то же трижды. Пустой список = поведение как раньше.
+ *
  * @param {ExtSettings} settings
- * @param {{channel: Channel, chatId: string, phone?: string|null}} chat
+ * @param {{channel: Channel, chatId: string, altIds?: string[], phone?: string|null}} chat
  * @returns {Promise<ResolveResult>}
  */
 export function resolveChat(settings, chat) {
   return request(settings, "/api/ext/resolve", {
-    query: { channel: chat.channel, chatId: chat.chatId, phone: chat.phone },
+    query: {
+      channel: chat.channel,
+      chatId: chat.chatId,
+      altIds: chat.altIds?.length ? chat.altIds.join(",") : null,
+      phone: chat.phone,
+    },
   })
 }
 
@@ -121,7 +132,7 @@ export function searchClients(settings, q) {
 /**
  * Привязать чат к клиенту (явное действие сотрудника).
  * @param {ExtSettings} settings
- * @param {{channel: Channel, chatId: string, clientId: string, displayName?: string|null, saveHandle?: boolean}} payload
+ * @param {{channel: Channel, chatId: string, altIds?: string[], clientId: string, displayName?: string|null, saveHandle?: boolean}} payload
  */
 export function createBinding(settings, payload) {
   return request(settings, "/api/ext/bindings", { method: "POST", body: payload })
@@ -146,9 +157,10 @@ export function createComment(settings, payload) {
 }
 
 /**
- * Отвязать чат.
+ * Отвязать чат. Сервер снимает всю группу идентификаторов одного чата: иначе
+ * «отвязал в /a, а в /k всё ещё привязано».
  * @param {ExtSettings} settings
- * @param {{channel: Channel, chatId: string}} payload
+ * @param {{channel: Channel, chatId: string, altIds?: string[]}} payload
  */
 export function deleteBinding(settings, payload) {
   return request(settings, "/api/ext/bindings", { method: "DELETE", body: payload })
@@ -158,8 +170,8 @@ export function deleteBinding(settings, payload) {
  * Залить увиденные сообщения. Идемпотентно: повторы сервер пропускает по
  * ключу (канал, чат, id сообщения), поэтому слать одно и то же не страшно.
  * @param {ExtSettings} settings
- * @param {{clientId: string, channel: Channel, chatId: string, messages: ChatMessage[]}} payload
- * @returns {Promise<{created: number, skipped: number}>}
+ * @param {{clientId: string, channel: Channel, chatId: string, altIds?: string[], messages: ChatMessage[]}} payload
+ * @returns {Promise<{created: number, skipped: number, repaired?: number, conflicts?: number}>}
  */
 export function syncMessages(settings, payload) {
   return request(settings, "/api/ext/communications/batch", { method: "POST", body: payload })
