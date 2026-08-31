@@ -67,21 +67,37 @@ async function getSettings() {
 }
 
 /**
- * Хосты, на которых работают адаптеры. Держим здесь, а не только в манифесте:
- * по этому же списку чиним уже открытые вкладки (см. injectIntoOpenTabs).
+ * Хосты, на которых работают адаптеры, — ВЫВОДИМ ИЗ МАНИФЕСТА, а не держим
+ * отдельным списком.
+ *
+ * Раньше список был записан руками и дублировал `content_scripts.matches`.
+ * Комментарий рядом честно предупреждал «почини одно — не забудь другое», но
+ * проблему не решал: источников правды было четыре (matches у content_scripts,
+ * matches у web_accessible_resources и два списка здесь), и добавление канала
+ * означало четыре синхронных правки. Промах был бы тихим: панель показывала бы
+ * «откройте web.telegram.org» поверх открытого чата второго мессенджера, потому
+ * что MSG_GET_STATE вычищает из памяти чат вкладки, которую не считает
+ * мессенджером.
+ *
+ * @returns {string[]} match-паттерны вида «https://web.max.ru/*»
  */
-const MESSENGER_URL_PATTERNS = ["https://web.telegram.org/*"]
-
-/**
- * Те же хосты, но для сверки конкретного URL вкладки: match-паттерны со
- * звёздочкой для startsWith не годятся. Держим рядом с паттернами, чтобы при
- * добавлении канала нельзя было починить одно место и забыть другое.
- */
-const MESSENGER_ORIGINS = ["https://web.telegram.org/"]
+function messengerOrigins() {
+  const scripts = chrome.runtime.getManifest().content_scripts ?? []
+  const origins = new Set()
+  for (const entry of scripts) {
+    for (const pattern of entry.matches ?? []) {
+      // «https://web.telegram.org/*» → «https://web.telegram.org/»: для сверки
+      // конкретного URL вкладки match-паттерн со звёздочкой не годится.
+      const origin = pattern.replace(/\*$/, "")
+      if (origin.startsWith("http")) origins.add(origin)
+    }
+  }
+  return [...origins]
+}
 
 /** @param {string|undefined} url */
 function isMessengerUrl(url) {
-  return Boolean(url && MESSENGER_ORIGINS.some((origin) => url.startsWith(origin)))
+  return Boolean(url && messengerOrigins().some((origin) => url.startsWith(origin)))
 }
 
 /**
@@ -93,12 +109,32 @@ function isMessengerUrl(url) {
  */
 async function injectIntoOpenTabs() {
   const scripts = chrome.runtime.getManifest().content_scripts ?? []
-  const tabs = await chrome.tabs.query({ url: MESSENGER_URL_PATTERNS })
-  for (const tab of tabs) {
-    if (tab.id == null) continue
-    for (const entry of scripts) {
+  // Циклы именно в таком порядке — сначала записи манифеста, потом их вкладки.
+  //
+  // Раньше было наоборот: брали все вкладки мессенджеров и внедряли в каждую
+  // КАЖДУЮ запись content_scripts, без сверки с её matches. Браузер при штатной
+  // загрузке страницы сверяет matches сам, а тут мы внедряем вручную — и с
+  // появлением второго адаптера telegram.js поехал бы на web.max.ru, а max.js в
+  // Telegram. Два адаптера в одном изолированном мире отвечают на один и тот же
+  // ping и collect-messages, причём отвечает тот, кто успел первым, — значит в
+  // карточку клиента могла бы уехать переписка не из того мессенджера.
+  //
+  // Свой разбор match-паттернов не пишем: chrome.tabs.query умеет их сам, и
+  // его правила по определению совпадают с теми, по которым браузер внедряет
+  // скрипты штатно.
+  for (const entry of scripts) {
+    if (!entry.matches?.length || !entry.js?.length) continue
+    let tabs = []
+    try {
+      tabs = await chrome.tabs.query({ url: entry.matches })
+    } catch {
+      // Паттерн, который query не понимает, — пропускаем эту запись целиком.
+      continue
+    }
+    for (const tab of tabs) {
+      if (tab.id == null) continue
       try {
-        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: entry.js ?? [] })
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: entry.js })
       } catch {
         // Вкладка закрылась, страница ещё грузится или это служебный URL —
         // не страшно: при следующей загрузке скрипт попадёт туда штатно.
