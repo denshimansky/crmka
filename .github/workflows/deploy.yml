@@ -39,25 +39,34 @@ jobs:
           # Если секрет в GitHub не задан — переменная придёт пустой, и блок
           # провижинга .env её просто пропустит (см. условие в script).
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          # Токен джоба: нужен, чтобы сервер тянул код аутентифицированно.
+          # Отдельного секрета заводить не надо — GitHub выдаёт его сам.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: 65.108.45.153
           port: 2280
           username: deploy
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: CRON_SECRET
+          envs: CRON_SECRET,GH_TOKEN
           script: |
             set -e  # любой провал шага = провал деплоя (раньше билд мог упасть, а up -d продолжал на старом образе)
             cd /opt/crmka
-            # git pull с повтором: анонимный HTTPS-fetch с датацентрового IP
-            # GitHub периодически отбивает, и git показывает это как
-            # «could not read Username» + «expected flush after ref listing» —
-            # то есть вместо потока git-протокола пришла страница ошибки. Доступ
-            # при этом в порядке: та же команда минутой позже проходит. Без
-            # повтора такой сбой валит весь деплой (31.08.2026 — дважды подряд).
-            # GIT_TERMINAL_PROMPT=0: без tty git иначе пытается спросить логин и
-            # падает не на сети, а на приглашении ввода.
+            # Тянем через АУТЕНТИФИЦИРОВАННЫЙ URL, а не анонимно.
+            #
+            # 31.08.2026 деплой встал на обоих серверах: «could not read Username
+            # for https://github.com» и «expected flush after ref listing». Выглядит
+            # как проблема доступа, но репозиторий публичный — GitHub отбивает
+            # анонимные запросы с датацентровых IP. Проверено руками: одна и та же
+            # команда то проходит, то нет, независимо от пользователя и оболочки,
+            # поэтому одним повтором это не лечится.
+            #
+            # GITHUB_TOKEN живёт только на время джоба и в URL не сохраняется:
+            # remote origin не трогаем, токен уходит одноразовым аргументом.
+            # GIT_TERMINAL_PROMPT=0 — чтобы git не подменял сетевую ошибку
+            # приглашением ввода логина и не висел без tty.
             for attempt in 1 2 3; do
-              GIT_TERMINAL_PROMPT=0 git pull origin main && break
+              GIT_TERMINAL_PROMPT=0 git pull \
+                "https://x-access-token:${GH_TOKEN}@github.com/denshimansky/crmka.git" main && break
               if [ "$attempt" = 3 ]; then echo "git pull не удался трижды"; exit 1; fi
               echo "git pull не удался (попытка $attempt) — повтор через 10с"
               sleep 10
