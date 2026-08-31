@@ -30,7 +30,10 @@
   "content_scripts": [
     {
       "matches": ["https://web.telegram.org/*"],
-      "js": ["src/content/telegram.js"],
+      "js": [
+        "src/content/adapter-core.js",
+        "src/content/telegram.js"
+      ],
       "run_at": "document_idle"
     }
   ],

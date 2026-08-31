@@ -17,30 +17,19 @@
  * строкой и видимым DOM.
  */
 
-const MSG_CHAT_CHANGED = "chat-changed"
-const MSG_CHAT_ACTIVITY = "chat-activity"
-const MSG_COLLECT_MESSAGES = "collect-messages"
-const MSG_INSERT_TEXT = "insert-text"
-const MSG_PING = "ping"
+// Ни одного объявления на ВЕРХНЕМ уровне: все content scripts расширения делят
+// глобальное лексическое окружение изолированного мира, и одинаковые имена в
+// двух адаптерах дали бы SyntaxError на инстанциации — до первой исполняемой
+// строки, то есть до любого рантайм-гарда. Умер бы при этом тот, кто запустился
+// вторым, а это мог оказаться как раз нужный адаптер.
+;(() => {
+  const core = /** @type {any} */ (globalThis).__crmkaAdapterCore
+  // Ядро объявлено первым файлом этой же записи content_scripts. Нет его —
+  // значит манифест собран неправильно; молча выходим, страницу не ломаем.
+  if (!core) return
 
-/**
- * Сколько последних пузырей отдаём панели. Дублирует SYNC_MESSAGES_LIMIT из
- * common/types.js: content script в MV3 — классический скрипт, статический
- * import сюда невозможен, а тянуть модуль ради одного числа не стоит.
- * В открытом чате Telegram держит в DOM сотни сообщений — без хвоста мы бы
- * гоняли на сервер всю подгруженную историю на каждое новое сообщение.
- */
-const COLLECT_LIMIT = 10
-
-// Скрипт могут внедрить дважды: штатно при загрузке страницы и повторно из
-// service worker (он чинит вкладки, открытые до установки расширения). Второй
-// экземпляр молча выходит, иначе получим два набора наблюдателей DOM.
-const globalScope = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (window))
-
-if (globalScope.__crmkaTelegramAdapter) {
-  // Уже работает.
-} else {
-  globalScope.__crmkaTelegramAdapter = true
+  const COLLECT_LIMIT = core.COLLECT_LIMIT
+  const readCleanText = core.readCleanText
 
 /** @typedef {import("../common/types.js").ChatContext} ChatContext */
 /** @typedef {import("../common/types.js").ChatMessage} ChatMessage */
@@ -61,35 +50,6 @@ let parseBubbleTitleDate = null
  * @type {typeof import("../common/telegram-peer.js") | null}
  */
 let peerModule = null
-
-/** Контекст скрипта умер (расширение обновили) — больше не дёргаемся. */
-let contextLost = false
-
-/** @type {MutationObserver|null} */
-let domObserver = null
-
-/**
- * Сообщение в service worker.
- *
- * После обновления или перезагрузки расширения контекст этого экземпляра
- * инвалидируется, и chrome.runtime.sendMessage бросает СИНХРОННО
- * («Extension context invalidated») — .catch() такую ошибку не ловит, и падение
- * уносило с собой колбэк наблюдателя DOM. Свежий экземпляр скрипта service
- * worker внедряет сам, поэтому старому остаётся тихо замолчать и отцепиться.
- *
- * @param {any} message
- */
-function sendToWorker(message) {
-  if (contextLost) return
-  try {
-    if (!chrome.runtime?.id) throw new Error("context lost")
-    const sent = chrome.runtime.sendMessage(message)
-    if (sent && typeof sent.catch === "function") sent.catch(() => {})
-  } catch {
-    contextLost = true
-    domObserver?.disconnect()
-  }
-}
 
 /** Какой из двух клиентов открыт (до загрузки модуля считаем WebK — он чаще). @returns {"k"|"a"} */
 function detectClient() {
@@ -304,27 +264,6 @@ function messageIdWebA(el) {
 }
 
 /**
- * Текст сообщения без служебной обвязки.
- *
- * Время в Telegram лежит ВНУТРИ блока текста (`<span class="time">` в конце
- * пузыря), поэтому наивный textContent склеивал сообщение с часами:
- * «дальше10:14». Режем по копии узла — оригинальную разметку страницы
- * мессенджера трогать нельзя.
- *
- * @param {HTMLElement|null} node Блок текста (.message у WebK, .text-content у WebA).
- * @param {string[]} junkSelectors Что выкинуть перед чтением текста.
- * @returns {string}
- */
-function readCleanText(node, junkSelectors) {
-  if (!node) return ""
-  const clone = /** @type {HTMLElement} */ (node.cloneNode(true))
-  for (const selector of junkSelectors) {
-    for (const junk of clone.querySelectorAll(selector)) junk.remove()
-  }
-  return clone.textContent?.trim() ?? ""
-}
-
-/**
  * Время отправки пузыря WebK.
  *
  * Машинного времени в разметке нет вовсе — на пузыре только data-mid. Полная
@@ -519,12 +458,6 @@ function insertIntoComposer(text) {
   return (el.textContent ?? "") !== before
 }
 
-/** @type {string|null} */
-let lastChatId = null
-/** @type {string|null} */
-let lastTitle = null
-/** Отпечаток последнего сообщения — чтобы отличить «пришло новое» от перерисовки. @type {string|null} */
-let lastMessageKey = null
 /** Принятый канон и чат, для которого он принят: пара нужна гарду «кадр перехода». @type {string|null} */
 let lastPeerId = null
 /** @type {string|null} */
@@ -533,14 +466,19 @@ let lastPeerChatId = null
 let pendingPeerId = null
 /** @type {string|null} */
 let pendingPeerChatId = null
-/** Набор идентификаторов прошлого доклада — канон приезжает позже хэша. @type {string|null} */
-let lastAltKey = null
 
-/** Открытый чат как контекст для панели. @returns {ChatContext|null} */
-function readChat() {
+/**
+ * Открытый чат как контекст для панели.
+ *
+ * @param {{commit?: boolean}} [options] commit — можно двигать состояние
+ *   подтверждения канона. Ставит его только доклад ядра: он вызывается раз на
+ *   такт наблюдателя, а значит два вызова подряд это два РАЗНЫХ кадра разметки.
+ * @returns {ChatContext|null}
+ */
+function readChat(options = {}) {
   const chatId = readChatIdFromHash()
   if (!chatId) return null
-  const picked = pickPeer(chatId)
+  const picked = pickPeer(chatId, options)
   return {
     channel: "telegram",
     chatId,
@@ -551,125 +489,9 @@ function readChat() {
   }
 }
 
-/** Сообщить service worker, какой чат открыт. */
-function reportChat() {
-  if (!parseTelegramChatId) return
-  const chatId = readChatIdFromHash()
-  const title = chatId ? readChatTitle() : null
-  const picked = chatId ? pickPeer(chatId, { commit: true }) : null
-  const altKey = picked ? picked.altIds.join(",") : null
-
-  // «Ничего не изменилось» считаем и по набору идентификаторов тоже: канон
-  // приезжает ПОЗЖЕ хэша (разметка дорисовывается), и на прежнем условии первый
-  // доклад без канона остался бы единственным — привязка из /k так и не стала бы
-  // находиться в /a.
-  if (chatId === lastChatId && title === lastTitle && altKey === lastAltKey) return
-
-  const chatSwitched = chatId !== lastChatId
-  lastChatId = chatId
-  lastTitle = title
-  lastAltKey = altKey
-  if (picked?.peerId) {
-    lastPeerId = picked.peerId
-    lastPeerChatId = chatId
-  }
-  // Новый чат — его последнее сообщение «новым» не считаем, иначе смена чата
-  // тут же вызвала бы лишнюю заливку поверх штатной (панель и так перечитывает
-  // всё при смене чата).
-  if (chatSwitched) lastMessageKey = readLatestMessageKey()
-
-  /** @type {ChatContext|null} */
-  const chat = chatId
-    ? {
-        channel: "telegram",
-        chatId,
-        altIds: picked?.altIds ?? [chatId],
-        peerSource: picked ? (picked.source ?? picked.reason) : null,
-        title,
-        phone: null,
-      }
-    : null
-
-  sendToWorker({ type: MSG_CHAT_CHANGED, chat })
-}
-
-/**
- * Сообщить, что в открытом чате появилось новое сообщение — ради этого панель
- * и обновляется на лету, без перезагрузки страницы Telegram.
- *
- * Чат отдаём вместе с сигналом: service worker в MV3 засыпает и теряет память
- * о том, какой чат открыт, а тут она как раз восстанавливается.
- */
-function reportActivity() {
-  if (!parseTelegramChatId) return
-  const chat = readChat()
-  if (!chat) return
-  const key = readLatestMessageKey()
-  if (!key || key === lastMessageKey) return
-  lastMessageKey = key
-  sendToWorker({ type: MSG_CHAT_ACTIVITY, chat })
-}
-
-// Смена чата — это смена хэша (клиент SPA, полноценной навигации нет).
-window.addEventListener("hashchange", () => reportChat())
-
-// Заголовок чата подгружается позже хэша, поэтому дожидаемся его наблюдателем.
-// Он же ловит новые сообщения: своего события у Telegram нет, а разметка при
-// приходе сообщения меняется всегда. Telegram перерисовывает DOM постоянно,
-// поэтому: (1) дебаунс, (2) обе функции сами сравнивают значения и молчат, если
-// ничего не изменилось — иначе мы бы заваливали service worker сообщениями на
-// каждый кадр анимации.
-/** @type {ReturnType<typeof setTimeout>|undefined} */
-let reportTimer
-domObserver = new MutationObserver(() => {
-  if (contextLost) return
-  clearTimeout(reportTimer)
-  reportTimer = setTimeout(() => {
-    reportChat()
-    reportActivity()
-  }, 300)
-})
-domObserver.observe(document.body, { childList: true, subtree: true })
-
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === MSG_COLLECT_MESSAGES) {
-    sendResponse({ messages: collectVisibleMessages() })
-    return false
-  }
-  if (message?.type === MSG_INSERT_TEXT) {
-    sendResponse({ inserted: insertIntoComposer(String(message.text ?? "")) })
-    return false
-  }
-  if (message?.type === MSG_PING) {
-    // Панель по этому ответу отличает «скрипт не подключён к странице» от
-    // «скрипт работает, но чат не выбран», и подсказывает человеку нужное.
-    const pinged = readChat()
-    sendResponse({
-      alive: true,
-      // ready=false значит модуль разбора хэша ещё не подгрузился — это уже
-      // другая причина «нет чата», чем «чат не выбран».
-      ready: Boolean(parseTelegramChatId),
-      client: detectClient(),
-      hash: location.hash || null,
-      chatId: readChatIdFromHash(),
-      // Откуда взялся канон либо почему его нет. Поломка селекторов иначе
-      // молчалива: система просто тихо вернётся к прежнему поведению, а узнаем
-      // мы об этом через месяц по новым дублям в карточках.
-      peerSource: pinged?.peerSource ?? null,
-      // Полный контекст чата: service worker в MV3 засыпает и забывает, какой
-      // чат открыт, а content script знает это всегда. Без этого панель после
-      // сна фонового скрипта писала «откройте чат» до перезагрузки страницы.
-      chat: pinged,
-    })
-    return false
-  }
-  return false
-})
-
-// Старт: сначала подгружаем чистые модули (разбор хэша и времени), потом
-// сообщаем открытый чат. До загрузки reportChat не вызываем — упадём на
-// undefined. Время разбирается тем же способом, но не блокирует работу: без
-// него сообщения всё равно доедут, просто со временем заливки.
+// Старт: сначала подгружаем чистые модули (разбор хэша, времени и канона),
+// потом отдаём ядру описание канала. До загрузки хэш-модуля адаптер не готов —
+// ядро само это учитывает через ready().
 Promise.all([
   import(chrome.runtime.getURL("src/common/telegram-hash.js")),
   import(chrome.runtime.getURL("src/common/telegram-time.js")).catch(() => null),
@@ -682,10 +504,26 @@ Promise.all([
     detectTelegramClient = hash.detectTelegramClient
     parseBubbleTitleDate = time?.parseBubbleTitleDate ?? null
     peerModule = peer ?? null
-    reportChat()
+
+    core.start({
+      channel: "telegram",
+      ready: () => Boolean(parseTelegramChatId),
+      readChat,
+      collectMessages: collectVisibleMessages,
+      latestMessageKey: readLatestMessageKey,
+      insertText: insertIntoComposer,
+      // Смена чата — это смена хэша: клиент SPA, полноценной навигации нет.
+      watch: (onChange) => {
+        const handler = () => onChange()
+        window.addEventListener("hashchange", handler)
+        return () => window.removeEventListener("hashchange", handler)
+      },
+      // Диагностика в ответе ping: по ней панель показывает, что видит адаптер.
+      diag: () => ({ client: detectClient(), hash: location.hash || null }),
+    })
   })
   .catch(() => {
     // Модуль не загрузился (крайне маловероятно — файл свой же). Панель
     // покажет «откройте чат»: лучше, чем сломанная страница мессенджера.
   })
-}
+})()
