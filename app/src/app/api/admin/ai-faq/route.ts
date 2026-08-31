@@ -22,6 +22,8 @@ const createSchema = z.object({
   category: z.enum(AI_FAQ_CATEGORIES).default("navigation"),
   keywords: z.string().max(500).nullable().optional(),
   isActive: z.boolean().optional(),
+  // Ядро — запись идёт в КАЖДЫЙ промпт, минуя отбор по теме (lib/ai-faq-select.ts).
+  isCore: z.boolean().optional(),
   sourceLogId: z.string().uuid().nullable().optional(),
 })
 
@@ -46,6 +48,7 @@ export async function POST(req: NextRequest) {
       category: d.category,
       keywords: d.keywords?.trim() || null,
       isActive: d.isActive ?? true,
+      isCore: d.isCore ?? false,
       source: d.sourceLogId ? "review" : "manual",
       sourceLogId: d.sourceLogId ?? null,
       createdBy: admin.email,

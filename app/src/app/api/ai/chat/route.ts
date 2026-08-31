@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { buildNavMap, buildBaseContext, buildDynamicSlice, buildFaqSlice } from "@/lib/ai-context"
+import { buildNavMap, buildBaseContext, buildDynamicSlice, buildFaqSlices } from "@/lib/ai-context"
 import { AI_DAILY_LIMIT as DAILY_LIMIT, aiConfigured, callAi } from "@/lib/ai-provider"
 
 
@@ -57,12 +57,23 @@ export async function POST(req: NextRequest) {
 
   try {
     // Параллельная сборка контекста: nav (синхр.), база (Level 1), динамика
-    // (Level 2), ручная база знаний ai_faq (глобальная, кэшируется вместе с nav).
+    // (Level 2) и база знаний ai_faq — ядро в кэшируемую статику, подборка по
+    // теме вопроса в динамическую часть.
     const navMap = buildNavMap()
-    const [baseContext, dynamicSlice, faqSlice] = await Promise.all([
+    // Записи базы знаний отбираются по ТЕКСТУ ВОПРОСА, поэтому берём и пару
+    // последних реплик пользователя: в «а как её отменить?» своих слов для
+    // поиска нет — тема живёт в предыдущем сообщении.
+    const recentUserText = [
+      ...((body.history || []) as { role: string; content: string }[])
+        .filter((m) => m.role === "user")
+        .slice(-2)
+        .map((m) => m.content),
+      message,
+    ].join(" ")
+    const [baseContext, dynamicSlice, faq] = await Promise.all([
       buildBaseContext(tenantId, role, (session.user as any).employeeId ?? null, (session.user as any).allowedBranchIds ?? null),
       buildDynamicSlice(message, tenantId),
-      buildFaqSlice(),
+      buildFaqSlices(recentUserText),
     ])
 
     // Промпт разбит на две части: staticPrompt одинаков для всех тенантов и
@@ -109,13 +120,13 @@ export async function POST(req: NextRequest) {
 Вопрос: «Какая выручка в этом месяце?» (пример: в блоке данных выручка 1 234 567 ₽, расходы 890 000 ₽)
 Ответ: «Выручка за текущий месяц — 1 234 567 ₽, расходы — 890 000 ₽, прибыль — 344 567 ₽.»
 
-${navMap}${faqSlice ? "\n\n" + faqSlice : ""}`
+${navMap}${faq.core ? "\n\n" + faq.core : ""}`
 
     const dynamicPrompt = `Роль пользователя: ${role === "owner" ? "владелец" : role === "manager" ? "управляющий" : role}
 Имя: ${userName}
 
 ДАННЫЕ ОРГАНИЗАЦИИ:
-${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}`
+${baseContext}${dynamicSlice ? "\n" + dynamicSlice : ""}${faq.matched ? "\n\n" + faq.matched : ""}`
 
     const history = (body.history || []).slice(-6)
 

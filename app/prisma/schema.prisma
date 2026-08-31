@@ -1571,7 +1571,12 @@ model AiFaq {
   question    String // как вопрос звучит от пользователя (триггер/тема)
   answer      String // короткий достоверный ответ-факт для промпта
   category    String   @default("navigation") // navigation | logic | data
-  keywords    String? // доп. ключевые слова (через запятую), на будущее
+  keywords    String? // доп. ключевые слова (через запятую) — участвуют в отборе записей под вопрос
+  // Ядро: подмешивается в КАЖДЫЙ промпт (общие правила ответов, «не выдумывай
+  // кнопки»). Остальные записи отбираются по совпадению слов вопроса — см.
+  // lib/ai-faq-select.ts. Без ядра модель на непокрытом вопросе снова начнёт
+  // выдумывать, поэтому правила ответов держим здесь, а не в отбираемых записях.
+  isCore      Boolean  @default(false) @map("is_core")
   isActive    Boolean  @default(true) @map("is_active")
   source      String   @default("manual") // manual | review — откуда добавлено
   sourceLogId String?  @map("source_log_id") @db.Uuid // из какого диалога родился (ai_chat_logs.id)
@@ -2722,29 +2727,29 @@ enum CommunicationDirection {
 }
 
 model Communication {
-  id        String                 @id @default(uuid()) @db.Uuid
-  tenantId  String                 @map("tenant_id") @db.Uuid
-  clientId  String                 @map("client_id") @db.Uuid
-  type      CommunicationType
-  channel   CommunicationChannel   @default(internal)
-  direction CommunicationDirection @default(internal)
-  content   String?
-  metadata  Json?
+  id         String                 @id @default(uuid()) @db.Uuid
+  tenantId   String                 @map("tenant_id") @db.Uuid
+  clientId   String                 @map("client_id") @db.Uuid
+  type       CommunicationType
+  channel    CommunicationChannel   @default(internal)
+  direction  CommunicationDirection @default(internal)
+  content    String?
+  metadata   Json?
   // Стабильный внешний идентификатор ОДНОГО сообщения (не чата!) — ключ
   // идемпотентности: расширение при каждом открытии чата видит те же последние
   // сообщения и переливает их повторно. Уникальность — в паре с каналом, см.
   // @@unique ниже. Внимание: до 28.08.2026 вебхук Wazzup клал сюда chatId
   // (телефон), поэтому исторические whatsapp_* записи как ключ непригодны.
-  externalId String?               @map("external_id")
+  externalId String?                @map("external_id")
   // Время СОБЫТИЯ (в отличие от createdAt — момента записи в нашу БД). Для
   // заметок и звонков совпадает с созданием, для залитых расширением сообщений
   // это время отправки в мессенджере: админ пролистал переписку вверх — старые
   // сообщения приезжают сегодня, но встать в ленте должны своим числом.
   // Дефолт now() + бэкфилл существующих строк (миграция 20260828150000) дают
   // одну простую сортировку по sentAt без COALESCE и без NULL-хвоста.
-  sentAt     DateTime?             @default(now()) @map("sent_at")
-  employeeId String?               @map("employee_id") @db.Uuid
-  createdAt  DateTime              @default(now()) @map("created_at")
+  sentAt     DateTime?              @default(now()) @map("sent_at")
+  employeeId String?                @map("employee_id") @db.Uuid
+  createdAt  DateTime               @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [tenantId], references: [id])
   client       Client       @relation(fields: [clientId], references: [id])
@@ -2763,18 +2768,18 @@ model Communication {
 // externalChatId — нормализованный id чата: @username или числовой id (Telegram),
 // peer id (VK), номер/LID (WhatsApp).
 model ChatBinding {
-  id            String               @id @default(uuid()) @db.Uuid
-  tenantId      String               @map("tenant_id") @db.Uuid
-  channel       CommunicationChannel
-  externalChatId String              @map("external_chat_id")
-  clientId      String               @map("client_id") @db.Uuid
+  id             String               @id @default(uuid()) @db.Uuid
+  tenantId       String               @map("tenant_id") @db.Uuid
+  channel        CommunicationChannel
+  externalChatId String               @map("external_chat_id")
+  clientId       String               @map("client_id") @db.Uuid
   // Необязательное уточнение: чат конкретно про этого подопечного.
-  wardId        String?              @map("ward_id") @db.Uuid
+  wardId         String?              @map("ward_id") @db.Uuid
   // Отображаемое имя собеседника в мессенджере — для списка привязок в CRM.
-  displayName   String?              @map("display_name")
-  createdBy     String?              @map("created_by") @db.Uuid
-  createdAt     DateTime             @default(now()) @map("created_at")
-  lastSeenAt    DateTime?            @map("last_seen_at")
+  displayName    String?              @map("display_name")
+  createdBy      String?              @map("created_by") @db.Uuid
+  createdAt      DateTime             @default(now()) @map("created_at")
+  lastSeenAt     DateTime?            @map("last_seen_at")
 
   organization Organization @relation(fields: [tenantId], references: [id])
   client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)

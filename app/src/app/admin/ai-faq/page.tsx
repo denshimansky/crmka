@@ -22,6 +22,7 @@ interface AiFaqItem {
   category: string
   keywords: string | null
   isActive: boolean
+  isCore: boolean
   source: string
   createdBy: string | null
   createdAt: string
@@ -44,6 +45,7 @@ interface DialogState {
   category: Category
   keywords: string
   isActive: boolean
+  isCore: boolean
   sourceLogId?: string
 }
 
@@ -100,6 +102,7 @@ export default function AdminAiFaqPage() {
             category: "navigation",
             keywords: "",
             isActive: true,
+            isCore: false,
             sourceLogId: prefill.log || undefined,
           })
         }
@@ -119,7 +122,7 @@ export default function AdminAiFaqPage() {
   }
 
   const openCreate = () =>
-    setDlg({ mode: "create", question: "", answer: "", category: "navigation", keywords: "", isActive: true })
+    setDlg({ mode: "create", question: "", answer: "", category: "navigation", keywords: "", isActive: true, isCore: false })
 
   const openEdit = (it: AiFaqItem) =>
     setDlg({
@@ -130,6 +133,7 @@ export default function AdminAiFaqPage() {
       category: (CATEGORIES.includes(it.category as Category) ? it.category : "navigation") as Category,
       keywords: it.keywords || "",
       isActive: it.isActive,
+      isCore: it.isCore,
     })
 
   const submit = async () => {
@@ -148,6 +152,7 @@ export default function AdminAiFaqPage() {
           question, answer, category: dlg.category,
           keywords: dlg.keywords.trim() || null,
           isActive: dlg.isActive,
+          isCore: dlg.isCore,
           sourceLogId: dlg.sourceLogId || null,
         })
       } else {
@@ -155,6 +160,7 @@ export default function AdminAiFaqPage() {
           question, answer, category: dlg.category,
           keywords: dlg.keywords.trim() || null,
           isActive: dlg.isActive,
+          isCore: dlg.isCore,
         })
       }
       setDlg(null)
@@ -220,6 +226,11 @@ export default function AdminAiFaqPage() {
                 <Badge variant="secondary">{CATEGORY_LABELS[it.category] || it.category}</Badge>
                 {it.source === "review" && (
                   <Badge variant="outline" className="text-xs">из разбора</Badge>
+                )}
+                {it.isCore && (
+                  <Badge className="text-xs" title="Идёт в каждый ответ, минуя отбор по теме вопроса">
+                    ядро
+                  </Badge>
                 )}
                 {!it.isActive && (
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">выключен</span>
@@ -299,12 +310,21 @@ export default function AdminAiFaqPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-end gap-2 pb-1.5">
-                <Switch
-                  checked={dlg?.isActive ?? true}
-                  onCheckedChange={(v) => setDlg((d) => (d ? { ...d, isActive: v } : d))}
-                />
-                <span className="text-sm text-muted-foreground">Активен</span>
+              <div className="flex items-end gap-4 pb-1.5">
+                <label className="flex items-center gap-2">
+                  <Switch
+                    checked={dlg?.isActive ?? true}
+                    onCheckedChange={(v) => setDlg((d) => (d ? { ...d, isActive: v } : d))}
+                  />
+                  <span className="text-sm text-muted-foreground">Активен</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <Switch
+                    checked={dlg?.isCore ?? false}
+                    onCheckedChange={(v) => setDlg((d) => (d ? { ...d, isCore: v } : d))}
+                  />
+                  <span className="text-sm text-muted-foreground">Ядро</span>
+                </label>
               </div>
             </div>
             <div className="space-y-1.5">
@@ -314,6 +334,13 @@ export default function AdminAiFaqPage() {
                 onChange={(e) => setDlg((d) => (d ? { ...d, keywords: e.target.value } : d))}
                 placeholder="абонемент, продление, массово"
               />
+              <p className="text-xs text-muted-foreground">
+                В ответ попадают не все записи: «ядро» подмешивается всегда, остальные —
+                когда слова вопроса совпали с вопросом, ключевыми словами или текстом ответа.
+                Ключевые слова пишите так, как спрашивают люди («нет кнопки списать»), — по ним
+                запись находится вернее всего. Ядром помечайте только общие правила: чем их
+                больше, тем ближе промпт к прежнему раздутому виду.
+              </p>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>

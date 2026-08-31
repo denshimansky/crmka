@@ -9,6 +9,7 @@ const patchSchema = z.object({
   answer: z.string().min(1).max(4000).optional(),
   category: z.enum(AI_FAQ_CATEGORIES).optional(),
   keywords: z.string().max(500).nullable().optional(),
+  isCore: z.boolean().optional(),
   isActive: z.boolean().optional(),
 })
 
@@ -30,6 +31,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (d.answer !== undefined) data.answer = d.answer.trim()
   if (d.category !== undefined) data.category = d.category
   if (d.keywords !== undefined) data.keywords = d.keywords?.trim() || null
+  if (d.isCore !== undefined) data.isCore = d.isCore
   if (d.isActive !== undefined) data.isActive = d.isActive
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "Нет полей для обновления" }, { status: 400 })
