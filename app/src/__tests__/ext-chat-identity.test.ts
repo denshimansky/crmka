@@ -110,8 +110,26 @@ describe("normalizeChatId — MAX", () => {
   it("регистр не значим", () => {
     assert.equal(normalizeChatId("max", "SomeId"), "someid")
   })
-  it("пустой путь", () => {
+  it("список чатов — это НЕ чат", () => {
+    // Живая проверка 31.08.2026: когда диалог не выбран, адрес просто
+    // «https://web.max.ru/». Отдельного маршрута вида «/:chat-list», как
+    // предполагал спайк, не существует.
     assert.equal(normalizeChatId("max", "https://web.max.ru/"), null)
+  })
+  it("групповой чат: отрицательный id, один сегмент", () => {
+    // Живая проверка: группа — это «web.max.ru/-78377804395205», а не
+    // «/c/<id>/<messageId>», как предполагал спайк. Знак и есть признак
+    // группы — ровно как в Telegram. Значение храним как есть.
+    assert.equal(
+      normalizeChatId("max", "https://web.max.ru/-78377804395205"),
+      "-78377804395205",
+    )
+  })
+  it("личный и групповой чаты не пересекаются по ключу", () => {
+    assert.notEqual(
+      normalizeChatId("max", "web.max.ru/78377804395205"),
+      normalizeChatId("max", "web.max.ru/-78377804395205"),
+    )
   })
 })
 
