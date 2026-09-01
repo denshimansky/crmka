@@ -12,7 +12,7 @@
     "128": "icons/icon-128.png"
   },
 
-  "permissions": ["sidePanel", "storage", "tabs", "scripting"],
+  "permissions": ["sidePanel", "storage", "scripting"],
 
   "host_permissions": [
     "https://app.umnayacrm.ru/*",
