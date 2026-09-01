@@ -86,6 +86,10 @@ export const config = {
     // страница мессенджера не отправит. Без исключения withAuth редиректил бы
     // такие запросы на /login. Права и режим неплательщика энфорсит
     // requireExtAuth (lib/ext-auth.ts) — сюда они не попадают.
-    "/((?!login|offer|lp|help|testing|bugs|forgot-password|reset-password|roadmap|reps|changelog|dev|admin|portal|p/|api/auth|api/admin|api/portal|api/cron|api/ext|api/kb/media|_next/static|_next/image|favicon.ico|manifest|sw|icons).*)",
+    // «extension» — публичные страницы браузерного расширения (политика
+    // конфиденциальности). Без исключения ревьюер Chrome Web Store, идущий по
+    // ссылке из карточки, получил бы редирект на /login, а заявку отклонили бы
+    // с формулировкой «privacy policy недоступна».
+    "/((?!login|offer|extension|lp|help|testing|bugs|forgot-password|reset-password|roadmap|reps|changelog|dev|admin|portal|p/|api/auth|api/admin|api/portal|api/cron|api/ext|api/kb/media|_next/static|_next/image|favicon.ico|manifest|sw|icons).*)",
   ],
 }
