@@ -61,6 +61,11 @@ manifest.json              MV3: sidePanel, storage, tabs + host_permissions
 src/background/            service worker — единственный, кто ходит в API
 src/panel/                 боковая панель (UI карточки и подключение)
 src/content/telegram.js    адаптер Telegram Web (WebK /k и WebA /a)
+src/content/max.js         адаптер MAX (web.max.ru)
+src/content/whatsapp.js    адаптер WhatsApp Web
+src/content/adapter-core.js каркас адаптеров: наблюдатель, гонки, живучесть
+icons/                     иконки расширения (PNG из SVG, tools/make-icons.mjs)
+tools/                     probe разметки, проверки адаптеров, упаковка
 src/common/                клиент API и общие типы (JSDoc)
 ```
 
