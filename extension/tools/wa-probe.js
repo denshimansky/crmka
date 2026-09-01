@@ -236,6 +236,103 @@
   }
 
   /**
+   * Всё, что похоже на ИДЕНТИФИКАТОР, в любых атрибутах документа.
+   *
+   * Зачем отдельно от scanJids: первый живой прогон показал, что JID-ов в
+   * разметке нет ни одного. Значит искать надо шире — длинные числа, hex,
+   * base64-подобные строки. По тому, в каких атрибутах они лежат и на каких
+   * узлах, и будет видно, можно ли вообще опознать чат.
+   *
+   * Служебные атрибуты (class, style, ссылки, пути SVG) пропускаем: там
+   * идентификаторов не бывает, а мусора много.
+   */
+  const SKIP_ATTRS = new Set(["class", "style", "src", "href", "d", "viewBox", "points", "transform"])
+  const ID_SHAPES = [
+    { имя: "hex-16+", re: /^[0-9A-F]{16,}$/i },
+    { имя: "число-10+", re: /^\d{10,}$/ },
+    { имя: "base64-20+", re: /^[A-Za-z0-9+/=_-]{20,}$/ },
+  ]
+
+  function scanIdLikeAttributes() {
+    /** @type {Map<string, {атрибут: string, форма: string, узлов: number, примеры: Set<string>, теги: Set<string>, testid: Set<string>}>} */
+    const found = new Map()
+
+    for (const el of document.querySelectorAll("*")) {
+      for (const a of el.attributes) {
+        if (SKIP_ATTRS.has(a.name)) continue
+        const value = String(a.value).trim()
+        if (!value || value.length < 10) continue
+        const shape = ID_SHAPES.find((s) => s.re.test(value))
+        if (!shape) continue
+        const key = `${a.name}|${shape.имя}`
+        const bucket =
+          found.get(key) ??
+          found
+            .set(key, {
+              атрибут: a.name,
+              форма: shape.имя,
+              узлов: 0,
+              примеры: new Set(),
+              теги: new Set(),
+              testid: new Set(),
+            })
+            .get(key)
+        bucket.узлы = (bucket.узлы ?? 0) + 1
+        bucket.узлов++
+        bucket.теги.add(el.tagName.toLowerCase())
+        if (bucket.примеры.size < 5) bucket.примеры.add(value)
+        // Ближайший осмысленный контекст: по нему видно, это строка сообщения,
+        // элемент списка чатов или что-то ещё.
+        const holder = el.closest("[data-testid]")
+        if (holder && bucket.testid.size < 5) bucket.testid.add(holder.getAttribute("data-testid"))
+      }
+    }
+
+    return {
+      подсказка:
+        "Если чат чем-то идентифицируется, он здесь. Пусто — значит в разметке нет ничего, кроме отображаемого имени.",
+      найдено: [...found.values()].map((b) => ({
+        атрибут: b.атрибут,
+        форма: b.форма,
+        узлов: b.узлов,
+        теги: [...b.теги],
+        внутри: [...b.testid],
+        примеры: [...b.примеры],
+      })),
+    }
+  }
+
+  /**
+   * Список чатов слева: элементы, их атрибуты и признак активного.
+   *
+   * Идентификатор чата логичнее всего искать именно здесь — в строке списка. Она
+   * помечена `data-testid="cell-frame-container"`, а сами элементы —
+   * `list-item-N`. Заодно смотрим, чем помечен АКТИВНЫЙ чат: если ничем, то
+   * определить открытый диалог через список тоже не выйдет.
+   */
+  function scanChatList() {
+    const list = document.querySelector('[data-testid="chat-list"]') ?? document.querySelector("#pane-side")
+    if (!list) return { естьСписок: false }
+
+    const items = [...list.querySelectorAll('[data-testid^="list-item-"]')]
+    const active = items.find(
+      (el) =>
+        el.getAttribute("aria-selected") === "true" ||
+        el.getAttribute("aria-current") != null ||
+        el.querySelector('[aria-selected="true"]'),
+    )
+
+    return {
+      естьСписок: true,
+      элементов: items.length,
+      активныйНайден: Boolean(active),
+      активный: active ? { ...describe(active), дерево: tree(active, 2) } : null,
+      // Первые два элемента целиком: там видно, какие атрибуты вообще бывают.
+      примеры: items.slice(0, 2).map((el) => ({ ...describe(el), дерево: tree(el, 2) })),
+    }
+  }
+
+  /**
    * Атрибуты, похожие на время. Ищем и человекочитаемое («[16:04, 12.08.2026]»),
    * и машинное (unix-секунды/миллисекунды) — второе для нас ценнее, потому что
    * не зависит от языка интерфейса и от формата даты.
@@ -395,6 +492,30 @@
     // ── 2. Где лежат идентификаторы ──────────────────────────────────────────
     report.jids = scanJids()
 
+    // ── 2.1. ЛЮБЫЕ идентификаторы, а не только JID ───────────────────────────
+    //
+    // Главный вопрос второго прогона. Первый показал, что JID-ов в разметке нет
+    // ВООБЩЕ — ни одного. Значит идентификатор чата, если он вообще есть, лежит
+    // в каком-то другом виде: длинным числом, hex-строкой, base64. Ищем всё, что
+    // похоже на идентификатор, и смотрим, в каких атрибутах оно живёт.
+    //
+    // Если и здесь пусто — значит чат в разметке не идентифицируется ничем,
+    // кроме отображаемого имени, и это меняет устройство всего канала.
+    report.идентификаторы = scanIdLikeAttributes()
+
+    // ── 2.2. Список чатов: там идентификатор был бы уместнее всего ───────────
+    report.списокЧатов = scanChatList()
+
+    // ── 2.3. Опорные узлы целиком ────────────────────────────────────────────
+    // Полный набор атрибутов у #main, шапки и подвала: если чат чем-то помечен,
+    // помечен он, скорее всего, здесь.
+    report.опорныеУзлы = {
+      main: describe(document.querySelector("#main")),
+      header: describe(document.querySelector("#main header")),
+      footer: describe(document.querySelector("#main footer")),
+      панельСообщений: describe(document.querySelector('[data-testid="conversation-panel-messages"]')),
+    }
+
     // ── 3. Открытый диалог ───────────────────────────────────────────────────
     const header = root?.querySelector("header") ?? document.querySelector("header")
     report.открытыйЧат = {
@@ -404,9 +525,14 @@
       // Имя собеседника — подсказка человеку при ручной привязке. Кандидатов
       // несколько, потому что заголовок WhatsApp то span[title], то div[title].
       имяКандидаты: [
-        "header span[title]",
-        "header div[title]",
-        "header [role='button'] span[dir='auto']",
+        // Порядок правлен по первому живому прогону: `span[title]` не нашёлся, а
+        // `div[title]` нашёлся с ПУСТЫМ текстом — то есть оба негодны. Рабочим
+        // оказался узел с `dir="auto"` внутри кнопки шапки.
+        "#main header [role='button'] span[dir='auto']",
+        '[data-testid="conversation-header"] span[dir="auto"]',
+        '[data-testid="conversation-info-header-chat-title"]',
+        "#main header span[title]",
+        "#main header div[title]",
         "header h1",
       ].map((selector) => {
         const node = (root ?? document).querySelector(selector)
@@ -482,7 +608,17 @@
         подсказка:
           "Ноль в обоих — осмысленные классы направления убрали, и адаптеру нужен другой признак (первый сегмент data-id: true/false).",
       },
-      примеры: [...sampleOf(ins, "входящее"), ...sampleOf(outs, "исходящее")],
+      // Примеры берём и по направлениям, и ПРОСТО ПОСЛЕДНИЕ строки.
+      //
+      // Первый прогон (01.09.2026) показал, почему второе обязательно: классов
+      // направления в разметке не оказалось вовсе, списки ins/outs вышли
+      // пустыми — и отчёт остался БЕЗ ЕДИНОГО дерева строки, то есть без самого
+      // ценного. Выборка не должна зависеть от того, сработала ли наша догадка.
+      примеры: [
+        ...sampleOf(ins, "входящее"),
+        ...sampleOf(outs, "исходящее"),
+        ...sampleOf(nodes.slice(-3), "последние строки, без разбора направления"),
+      ],
     }
 
     // ── 5. Время ─────────────────────────────────────────────────────────────
@@ -526,6 +662,25 @@
       // Строк с несколькими data-id внутри быть не должно — если есть, это
       // альбом, и на одну строку приходится несколько сообщений.
       строкиСНесколькимиId: nodes.filter((el) => el.querySelectorAll("[data-id]").length > 1).length,
+      // ЧЕМ ОТЛИЧАЮТСЯ ВХОДЯЩИЕ ОТ ИСХОДЯЩИХ, если классов направления нет.
+      // Первый прогон показал в строках `data-icon="tail-out"` и значки статуса
+      // доставки («wds-ic-read», «wds-ic-delivered») — они бывают только у
+      // исходящих. Здесь собираем всё, чем строки вообще помечены, чтобы
+      // выбрать признак не наугад.
+      признакиНаправления: nodes.slice(-6).map((el) => ({
+        dataId: el.getAttribute("data-id"),
+        значки: [...el.querySelectorAll("[data-icon]")].map((n) => n.getAttribute("data-icon")),
+        testid: [...el.querySelectorAll("[data-testid]")]
+          .slice(0, 6)
+          .map((n) => n.getAttribute("data-testid")),
+        ariaLabel: el.getAttribute("aria-label"),
+        классыСтроки: classParts(el),
+        классыПотомков: [
+          ...new Set(
+            [...el.querySelectorAll("*")].flatMap((n) => classParts(n)),
+          ),
+        ].slice(0, 12),
+      })),
       // Виртуализация: содержимое строки размонтируется, оставляя пустой узел.
       // Пустая строка — это НЕ пустое сообщение, и путать их нельзя.
       виртуализованных: document.querySelectorAll("[data-virtualized]").length,
