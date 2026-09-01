@@ -19,7 +19,10 @@ describe("buildSelectorConfig", () => {
 
   it("каналы — только те, у которых есть адаптер", () => {
     for (const channel of Object.keys(buildSelectorConfig().channels)) {
-      assert.ok(["max", "telegram"].includes(channel), `неизвестный канал: ${channel}`)
+      assert.ok(
+        ["max", "telegram", "whatsapp"].includes(channel),
+        `неизвестный канал: ${channel}`,
+      )
     }
   })
 

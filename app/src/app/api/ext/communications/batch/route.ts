@@ -9,10 +9,12 @@ import {
   buildMessageExternalId,
   isLocalMessageId,
   isMaxGroupChatId,
+  isUnsupportedChat,
   messageTypeForDirection,
   normalizeChatId,
   parseMessageSentAt,
   toPrismaChannel,
+  unsupportedChatMessage,
 } from "@/lib/ext/chat-identity"
 import { planCommunicationKeyRepair, splitChatIds } from "@/lib/ext/chat-canonical"
 import {
@@ -105,21 +107,22 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const ids = splitChatIds(channel, [parsed.data.chatId, ...(parsed.data.altIds ?? [])])
+  // Чат, за которым стоит не один человек, не заливаем. Этот роут опаснее
+  // прочих: существующей привязки он не требует вовсе — clientId приходит от
+  // панели, — поэтому именно здесь гард обязателен. И проверяем СЫРЫЕ
+  // идентификаторы: у WhatsApp признак это суффикс JID, который нормализация
+  // уничтожает.
+  const rawIds = [parsed.data.chatId, ...(parsed.data.altIds ?? [])]
+  if (rawIds.some((raw) => isUnsupportedChat(channel, raw))) {
+    return extJson(req, { error: unsupportedChatMessage(channel) }, { status: 400 })
+  }
+
+  const ids = splitChatIds(channel, rawIds)
   if (!ids.canonical) return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
 
-  // Групповой чат MAX не заливаем. Этот роут опаснее прочих: существующей
-  // привязки он не требует вовсе — clientId приходит от панели, — поэтому
-  // именно здесь гард обязателен.
+  // Второй рубеж, по канону: признак группы MAX (минус) нормализацию переживает.
   if (isMaxGroupChatId(channel, ids.canonical)) {
-    return extJson(
-      req,
-      {
-        error:
-          "Групповые чаты MAX панель не ведёт: переписку группы нельзя положить в карточку одного клиента",
-      },
-      { status: 400 },
-    )
+    return extJson(req, { error: unsupportedChatMessage(channel) }, { status: 400 })
   }
 
   // Канон берём из БАЗЫ, а не из текущего наблюдения: числовой peer id

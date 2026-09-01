@@ -8,6 +8,7 @@ import {
   isMaxGroupChatId,
   isMessengerChannel,
   isPositiveNumericChatId,
+  isUnsupportedChat,
   normalizeChatId,
   normalizeHandle,
   parseMessageSentAt,
@@ -69,6 +70,53 @@ describe("normalizeChatId — WhatsApp", () => {
   })
   it("LID сохраняется отдельным видом — номера за ним нет", () => {
     assert.equal(normalizeChatId("whatsapp", "123456789012@lid"), "lid:123456789012")
+  })
+
+  // Мина, симметричная максовской (Шаг 0 Фазы 4): нераспознанный JID падал в
+  // ветку «оставшиеся цифры — это телефон». Групповой чат превращался в ключ,
+  // неотличимый от номера, resolve-client искал по нему клиента ПО ТЕЛЕФОНУ и
+  // при единственном совпадении подставлял его САМ, без участия человека.
+  it("групповой JID НЕ превращается в телефонный ключ", () => {
+    assert.equal(normalizeChatId("whatsapp", "120363123456789012@g.us"), null)
+    // Легаси-форма группового JID: «<создатель>-<время создания>@g.us».
+    assert.equal(normalizeChatId("whatsapp", "79991234567-1600000000@g.us"), null)
+  })
+  it("рассылки, статусы и каналы тоже не опознаются", () => {
+    assert.equal(normalizeChatId("whatsapp", "status@broadcast"), null)
+    assert.equal(normalizeChatId("whatsapp", "1234567890@broadcast"), null)
+    assert.equal(normalizeChatId("whatsapp", "12345@newsletter"), null)
+  })
+})
+
+// Гард «панель этот чат не ведёт». Проверяется ПО СЫРОМУ идентификатору, до
+// нормализации: у WhatsApp признак — суффикс JID, а нормализация его
+// уничтожает. Рубеж серверный, потому что в браузере сотрудника какое-то время
+// живёт старая сборка расширения, и клиентские рубежи её не переживают.
+describe("isUnsupportedChat", () => {
+  it("WhatsApp: группа, рассылка, статусы и канал", () => {
+    assert.equal(isUnsupportedChat("whatsapp", "120363123456789012@g.us"), true)
+    assert.equal(isUnsupportedChat("whatsapp", "status@broadcast"), true)
+    assert.equal(isUnsupportedChat("whatsapp", "1234567890@broadcast"), true)
+    assert.equal(isUnsupportedChat("whatsapp", "12345@newsletter"), true)
+  })
+  it("WhatsApp: личный чат и LID проходят", () => {
+    assert.equal(isUnsupportedChat("whatsapp", "79991234567@c.us"), false)
+    assert.equal(isUnsupportedChat("whatsapp", "79991234567@s.whatsapp.net"), false)
+    assert.equal(isUnsupportedChat("whatsapp", "123456789012@lid"), false)
+    assert.equal(isUnsupportedChat("whatsapp", "79991234567"), false)
+  })
+  it("MAX: групповой чат ловится и по адресу, и по голому id", () => {
+    assert.equal(isUnsupportedChat("max", "-78377804395205"), true)
+    assert.equal(isUnsupportedChat("max", "https://web.max.ru/-78377804395205"), true)
+    assert.equal(isUnsupportedChat("max", "437719203"), false)
+  })
+  it("Telegram и ВК не трогаем: там группы привязываются и работают", () => {
+    assert.equal(isUnsupportedChat("telegram", "-1001234567890"), false)
+    assert.equal(isUnsupportedChat("vk", "-12345"), false)
+  })
+  it("пустое значение — не повод для отказа", () => {
+    assert.equal(isUnsupportedChat("whatsapp", null), false)
+    assert.equal(isUnsupportedChat("whatsapp", "   "), false)
   })
 })
 

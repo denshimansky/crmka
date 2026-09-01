@@ -32,7 +32,7 @@
  */
 
 /** Каналы, у которых есть адаптер с настраиваемыми селекторами. */
-export type ConfigurableChannel = "max" | "telegram"
+export type ConfigurableChannel = "max" | "telegram" | "whatsapp"
 
 /** Значение селектора: строка либо список кандидатов (пробуем по порядку). */
 export type SelectorValue = string | string[]

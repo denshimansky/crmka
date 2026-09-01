@@ -9,7 +9,9 @@ import {
   handleFieldForChannel,
   isMaxGroupChatId,
   isPositiveNumericChatId,
+  isUnsupportedChat,
   toPrismaChannel,
+  unsupportedChatMessage,
 } from "@/lib/ext/chat-identity"
 import { splitChatIds } from "@/lib/ext/chat-canonical"
 import {
@@ -114,22 +116,25 @@ export async function POST(req: NextRequest) {
   }
   const { channel, clientId, wardId, displayName, saveHandle } = parsed.data
 
-  const ids = splitChatIds(channel, [parsed.data.chatId, ...(parsed.data.altIds ?? [])])
+  // Чат, за которым стоит не один человек (группа MAX, группа/рассылка/канал
+  // WhatsApp), к клиенту не привязываем. Проверяем СЫРЫЕ идентификаторы — до
+  // нормализации: у WhatsApp признак это суффикс JID, и splitChatIds его
+  // уничтожает, превращая «120363…@g.us» в число, неотличимое от телефона.
+  const rawIds = [parsed.data.chatId, ...(parsed.data.altIds ?? [])]
+  if (rawIds.some((raw) => isUnsupportedChat(channel, raw))) {
+    return extJson(req, { error: unsupportedChatMessage(channel) }, { status: 400 })
+  }
+
+  const ids = splitChatIds(channel, rawIds)
   if (!ids.canonical) return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
 
-  // Групповой чат MAX к клиенту не привязываем. Рубеж серверный, потому что
-  // клиентский переживает не всякую сборку расширения: в браузере сотрудника
-  // какое-то время живёт старая. Цена пропуска необратима — вся групповая
-  // переписка чужих родителей уедет в карточку одного человека.
+  // Второй рубеж, по канону: признак группы MAX (минус) нормализацию переживает.
+  // Рубеж серверный, потому что клиентский переживает не всякую сборку
+  // расширения: в браузере сотрудника какое-то время живёт старая. Цена пропуска
+  // необратима — вся групповая переписка чужих родителей уедет в карточку
+  // одного человека.
   if (isMaxGroupChatId(channel, ids.canonical)) {
-    return extJson(
-      req,
-      {
-        error:
-          "Групповые чаты MAX панель не ведёт: переписку группы нельзя положить в карточку одного клиента",
-      },
-      { status: 400 },
-    )
+    return extJson(req, { error: unsupportedChatMessage(channel) }, { status: 400 })
   }
 
   // Группу разворачиваем по базе: канон, уже закреплённый за этим чатом,

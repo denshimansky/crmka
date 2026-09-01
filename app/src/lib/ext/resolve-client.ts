@@ -8,12 +8,32 @@ import {
   acceptsPhoneParam,
   handleFieldForChannel,
   isMaxGroupChatId,
+  isUnsupportedChat,
   normalizeHandle,
   toPrismaChannel,
   type MessengerChannel,
 } from "@/lib/ext/chat-identity"
 import { decideBindingLink, splitChatIds } from "@/lib/ext/chat-canonical"
 import { linkCanonicalBinding } from "@/lib/ext/chat-binding-sync"
+
+/**
+ * Можно ли считать нормализованный chatId WhatsApp телефоном.
+ *
+ * Только РОВНО десять цифр. Это не перестраховка, а закрытие конкретной дыры:
+ * phoneMatchKey отдаёт ключ любой длины от семи цифр, а findClientsByPhone
+ * сравнивает `right(phone, длина_ключа) = ключ` — то есть на семизначном ключе
+ * матч идёт по последним семи цифрам и ловит СОВЕРШЕННО ПОСТОРОННЕГО клиента.
+ * А дальше, при единственном кандидате, панель подставляет его без участия
+ * человека и начинает лить в его карточку чужую переписку.
+ *
+ * Настоящий номер WhatsApp — международный, 10 значащих цифр после обрезки, так
+ * что ограничение не отсекает ни одного живого случая. «lid:…» сюда не проходит
+ * по построению: за LID номера нет вовсе.
+ */
+function whatsappChatIdAsPhone(chatId: string | null): string | null {
+  if (!chatId) return null
+  return /^\d{10}$/.test(chatId) ? chatId : null
+}
 
 /**
  * Поиск клиента по открытому чату (docs/messenger-extension.md).
@@ -89,12 +109,27 @@ export async function resolveClientForChat(
     phone?: string | null
   },
 ): Promise<ExtResolveResult> {
-  const ids = splitChatIds(params.channel, [params.chatId, ...(params.altIds ?? [])])
+  // Чат, который панель не ведёт (группа, рассылка, канал), отбиваем ПО СЫРЫМ
+  // идентификаторам — до нормализации. У WhatsApp признак это суффикс JID, и
+  // splitChatIds его уничтожает: «120363…@g.us» становится десятизначным
+  // числом, неотличимым от телефона, и дальше по нему ищется клиент ПО НОМЕРУ.
+  const rawIds = [params.chatId, ...(params.altIds ?? [])]
+  if (rawIds.some((raw) => isUnsupportedChat(params.channel, raw))) {
+    return {
+      match: "unsupported",
+      clientId: null,
+      candidates: [],
+      chatId: null,
+      canonicalChatId: null,
+    }
+  }
+
+  const ids = splitChatIds(params.channel, rawIds)
   const chatId = ids.canonical
 
-  // Групповой чат MAX не обслуживаем. Гард стоит ИМЕННО ЗДЕСЬ, до всякого
-  // поиска: этот рубеж переживает старую сборку расширения в браузере
-  // сотрудника, а клиентские — нет.
+  // Второй рубеж — по канону. Групповой чат MAX ловится и здесь: его признак
+  // (минус) нормализацию переживает. Оставлен сознательно, дублирование тут
+  // дешевле пропуска.
   if (isMaxGroupChatId(params.channel, chatId)) {
     return {
       match: "unsupported",
@@ -209,11 +244,7 @@ export async function resolveClientForChat(
   // приватности.
   const phoneInput =
     (acceptsPhoneParam(params.channel) ? params.phone : null) ??
-    (params.channel === "whatsapp"
-      ? chatId && !chatId.startsWith("lid:")
-        ? chatId
-        : null
-      : null)
+    (params.channel === "whatsapp" ? whatsappChatIdAsPhone(chatId) : null)
 
   if (phoneInput) {
     const found = await findClientsByPhone(db, ctx.tenantId, phoneInput, { limit: 5 })
