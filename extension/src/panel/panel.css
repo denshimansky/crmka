@@ -170,6 +170,31 @@ h2 {
   margin: 0 0 12px;
 }
 
+/*
+  Экран уведомления о сборе данных (prominent disclosure).
+
+  Панель узкая (около 360 px), а текст здесь читают один раз и внимательно —
+  поэтому список набран мельче основного текста, но НЕ цветом .muted: это
+  юридически значимое уведомление, и приглушать его серым нельзя, иначе
+  получится ровно то «мелким шрифтом внизу», против чего правило и написано.
+*/
+.disclosure-title {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.disclosure-list {
+  margin: 0 0 4px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.disclosure-list li {
+  margin-bottom: 3px;
+}
+
 button.primary {
   width: 100%;
   padding: 8px;

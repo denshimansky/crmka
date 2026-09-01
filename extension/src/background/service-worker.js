@@ -65,6 +65,10 @@ const DEFAULT_SETTINGS = {
   // Запись переписки в CRM выключена по умолчанию: это обработка персональных
   // данных, включать её должен человек осознанно (см. docs/messenger-extension.md).
   logMessages: false,
+  // Уведомление о сборе данных ещё не принято. Ноль здесь означает, что панель
+  // покажет экран №0 и не пустит дальше — требование Chrome Web Store
+  // (prominent disclosure до сбора данных).
+  disclosureVersion: 0,
 }
 
 /** @returns {Promise<ExtSettings>} */

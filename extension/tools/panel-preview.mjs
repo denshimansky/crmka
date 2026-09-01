@@ -90,8 +90,31 @@ await page.addInitScript(() => {
 await page.goto(panelUrl)
 await page.waitForTimeout(400)
 
+// Экран №0 — уведомление о сборе данных. Снимаем первым: он длинный, целиком в
+// панель не влезает, и проверить надо ровно это — что кнопка «Понятно,
+// продолжить» не уехала за нижний край без прокрутки.
+await page.evaluate(() => {
+  document.getElementById("disclosure").hidden = false
+  document.getElementById("setup").hidden = true
+  document.getElementById("main").hidden = true
+})
+await page.waitForTimeout(150)
+const disclosureFits = await page.evaluate(() => {
+  const button = document.getElementById("disclosure-accept")
+  const section = document.getElementById("disclosure")
+  return {
+    высотаЭкрана: section.scrollHeight,
+    высотаОкна: window.innerHeight,
+    кнопкаНиз: Math.round(button.getBoundingClientRect().bottom),
+    прокруткаЕсть: document.documentElement.scrollHeight > window.innerHeight,
+  }
+})
+console.log("Уведомление о сборе данных:", JSON.stringify(disclosureFits))
+await page.screenshot({ path: path.join(OUT_DIR, "disclosure.png"), fullPage: true })
+
 // Рисуем карточку руками: настоящие данные пришли бы из API.
 await page.evaluate(() => {
+  document.getElementById("disclosure").hidden = true
   document.getElementById("setup").hidden = true
   document.getElementById("main").hidden = false
   document.getElementById("card").hidden = false

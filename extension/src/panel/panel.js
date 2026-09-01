@@ -10,6 +10,7 @@ import {
   MSG_API,
   MSG_CHAT_ACTIVITY,
   MSG_DIAG,
+  DISCLOSURE_VERSION,
   MSG_GET_STATE,
   MSG_INSERT_TEXT,
   MSG_RELOAD_TAB,
@@ -36,6 +37,9 @@ const el = {
   refresh: /** @type {HTMLButtonElement} */ (document.getElementById("refresh")),
   settingsToggle: /** @type {HTMLButtonElement} */ (document.getElementById("settings-toggle")),
   setup: /** @type {HTMLElement} */ (document.getElementById("setup")),
+  disclosure: /** @type {HTMLElement} */ (document.getElementById("disclosure")),
+  disclosureAccept: /** @type {HTMLButtonElement} */ (document.getElementById("disclosure-accept")),
+  disclosurePrivacy: /** @type {HTMLAnchorElement} */ (document.getElementById("disclosure-privacy")),
   main: /** @type {HTMLElement} */ (document.getElementById("main")),
   baseUrl: /** @type {HTMLInputElement} */ (document.getElementById("base-url")),
   token: /** @type {HTMLInputElement} */ (document.getElementById("token")),
@@ -241,6 +245,22 @@ async function loadState(options = {}) {
   // Токен не показываем: в хранилище он есть, но панель его не получает.
   el.token.placeholder = data.configured ? "сохранён — введите новый, чтобы заменить" : "crmka_…"
 
+  // Экран №0 — уведомление о сборе данных. Стоит ПЕРЕД подключением, а не после:
+  // требование Chrome Web Store — сообщить о сборе персональных данных и
+  // получить утвердительное действие ДО того, как хоть что-то собрано. К тому же
+  // токен в поле подключения человек вводит уже осознанно, а карточку клиента с
+  // телефоном и балансом панель тянет сразу после него.
+  if ((data.settings.disclosureVersion ?? 0) < DISCLOSURE_VERSION) {
+    el.disclosure.hidden = false
+    el.setup.hidden = true
+    el.main.hidden = true
+    // Ссылка ведёт на ту же CRM, что настроена в расширении: политика лежит
+    // рядом с приложением, а не на отдельном сайте.
+    el.disclosurePrivacy.href = `${state.baseUrl || "https://msk1.umnayacrm.ru"}/extension/privacy`
+    return
+  }
+  el.disclosure.hidden = true
+
   if (!data.configured || state.showSetup) {
     el.setup.hidden = false
     el.main.hidden = true
@@ -274,6 +294,10 @@ async function safeLoadState(options) {
   try {
     await loadState(options)
   } catch (error) {
+    // Уведомление о сборе данных на экране — не подменяем его аварийным
+    // экраном: два видимых screen'а наложились бы друг на друга, а само
+    // уведомление ни от service worker, ни от сети не зависит.
+    if (!el.disclosure.hidden) return
     el.setup.hidden = true
     el.main.hidden = false
     el.card.hidden = true
@@ -285,6 +309,19 @@ async function safeLoadState(options) {
     )
   }
 }
+
+// Утвердительное действие: только по нему панель считает уведомление принятым.
+// Версия, а не булево: изменится состав собираемых данных — поднимем
+// DISCLOSURE_VERSION, и экран покажется снова.
+el.disclosureAccept.addEventListener("click", async () => {
+  el.disclosureAccept.disabled = true
+  try {
+    await send({ type: MSG_SAVE_SETTINGS, settings: { disclosureVersion: DISCLOSURE_VERSION } })
+    await safeLoadState({ force: true })
+  } finally {
+    el.disclosureAccept.disabled = false
+  }
+})
 
 el.settingsToggle.addEventListener("click", () => {
   state.showSetup = !state.showSetup
