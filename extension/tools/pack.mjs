@@ -46,6 +46,24 @@ const DIST = join(ROOT, "dist")
  * забытый в чёрном — лишний килобайт в архиве. Цена ошибки несимметрична.
  */
 const EXCLUDE_DIRS = new Set(["tools", "dist", "node_modules", "__tests__", ".git"])
+
+/**
+ * Плюс всё, что перечислено в extension/.gitignore.
+ *
+ * Чёрный список руками уже подвёл: 01.09.2026 в архив уехала папka shots/ со
+ * скриншотами для листинга — 1.2 МБ вместо 161 КБ, и картинки с карточкой
+ * клиента поехали бы всем пользователям и ревьюеру. .gitignore — это и есть
+ * готовый ответ на вопрос «что не относится к продукту»; берём его, чтобы
+ * следующая рабочая папка не повторила историю.
+ */
+for (const line of readFileSync(join(ROOT, ".gitignore"), "utf8").split(/\r?\n/)) {
+  const entry = line.trim()
+  if (!entry || entry.startsWith("#") || entry.startsWith("!")) continue
+  const name = entry.replace(/\/+$/, "")
+  // Только простые имена папок: шаблоны со звёздочками и вложенными путями
+  // .gitignore умеет, а этот цикл — нет, и притворяться не будет.
+  if (!name.includes("/") && !name.includes("*")) EXCLUDE_DIRS.add(name)
+}
 const EXCLUDE_FILES = new Set([
   "package.json",
   "package-lock.json",
