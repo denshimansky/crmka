@@ -7,11 +7,13 @@
  * направление, отбраковку служебных строк, ключ дедупа, гард неличных чатов,
  * разбор времени, вставку без отправки.
  *
- * Разметка-двойник построена по разбору прод-бандла: строка сообщения с
- * `data-id` = сериализованный MsgKey, направление авторскими классами
- * `message-in`/`message-out` на ВНУТРЕННЕМ div, время и автор в
- * `data-pre-plain-text`, текст в span с `data-testid`, содержащим токен
- * `selectable-text`, поле ввода — Lexical.
+ * Разметка-двойник построена по ЖИВОМУ ПРОГОНУ 01.09.2026, а не по разбору
+ * бандла — тот ошибся во всём главном. Здесь воспроизведено то, что видно на
+ * настоящей странице: `data-id` — голый идентификатор сообщения; классов
+ * направления нет, есть «хвостик» и только у первого сообщения серии; признак
+ * настоящего сообщения — контейнер `msg-container`; время и автор в
+ * `data-pre-plain-text`; идентификатора чата нет нигде, и опознать собеседника
+ * можно лишь по номеру в заголовке.
  *
  * Запуск (playwright лежит в зависимостях приложения, как у panel-preview.mjs):
  *   cd app && node ../extension/tools/wa-adapter-check.mjs
@@ -30,20 +32,42 @@ const CHROMIUM =
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" }
 
-/** Строка сообщения — так её собирает WhatsApp (упрощённо, но по структуре). */
-const row = ({ id, dir, text, pre, testid = "selectable-text", extra = "" }) => `
-  <div data-id="${id}" class="focusable-list-item _akbu">
-    <div class="${dir ? `message-${dir}` : ""} _amjy _amjw">
+/**
+ * Строка сообщения — по РАЗМЕТКЕ ЖИВОГО WhatsApp (прогон 01.09.2026), а не по
+ * прежним догадкам из бандла. Ключевое, что отсюда видно:
+ *   • `data-id` — голый идентификатор сообщения, без чата и направления;
+ *   • классов `message-in`/`message-out` нет вовсе;
+ *   • направление — «хвостик» `data-icon="tail-out"`/`tail-in`, и он есть
+ *     ТОЛЬКО у первого сообщения в серии подряд идущих (tail: false);
+ *   • подпись автора для скринридера: «Вы:» либо «<имя собеседника>:»;
+ *   • признак настоящего сообщения — контейнер `data-testid="msg-container"`.
+ *
+ * @param {object} o
+ * @param {string} o.id
+ * @param {"out"|"in"|null} o.dir Направление; null — служебная строка.
+ * @param {boolean} [o.tail] Рисовать ли хвостик (первое сообщение серии).
+ * @param {string} [o.author] Подпись автора, как её даёт WhatsApp.
+ */
+const row = ({ id, dir, text, pre, tail = true, author, testid = "selectable-text" }) => `
+  <div tabindex="-1" data-id="${id}" data-testid="conv-msg-${id}">
+    <div data-virtualized="false"><div><div class="focusable-list-item">
+      ${author ? `<span aria-label="${author}"></span>` : ""}
       ${
-        pre
-          ? `<div class="copyable-text" data-pre-plain-text="${pre}">
-               <span class="_ao3e" data-testid="${testid}"><span>${text}</span></span>
-               <span class="x1rg5ohu">16:04</span>
+        dir === null
+          ? `<div>${text}</div>`
+          : `<div data-testid="msg-container">
+               ${tail ? `<span data-testid="tail-${dir}" data-icon="tail-${dir}"></span>` : ""}
+               ${
+                 pre
+                   ? `<div class="copyable-text" data-pre-plain-text="${pre}">
+                        <span class="_ao3e" data-testid="${testid}"><span>${text}</span></span>
+                        <span class="x1rg5ohu">16:04</span>
+                      </div>`
+                   : `<span class="_ao3e">${text}</span>`
+               }
              </div>`
-          : `<span class="_ao3e">${text}</span>`
       }
-      ${extra}
-    </div>
+    </div></div></div>
   </div>`
 
 /**
@@ -51,39 +75,49 @@ const row = ({ id, dir, text, pre, testid = "selectable-text", extra = "" }) => 
  * меняется вовсе, и адаптер обязан узнавать чат по разметке, а не по нему.
  */
 const PAGE = (kase) => {
+  // Заголовок чата — единственный источник идентификатора: у НЕсохранённого
+  // контакта WhatsApp пишет там номер, у сохранённого — имя из телефонной книги.
+  const titles = {
+    unsaved: "+7 900 123-45-67",
+    saved: "Мама Пети",
+    group: "Группа «Родители 2Б»",
+    empty: "+7 900 123-45-67",
+  }
+  const title = titles[kase] ?? titles.unsaved
+
   const bodies = {
-    // Личный чат с телефонным JID: два сообщения, служебная строка, медиа без
-    // подписи, строка ЧУЖОГО чата и альбом с вложенным data-id.
-    personal: `
-      ${row({ id: "false_79001234567@c.us_3EB0AAA", dir: "in", text: "Здравствуйте! Завтра занятие будет?", pre: "[16:04, 12.08.2026] Мама Пети: " })}
-      ${row({ id: "true_79001234567@c.us_3EB0BBB", dir: "out", text: "Да, ждём вас в 17:00", pre: "[16:07, 12.08.2026] " })}
-      ${row({ id: "false_79001234567@c.us_3EB0CCC", dir: null, text: "Сообщения защищены сквозным шифрованием" })}
-      ${row({ id: "false_79001234567@c.us_3EB0DDD", dir: "in", text: "", pre: "[09:05, 13.08.2026] Мама Пети: " })}
-      ${row({ id: "false_79990000000@c.us_3EB0EEE", dir: "in", text: "Это сообщение из другого чата", pre: "[10:00, 13.08.2026] Кто-то: " })}
-      ${row({ id: "false_79001234567@c.us_3EB0FFF", dir: "in", text: "Выделено целиком", pre: "[11:00, 13.08.2026] Мама Пети: ", testid: "select-all selectable-text" })}`,
-    // Групповой чат.
+    // Несохранённый контакт: номер виден в заголовке, панель работает.
+    // Внутри — серия подряд идущих входящих (у второго хвоста НЕТ), служебная
+    // строка, медиа без подписи и текст с составным значением testid.
+    unsaved: `
+      ${row({ id: "3EB0AAA1C2D3E4F50001", dir: "in", author: `${titles.unsaved}:`, text: "Здравствуйте! Завтра занятие будет?", pre: "[16:04, 12.08.2026] +7 900 123-45-67: " })}
+      ${row({ id: "3EB0BBB1C2D3E4F50002", dir: "in", tail: false, author: `${titles.unsaved}:`, text: "Или уже отменили?", pre: "[16:05, 12.08.2026] +7 900 123-45-67: " })}
+      ${row({ id: "3EB0CCC1C2D3E4F50003", dir: "out", author: "Вы:", text: "Да, ждём вас в 17:00", pre: "[16:07, 12.08.2026] Дмитрий Малафеев: " })}
+      ${row({ id: "3EB0DDD1C2D3E4F50004", dir: null, text: "Сообщения защищены сквозным шифрованием" })}
+      ${row({ id: "3EB0EEE1C2D3E4F50005", dir: "in", author: `${titles.unsaved}:`, text: "", pre: "[09:05, 13.08.2026] +7 900 123-45-67: " })}
+      ${row({ id: "3EB0FFF1C2D3E4F50006", dir: "in", tail: false, author: `${titles.unsaved}:`, text: "Выделено целиком", pre: "[11:00, 13.08.2026] +7 900 123-45-67: ", testid: "select-all selectable-text" })}`,
+    // Сохранённый контакт: в заголовке имя, номера нет нигде — опознать нечем.
+    saved: `
+      ${row({ id: "3EB01111C2D3E4F50007", dir: "in", author: `${titles.saved}:`, text: "Здравствуйте", pre: "[16:04, 12.08.2026] Мама Пети: " })}
+      ${row({ id: "3EB02221C2D3E4F50008", dir: "out", author: "Вы:", text: "Добрый день", pre: "[16:07, 12.08.2026] Дмитрий Малафеев: " })}`,
+    // Групповой чат: в заголовке название группы, номера нет.
     group: row({
-      id: "false_120363123456789012@g.us_3EB0GGG",
+      id: "3AB0GGG1C2D3E4F50009",
       dir: "in",
+      author: "Иван Петров:",
       text: "Всем привет",
-      pre: "[12:00, 13.08.2026] Кто-то: ",
+      pre: "[12:00, 13.08.2026] Иван Петров: ",
     }),
-    // Чат под скрытым идентификатором: номера в JID нет, но он есть в подписи
-    // входящего (несохранённый контакт).
-    lid: row({
-      id: "false_123456789012@lid_3EB0HHH",
-      dir: "in",
-      text: "Добрый день",
-      pre: "[13:00, 13.08.2026] +7 900 123-45-67: ",
-    }),
-    // Пустой чат: строк нет вовсе.
+    // Чат без сообщений.
     empty: "",
   }
 
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>WhatsApp</title></head>
 <body>
-<div id="main">
-  <header><span title="Мама Пети">Мама Пети</span></header>
+<div id="main" data-testid="conversation-panel-wrapper">
+  <header data-testid="conversation-header">
+    <div role="button"><span dir="auto">${title}</span></div>
+  </header>
   <div data-tab="8" id="list">${bodies[kase] ?? ""}</div>
   <footer>
     <div class="lexical-rich-text-input">
@@ -187,25 +221,34 @@ async function load(kase) {
   await page.waitForFunction(() => Boolean(window.__adapter), null, { timeout: 5000 })
 }
 
-// ── Личный чат ──────────────────────────────────────────────────────────────
-await load("personal")
+/** После смены чата адаптер выжидает окно «кадра перехода» (SETTLE_MS). */
+const settle = () => page.waitForTimeout(900)
+
+// ── Несохранённый контакт: номер виден в заголовке ──────────────────────────
+await load("unsaved")
+await settle()
 
 const chat = await page.evaluate(() => window.__adapter.readChat())
-check("чат распознан, JID нормализован", chat?.chatId === "79001234567@c.us", chat)
+check("чат опознан по номеру из заголовка", chat?.chatId === "79001234567@c.us", chat)
 check("канал whatsapp, чат поддерживается", chat?.channel === "whatsapp" && !chat.unsupported, chat)
-check("телефон взят из JID", chat?.phone === "79001234567", chat)
-check("имя собеседника из шапки", chat?.title === "Мама Пети", chat?.title)
+check("телефон отдан наружу", chat?.phone === "79001234567", chat)
+check("имя собеседника из шапки", chat?.title === "+7 900 123-45-67", chat?.title)
 
 const messages = await page.evaluate(() => window.__adapter.collectMessages())
-check("собрано ровно три сообщения", messages.length === 3, messages)
+check("собрано ровно четыре сообщения", messages.length === 4, messages)
 check(
-  "направления по классам пузыря",
-  messages[0]?.direction === "incoming" && messages[1]?.direction === "outgoing",
+  "направление по хвостику пузыря",
+  messages[0]?.direction === "incoming" && messages[2]?.direction === "outgoing",
   messages.map((m) => m.direction),
 )
 check(
+  "второе сообщение серии БЕЗ хвоста тоже входящее",
+  messages[1]?.externalId === "3EB0BBB1C2D3E4F50002" && messages[1]?.direction === "incoming",
+  messages.map((m) => `${m.externalId}:${m.direction}`),
+)
+check(
   "ключ дедупа — настоящий id сообщения",
-  messages[0]?.externalId === "3EB0AAA" && messages[1]?.externalId === "3EB0BBB",
+  messages[0]?.externalId === "3EB0AAA1C2D3E4F50001" && messages[2]?.externalId === "3EB0CCC1C2D3E4F50003",
   messages.map((m) => m.externalId),
 )
 check(
@@ -214,18 +257,22 @@ check(
   messages[0]?.sentAt,
 )
 check(
-  "служебная строка без класса направления пропущена",
+  "служебная строка без контейнера пузыря пропущена",
   !messages.some((m) => m.text.includes("шифрованием")),
   messages.map((m) => m.text),
 )
 check(
   "медиа без подписи пропущено",
-  !messages.some((m) => m.externalId === "3EB0DDD"),
+  !messages.some((m) => m.externalId === "3EB0EEE1C2D3E4F50005"),
   messages.map((m) => m.externalId),
 )
 check(
-  "сообщение ЧУЖОГО чата не взято",
-  !messages.some((m) => m.text.includes("другого чата")),
+  // Часы лежат в СОСЕДНЕМ узле, и наивный textContent приклеил бы их к тексту
+  // («Или уже отменили?16:04») — так было и в Telegram, и в MAX. Сравниваем
+  // точно, а не регуляркой «не заканчивается временем»: сообщение вполне может
+  // легитимно кончаться временем («Да, ждём вас в 17:00»).
+  "часы не приклеились к тексту",
+  messages[1]?.text === "Или уже отменили?",
   messages.map((m) => m.text),
 )
 check(
@@ -235,11 +282,11 @@ check(
 )
 
 const diag = await page.evaluate(() => window.__adapter.diag())
-check("счётчик «чужого чата» отработал", diag?.сбор?.чужогоЧата === 1, diag?.сбор)
 check("счётчик служебных отработал", diag?.сбор?.служебных === 1, diag?.сбор)
+check("счётчик пустых отработал", diag?.сбор?.пустых === 1, diag?.сбор)
 
 const latest = await page.evaluate(() => window.__adapter.latestMessageKey())
-check("отпечаток последнего сообщения — id последней строки", latest === "3EB0FFF", latest)
+check("отпечаток последнего сообщения — id последней строки", latest === "3EB0FFF1C2D3E4F50006", latest)
 
 // ── Вставка текста ──────────────────────────────────────────────────────────
 const inserted = await page.evaluate(() => window.__adapter.insertText("строка один\nстрока два"))
@@ -253,46 +300,58 @@ check(
   composerText,
 )
 
+// ── Сохранённый контакт: в заголовке имя, опознать нечем ────────────────────
+await load("saved")
+await settle()
+const saved = await page.evaluate(() => window.__adapter.readChat())
+check("сохранённый контакт — отдельная причина отказа", saved?.unsupported === "no-id", saved)
+check(
+  "имя за идентификатор НЕ выдаём (два тёзки схлопнулись бы необратимо)",
+  saved?.chatId === "" && saved?.phone === null,
+  saved,
+)
+check("имя при этом показываем — человеку нужно понимать, о ком речь", saved?.title === "Мама Пети", saved)
+const savedMessages = await page.evaluate(() => window.__adapter.collectMessages())
+check("из неопознанного чата сообщений не берём вовсе", savedMessages.length === 0, savedMessages)
+
 // ── Групповой чат ───────────────────────────────────────────────────────────
+// Сегодня группа отсекается тем же правилом: в заголовке название, а не номер.
 await load("group")
+await settle()
 const group = await page.evaluate(() => window.__adapter.readChat())
-check("групповой чат помечен как необслуживаемый", group?.unsupported === "group", group)
+check("групповой чат не обслуживается", Boolean(group?.unsupported), group)
 check("телефон у группы не выдуман", group?.phone === null, group)
 const groupMessages = await page.evaluate(() => window.__adapter.collectMessages())
 check("из группового чата сообщений не берём вовсе", groupMessages.length === 0, groupMessages)
 
-// ── Скрытый идентификатор (LID) ─────────────────────────────────────────────
-await load("lid")
-const lid = await page.evaluate(() => window.__adapter.readChat())
-check("LID-чат обслуживается как личный", lid?.chatId === "123456789012@lid" && !lid.unsupported, lid)
-check(
-  "номер подобран из подписи входящего, а не выдуман из LID",
-  lid?.phone === "79001234567",
-  { phone: lid?.phone, peerSource: lid?.peerSource },
-)
-
 // ── Пустой чат ──────────────────────────────────────────────────────────────
+// Заголовок с номером есть, сообщений нет — чат опознан, собирать нечего.
 await load("empty")
+await settle()
 const empty = await page.evaluate(() => window.__adapter.readChat())
-check("пустой чат — отдельная причина, а не «чат не выбран»", empty?.unsupported === "no-messages", empty)
+check("пустой чат с видимым номером опознаётся", empty?.chatId === "79001234567@c.us", empty)
+const emptyMessages = await page.evaluate(() => window.__adapter.collectMessages())
+check("и сообщений в нём ноль", emptyMessages.length === 0, emptyMessages)
 
 // ── Удалённый конфиг селекторов ─────────────────────────────────────────────
-// Разыгрываем аварию: WhatsApp «переименовал» класс направления. Канал должен
-// чиниться правкой конфига на сервере, без публикации в стор.
-await load("personal")
+// Разыгрываем аварию: WhatsApp «переименовал» контейнер пузыря, по которому мы
+// отличаем сообщение от служебной строки. Канал должен чиниться правкой конфига
+// на сервере, без публикации в стор с многодневным ревью.
+await load("unsaved")
+await settle()
 const before = await page.evaluate(() => window.__adapter.collectMessages().length)
 await page.evaluate(() => {
-  for (const node of document.querySelectorAll(".message-in, .message-out")) {
-    node.className = node.className.replace("message-in", "bubble-in").replace("message-out", "bubble-out")
+  for (const node of document.querySelectorAll('[data-testid="msg-container"]')) {
+    node.setAttribute("data-testid", "bubble-container")
   }
 })
 const broken = await page.evaluate(() => window.__adapter.collectMessages().length)
-check("переименование класса ломает канал (значит, проверка живая)", broken === 0, { before, broken })
+check("переименование опоры ломает канал (значит, проверка живая)", broken === 0, { before, broken })
 
 await page.evaluate(() =>
   window.__pushConfig({
     version: 99,
-    channels: { whatsapp: { incoming: ".bubble-in", outgoing: ".bubble-out" } },
+    channels: { whatsapp: { bubble: '[data-testid="bubble-container"]' } },
   }),
 )
 await page.waitForTimeout(100)
@@ -303,7 +362,7 @@ check("конфиг селекторов чинит канал на лету", f
 })
 check(
   "и ключи дедупа при этом ТЕ ЖЕ (иначе в карточке появятся вторые строки)",
-  fixed[0]?.externalId === "3EB0AAA",
+  fixed[0]?.externalId === "3EB0AAA1C2D3E4F50001",
   fixed.map((m) => m.externalId),
 )
 
