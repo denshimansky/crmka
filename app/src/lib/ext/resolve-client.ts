@@ -14,6 +14,11 @@ import {
   type MessengerChannel,
 } from "@/lib/ext/chat-identity"
 import { decideBindingLink, splitChatIds } from "@/lib/ext/chat-canonical"
+import {
+  findChatKeyByMessageIds,
+  rememberMessageIds,
+  sanitizeMessageIds,
+} from "@/lib/ext/chat-message-refs"
 import { linkCanonicalBinding } from "@/lib/ext/chat-binding-sync"
 
 /**
@@ -107,6 +112,13 @@ export async function resolveClientForChat(
      */
     altIds?: readonly string[]
     phone?: string | null
+    /**
+     * Идентификаторы видимых сообщений — примета чата для каналов, где
+     * идентификатора чата нет в разметке вовсе (сегодня это WhatsApp, см.
+     * lib/ext/chat-message-refs.ts). Старое расширение их не шлёт — тогда
+     * список пуст и поведение ровно прежнее.
+     */
+    messageIds?: readonly string[]
   },
 ): Promise<ExtResolveResult> {
   // Чат, который панель не ведёт (группа, рассылка, канал), отбиваем ПО СЫРЫМ
@@ -147,6 +159,61 @@ export async function resolveClientForChat(
     candidates: [],
     chatId,
     canonicalChatId: chatId,
+  }
+
+  // 0. Примета по сообщениям — для каналов, где идентификатора чата в разметке
+  // НЕТ (WhatsApp). Стоит первой, потому что даёт готовый ключ чата, с которым
+  // дальше работает обычная логика привязки: без неё такой чат вообще нечем
+  // назвать. Если у чата есть свой идентификатор (Telegram, MAX) — сюда просто
+  // не попадаем, список сообщений оттуда не приходит.
+  const messageIds = sanitizeMessageIds(params.messageIds ?? [])
+  if (!chatId && messageIds.length) {
+    const found = await findChatKeyByMessageIds(ctx.tenantId, params.channel, messageIds)
+    if (found.conflict) {
+      // Сообщения одного экрана ведут в РАЗНЫЕ чаты. В норме невозможно:
+      // сообщение принадлежит одному диалогу. Значит данные испорчены — и
+      // правильный ответ «не знаю», а не «выберу тот, которого больше».
+      return { match: "none", clientId: null, candidates: [], chatId: null, canonicalChatId: null }
+    }
+    if (found.chatKey) {
+      const binding = await db.chatBinding.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          channel: toPrismaChannel(params.channel),
+          externalChatId: found.chatKey,
+        },
+        select: { clientId: true },
+      })
+      if (binding) {
+        const visible = await db.client.findFirst({
+          where: { id: binding.clientId, tenantId: ctx.tenantId, deletedAt: null, ...scope },
+          select: { id: true },
+        })
+        if (visible) {
+          // Примету обновляем: переписка растёт, и запомненные сообщения
+          // однажды уедут за пределы видимой части экрана. Без обновления чат
+          // перестал бы узнаваться — причём молча.
+          void rememberMessageIds(ctx.tenantId, params.channel, found.chatKey, messageIds)
+          await db.chatBinding
+            .updateMany({
+              where: {
+                tenantId: ctx.tenantId,
+                channel: toPrismaChannel(params.channel),
+                externalChatId: found.chatKey,
+              },
+              data: { lastSeenAt: new Date() },
+            })
+            .catch(() => {})
+          return {
+            match: "binding",
+            clientId: binding.clientId,
+            candidates: [],
+            chatId: found.chatKey,
+            canonicalChatId: found.chatKey,
+          }
+        }
+      }
+    }
   }
 
   // 1. Готовая привязка. Ищем по ВСЕМ известным идентификаторам чата, а не

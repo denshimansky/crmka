@@ -9,6 +9,7 @@ import {
   buildMessageExternalId,
   isLocalMessageId,
   isMaxGroupChatId,
+  isMintedChatKey,
   isUnsupportedChat,
   messageTypeForDirection,
   normalizeChatId,
@@ -17,6 +18,7 @@ import {
   unsupportedChatMessage,
 } from "@/lib/ext/chat-identity"
 import { planCommunicationKeyRepair, splitChatIds } from "@/lib/ext/chat-canonical"
+import { findChatKeyByMessageIds, rememberMessageIds } from "@/lib/ext/chat-message-refs"
 import {
   applyCommunicationKeyRepair,
   resolveChatGroup,
@@ -62,7 +64,13 @@ const messageSchema = z.object({
 const bodySchema = z.object({
   clientId: z.string().uuid(),
   channel: z.enum(MESSENGER_CHANNELS),
-  chatId: z.string().min(1),
+  /**
+   * Идентификатор чата. НЕОБЯЗАТЕЛЕН с 01.09.2026: в WhatsApp его в разметке
+   * нет, и там сервер находит ключ чата сам — по идентификаторам присланных
+   * сообщений (они же messages[].externalId). Отдельного поля для этого не
+   * заводим: список сообщений уже здесь.
+   */
+  chatId: z.string().optional(),
   /**
    * Прочие идентификаторы ТОГО ЖЕ чата, увиденные расширением одновременно.
    * По ним находится переписка, залитая из другого клиента мессенджера, —
@@ -118,7 +126,58 @@ export async function POST(req: NextRequest) {
   }
 
   const ids = splitChatIds(channel, rawIds)
-  if (!ids.canonical) return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
+
+  // Чат без собственного идентификатора (WhatsApp). Ключ находим САМИ — по
+  // идентификаторам присланных сообщений, — и обязательно сверяем, что этот чат
+  // принадлежит именно тому клиенту, которого назвала панель.
+  //
+  // Сверка тут несущая, а не формальная. Локально панель различает чаты по
+  // заголовку, и два диалога с одинаковой подписью она бы спутала; тогда
+  // сообщения одного человека уехали бы в карточку другого — необратимо. Здесь
+  // же сверяются ФАКТЫ: сообщения знают свой чат, чат знает своего клиента.
+  let mintedChatKey: string | null = null
+  if (!ids.canonical) {
+    const found = await findChatKeyByMessageIds(
+      ctx.tenantId,
+      channel,
+      messages.map((m) => m.externalId),
+    )
+    if (found.conflict) {
+      return extJson(
+        req,
+        { error: "Сообщения одного экрана числятся за разными чатами — заливка отменена" },
+        { status: 409 },
+      )
+    }
+    if (!found.chatKey) {
+      // Чат ещё не привязан: заливать некуда. Привязку создаёт человек через
+      // POST /bindings, и только там выдаётся новый ключ.
+      return extJson(req, { error: "Чат не привязан к клиенту" }, { status: 400 })
+    }
+    const owner = await db.chatBinding.findFirst({
+      where: {
+        tenantId: ctx.tenantId,
+        channel: toPrismaChannel(channel),
+        externalChatId: found.chatKey,
+      },
+      select: { clientId: true },
+    })
+    if (!owner) {
+      return extJson(req, { error: "Чат не привязан к клиенту" }, { status: 400 })
+    }
+    if (owner.clientId !== clientId) {
+      return extJson(
+        req,
+        { error: "Эти сообщения принадлежат чату другого клиента — заливка отменена" },
+        { status: 409 },
+      )
+    }
+    mintedChatKey = found.chatKey
+  }
+
+  if (!ids.canonical && !mintedChatKey) {
+    return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
+  }
 
   // Второй рубеж, по канону: признак группы MAX (минус) нормализацию переживает.
   if (isMaxGroupChatId(channel, ids.canonical)) {
@@ -128,7 +187,9 @@ export async function POST(req: NextRequest) {
   // Канон берём из БАЗЫ, а не из текущего наблюдения: числовой peer id
   // читается из разметки не всегда, и канон «по мешку запроса» скакал бы от
   // захода к заходу — то самое задваивание, ради которого всё и делалось.
-  const group = await resolveChatGroup(ctx.tenantId, channel, ids.all, ids.canonical)
+  const group = ids.canonical
+    ? await resolveChatGroup(ctx.tenantId, channel, ids.all, ids.canonical)
+    : { canonical: /** @type {string} */ (mintedChatKey as string), allIds: [mintedChatKey as string] }
   const chatId = group.canonical
   // Под каким идентификатором сообщение приехало ИМЕННО СЕЙЧАС — по нему видно,
   // из какого клиента мессенджера пришла строка. Кладём НОРМАЛИЗОВАННЫМ, а не
@@ -231,6 +292,22 @@ export async function POST(req: NextRequest) {
     rows.length > 0
       ? await db.communication.createMany({ data: rows, skipDuplicates: true })
       : { count: 0 }
+
+  // Освежаем примету чата — набор идентификаторов сообщений, по которым он
+  // узнаётся (актуально для WhatsApp, где идентификатора чата нет в разметке).
+  //
+  // Делаем это ЗДЕСЬ, а не только при привязке: переписка растёт, и сообщения,
+  // запомненные при привязке, через неделю уедут за пределы видимой части
+  // экрана. Без обновления чат перестал бы узнаваться — молча, и человек решил
+  // бы, что привязка «слетела».
+  if (isMintedChatKey(chatId)) {
+    await rememberMessageIds(
+      ctx.tenantId,
+      channel,
+      chatId,
+      messages.map((m) => m.externalId),
+    )
+  }
 
   return extJson(req, {
     created: result.count,

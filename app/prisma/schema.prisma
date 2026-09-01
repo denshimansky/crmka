@@ -176,6 +176,7 @@ model Organization {
   absenceReasons            AbsenceReason[]
   communications            Communication[]
   chatBindings              ChatBinding[]
+  chatMessageRefs           ChatMessageRef[]
   messageTemplates          MessageTemplate[]
   apiTokens                 ApiToken[]
   integrations              IntegrationConfig[]
@@ -2802,6 +2803,45 @@ model ChatBinding {
   @@index([tenantId, clientId])
   @@index([tenantId, channel, canonicalChatId])
   @@map("chat_bindings")
+}
+
+/// Отпечаток чата: какие идентификаторы сообщений в нём видели.
+///
+/// ЗАЧЕМ. WhatsApp Web не выводит наружу идентификатор чата ВООБЩЕ — это
+/// установлено живым прогоном 01.09.2026: скан всех атрибутов всех элементов
+/// страницы не находит ни одного JID, а `data-id` строки — это идентификатор
+/// СООБЩЕНИЯ. Единственная прямая опора, телефон в заголовке, видна лишь у
+/// контактов, не сохранённых в телефонной книге сотрудника.
+///
+/// Значит опознавать чат приходится косвенно: по сообщениям, которые в нём
+/// лежат. Идентификатор сообщения уникален и не меняется, поэтому «чат, где
+/// встречается сообщение X» — устойчивая примета. Она переживает и
+/// переименование контакта, и совпадение имён двух клиентов — то есть ровно то,
+/// на чём сломалось бы опознание по отображаемому имени.
+///
+/// ЧТО ЗДЕСЬ ХРАНИТСЯ: только идентификаторы, никакого содержимого. Строка
+/// появляется, когда сотрудник привязал чат к клиенту, и обновляется при
+/// каждом опознании — иначе примета устареет вместе с прокруткой переписки.
+///
+/// Таблица общая по каналам, но осмысленна пока только для whatsapp: у
+/// Telegram и MAX идентификатор чата есть в адресной строке.
+model ChatMessageRef {
+  id        String               @id @default(uuid()) @db.Uuid
+  tenantId  String               @map("tenant_id") @db.Uuid
+  channel   CommunicationChannel
+  /// Идентификатор сообщения, как его видит расширение в разметке мессенджера.
+  messageId String               @map("message_id")
+  /// Ключ чата — он же ChatBinding.externalChatId.
+  chatKey   String               @map("chat_key")
+  seenAt    DateTime             @default(now()) @map("seen_at")
+
+  organization Organization @relation(fields: [tenantId], references: [id])
+
+  /// Одно сообщение принадлежит ровно одному чату — уникальность и есть суть
+  /// приметы. Повторное наблюдение только двигает seenAt.
+  @@unique([tenantId, channel, messageId])
+  @@index([tenantId, channel, chatKey])
+  @@map("chat_message_refs")
 }
 
 // НЕ ИСПОЛЬЗУЕТСЯ. Шаблоны ответов для панели расширения были сделаны и

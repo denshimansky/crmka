@@ -14,6 +14,21 @@ import { phoneMatchKey } from "@/lib/phone"
  * юнит-тестами (npm run test:unit).
  */
 
+/**
+ * Префикс ключа чата, выданного НАМИ, а не прочитанного из мессенджера.
+ *
+ * Нужен для WhatsApp: там идентификатора чата в разметке нет вовсе, и диалог
+ * опознаётся по идентификаторам своих сообщений (lib/ext/chat-message-refs.ts).
+ * Префикс делает происхождение ключа видимым — и в базе, и в коде: без него
+ * такой ключ однажды попробовали бы разобрать как телефон или как JID.
+ */
+export const MINTED_CHAT_KEY_PREFIX = "wa-msg:"
+
+/** Выдан ли этот ключ нами (в отличие от прочитанного из мессенджера). */
+export function isMintedChatKey(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.startsWith(MINTED_CHAT_KEY_PREFIX)
+}
+
 /** Каналы, по которым работает расширение (внутренние/телефон/почта — не они). */
 export const MESSENGER_CHANNELS = ["whatsapp", "telegram", "vk", "max"] as const
 
@@ -45,6 +60,14 @@ export function normalizeChatId(channel: MessengerChannel, raw: string | null | 
   if (!raw) return null
   let value = raw.trim()
   if (!value) return null
+
+  // Ключ, выданный НАМИ (чат без собственного идентификатора — см.
+  // lib/ext/chat-message-refs.ts), возвращаем как есть. Без этой строки он
+  // попал бы в телефонную ветку ниже, и «wa-msg:2f1c…» превратилось бы в
+  // десятизначное число из цифр uuid — идентификатор, неотличимый от номера
+  // телефона. Ровно эта ошибка уже случалась в MAX и подставляла в карточку
+  // постороннего человека.
+  if (isMintedChatKey(value)) return value
 
   // Срезаем протокол и известные хосты, оставляя «хвост» — сам идентификатор.
   value = value.replace(/^https?:\/\//i, "")

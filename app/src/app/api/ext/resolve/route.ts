@@ -32,11 +32,21 @@ export async function GET(req: NextRequest) {
     .filter(Boolean)
     .slice(0, 4)
 
+  // Идентификаторы видимых сообщений — примета чата для WhatsApp, где
+  // идентификатора чата в разметке нет вовсе. Отсев и ограничение длины делает
+  // sanitizeMessageIds на стороне резолва: сюда это приходит из браузера, то
+  // есть это вход, а не факт.
+  const messageIds = (searchParams.get("messageIds") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+
   const result = await resolveClientForChat(guard.ctx, {
     channel,
     chatId: searchParams.get("chatId"),
     altIds,
     phone: searchParams.get("phone"),
+    messageIds,
   })
 
   return extJson(req, result)

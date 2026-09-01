@@ -256,11 +256,15 @@ async function getActiveTabId(windowId) {
  * диалога в двух вкладках одного окна смогут дать одинаковый chatId. Тогда
  * гард ниже пропустил бы чужую переписку как «тот же чат».
  *
- * @param {{channel: string, chatId: string}|null|undefined} chat
+ * @param {{channel: string, chatId: string, localKey?: string}|null|undefined} chat
  * @returns {string|null}
  */
 function chatKey(chat) {
-  return chat ? `${chat.channel}:${chat.chatId}` : null
+  if (!chat) return null
+  // localKey — там, где идентификатора чата нет вовсе (WhatsApp): различать
+  // открытые диалоги внутри расширения всё равно надо, иначе гард «человек
+  // успел переключить чат» не сработает и переписка уедет в чужую карточку.
+  return `${chat.channel}:${chat.localKey || chat.chatId}`
 }
 
 /**
@@ -616,6 +620,9 @@ async function syncVisibleMessages(clientId, expectedChatKey, windowId) {
   return syncMessages(settings, {
     clientId,
     channel: chat.channel,
+    // Пустая строка здесь штатна: в WhatsApp у чата нет собственного
+    // идентификатора, и сервер находит его сам — по идентификаторам присланных
+    // сообщений, попутно сверяя, что чат принадлежит именно этому клиенту.
     chatId: chat.chatId,
     // Весь набор идентификаторов чата: по нему сервер находит уже залитую из
     // ДРУГОГО клиента Telegram переписку и не заводит её второй раз.

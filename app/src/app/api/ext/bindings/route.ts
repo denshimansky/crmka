@@ -15,6 +15,12 @@ import {
 } from "@/lib/ext/chat-identity"
 import { splitChatIds } from "@/lib/ext/chat-canonical"
 import {
+  findChatKeyByMessageIds,
+  mintChatKey,
+  rememberMessageIds,
+  sanitizeMessageIds,
+} from "@/lib/ext/chat-message-refs"
+import {
   moveCommunicationsOnRebind,
   previousOwnersForChat,
   resolveChatGroup,
@@ -34,7 +40,14 @@ const channelSchema = z.enum(MESSENGER_CHANNELS)
 
 const createSchema = z.object({
   channel: channelSchema,
-  chatId: z.string().min(1),
+  /**
+   * Идентификатор чата. НЕОБЯЗАТЕЛЕН с 01.09.2026: в WhatsApp его в разметке
+   * нет вовсе, и там чат опознаётся по идентификаторам своих сообщений
+   * (messageIds ниже). Пустая строка от расширения — это «идентификатора нет»,
+   * а не ошибка; условие «должно быть хоть что-то» проверяется ниже, в теле
+   * обработчика, где видно оба поля сразу.
+   */
+  chatId: z.string().optional(),
   clientId: z.string().uuid(),
   wardId: z.string().uuid().nullish(),
   displayName: z.string().trim().max(200).nullish(),
@@ -50,6 +63,13 @@ const createSchema = z.object({
    * находится в /a, где тот же человек называется числом.
    */
   altIds: z.array(z.string().min(1)).max(4).optional(),
+  /**
+   * Идентификаторы видимых сообщений — примета чата для WhatsApp, где
+   * идентификатора чата в разметке нет (см. lib/ext/chat-message-refs.ts).
+   * При привязке сервер выдаёт такому чату синтетический ключ и запоминает
+   * эти идентификаторы, чтобы узнать диалог при следующем открытии.
+   */
+  messageIds: z.array(z.string().min(1)).max(20).optional(),
 })
 
 const deleteSchema = z.object({
@@ -126,7 +146,28 @@ export async function POST(req: NextRequest) {
   }
 
   const ids = splitChatIds(channel, rawIds)
-  if (!ids.canonical) return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
+  // Чат без собственного идентификатора (WhatsApp): опознаём и запоминаем его
+  // по идентификаторам сообщений, а сам ключ выдаём сами. Ветка стоит ДО
+  // проверки «пустой идентификатор» — для этих чатов пустота штатна.
+  const refIds = sanitizeMessageIds(parsed.data.messageIds ?? [])
+  let mintedChatKey: string | null = null
+  if (!ids.canonical && refIds.length) {
+    const found = await findChatKeyByMessageIds(ctx.tenantId, channel, refIds)
+    if (found.conflict) {
+      return extJson(
+        req,
+        {
+          error:
+            "Сообщения этого экрана числятся за разными чатами — привязка отменена. Обновите страницу мессенджера и попробуйте снова",
+        },
+        { status: 409 },
+      )
+    }
+    // Уже знакомый чат перепривязываем под ТЕМ ЖЕ ключом: по нему построены
+    // ключи дедупа уже залитой переписки, и новый ключ означал бы её копию.
+    mintedChatKey = found.chatKey ?? mintChatKey()
+  }
+
 
   // Второй рубеж, по канону: признак группы MAX (минус) нормализацию переживает.
   // Рубеж серверный, потому что клиентский переживает не всякую сборку
@@ -141,9 +182,23 @@ export async function POST(req: NextRequest) {
   // важнее канона текущего наблюдения — по нему построены ключи залитых
   // сообщений. Иначе привязка из /a (где @username в разметке нет) разрывала
   // бы группу пополам и чат навсегда уходил в конфликт.
-  const group = await resolveChatGroup(ctx.tenantId, channel, ids.all, ids.canonical)
-  const chatId = group.canonical
-  const groupIds = group.allIds
+  let chatId: string
+  let groupIds: string[]
+  /** Прежние владельцы чата по живым привязкам — у синтетического ключа их нет. */
+  let groupOwners: string[] = []
+  if (ids.canonical) {
+    const group = await resolveChatGroup(ctx.tenantId, channel, ids.all, ids.canonical)
+    chatId = group.canonical
+    groupIds = group.allIds
+    groupOwners = group.rows.map((row) => row.clientId)
+  } else if (mintedChatKey) {
+    // Синтетический ключ группу не образует: у такого чата нет и не может быть
+    // второго идентификатора — он ровно один, выданный нами.
+    chatId = mintedChatKey
+    groupIds = [mintedChatKey]
+  } else {
+    return extJson(req, { error: "Пустой идентификатор чата" }, { status: 400 })
+  }
 
   const client = await db.client.findFirst({
     where: {
@@ -174,7 +229,7 @@ export async function POST(req: NextRequest) {
   // «Отвязать → найти нужного → Привязать», а отвязка удаляет привязки
   // физически, и к этому моменту прежнего владельца по ним уже не найти.
   const owners = new Set<string>([
-    ...group.rows.map((row) => row.clientId),
+    ...groupOwners,
     ...(await previousOwnersForChat(ctx.tenantId, channel, groupIds)),
   ])
   owners.delete(clientId)
@@ -232,6 +287,13 @@ export async function POST(req: NextRequest) {
       }),
     ),
   )
+
+  // Запоминаем примету чата: по этим идентификаторам сообщений мы узнаем
+  // диалог при следующем открытии. Пишем ПОСЛЕ создания привязки — иначе при
+  // сбое остались бы висеть ссылки на несуществующий чат.
+  if (refIds.length) {
+    await rememberMessageIds(ctx.tenantId, channel, chatId, refIds)
+  }
 
   let moved = 0
   for (const from of previousClientIds) {

@@ -110,6 +110,15 @@ const state = {
    * @type {string|null}
    */
   clientChatKey: null,
+  /**
+   * Ключ, под которым открытый чат ведёт СЕРВЕР (ответ resolve).
+   *
+   * У Telegram и MAX совпадает с идентификатором из адреса, а у WhatsApp
+   * выдан сервером: своего идентификатора у чата там нет вовсе. Нужен для
+   * «Отвязать» — иначе для таких чатов уходила бы пустая строка.
+   * @type {string|null}
+   */
+  serverChatId: null,
 }
 
 /**
@@ -125,7 +134,11 @@ let panelWindowId = null
 
 /** Ключ чата для сравнения «тот же диалог или уже другой». */
 function chatKey(chat) {
-  return chat ? `${chat.channel}:${chat.chatId}` : null
+  if (!chat) return null
+  // localKey — там, где идентификатора чата нет вовсе (WhatsApp): различать
+  // открытые диалоги внутри расширения всё равно надо, иначе гард «человек
+  // успел переключить чат» не сработает и переписка уедет в чужую карточку.
+  return `${chat.channel}:${chat.localKey || chat.chatId}`
 }
 
 /**
@@ -413,6 +426,9 @@ async function renderForChat() {
       // не достраивается и конфликт не определяется. Это ГЛАВНЫЙ путь.
       altIds: chat.altIds,
       phone: chat.phone,
+      // Идентификаторы видимых сообщений — примета чата там, где своего
+      // идентификатора у него нет (WhatsApp). По ним сервер и узнаёт диалог.
+      messageIds: chat.messageIds,
     })
   } catch (error) {
     if (seq !== renderSeq) return
@@ -421,6 +437,12 @@ async function renderForChat() {
   }
   // Пока искали клиента, человек открыл другой чат — эта отрисовка устарела.
   if (seq !== renderSeq) return
+
+  // Под каким ключом чат ведёт СЕРВЕР. Для Telegram и MAX это тот же
+  // идентификатор, что в адресе, а для WhatsApp — выданный сервером: своего у
+  // чата там нет. Без этого «Отвязать» для таких чатов отправлял бы пустую
+  // строку и получал отказ.
+  state.serverChatId = resolved.canonicalChatId || resolved.chatId || null
 
   if (resolved.clientId) {
     await showClient(resolved.clientId, { seq, chatKey: chatKey(chat) })
@@ -653,6 +675,9 @@ async function bindTo(clientId) {
       // привязка, сделанная в /k, найдётся в /a — там @username в разметке
       // нет вовсе, поэтому связать их можно только отсюда.
       altIds: chat.altIds,
+      // При привязке чата без собственного идентификатора сервер выдаёт ему
+      // ключ и запоминает эти сообщения — по ним диалог узнается в следующий раз.
+      messageIds: chat.messageIds,
       clientId,
       displayName: chat.title,
       saveHandle: true,
@@ -674,7 +699,7 @@ el.unbind.addEventListener("click", async () => {
     // строку, а привязка по @username из /k оставалась бы жить.
     await api("unbind", {
       channel: state.chat.channel,
-      chatId: state.chat.chatId,
+      chatId: state.serverChatId || state.chat.chatId,
       altIds: state.chat.altIds,
     })
     await renderForChat()

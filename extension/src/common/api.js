@@ -75,7 +75,12 @@ async function request(settings, path, options = {}) {
  * значило бы чинить одно и то же трижды. Пустой список = поведение как раньше.
  *
  * @param {ExtSettings} settings
- * @param {{channel: Channel, chatId: string, altIds?: string[], phone?: string|null}} chat
+ * messageIds — идентификаторы видимых сообщений. Примета чата для WhatsApp:
+ * идентификатора чата там в разметке нет вовсе, и опознать диалог можно только
+ * по сообщениям, которые в нём лежат (см. lib/ext/chat-message-refs.ts на
+ * сервере). Для остальных каналов список пуст.
+ *
+ * @param {{channel: Channel, chatId: string, altIds?: string[], phone?: string|null, messageIds?: string[]}} chat
  * @returns {Promise<ResolveResult>}
  */
 export function resolveChat(settings, chat) {
@@ -85,6 +90,7 @@ export function resolveChat(settings, chat) {
       chatId: chat.chatId,
       altIds: chat.altIds?.length ? chat.altIds.join(",") : null,
       phone: chat.phone,
+      messageIds: chat.messageIds?.length ? chat.messageIds.join(",") : null,
     },
   })
 }
@@ -148,7 +154,7 @@ export function searchClients(settings, q) {
 /**
  * Привязать чат к клиенту (явное действие сотрудника).
  * @param {ExtSettings} settings
- * @param {{channel: Channel, chatId: string, altIds?: string[], clientId: string, displayName?: string|null, saveHandle?: boolean}} payload
+ * @param {{channel: Channel, chatId: string, altIds?: string[], clientId: string, displayName?: string|null, saveHandle?: boolean, messageIds?: string[]}} payload
  */
 export function createBinding(settings, payload) {
   return request(settings, "/api/ext/bindings", { method: "POST", body: payload })

@@ -300,19 +300,30 @@ check(
   composerText,
 )
 
-// ── Сохранённый контакт: в заголовке имя, опознать нечем ────────────────────
+// ── Сохранённый контакт: в заголовке имя, номера нет ────────────────────────
+// Такой чат обслуживается по ПРИМЕТЕ — идентификаторам своих сообщений.
 await load("saved")
 await settle()
 const saved = await page.evaluate(() => window.__adapter.readChat())
-check("сохранённый контакт — отдельная причина отказа", saved?.unsupported === "no-id", saved)
+check("сохранённый контакт обслуживается", !saved?.unsupported, saved)
 check(
   "имя за идентификатор НЕ выдаём (два тёзки схлопнулись бы необратимо)",
   saved?.chatId === "" && saved?.phone === null,
   saved,
 )
-check("имя при этом показываем — человеку нужно понимать, о ком речь", saved?.title === "Мама Пети", saved)
+check(
+  "вместо этого отдаём примету — идентификаторы сообщений",
+  saved?.messageIds?.length === 2 && saved.messageIds[0] === "3EB01111C2D3E4F50007",
+  saved?.messageIds,
+)
+check(
+  "локальный ключ отличает чат от других, но на сервер не уходит",
+  saved?.localKey === "whatsapp-title:Мама Пети",
+  saved?.localKey,
+)
+check("имя показываем — человеку нужно понимать, о ком речь", saved?.title === "Мама Пети", saved)
 const savedMessages = await page.evaluate(() => window.__adapter.collectMessages())
-check("из неопознанного чата сообщений не берём вовсе", savedMessages.length === 0, savedMessages)
+check("и сообщения из такого чата собираются", savedMessages.length === 2, savedMessages)
 
 // ── Групповой чат ───────────────────────────────────────────────────────────
 // Сегодня группа отсекается тем же правилом: в заголовке название, а не номер.
