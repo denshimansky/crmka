@@ -16,8 +16,6 @@
     "scripting"
   ],
   "host_permissions": [
-    "https://app.umnayacrm.ru/*",
-    "https://dev.umnayacrm.ru/*",
     "https://msk1.umnayacrm.ru/*",
     "https://web.telegram.org/*",
     "https://web.max.ru/*",

@@ -69,7 +69,8 @@
 /**
  * Настройки расширения (chrome.storage.local).
  * @typedef {object} ExtSettings
- * @property {string} baseUrl Адрес CRM, например https://app.umnayacrm.ru
+ * @property {string} baseUrl Адрес CRM. Разрешён только https://msk1.umnayacrm.ru:
+ *   остальные домены убраны из host_permissions, fetch к ним не пройдёт.
  * @property {string} token   Персональный токен сотрудника (crmka_…)
  * @property {boolean} logMessages Записывать ли увиденную переписку в CRM.
  * @property {number} disclosureVersion Какую версию уведомления о сборе данных
