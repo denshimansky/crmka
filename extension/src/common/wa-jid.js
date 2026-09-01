@@ -166,19 +166,29 @@ export function parseMessageKey(raw) {
   }
 
   if (parts.length < 3) return null
-  const [flag, remote, id, ...rest] = parts
+  const [flag, remote, id] = parts
   if (flag !== "true" && flag !== "false") return null
   if (!id) return null
 
   const chat = parseJid(remote)
   if (!chat) return null
 
-  // Четвёртый сегмент — «self» («in»/«out»), пятый — участник. Если сегмент
-  // один и он не «in»/«out», это участник.
+  // ЗЕРКАЛИМ ПАРСЕР САМОГО WHATSAPP, а не изобретаем свой.
+  //
+  // Он берёт первые три сегмента БЕЗУСЛОВНО, а дальше смотрит только на длину:
+  // при четырёх сегментах четвёртый — участник, если это не «in»/«out»; при
+  // пяти участник — пятый. Лишние сегменты его не смущают вовсе.
+  //
+  // Почему это важно: заякоренная строгая проверка «ровно 3–5 сегментов»
+  // вернула бы null на любом лишнем подчёркивании (например, в идентификаторе
+  // сообщения от стороннего клиента), и адаптер выбросил бы сообщение целиком.
+  // Совпадать с правилом самого мессенджера тут ценнее, чем быть строже него:
+  // расширение формата мы переживём так же, как переживёт его WhatsApp.
   let participant = null
-  for (const part of rest) {
-    if (part === "in" || part === "out") continue
-    if (parseJid(part)) participant = normalizeJid(part)
+  if (parts.length === 4 && parts[3] !== "in" && parts[3] !== "out") {
+    participant = normalizeJid(parts[3])
+  } else if (parts.length >= 5) {
+    participant = normalizeJid(parts[4])
   }
 
   return {

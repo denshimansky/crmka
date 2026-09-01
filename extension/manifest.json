@@ -4,33 +4,32 @@
   "short_name": "CRMka",
   "version": "0.1.0",
   "description": "Карточка клиента CRMka рядом с чатом: подопечные, занятия, абонементы, баланс и переписка по всем каналам.",
-
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-
-  "permissions": ["sidePanel", "storage", "scripting"],
-
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "scripting"
+  ],
   "host_permissions": [
     "https://app.umnayacrm.ru/*",
     "https://dev.umnayacrm.ru/*",
     "https://msk1.umnayacrm.ru/*",
     "https://web.telegram.org/*",
-    "https://web.max.ru/*"
+    "https://web.max.ru/*",
+    "https://web.whatsapp.com/*"
   ],
-
   "background": {
     "service_worker": "src/background/service-worker.js",
     "type": "module"
   },
-
   "side_panel": {
     "default_path": "src/panel/panel.html"
   },
-
   "action": {
     "default_title": "CRMka — панель клиента",
     "default_icon": {
@@ -40,10 +39,11 @@
       "128": "icons/icon-128.png"
     }
   },
-
   "content_scripts": [
     {
-      "matches": ["https://web.telegram.org/*"],
+      "matches": [
+        "https://web.telegram.org/*"
+      ],
       "js": [
         "src/content/adapter-core.js",
         "src/content/telegram.js"
@@ -51,15 +51,26 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://web.max.ru/*"],
+      "matches": [
+        "https://web.max.ru/*"
+      ],
       "js": [
         "src/content/adapter-core.js",
         "src/content/max.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ],
+      "js": [
+        "src/content/adapter-core.js",
+        "src/content/whatsapp.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
-
   "web_accessible_resources": [
     {
       "resources": [
@@ -67,7 +78,9 @@
         "src/common/telegram-time.js",
         "src/common/telegram-peer.js"
       ],
-      "matches": ["https://web.telegram.org/*"]
+      "matches": [
+        "https://web.telegram.org/*"
+      ]
     },
     {
       "resources": [
@@ -76,7 +89,19 @@
         "src/common/max-message.js",
         "src/common/selector-config.js"
       ],
-      "matches": ["https://web.max.ru/*"]
+      "matches": [
+        "https://web.max.ru/*"
+      ]
+    },
+    {
+      "resources": [
+        "src/common/wa-jid.js",
+        "src/common/wa-time.js",
+        "src/common/selector-config.js"
+      ],
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ]
     }
   ]
 }

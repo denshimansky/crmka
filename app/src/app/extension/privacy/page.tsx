@@ -51,7 +51,7 @@ const REVISION = "01.09.2026"
  * `content_scripts` в extension/manifest.json: он же и есть обещание «в другие
  * вкладки не заходим». Добавили канал — правьте здесь в том же коммите.
  */
-const MESSENGER_HOSTS = ["web.telegram.org", "web.max.ru"]
+const MESSENGER_HOSTS = ["web.telegram.org", "web.max.ru", "web.whatsapp.com"]
 
 export default function ExtensionPrivacyPage() {
   return (

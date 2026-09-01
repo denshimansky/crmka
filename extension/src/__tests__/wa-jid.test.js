@@ -136,6 +136,16 @@ describe("parseMessageKey", () => {
     assert.equal(key?.fromMe, null)
     assert.equal(key?.messageId, "3EB00298006A5DC1795156")
   })
+  it("лишние сегменты не ломают разбор", () => {
+    // Зеркалим парсер самого WhatsApp: первые три сегмента берутся безусловно.
+    // Строгая проверка «ровно 3–5 сегментов» выбросила бы такое сообщение
+    // целиком — например, если идентификатор пришёл от стороннего клиента и
+    // содержит подчёркивание.
+    const key = parseMessageKey("false_79001234567@c.us_ABC12345_out_79001234567@c.us_extra")
+    assert.equal(key?.chatJid, "79001234567@c.us")
+    assert.equal(key?.messageId, "ABC12345")
+    assert.equal(key?.fromMe, false)
+  })
   it("мусор не разбирается", () => {
     assert.equal(parseMessageKey(""), null)
     assert.equal(parseMessageKey(null), null)
