@@ -5,6 +5,13 @@
   "version": "0.1.0",
   "description": "Карточка клиента CRMka рядом с чатом: подопечные, занятия, абонементы, баланс и переписка по всем каналам.",
 
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+
   "permissions": ["sidePanel", "storage", "tabs", "scripting"],
 
   "host_permissions": [
@@ -25,7 +32,13 @@
   },
 
   "action": {
-    "default_title": "CRMka — панель клиента"
+    "default_title": "CRMka — панель клиента",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   },
 
   "content_scripts": [
