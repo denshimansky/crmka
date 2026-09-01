@@ -241,7 +241,7 @@ cd app && node ../extension/tools/shot-1280.mjs ../путь/к/кадру.png
 CRM откройте «Настройки → Расширение для мессенджеров» и выпустите его. Без
 токена расширение не работает и ничего не собирает.
 
-Где работает
+Требования
 Десктопные браузеры на Chromium: Google Chrome, Яндекс Браузер, Microsoft Edge.
 Мобильные версии и настольные приложения мессенджеров не поддерживаются.
 
@@ -252,8 +252,73 @@ CRM откройте «Настройки → Расширение для мес
 слова больше пяти раз квалифицируется как keyword spam, это отдельное нарушение.
 **Не** вставлять отзывы без имени автора.
 
-Категория: Workflow & Planning (или Productivity). Язык: русский; английскую
-локаль добавить — ревьюер читает по-английски.
+**Категория: Workflow & Planning** (группа Productivity). Расширение — рабочий
+инструмент бизнес-процесса, а не средство общения: карточка клиента и перенос
+переписки в учётную систему. Запасные варианты, если позиции не окажется в
+списке: Communication, затем Tools. Смена категории уходит на повторную
+проверку, поэтому выбирать сразу.
+
+Язык карточки: русский. **Английскую локаль добавить обязательно** — ревьюер
+читает по-английски, и описание, которого он не понимает, разбирается дольше и
+хуже. Перевод краткого и полного описания:
+
+> **Summary:** Client card from Umnaya CRM next to the chat: children, lessons,
+> subscriptions, balance and conversations from every channel.
+
+```
+Umnaya CRM panel next to your chat.
+
+An administrator of a children's activity centre talks to a parent in a web
+messenger — and the client's card from your own CRM opens alongside: children
+and their age, the last and the next lesson, subscriptions with remaining
+lessons, balance and debt, recent payments, and messages from every channel in
+one place.
+
+Where it works
+• VK — community messages and direct messages
+• Telegram, MAX, WhatsApp — web versions in a desktop browser
+
+What it does
+• Finds the client by the open chat. If there is no match, you link the chat to
+  a card once, and it is recognised on its own afterwards.
+• Saves the conversation into the client's history, so that messages from
+  different messengers live in one place. Turned off by default, enabled
+  explicitly.
+• Inserts client details into the message box: the child's schedule, lessons
+  left on the subscription.
+• Prepares a reply draft with a language model — the text lands in the message
+  box, and you are the one who sends it.
+• Creates a task or a note in the client's card straight from the chat.
+
+What it never does
+The extension never sends anything on its own: no messages, no bulk sends, no
+auto-replies. It does not read attachments — photos, video, voice messages,
+documents. It does not export chat history: only the messages visible on the
+screen. It does not work in group chats, broadcasts or channels. It does not
+touch passwords, cookies or the messenger's storage.
+
+What data it collects
+When recording is enabled, your CRM stores: the text of visible messages of the
+open dialogue, the direction (incoming or outgoing), the time and the technical
+message id, and the chat id. The panel also shows client data your centre
+already keeps in the CRM: name, phone, balance, children, subscriptions. Data
+goes to your own CRM server, hosted in a data centre in Moscow. One exception —
+the "Reply draft" button: when an employee presses it, the text of the latest
+messages is passed through the CRM server to an external language model
+provider that prepares the draft. Without that press it never happens.
+Details: https://msk1.umnayacrm.ru/extension/privacy
+
+What you need
+An active Umnaya CRM subscription (umnayacrm.ru) and a personal access token:
+in the CRM open "Settings → Messenger extension" and issue one. Without a token
+the extension does not work and collects nothing.
+
+Requirements
+Chromium desktop browsers: Google Chrome, Yandex Browser, Microsoft Edge.
+Mobile versions and desktop apps of the messengers are not supported.
+
+Support: support@umnayacrm.ru
+```
 
 ---
 
