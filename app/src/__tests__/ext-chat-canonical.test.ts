@@ -37,10 +37,22 @@ describe("chooseCanonicalChatId — telegram", () => {
   })
 })
 
+// ВК: канон — числовой peer id, а короткое имя страницы остаётся алиасом.
+// Причина не в двух клиентах (их там нет), а в том, что имя владелец страницы
+// может сменить когда захочет: вместе с ним сменился бы ключ всей переписки, и
+// история в карточке разъехалась бы надвое. Число неизменно.
+describe("chooseCanonicalChatId — VK", () => {
+  it("канон числовой, даже если имя пришло первым", () => {
+    assert.equal(chooseCanonicalChatId("vk", ["durov", "1"]), "1")
+  })
+  it("числа нет вовсе — берём что есть (привязка по имени из карточки)", () => {
+    assert.equal(chooseCanonicalChatId("vk", ["durov"]), "durov")
+  })
+})
+
 describe("chooseCanonicalChatId — остальные каналы", () => {
   it("поведение не меняется: берём первый", () => {
     assert.equal(chooseCanonicalChatId("whatsapp", ["9991234567", "lid:42"]), "9991234567")
-    assert.equal(chooseCanonicalChatId("vk", ["durov", "1"]), "durov")
     assert.equal(chooseCanonicalChatId("max", ["9991234567"]), "9991234567")
   })
 })

@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import { formatWardName } from "@/lib/format-name"
 import { currencySymbol } from "@/lib/currency"
+import { communicationAuthorLabel } from "@/lib/communications/author-label"
 import {
   CLIENT_STATUS_CHANGE_REASON_LABELS,
   type ClientStatusChangeReason,
@@ -411,9 +412,9 @@ export async function GET(
     return COMM_TITLES[type] || type
   }
   for (const c of communications) {
-    const empName = c.employee
-      ? [c.employee.lastName, c.employee.firstName].filter(Boolean).join(" ")
-      : null
+    // Строки из расширения подписаны рабочим местом («ПК Филиал 1»), прочие —
+    // сотрудником. Единая точка: lib/communications/author-label.ts.
+    const empName = communicationAuthorLabel(c.metadata, c.employee)
     events.push({
       id: `comm-${c.id}`,
       kind: "communication",

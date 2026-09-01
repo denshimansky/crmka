@@ -4,6 +4,7 @@ import { clientStateLabel } from "@/lib/clients/state-label"
 import { scopeClientByBranch } from "@/lib/client-segments"
 import { currencySymbol } from "@/lib/currency"
 import { maskPhone } from "@/lib/permissions/phone-visibility"
+import { communicationAuthorLabel } from "@/lib/communications/author-label"
 import type { ExtContext } from "@/lib/ext-auth"
 
 /**
@@ -79,6 +80,7 @@ export interface ExtClientCard {
     direction: string
     type: string
     content: string | null
+    /** Подпись автора: рабочее место у строк из панели, сотрудник у прочих. */
     employeeName: string | null
   }>
 }
@@ -201,6 +203,7 @@ export async function buildClientCard(
         content: true,
         sentAt: true,
         createdAt: true,
+        metadata: true,
         employee: { select: { firstName: true, lastName: true } },
       },
       // nulls: "last" — как в лентах CRM (api/clients/[id]/communications и
@@ -412,7 +415,9 @@ export async function buildClientCard(
       direction: c.direction,
       type: c.type,
       content: c.content,
-      employeeName: personName(c.employee),
+      // То же правило, что в лентах CRM: строки из панели подписаны рабочим
+      // местом, остальные — сотрудником (lib/communications/author-label.ts).
+      employeeName: communicationAuthorLabel(c.metadata, c.employee),
     })),
   }
 }

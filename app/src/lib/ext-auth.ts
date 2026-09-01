@@ -65,6 +65,15 @@ export interface ExtContext {
   /** Видит ли роль телефоны клиентов (настройка организации). */
   instructorsSeePhones: boolean
   tokenId: string
+  /**
+   * Название токена — по сути рабочее место: «ПК Филиал 1», «Ноутбук
+   * администратора». Именно им подписывается всё, что панель пишет в карточку
+   * клиента (сообщения и заметки), а НЕ именем сотрудника, на которого выпущен
+   * токен: за одним компьютером посменно сидят разные администраторы, а токен
+   * обычно выпускает владелец. Имя владельца в ленте вводило бы в заблуждение —
+   * по названию токена видно, с какого рабочего места вели общение.
+   */
+  tokenName: string
   /** Имя сотрудника: им подписываются шаблоны и журнал ИИ-черновиков. */
   employeeName: string | null
 }
@@ -129,6 +138,7 @@ export async function requireExtAuth(req: Request, scope: ExtScope): Promise<Ext
       id: true,
       tenantId: true,
       employeeId: true,
+      name: true,
       scopes: true,
       revokedAt: true,
       expiresAt: true,
@@ -211,6 +221,7 @@ export async function requireExtAuth(req: Request, scope: ExtScope): Promise<Ext
       branchScope,
       instructorsSeePhones: org.instructorsSeePhones,
       tokenId: token.id,
+      tokenName: token.name.trim() || "Расширение",
       employeeName: employee.firstName?.trim() || null,
     },
   }

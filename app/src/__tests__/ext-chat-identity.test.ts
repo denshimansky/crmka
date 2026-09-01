@@ -9,6 +9,7 @@ import {
   isMessengerChannel,
   isPositiveNumericChatId,
   isUnsupportedChat,
+  isVkUnsupportedChatId,
   normalizeChatId,
   normalizeHandle,
   parseMessageSentAt,
@@ -40,18 +41,88 @@ describe("normalizeChatId — Telegram", () => {
   })
 })
 
+// ВК: собеседник лежит в параметре «sel», а НЕ в пути. Прежняя реализация
+// разбирала адрес общим правилом (отрезать всё после «?»), и все диалоги
+// сообщества схлопывались в один ключ — id этого сообщества, а все личные в
+// «im». Уникальный индекс (tenantId, channel, external_chat_id) склеил бы их в
+// одну привязку, и переписка всех родителей центра уехала бы в карточку первого
+// привязанного клиента — необратимо. Тесты ниже и есть замок на этой мине;
+// прежние фиксировали как раз сломанное поведение и заменены.
 describe("normalizeChatId — VK", () => {
-  it("ссылка на профиль → id", () => {
-    assert.equal(normalizeChatId("vk", "https://vk.com/id12345"), "id12345")
+  // Живой факт 01.09.2026: у сообщества открывается новый VK Messenger, и
+  // диалог назван в ПУТИ («/convo/<собеседник>»), а не параметром «sel».
+  // Заочное предположение про sel этим прогоном опровергнуто; форма старого
+  // интерфейса оставлена и проверяется ниже.
+  it("живой адрес нового интерфейса → id собеседника, а не сообщества", () => {
+    assert.equal(
+      normalizeChatId("vk", "https://vk.ru/gim137130907/convo/335368817?entrypoint=list_all"),
+      "335368817",
+    )
   })
-  it("короткое имя из ссылки", () => {
+  it("два диалога одного сообщества в новом интерфейсе дают РАЗНЫЕ ключи", () => {
+    assert.notEqual(
+      normalizeChatId("vk", "https://vk.ru/gim137130907/convo/335368817"),
+      normalizeChatId("vk", "https://vk.ru/gim137130907/convo/999888777"),
+    )
+  })
+  it("«convo» без собеседника — диалог не выбран", () => {
+    assert.equal(normalizeChatId("vk", "https://vk.ru/gim137130907/convo"), null)
+  })
+  it("беседа и сообщество ловятся и в новом интерфейсе", () => {
+    assert.equal(normalizeChatId("vk", "https://vk.ru/gim137130907/convo/2000000045"), "c45")
+    assert.equal(normalizeChatId("vk", "https://vk.ru/im/convo/-216789012"), "-216789012")
+  })
+  it("диалог в сообщениях сообщества (старый интерфейс) → id СОБЕСЕДНИКА", () => {
+    assert.equal(normalizeChatId("vk", "https://vk.com/gim216789012?sel=45678901"), "45678901")
+  })
+  it("два разных диалога одного сообщества дают РАЗНЫЕ ключи", () => {
+    const first = normalizeChatId("vk", "https://vk.com/gim216789012?sel=45678901")
+    const second = normalizeChatId("vk", "https://vk.com/gim216789012?sel=99999999")
+    assert.notEqual(first, second)
+  })
+  it("личные сообщения: собеседник из sel, а не «im»", () => {
+    assert.equal(normalizeChatId("vk", "https://vk.com/im?sel=123456"), "123456")
+  })
+  it("старый ВК держал sel в хэше — понимаем и его", () => {
+    assert.equal(normalizeChatId("vk", "https://vk.com/im#sel=123456"), "123456")
+  })
+  it("мессенджер открыт, диалог не выбран → null (привязывать нечего)", () => {
+    assert.equal(normalizeChatId("vk", "https://vk.com/im"), null)
+    assert.equal(normalizeChatId("vk", "https://vk.com/gim216789012"), null)
+  })
+  it("«id12345» и голое число — один и тот же человек", () => {
+    assert.equal(normalizeChatId("vk", "https://vk.com/id12345"), "12345")
+    assert.equal(normalizeChatId("vk", "12345"), "12345")
+    assert.equal(normalizeChatId("vk", "id12345"), "12345")
+  })
+  it("короткое имя страницы — как есть, в нижнем регистре", () => {
     assert.equal(normalizeChatId("vk", "vk.com/durov"), "durov")
+    assert.equal(normalizeChatId("vk", "https://vk.ru/Durov"), "durov")
   })
-  it("query-хвост отбрасывается", () => {
+  it("хвост записи на стене не мешает читать короткое имя", () => {
     assert.equal(normalizeChatId("vk", "vk.com/durov?w=wall1_1"), "durov")
   })
-  it("домен vk.ru тоже понимается", () => {
-    assert.equal(normalizeChatId("vk", "https://vk.ru/durov"), "durov")
+  it("беседа приводится к «c<N>» из обеих форм записи", () => {
+    assert.equal(normalizeChatId("vk", "https://vk.com/im?sel=c45"), "c45")
+    // 2 000 000 045 — та же беседа №45 в кодировке peer_id из VK API.
+    assert.equal(normalizeChatId("vk", "https://vk.com/im?sel=2000000045"), "c45")
+  })
+  it("сообщество приводится к «-<N>» из всех форм записи", () => {
+    assert.equal(normalizeChatId("vk", "https://vk.com/im?sel=-216789012"), "-216789012")
+    assert.equal(normalizeChatId("vk", "vk.com/club216789012"), "-216789012")
+    assert.equal(normalizeChatId("vk", "vk.com/public216789012"), "-216789012")
+  })
+})
+
+describe("isVkUnsupportedChatId", () => {
+  it("беседа и сообщество — за чатом не один человек", () => {
+    assert.equal(isVkUnsupportedChatId("c45"), true)
+    assert.equal(isVkUnsupportedChatId("-216789012"), true)
+  })
+  it("человек — обслуживаем: и по числу, и по короткому имени", () => {
+    assert.equal(isVkUnsupportedChatId("45678901"), false)
+    assert.equal(isVkUnsupportedChatId("durov"), false)
+    assert.equal(isVkUnsupportedChatId(null), false)
   })
 })
 
@@ -110,9 +181,16 @@ describe("isUnsupportedChat", () => {
     assert.equal(isUnsupportedChat("max", "https://web.max.ru/-78377804395205"), true)
     assert.equal(isUnsupportedChat("max", "437719203"), false)
   })
-  it("Telegram и ВК не трогаем: там группы привязываются и работают", () => {
+  it("ВК: беседа и диалог с сообществом ловятся в любой форме записи", () => {
+    assert.equal(isUnsupportedChat("vk", "https://vk.com/im?sel=c45"), true)
+    assert.equal(isUnsupportedChat("vk", "https://vk.com/im?sel=2000000045"), true)
+    assert.equal(isUnsupportedChat("vk", "https://vk.com/im?sel=-216789012"), true)
+    assert.equal(isUnsupportedChat("vk", "vk.com/club216789012"), true)
+    assert.equal(isUnsupportedChat("vk", "https://vk.com/gim216789012?sel=45678901"), false)
+    assert.equal(isUnsupportedChat("vk", "vk.com/durov"), false)
+  })
+  it("Telegram не трогаем: там группы привязываются и работают", () => {
     assert.equal(isUnsupportedChat("telegram", "-1001234567890"), false)
-    assert.equal(isUnsupportedChat("vk", "-12345"), false)
   })
   it("пустое значение — не повод для отказа", () => {
     assert.equal(isUnsupportedChat("whatsapp", null), false)
@@ -202,8 +280,13 @@ describe("normalizeHandle — карточка и чат сходятся", () =
       normalizeChatId("telegram", "@masha"),
     )
   })
-  it("хендл ВК ссылкой матчится с id из URL диалога", () => {
-    assert.equal(normalizeHandle("vk", "https://vk.com/id777"), normalizeChatId("vk", "id777"))
+  it("хендл ВК ссылкой матчится с id из адреса открытого диалога", () => {
+    // Ради этого «id12345» и приводится к голому числу: администратор вписал в
+    // карточку ссылку на страницу, а панель видит в адресе «?sel=777».
+    assert.equal(
+      normalizeHandle("vk", "https://vk.com/id777"),
+      normalizeChatId("vk", "https://vk.com/gim216789012?sel=777"),
+    )
   })
 })
 

@@ -274,10 +274,18 @@ export async function POST(req: NextRequest) {
       sentAt:
         sentAtByIndex[index] ?? new Date(uploadedAt - (messages.length - 1 - index)),
       // Исходящие писал сотрудник, чьим токеном работает панель. У входящих автора
-      // нет — сообщение написал клиент.
+      // нет — сообщение написал клиент. В ленте, впрочем, показывается не он, а
+      // рабочее место (metadata.device) — см. lib/communications/author-label.ts.
       employeeId: m.direction === "outgoing" ? ctx.employeeId : null,
       metadata: {
         source: "extension",
+        // Рабочее место — название токена, снимком на момент записи. Только у
+        // исходящих, ровно как employeeId: подпись обязана отвечать на вопрос
+        // «кто это написал». Входящее написал клиент, и приписать ему рабочее
+        // место значило бы соврать в ленте.
+        ...(m.direction === "outgoing"
+          ? { device: ctx.tokenName, tokenId: ctx.tokenId }
+          : {}),
         chatId: incomingChatId,
         canonicalChatId: chatId,
         // "message" — настоящее время из разметки, "upload" — время заливки.

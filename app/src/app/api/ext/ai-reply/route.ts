@@ -101,7 +101,9 @@ export async function POST(req: NextRequest) {
     await db.aiChatLog.create({
       data: {
         tenantId: ctx.tenantId,
-        userName: ctx.employeeName || "Расширение",
+        // Рабочее место, а не сотрудник: токен выпущен на владельца, а черновик
+        // просит администратор смены — по названию видно, откуда запрос.
+        userName: ctx.tokenName || ctx.employeeName || "Расширение",
         userRole: ctx.role,
         provider: draft.provider,
         model: draft.model,

@@ -2881,7 +2881,9 @@ model ApiToken {
   id         String    @id @default(uuid()) @db.Uuid
   tenantId   String    @map("tenant_id") @db.Uuid
   employeeId String    @map("employee_id") @db.Uuid
-  // Человеческое имя устройства: «Расширение — рабочий ноут».
+  // Название рабочего места: «ПК Филиал 1». Им подписываются сообщения и
+  // заметки, залитые из панели-расширения (lib/communications/author-label.ts),
+  // — за одним компьютером посменно работают разные администраторы.
   name       String
   tokenHash  String    @unique @map("token_hash")
   // Первые символы секрета — чтобы отличать токены в списке, как у GitHub PAT.

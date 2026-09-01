@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client"
+import { COMMUNICATION_DEVICE_KEY } from "./author-label"
 
 type Tx = Prisma.TransactionClient | PrismaClient
 
@@ -10,6 +11,11 @@ type Tx = Prisma.TransactionClient | PrismaClient
  *
  * Пустой content игнорируется (пустая заметка бессмысленна). Передавайте tx,
  * когда важна атомарность с основной мутацией (правка Client.comment), иначе db.
+ *
+ * device — название рабочего места (токена расширения). Передаётся только из
+ * панели над мессенджером: там заметку оставляет администратор смены, а токен
+ * выпущен на владельца, и подписывать заметку владельцем было бы неправдой.
+ * См. lib/communications/author-label.ts.
  */
 export async function logClientNote(
   tx: Tx,
@@ -18,10 +24,12 @@ export async function logClientNote(
     clientId: string
     content: string
     employeeId?: string | null
+    device?: string | null
   },
 ): Promise<void> {
   const content = params.content.trim()
   if (!content) return
+  const device = params.device?.trim() || null
   await tx.communication.create({
     data: {
       tenantId: params.tenantId,
@@ -31,6 +39,7 @@ export async function logClientNote(
       direction: "internal",
       content,
       employeeId: params.employeeId || undefined,
+      metadata: device ? { source: "extension", [COMMUNICATION_DEVICE_KEY]: device } : undefined,
     },
   })
 }

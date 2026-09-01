@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { MessageSquare, Phone, PhoneIncoming, PhoneOutgoing, Mail, Send, StickyNote } from "lucide-react"
+import { communicationAuthorLabel } from "@/lib/communications/author-label"
 
 interface Communication {
   id: string
@@ -150,9 +151,9 @@ export function CommunicationFeed({ clientId }: { clientId: string }) {
             {communications.map((c) => {
               const config = TYPE_CONFIG[c.type] || TYPE_CONFIG.note
               const Icon = config.icon
-              const employeeName = c.employee
-                ? [c.employee.lastName, c.employee.firstName].filter(Boolean).join(" ")
-                : null
+              // У строк из расширения подпись — рабочее место («ПК Филиал 1»),
+              // у остальных сотрудник. Единая точка: author-label.ts.
+              const employeeName = communicationAuthorLabel(c.metadata, c.employee)
               const duration = c.metadata?.duration
               // Для результата обзвона показываем название кампании: «Обзвон «...»».
               // Для сообщений из расширения тип общий на все мессенджеры —

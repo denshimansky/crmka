@@ -11,8 +11,10 @@ import { extJson, extOptions, readExtJson } from "@/lib/ext-cors"
  *
  * Пишем через `logClientNote` — единую точку ленты коммуникаций: заметка из
  * панели обязана выглядеть и вести себя ровно как заметка, оставленная в CRM
- * (тип note, канал internal, автор — сотрудник). Своя вставка в communication
- * здесь однажды разъехалась бы с лентой по типу или каналу.
+ * (тип note, канал internal). Своя вставка в communication здесь однажды
+ * разъехалась бы с лентой по типу или каналу. Отличие одно: подписана заметка
+ * рабочим местом («ПК Филиал 1»), а не сотрудником — токен выпущен на владельца,
+ * а пишет администратор смены.
  *
  * Не путать с заливкой переписки (`/communications/batch`): та пишет сообщения
  * мессенджера, а это — то, что сотрудник хочет запомнить сам.
@@ -59,6 +61,8 @@ export async function POST(req: NextRequest) {
     clientId: client.id,
     content: parsed.data.text,
     employeeId: ctx.employeeId,
+    // Подпись в ленте — рабочее место, а не владелец токена.
+    device: ctx.tokenName,
   })
 
   return extJson(req, { ok: true })

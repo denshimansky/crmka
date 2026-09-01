@@ -20,7 +20,7 @@ import { DEFAULT_EXT_SCOPES, generateExtToken } from "@/lib/ext-auth"
  */
 
 const createSchema = z.object({
-  name: z.string().trim().min(1, "Укажите название устройства").max(100),
+  name: z.string().trim().min(1, "Укажите название рабочего места").max(100),
 })
 
 const deleteSchema = z.object({
