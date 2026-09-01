@@ -7,20 +7,43 @@
  * сообщения. Поэтому сначала факты, потом код. Этот скрипт собирает факты за
  * один прогон в консоли.
  *
- * ЧЕМ WHATSAPP ОТЛИЧАЕТСЯ ОТ MAX И TELEGRAM (и что здесь главное проверить):
- *   • у сообщений, по всем признакам, ЕСТЬ настоящий идентификатор — атрибут
- *     `data-id` вида «false_79001234567@c.us_3EB0C767D26B8D...». Если это
- *     подтвердится, ключ дедупа будет НАСТОЯЩИЙ, а не синтетический, как в MAX,
- *     и оба принятых там дефекта (правка = дубль, два одинаковых сообщения в
- *     минуту = схлопывание) в WhatsApp не появятся;
- *   • в том же `data-id` лежит JID собеседника — а значит, ТЕЛЕФОН. Это
- *     единственный наш канал, где клиент может находиться автоматически, без
- *     ручной привязки. Но: WhatsApp с 2025 переводит пользователей на LID
- *     («<число>@lid») вместо номера, и насколько это уже случилось — вопрос
- *     номер один к этому probe;
- *   • адрес страницы, скорее всего, НЕ меняется при переключении чата (в отличие
- *     от Telegram с его хэшем и MAX с путём). Тогда «какой чат открыт» придётся
- *     читать только из разметки, а опрос адреса бесполезен. Проверяем явно.
+ * ОТКУДА ВЗЯТЫ ОПОРЫ. Не из статей и не по памяти: разобран сам прод-бандл
+ * WhatsApp Web (репозиторий vinikjkkj/wa-diff ежедневно выкачивает скрипты с
+ * static.whatsapp.net и раскладывает по модулям). Отсюда и селекторы ниже.
+ * Живой проверки при этом не было ни одной — её и делает этот probe.
+ *
+ * ЧТО ИЗВЕСТНО ИЗ КОДА (и что probe обязан подтвердить):
+ *   • `#main` — контейнер открытого чата, id литеральный;
+ *   • у строки сообщения есть `data-id` = сериализованный MsgKey:
+ *     «fromMe _ JID чата _ id сообщения [_ self] [_ участник]». Если так и есть,
+ *     ключ дедупа будет НАСТОЯЩИЙ, а не синтетический, как в MAX, и оба принятых
+ *     там дефекта (правка = дубль, два одинаковых сообщения в минуту =
+ *     схлопывание) в WhatsApp не появятся. ⚠️ Есть конфликт источников: полевые
+ *     заметки стороннего скрапера (весна 2026) утверждают, что `data-id` стал
+ *     ГОЛЫМ id сообщения без чата и направления. Код бандла этого не
+ *     подтверждает. Снять это противоречие — задача №1 probe;
+ *   • направление — авторские классы `message-in` / `message-out` на ВНУТРЕННЕМ
+ *     div пузыря. Служебные строки (шифрование, звонки, события) — это те же
+ *     строки с `data-id`, но БЕЗ обоих классов. Отсюда правило отбраковки:
+ *     сообщение — только то, у чего есть класс направления;
+ *   • дата и время — ТОЛЬКО в `data-pre-plain-text` («[16:04, 12.08.2026] Имя: »).
+ *     Машинного unix-времени в разметке нет вовсе, формат зависит от языка
+ *     интерфейса;
+ *   • `data-testid` в чат-интерфейсе ВЫРЕЗАН на уровне сборки — все советы из
+ *     интернета вида `[data-testid="conversation-compose-box-input"]` мертвы.
+ *     Уцелел только `data-testid="selectable-text"` на самом тексте сообщения,
+ *     и то потому, что собирается в рантайме;
+ *   • поле ввода — Lexical (`div.lexical-rich-text-input` → contenteditable с
+ *     `role="textbox"` и `data-tab="10"`), и он сам перехватывает `paste` без
+ *     проверки isTrusted — значит способ вставки тот же, что отработан на MAX;
+ *   • адрес страницы при смене чата НЕ меняется: роутинга по чатам в коде нет.
+ *     Значит опрос адреса бесполезен, а chatId берётся только из разметки.
+ *
+ * ГЛАВНЫЙ ВОПРОС ВСЕГО ПРОГОНА: у ваших контактов JID в `data-id` — это ещё
+ * номер («…@c.us») или уже скрытый идентификатор («…@lid»)? В бандле лежит целый
+ * пласт миграции личных чатов на LID. Если у вас уже LID, автоматический поиск
+ * клиента по телефону в WhatsApp не работает, и канал становится таким же
+ * «ручным», как MAX.
  *
  * БЕЗОПАСНОСТЬ — читать буквально, здесь она строже, чем в MAX.
  *   • Скрипт ТОЛЬКО ЧИТАЕТ видимый DOM. Он не трогает localStorage и IndexedDB:
@@ -261,6 +284,26 @@
   //  Сборка отчёта
   // ───────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Поле ввода по опорам из прод-бандла: авторский класс
+   * `lexical-rich-text-input`, `role="textbox"`, `data-tab="10"`. Ищем ВНУТРИ
+   * `#main footer` — на странице есть и другие contenteditable (поиск, подпись
+   * к медиа), и «первый попавшийся» ловил бы их.
+   */
+  function findComposer() {
+    const selectors = [
+      "#main footer div.lexical-rich-text-input [contenteditable='true'][role='textbox']",
+      "#main footer [contenteditable='true'][data-tab='10']",
+      "#main footer [contenteditable='true']",
+      "[contenteditable='true'][role='textbox']",
+    ]
+    for (const selector of selectors) {
+      const node = document.querySelector(selector)
+      if (node instanceof HTMLElement && node.isContentEditable) return { node, selector }
+    }
+    return { node: null, selector: null }
+  }
+
   /** Корень открытого диалога. Кандидаты — от самого осмысленного к общему. */
   function mainRoot() {
     const candidates = [
@@ -313,7 +356,26 @@
   }
 
   function build() {
-    const report = {}
+    /**
+   * Поле ввода по опорам из прод-бандла: авторский класс lexical-rich-text-input,
+   * role="textbox", data-tab=10. Ищем ВНУТРИ #main footer — на странице есть и
+   * другие contenteditable (поиск, подпись к медиа), и «первый попавшийся» ловил
+   * бы их.
+   */
+  const findComposer = () => {
+    const selectors = [
+      "#main footer div.lexical-rich-text-input [contenteditable='true'][role='textbox']",
+      "#main footer [contenteditable='true'][data-tab='10']",
+      "#main footer [contenteditable='true']",
+      "[contenteditable='true'][role='textbox']",
+    ]
+    for (const selector of selectors) {
+      const node = document.querySelector(selector)
+      if (node && node.isContentEditable) return { node, selector }
+    }
+    return { node: null, selector: null }
+  }
+  const report = {}
     const { selector: rootSelector, node: root } = mainRoot()
 
     // ── 1. Адрес: меняется ли он при смене чата ──────────────────────────────
@@ -375,11 +437,19 @@
           .slice(0, 2)
           .map((n) => n.getAttribute("data-pre-plain-text")),
         // Куда WhatsApp кладёт сам текст.
+        //
+        // Порядок кандидатов — по разбору прод-бандла (см. шапку). Класса
+        // `.selectable-text` больше НЕТ: осталось только одноимённое значение
+        // data-testid, которое пережило вырезалку testid'ов лишь потому, что
+        // собирается в рантайме. Авторский класс рядом — `copyable-text`.
+        // Советы из интернета вида [data-testid="msg-text"] проверяем последними:
+        // по коду их в проде нет, и если вдруг найдутся — это важная новость.
         текстКандидаты: [
+          "[data-testid='selectable-text']",
+          "[data-pre-plain-text] .copyable-text",
+          ".copyable-text",
           "span.selectable-text",
-          ".copyable-text .selectable-text",
           "[data-testid='msg-text']",
-          ".selectable-text",
         ].map((selector) => {
           const n = el.querySelector(selector)
           return { selector, найдено: Boolean(n), text: n ? cut(n.textContent) : null }
@@ -440,11 +510,45 @@
         "Нужен СТРУКТУРНЫЙ признак служебной строки (отсутствие data-id, role, класс). Словарь по тексту — как в MAX — временная мера, которая протекает.",
     }
 
+    // ── 6.5. Строки ленты, которые НЕ сообщения ──────────────────────────────
+    // По коду бандла типы строк такие: msg, album (несколько сообщений в одной
+    // строке!), date (разделитель дат), unread (разделитель непрочитанного),
+    // botPluginCarousel, historyBundleInfo. Служебные пузыри — это те же строки
+    // с data-id, но без классов направления: оба гасятся флагом isNotification.
+    // Отсюда главное правило отбраковки в адаптере, и его надо подтвердить.
+    report.типыСтрок = {
+      всегоСDataId: nodes.filter((el) => el.getAttribute("data-id")).length,
+      сНаправлением: nodes.filter((el) => dirOf(el) !== "не определено").length,
+      безНаправления: nodes
+        .filter((el) => dirOf(el) === "не определено")
+        .slice(0, 6)
+        .map((el) => ({ dataId: el.getAttribute("data-id"), text: cut(el.textContent) })),
+      // Строк с несколькими data-id внутри быть не должно — если есть, это
+      // альбом, и на одну строку приходится несколько сообщений.
+      строкиСНесколькимиId: nodes.filter((el) => el.querySelectorAll("[data-id]").length > 1).length,
+      // Виртуализация: содержимое строки размонтируется, оставляя пустой узел.
+      // Пустая строка — это НЕ пустое сообщение, и путать их нельзя.
+      виртуализованных: document.querySelectorAll("[data-virtualized]").length,
+      виртуализованныеЗначения: [
+        ...new Set(
+          [...document.querySelectorAll("[data-virtualized]")]
+            .slice(0, 20)
+            .map((n) => n.getAttribute("data-virtualized")),
+        ),
+      ],
+      // role="row" появляется только при включённом A/B-гейте доступности.
+      // Почти все публичные скраперы цепляются за него — нам важно знать, есть
+      // ли он у нас, но опираться на него нельзя.
+      строкRole: (root ?? document).querySelectorAll("[role='row']").length,
+      // Контейнер списка сообщений (TAB_ORDER.MESSAGE_LIST = 8).
+      списокСообщений: describe((root ?? document).querySelector("[data-tab='8']")),
+    }
+
     // ── 7. Поле ввода ────────────────────────────────────────────────────────
-    // WhatsApp Web — React с собственным редактором (исторически Draft.js,
-    // сейчас, возможно, Lexical). От того, ЧТО там, зависит способ вставки:
-    // execCommand склеивает строки у Lexical (проверено на MAX).
-    const footer = document.querySelector("footer") ?? document.querySelector("[data-testid='compose-box']")
+    // По коду это Lexical: div.lexical-rich-text-input → ContentEditable с
+    // role="textbox" и data-tab, выставленным императивно. У кнопки отправки
+    // data-tab="11" — её НЕ ТРОГАТЬ ВООБЩЕ.
+    const footer = document.querySelector("#main footer") ?? document.querySelector("footer")
     report.полеВвода = {
       подвал: describe(footer),
       contenteditable: [...document.querySelectorAll("[contenteditable]")].map((el) => ({
@@ -456,14 +560,32 @@
         role: el.getAttribute("role"),
         вПодвале: Boolean(footer && footer.contains(el)),
       })),
+      // Кандидаты из разбора бандла — проверяем, какой из них живой.
+      кандидатыПоля: [
+        "#main footer div.lexical-rich-text-input [contenteditable='true'][role='textbox']",
+        "#main footer [contenteditable='true'][data-tab='10']",
+        "#main footer [contenteditable='true']",
+        "div.lexical-rich-text-input",
+      ].map((selector) => {
+        const n = document.querySelector(selector)
+        return { selector, найдено: Boolean(n), dataTab: n?.getAttribute?.("data-tab") ?? null }
+      }),
+      // Кнопку отправки НЕ трогаем и не нажимаем — только смотрим, что она есть
+      // (по ней проверяется, принял ли редактор вставку).
       кнопкаОтправки: [
-        "footer button[aria-label]",
-        "[data-testid='send']",
+        "#main footer [data-tab='11']",
         "span[data-icon='send']",
+        "footer button[aria-label]",
       ].map((selector) => {
         const n = document.querySelector(selector)
         return { selector, найдено: Boolean(n), aria: n?.getAttribute?.("aria-label") ?? null }
       }),
+      // Значения data-tab по всей странице: это единственный «семантический»
+      // атрибут, переживший вырезание data-testid, и по нему удобно ставить
+      // опоры (8 — лента сообщений, 10 — поле ввода, 11 — отправка, 6 — шапка).
+      значенияDataTab: [
+        ...new Set([...document.querySelectorAll("[data-tab]")].map((n) => n.getAttribute("data-tab"))),
+      ].sort(),
     }
 
     // ── 8. Стабильные опоры ──────────────────────────────────────────────────
@@ -542,12 +664,9 @@
 
     /** Из чего сделано поле ввода: без этого способ вставки не выбрать. */
     composerDeep() {
-      const footer = document.querySelector("footer")
-      const editable = [...document.querySelectorAll("[contenteditable]")].filter(
-        (el) => el.isContentEditable && (!footer || footer.contains(el)),
-      )
-      const target = editable[0] ?? document.querySelector("[contenteditable]")
+      const { node: target, selector } = findComposer()
       if (!target) return "поле ввода не найдено — вероятно, чат не открыт"
+      console.log("[wa-probe] поле ввода найдено по селектору:", selector)
       return {
         поле: describe(target),
         роднёй: {
@@ -582,15 +701,17 @@
      * @param {"paste"|"exec"} способ
      */
     async tryInsert(способ = "paste", text = "строка один\nстрока два") {
-      const footer = document.querySelector("footer")
-      const target = [...document.querySelectorAll("[contenteditable]")].find(
-        (el) => el.isContentEditable && (!footer || footer.contains(el)),
-      )
+      const { node: target } = findComposer()
       if (!target) return "поле ввода не найдено — сначала crmkaWaProbe.composerDeep()"
 
+      // Кнопку отправки только НАБЛЮДАЕМ. По коду у неё data-tab="11"; её
+      // появление — единственный честный признак, что редактор принял ввод
+      // (Lexical реконсилирует DOM на микротаске, и мгновенное чтение текста
+      // врёт). Нажимать её и синтезировать Enter — категорически нельзя.
       const sendBtn =
+        document.querySelector("#main footer [data-tab='11']") ??
         document.querySelector("span[data-icon='send']")?.closest("button") ??
-        document.querySelector("footer button[aria-label]")
+        document.querySelector("#main footer button[aria-label]")
       const снимок = () => ({
         текст: target.innerText ?? "",
         кнопкаОтправкиВидна: Boolean(sendBtn && sendBtn.offsetParent !== null),
