@@ -1,4 +1,5 @@
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, ArrowRight } from "lucide-react"
+import Link from "next/link"
 import { PageHelp } from "@/components/page-help"
 import { BackButton } from "@/components/back-button"
 import { ExtensionTokensContent } from "./extension-tokens-content"
@@ -34,6 +35,24 @@ export default function ExtensionSettingsPage() {
           </p>
         </div>
       </div>
+
+      {/*
+        Ссылка на инструкцию стоит ПЕРЕД списком токенов сознательно: человек
+        приходит сюда за токеном, но токен бесполезен, пока расширение не
+        установлено. Справка этой страницы обещает инструкцию — вот она.
+      */}
+      <Link
+        href="/settings/extension/install"
+        className="flex items-center justify-between rounded-lg border p-4 hover:bg-accent"
+      >
+        <div>
+          <div className="font-medium">Как установить расширение</div>
+          <div className="text-sm text-muted-foreground">
+            Пошагово: установка в браузер, подключение к CRM, запись переписки
+          </div>
+        </div>
+        <ArrowRight className="size-4 text-muted-foreground" />
+      </Link>
 
       <ExtensionTokensContent />
     </div>
