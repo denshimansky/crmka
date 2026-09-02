@@ -25,6 +25,12 @@ interface DashboardData {
   unpaidAmount: number
   unpaidCount: number
   overdueCount: number
+  // Архив (прекратили работу) — в метрики выше не входит, показываем отдельно,
+  // чтобы цифры карточек не выглядели недосчётом.
+  archivedCount: number
+  archivedUnpaidCount: number
+  archivedUnpaidAmount: number
+  archivedBlockedCount: number
 }
 
 const STATUS_BADGE: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -83,6 +89,7 @@ export default function AdminDashboardPage() {
               <span className="text-green-600">{data.statusCounts.active} акт.</span>
               {data.statusCounts.grace > 0 && <span className="text-amber-600">{data.statusCounts.grace} грейс</span>}
               {data.statusCounts.blocked > 0 && <span className="text-red-600">{data.statusCounts.blocked} блок</span>}
+              {data.archivedCount > 0 && <span className="text-muted-foreground">+{data.archivedCount} в архиве</span>}
             </div>
           </CardContent>
         </Card>
@@ -134,6 +141,11 @@ export default function AdminDashboardPage() {
               <span className="text-muted-foreground">{data.unpaidAmount.toLocaleString("ru")} ₽</span>
               {data.overdueCount > 0 && <span className="text-red-600">{data.overdueCount} просрочено</span>}
             </div>
+            {data.archivedUnpaidCount > 0 && (
+              <div className="mt-1 text-xs text-muted-foreground">
+                + {data.archivedUnpaidCount} у архивных на {data.archivedUnpaidAmount.toLocaleString("ru")} ₽ (не считаем)
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -144,6 +156,11 @@ export default function AdminDashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {STATE_CARDS.filter((c) => c.always || data.partnerStates[c.key] > 0).map((c) => {
             const Icon = c.icon
+            // Бакеты считаются по действующим партнёрам; архивных показываем
+            // приписью, чтобы «Заблокировано: 1» не читалось как ошибка.
+            const archivedNote = c.key === "blocked" && data.archivedBlockedCount > 0
+              ? `+ ${data.archivedBlockedCount} в архиве (не считаем)`
+              : null
             return (
               <Card key={c.key}>
                 <CardHeader className="pb-2">
@@ -154,6 +171,7 @@ export default function AdminDashboardPage() {
                 <CardContent>
                   <div className={`text-3xl font-bold ${c.color}`}>{data.partnerStates[c.key]}</div>
                   <div className="text-xs text-muted-foreground mt-1">{c.hint}</div>
+                  {archivedNote && <div className="text-xs text-muted-foreground">{archivedNote}</div>}
                 </CardContent>
               </Card>
             )

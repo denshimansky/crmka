@@ -89,14 +89,18 @@ export default function PartnersPage() {
   const handleArchiveToggle = async (p: Partner) => {
     const archiving = !p.archivedAt
     const msg = archiving
-      ? `Архивировать «${p.name}»? Счета выставляться перестанут, партнёр уйдёт вниз списка. Действие обратимо.`
-      : `Вернуть «${p.name}» из архива? Партнёр снова станет действующим — автосчета возобновятся по расписанию.`
+      ? `Архивировать «${p.name}»? Новые счета выставляться перестанут, неоплаченные — будут отменены, партнёр уйдёт вниз списка. Действие обратимо.`
+      : `Вернуть «${p.name}» из архива? Партнёр снова станет действующим (блокировка за неоплату снимется) — автосчета возобновятся по расписанию.`
     if (!confirm(msg)) return
-    await fetch(`/api/admin/partners/${p.id}`, {
+    const res = await fetch(`/api/admin/partners/${p.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ archived: archiving }),
     })
+    const d = await res.json().catch(() => ({}))
+    if (res.ok && d.cancelledInvoices > 0) {
+      alert(`Отменены неоплаченные счета: ${d.cancelledInvoices}`)
+    }
     fetchPartners()
   }
 

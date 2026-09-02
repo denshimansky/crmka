@@ -139,6 +139,20 @@ export async function GET() {
     where: { archivedAt: { not: null } },
   })
 
+  // Что именно осталось «за кадром» из-за архива — чтобы цифры карточек нельзя
+  // было принять за недосчёт: показываем рядом отдельной строкой.
+  const archivedUnpaid = await db.billingInvoice.aggregate({
+    where: {
+      status: { in: ["pending", "overdue"] },
+      organization: { archivedAt: { not: null } },
+    },
+    _sum: { amount: true },
+    _count: true,
+  })
+  const archivedBlockedCount = await db.organization.count({
+    where: { archivedAt: { not: null }, billingStatus: "blocked" },
+  })
+
   return NextResponse.json({
     statusCounts,
     partnerStates,
@@ -153,5 +167,8 @@ export async function GET() {
     unpaidCount: unpaidInvoices._count,
     overdueCount: overdueInvoices,
     archivedCount,
+    archivedUnpaidCount: archivedUnpaid._count,
+    archivedUnpaidAmount: Number(archivedUnpaid._sum.amount || 0),
+    archivedBlockedCount,
   })
 }

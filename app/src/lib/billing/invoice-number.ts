@@ -21,12 +21,28 @@ export function formatInvoiceNumber(seq: number, periodStart: Date): string {
  * Следующий номер счёта. Гонка двух параллельных вызовов разрешается
  * unique-констрейнтом на billing_invoices.number — вызывающий обязан
  * ретраить создание счёта при P2002 (см. createInvoiceWithNumber).
+ *
+ * Счётчик монотонный и с учётом УДАЛЁННЫХ счетов: удаление строки из
+ * billing_invoices (админское «Удалить счёт») иначе освободило бы номер, и
+ * новый документ вышел бы под номером, который партнёр уже видел в PDF.
+ * След удаления лежит в audit_logs (entity_type = BillingInvoice, delete).
  */
 export async function nextInvoiceNumber(periodStart: Date): Promise<string> {
   const rows = await db.$queryRaw<{ max: number | null }[]>`
-    SELECT MAX(split_part(number, '-', 1)::int) AS max
-    FROM billing_invoices
-    WHERE number ~ '^[0-9]{1,6}-[0-9]{2}$'
+    SELECT GREATEST(
+      COALESCE((
+        SELECT MAX(split_part(number, '-', 1)::int)
+        FROM billing_invoices
+        WHERE number ~ '^[0-9]{1,6}-[0-9]{2}$'
+      ), 0),
+      COALESCE((
+        SELECT MAX(split_part(changes->>'number', '-', 1)::int)
+        FROM audit_logs
+        WHERE entity_type = 'BillingInvoice'
+          AND action = 'delete'
+          AND changes->>'number' ~ '^[0-9]{1,6}-[0-9]{2}$'
+      ), 0)
+    ) AS max
   `
   const seq = (rows[0]?.max ?? 0) + 1
   return formatInvoiceNumber(seq, periodStart)

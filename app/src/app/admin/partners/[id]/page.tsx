@@ -311,14 +311,15 @@ export default function PartnerDetailPage() {
     } catch { setError("Ошибка сети") }
   }
 
-  // Архив: партнёр прекратил работу. Счета не выставляются, автоблокировка не
+  // Архив: партнёр прекратил работу. Новые счета не выставляются, неоплаченные
+  // отменяются (уходят из ЛК, колокольчика и отчётов), автоблокировка не
   // применяется, в списке уходит вниз с пометкой «Архив». Обратимо.
   const handleArchiveToggle = async () => {
     if (!partner) return
     const archivingNow = !partner.archivedAt
     const msg = archivingNow
-      ? "Архивировать партнёра? Счета выставляться перестанут, в списке уйдёт вниз с пометкой «Архив». Действие обратимо."
-      : "Вернуть партнёра из архива? Он снова станет действующим — автосчета возобновятся по расписанию."
+      ? "Архивировать партнёра? Новые счета выставляться перестанут, неоплаченные — будут отменены, в списке уйдёт вниз с пометкой «Архив». Действие обратимо."
+      : "Вернуть партнёра из архива? Он снова станет действующим (блокировка за неоплату снимется) — автосчета возобновятся по расписанию."
     if (!confirm(msg)) return
     setArchiving(true)
     setError("")
@@ -328,7 +329,9 @@ export default function PartnerDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ archived: archivingNow }),
       })
-      if (!res.ok) { const d = await res.json(); setError(d.error || "Не удалось изменить архивный статус"); return }
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(d.error || "Не удалось изменить архивный статус"); return }
+      if (d.cancelledInvoices > 0) alert(`Отменены неоплаченные счета: ${d.cancelledInvoices}`)
       fetchPartner()
     } catch { setError("Ошибка сети") }
     finally { setArchiving(false) }
@@ -429,7 +432,7 @@ export default function PartnerDetailPage() {
           size="sm"
           onClick={handleArchiveToggle}
           disabled={archiving}
-          title="Партнёр прекратил работу: счета не выставляются, в списке уходит вниз с пометкой «Архив». Обратимо."
+          title="Партнёр прекратил работу: новые счета не выставляются, неоплаченные отменяются, в списке уходит вниз с пометкой «Архив». Обратимо."
         >
           {partner.archivedAt
             ? <><ArchiveRestore className="mr-2 size-4" />{archiving ? "..." : "Вернуть из архива"}</>

@@ -7,6 +7,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
+import { Trash2 } from "lucide-react"
 import Link from "next/link"
 
 interface Invoice {
@@ -96,6 +97,24 @@ export default function InvoicesPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     })
+    fetchInvoices()
+  }
+
+  // Удаление счёта — строка уходит из БД, а значит и из всех отчётов бэк-офиса
+  // и из ЛК партнёра. В отличие от «Отменить» (счёт остаётся со статусом
+  // «Отменён») — необратимо, поэтому подтверждаем, а оплаченный счёт отдельно.
+  const handleDelete = async (inv: Invoice) => {
+    const sum = `${Number(inv.amount).toLocaleString("ru")} ₽`
+    const msg = inv.status === "paid"
+      ? `Удалить ОПЛАЧЕННЫЙ счёт №${inv.number} (${sum})? Оплата исчезнет из всех отчётов, но оплаченный период подписки не откатится. Действие необратимо.`
+      : `Удалить счёт №${inv.number} (${sum}) — «${inv.organization.name}»? Строка исчезнет из списка и из всех отчётов. Действие необратимо.`
+    if (!confirm(msg)) return
+    const res = await fetch(`/api/admin/invoices/${inv.id}`, { method: "DELETE" })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      alert(d.error || "Не удалось удалить счёт")
+      return
+    }
     fetchInvoices()
   }
 
@@ -209,15 +228,21 @@ export default function InvoicesPage() {
                             >
                               PDF
                             </Button>
-                            {inv.status === "pending" && (
+                            {(inv.status === "pending" || inv.status === "overdue") && (
                               <>
                                 <Button size="sm" variant="outline" onClick={() => handleStatus(inv.id, "paid")}>Оплачен</Button>
                                 <Button size="sm" variant="ghost" onClick={() => handleStatus(inv.id, "cancelled")}>Отменить</Button>
                               </>
                             )}
-                            {inv.status === "overdue" && (
-                              <Button size="sm" variant="outline" onClick={() => handleStatus(inv.id, "paid")}>Оплачен</Button>
-                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              title="Удалить счёт (исчезнет из всех отчётов)"
+                              onClick={() => handleDelete(inv)}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>

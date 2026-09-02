@@ -3,6 +3,7 @@ import { getAdminSession } from "@/lib/admin-auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { ensureOrgLegalName } from "@/lib/billing/checko"
+import { cancelOutstandingInvoices } from "@/lib/billing/apply-invoice-payment"
 
 // GET /api/admin/partners/[id] — карточка партнёра
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -89,7 +90,36 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // биллинг и уводит партнёра вниз списка — подписку/данные не трогаем.
   if (parsed.data.archived !== undefined) data.archivedAt = parsed.data.archived ? new Date() : null
 
-  const updated = await db.organization.update({ where: { id }, data })
+  // Архивирование = биллинг выключен полностью. Кроны новых счетов архивным уже
+  // не выставляют, но ранее выставленные висели в ЛК и в колокольчике («оплатите
+  // счёт») и попадали в отчёты как долг — поэтому неоплаченные счета снимаем
+  // здесь же. Порядок важен: сперва проставляем archivedAt, тогда отмена долга
+  // не разблокирует бывшего партнёра (см. cancelInvoice).
+  // Возврат из архива — зеркально: если непогашенных просрочек не осталось,
+  // снимаем блокировку, иначе партнёр завис бы в read-only без счёта к оплате.
+  let cancelledInvoices = 0
+  const updated = await db.$transaction(async (tx) => {
+    const org = await tx.organization.update({ where: { id }, data })
+
+    if (parsed.data.archived === true) {
+      cancelledInvoices = await cancelOutstandingInvoices(tx, id)
+    } else if (parsed.data.archived === false && org.billingStatus !== "active") {
+      const overdue = await tx.billingInvoice.count({
+        where: { organizationId: id, status: "overdue" },
+      })
+      if (overdue === 0) {
+        await tx.organization.update({ where: { id }, data: { billingStatus: "active" } })
+        // Только заблокированные/грейсовые: триальную подписку «активной» не делаем.
+        await tx.billingSubscription.updateMany({
+          where: { organizationId: id, status: { in: ["blocked", "grace_period"] } },
+          data: { status: "active", blockedAt: null, gracePeriodEnd: null },
+        })
+        org.billingStatus = "active"
+      }
+    }
+
+    return org
+  })
 
   // Если у партнёра есть ИНН, но юр. наименование не задано вручную — подтягиваем
   // официальное название из ЕГРЮЛ/ЕГРИП (checko), чтобы оно попало в счёт.
@@ -107,5 +137,5 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  return NextResponse.json(updated)
+  return NextResponse.json({ ...updated, cancelledInvoices })
 }

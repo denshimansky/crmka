@@ -153,7 +153,7 @@ export async function cancelInvoice(tx: Prisma.TransactionClient, invoiceId: str
       creditApplied: true,
       subscriptionId: true,
       organizationId: true,
-      organization: { select: { billingStatus: true } },
+      organization: { select: { billingStatus: true, archivedAt: true } },
     },
   })
   if (!invoice || invoice.status === "cancelled") return
@@ -173,7 +173,9 @@ export async function cancelInvoice(tx: Prisma.TransactionClient, invoiceId: str
 
   // Если отменён был последний ПРОСРОЧЕННЫЙ долг заблокированной орг — снимаем
   // блокировку (иначе орг зависла бы в read-only без счёта для реактивации).
-  if (invoice.organization.billingStatus !== "active") {
+  // Архивных (прекратили работу) это не касается: снятие их долга не должно
+  // возвращать бывшему партнёру рабочий доступ — блок снимет возврат из архива.
+  if (invoice.organization.billingStatus !== "active" && !invoice.organization.archivedAt) {
     const remainingOverdue = await tx.billingInvoice.count({
       where: {
         organizationId: invoice.organizationId,
@@ -207,4 +209,21 @@ export async function cancelInvoice(tx: Prisma.TransactionClient, invoiceId: str
 /** Обёртка с собственной транзакцией — для одиночных вызовов (админка, webhook) */
 export async function cancelInvoiceById(invoiceId: string) {
   return db.$transaction((tx) => cancelInvoice(tx, invoiceId))
+}
+
+/**
+ * Снять с организации все неоплаченные счета (pending + overdue) — например,
+ * при архивировании партнёра: счёт исчезает из ЛК и из колокольчика, учтённый
+ * кредит возвращается. Возвращает число отменённых счетов.
+ */
+export async function cancelOutstandingInvoices(
+  tx: Prisma.TransactionClient,
+  organizationId: string
+): Promise<number> {
+  const outstanding = await tx.billingInvoice.findMany({
+    where: { organizationId, status: { in: ["pending", "overdue"] } },
+    select: { id: true },
+  })
+  for (const inv of outstanding) await cancelInvoice(tx, inv.id)
+  return outstanding.length
 }
