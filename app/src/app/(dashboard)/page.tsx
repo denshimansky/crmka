@@ -877,7 +877,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   {birthdaysData.children.map((r) => (
                     <TableRow key={`c-${r.id}`}>
                       <TableCell className="whitespace-normal">
-                        {r.fio}
+                        {r.clientId ? (
+                          <Link href={`/crm/clients/${r.clientId}`} className="hover:underline">
+                            {r.fio}
+                          </Link>
+                        ) : (
+                          r.fio
+                        )}
                         {r.statusLabel && (
                           <span className="ml-2 text-xs text-muted-foreground">{r.statusLabel}</span>
                         )}

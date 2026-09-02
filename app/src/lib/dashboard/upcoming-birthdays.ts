@@ -16,6 +16,8 @@ export interface BirthdayRow {
   daysUntil: number
   /** Статус клиента-родителя («Активный», «Выбывший», …). Только у детей. */
   statusLabel?: string
+  /** Родитель — для перехода в карточку клиента. Только у детей. */
+  clientId?: string
 }
 
 export interface BirthdaysData {
@@ -151,7 +153,7 @@ export async function computeUpcomingBirthdays(
         firstName: true,
         lastName: true,
         birthDate: true,
-        client: { select: { funnelStatus: true, clientStatus: true } },
+        client: { select: { id: true, funnelStatus: true, clientStatus: true } },
       },
     }),
     db.employee.findMany({
@@ -190,6 +192,7 @@ export async function computeUpcomingBirthdays(
       turnsLabel: ruYears(u.turns),
       daysUntil: u.daysUntil,
       statusLabel,
+      clientId: w.client.id,
     }
     const key = `${row.fio.toLowerCase()}|${w.birthDate.toISOString().slice(0, 10)}`
     const prev = byChild.get(key)

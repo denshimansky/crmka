@@ -111,7 +111,13 @@ describe("computeUpcomingBirthdays — состав списка детей", ()
     birth: Date,
     funnelStatus = "active_client",
     clientStatus: string | null = "active",
-  ) => ({ id, lastName, firstName, birthDate: birth, client: { funnelStatus, clientStatus } })
+  ) => ({
+    id,
+    lastName,
+    firstName,
+    birthDate: birth,
+    client: { id: `c-${id}`, funnelStatus, clientStatus },
+  })
 
   const fakeDb = (wards: ReturnType<typeof ward>[]) =>
     ({
@@ -131,8 +137,10 @@ describe("computeUpcomingBirthdays — состав списка детей", ()
       today,
     )
     assert.equal(res.children.length, 1)
-    // Из дублей остаётся «лучший» статус — активный клиент
+    // Из дублей остаётся «лучший» статус — активный клиент, и ссылка ведёт
+    // именно в его карточку
     assert.equal(res.children[0].statusLabel, "Активный")
+    assert.equal(res.children[0].clientId, "c-w2")
   })
 
   it("разные дети с одинаковой фамилией остаются отдельными строками", async () => {
