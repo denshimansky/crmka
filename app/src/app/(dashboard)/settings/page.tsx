@@ -24,6 +24,7 @@ import {
   Upload,
   Crown,
   Plug,
+  Puzzle,
   Target,
   Copy,
 } from "lucide-react"
@@ -185,6 +186,14 @@ export default async function SettingsPage() {
       icon: Plug,
       // Скрыто до готовности интеграций (страница остаётся доступной по прямой ссылке).
       show: false,
+    },
+    {
+      // Плитка открыта 02.09.2026: расширение опубликовано в Chrome Web Store,
+      // и партнёр должен находить его сам, а не по присланной прямой ссылке.
+      href: "/settings/extension",
+      title: "Расширение для мессенджеров",
+      description: "Карточка клиента рядом с чатом: ВКонтакте, Телеграм, MAX, WhatsApp",
+      icon: Puzzle,
     },
     {
       href: "/billing",

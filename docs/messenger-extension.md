@@ -169,10 +169,12 @@ matcher `middleware.ts` (иначе next-auth редиректит на /login),
 
 ## 7. Дистрибуция и юридика
 
-- **Chrome Web Store, режим unlisted** (не в каталоге, установка по прямой ссылке
-  из онбординга CRMka). Одна публикация покрывает Chrome (47%) + Яндекс Браузер
-  (32%) + Opera (7,5%) ≈ **87% десктопа РФ**. Edge Add-ons — отдельной публикацией
-  позже (~день работы).
+- **Chrome Web Store, режим unlisted — ОПУБЛИКОВАНО 02.09.2026** (не в каталоге и
+  не в поиске, установка по прямой ссылке из CRM). ID `cmicmipbgfghdobccjnmmnbcahhlgfmo`,
+  ссылка <https://chromewebstore.google.com/detail/cmicmipbgfghdobccjnmmnbcahhlgfmo>
+  прописана в `STORE_URL` на странице «Настройки → Расширение → Как установить».
+  Одна публикация покрывает Chrome (47%) + Яндекс Браузер (32%) + Opera (7,5%)
+  ≈ **87% десктопа РФ**. Edge Add-ons — отдельной публикацией позже (~день работы).
 - **Safari — не портируем.** 1,77% десктопа РФ, только через App Store, Apple
   Developer $99/год + ревью. Дёшево подстраховаться: кросс-браузерный `browser.*`,
   фон как event page с `preferred_environment`, без `webRequest`.
