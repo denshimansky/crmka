@@ -1,5 +1,6 @@
 import { type Prisma, type PrismaClient } from "@prisma/client"
-import { isUnscoped, scopeEmployee, type BranchScope } from "@/lib/branch-scope"
+import { scopeEmployee, type BranchScope } from "@/lib/branch-scope"
+import { scopeClientByBranch } from "@/lib/client-segments"
 
 type DB = PrismaClient | Prisma.TransactionClient
 
@@ -19,7 +20,27 @@ export interface BirthdaysData {
   staff: BirthdayRow[]
 }
 
-const WINDOW_DAYS = 30
+/**
+ * Окна виджета. Дети идут ИЗ ВСЕЙ БАЗЫ (а не только с активным абонементом),
+ * поэтому их окно узкое — неделя: это список «кого поздравить на днях».
+ * Сотрудников мало, им оставлено прежнее месячное окно (успеть с подарком).
+ */
+export const CHILD_WINDOW_DAYS = 7
+export const STAFF_WINDOW_DAYS = 30
+
+/**
+ * Базы, из которых детей не поздравляем: чёрный список, архив, нецелевые.
+ * Остальные попадают в виджет — действующие, выбывшие, потенциальные и лиды
+ * (то же правило, что у «Обзвона по задачам», call-campaigns/filter.ts).
+ * Проверено на проде: значения clientStatus="archived" в базе отсутствуют,
+ * «архив» живёт только в воронке, поэтому второго условия не нужно.
+ */
+export const BIRTHDAY_EXCLUDED_FUNNEL_STATUSES = [
+  "blacklisted",
+  "archived",
+  "non_target",
+] as const
+
 const DAY_MS = 86_400_000
 
 /** Русское склонение слова «год» после числа: 1 год, 2 года, 5 лет. */
@@ -37,14 +58,15 @@ function fmtDM(d: Date): string {
 
 /**
  * Ближайший день рождения (>= today) и сколько лет исполнится. null — если
- * ДР не попадает в окно [today, today + WINDOW_DAYS] включительно.
+ * ДР не попадает в окно [today, today + windowDays] включительно.
  *
  * Считаем по дню/месяцу, игнорируя год рождения. 29 февраля в невисокосный
  * год JS нормализует в 1 марта — приемлемо для напоминалки.
  */
-function upcoming(
+export function upcomingBirthday(
   birth: Date,
   today: Date,
+  windowDays: number,
 ): { date: Date; turns: number; daysUntil: number } | null {
   const bMonth = birth.getUTCMonth()
   const bDay = birth.getUTCDate()
@@ -54,16 +76,17 @@ function upcoming(
     candidate = new Date(Date.UTC(ty + 1, bMonth, bDay))
   }
   const daysUntil = Math.round((candidate.getTime() - today.getTime()) / DAY_MS)
-  if (daysUntil < 0 || daysUntil > WINDOW_DAYS) return null
+  if (daysUntil < 0 || daysUntil > windowDays) return null
   const turns = candidate.getUTCFullYear() - birth.getUTCFullYear()
   return { date: candidate, turns, daysUntil }
 }
 
 /**
- * Виджет дашборда «Дни рождения»: дети (Ward, только с активным абонементом)
- * и сотрудники (Employee, действующие), чей день рождения попадает в окно
- * [сегодня, сегодня + 30 дней]. `today` — UTC-полночь сегодняшнего дня
- * (передаётся из server-компонента).
+ * Виджет дашборда «Дни рождения»: дети (Ward из ВСЕХ баз, кроме чёрного
+ * списка, архива и нецелевых — окно 7 дней) и сотрудники (Employee,
+ * действующие — окно 30 дней). `today` — UTC-полночь сегодняшнего дня
+ * (передаётся из server-компонента, всегда реальное сегодня, а не выбранный
+ * на дашборде месяц).
  */
 export async function computeUpcomingBirthdays(
   db: DB,
@@ -71,22 +94,29 @@ export async function computeUpcomingBirthdays(
   today: Date,
   scope: BranchScope = { mode: "all" },
 ): Promise<BirthdaysData> {
-  // ADM-04: скоуп-админ видит ДР детей, у кого активный абонемент в ЕГО филиале,
-  // и ДР сотрудников его филиала. Для scope="all" фрагменты пустые.
-  const branchIn = isUnscoped(scope) ? null : { in: scope.branchIds }
-  const activeSubScope = branchIn
-    ? { deletedAt: null, status: "active" as const, group: { branchId: branchIn } }
-    : { deletedAt: null, status: "active" as const }
+  // ADM-04: скоуп-админ видит ДР детей своих филиалов и ДР сотрудников своего
+  // филиала. Раньше филиал ребёнка выводился через активный абонемент — без
+  // требования абонемента этот путь мёртв, поэтому скоупим через РОДИТЕЛЯ тем
+  // же хелпером, что и страница «Клиенты» (ручная привязка филиала + живой
+  // абонемент). Пустой скоуп (владелец / админ со всеми филиалами) не
+  // добавляем вовсе: `{ client: {} }` в фильтре Prisma роняет условие молча.
+  const clientScope = scopeClientByBranch(scope)
+  const clientWhere: Prisma.ClientWhereInput = {
+    // tenantId здесь не для безопасности (он уже есть у ward), а для плана
+    // запроса: без него Prisma сканирует таблицу clients поперёк всех тенантов.
+    tenantId,
+    deletedAt: null,
+    funnelStatus: { notIn: [...BIRTHDAY_EXCLUDED_FUNNEL_STATUSES] },
+  }
+  if (Object.keys(clientScope).length > 0) clientWhere.AND = [clientScope]
 
   // Ward не имеет soft-delete → отсекаем детей удалённых клиентов через client.
-  // Показываем только детей с хотя бы одним активным абонементом.
   const [wards, employees] = await Promise.all([
     db.ward.findMany({
       where: {
         tenantId,
         birthDate: { not: null },
-        client: { deletedAt: null },
-        subscriptions: { some: activeSubScope },
+        client: clientWhere,
       },
       select: { id: true, firstName: true, lastName: true, birthDate: true },
     }),
@@ -106,7 +136,7 @@ export async function computeUpcomingBirthdays(
   const children: BirthdayRow[] = []
   for (const w of wards) {
     if (!w.birthDate) continue
-    const u = upcoming(w.birthDate, today)
+    const u = upcomingBirthday(w.birthDate, today, CHILD_WINDOW_DAYS)
     if (!u) continue
     children.push({
       id: w.id,
@@ -116,12 +146,12 @@ export async function computeUpcomingBirthdays(
       daysUntil: u.daysUntil,
     })
   }
-  children.sort((a, b) => a.daysUntil - b.daysUntil)
+  children.sort((a, b) => a.daysUntil - b.daysUntil || a.fio.localeCompare(b.fio, "ru"))
 
   const staff: BirthdayRow[] = []
   for (const e of employees) {
     if (!e.birthDate) continue
-    const u = upcoming(e.birthDate, today)
+    const u = upcomingBirthday(e.birthDate, today, STAFF_WINDOW_DAYS)
     if (!u) continue
     staff.push({
       id: e.id,
@@ -131,7 +161,7 @@ export async function computeUpcomingBirthdays(
       daysUntil: u.daysUntil,
     })
   }
-  staff.sort((a, b) => a.daysUntil - b.daysUntil)
+  staff.sort((a, b) => a.daysUntil - b.daysUntil || a.fio.localeCompare(b.fio, "ru"))
 
   return { children, staff }
 }

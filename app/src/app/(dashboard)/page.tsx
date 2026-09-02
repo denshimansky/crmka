@@ -586,10 +586,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     }
   })
 
-  // === ДНИ РОЖДЕНИЯ (дети с активным абонементом + сотрудники, окно 30 дней) ===
+  // === ДНИ РОЖДЕНИЯ (дети из всех баз, кроме ЧС/архива/нецелевых — 7 дней;
+  // сотрудники — 30 дней) ===
   // Отсчёт от реального «сегодня» (realToday объявлен выше), не зависит от месяца.
   const birthdaysData = await computeUpcomingBirthdays(db, tenantId, realToday, scope)
   const birthdaysCount = birthdaysData.children.length + birthdaysData.staff.length
+  // В карточку помещается ограниченный список: показываем ближайших, остаток
+  // выносим строкой «и ещё N» — счётчик в шапке при этом всегда полный.
+  const BIRTHDAY_ROWS = 10
+  const birthdayChildrenShown = birthdaysData.children.slice(0, BIRTHDAY_ROWS)
+  const birthdayStaffShown = birthdaysData.staff.slice(0, BIRTHDAY_ROWS)
 
   // === ОТРАБОТАННЫЕ АБОНЕМЕНТЫ (по филиалам, за месяц) — reports-logic §5.10 ===
   // Тот же ЕДИНЫЙ набор, что «Ожидаемые»/«Прогноз» (одинаковая «Сумма абонементов»,
@@ -849,7 +855,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </CardHeader>
       <CardContent>
         {birthdaysCount === 0 ? (
-          <p className="text-sm text-muted-foreground">Нет дней рождения в ближайшие 30 дней</p>
+          <p className="text-sm text-muted-foreground">Нет ближайших дней рождения</p>
         ) : (
           <Table>
             <TableHeader>
@@ -863,29 +869,51 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               {birthdaysData.children.length > 0 && (
                 <>
                   <TableRow className="bg-muted/30">
-                    <TableCell colSpan={3} className="font-semibold">Дети</TableCell>
+                    <TableCell colSpan={3} className="font-semibold">
+                      Дети
+                      <span className="ml-2 font-normal text-muted-foreground">
+                        ближайшие 7 дней · вся база, кроме ЧС, архива и нецелевых
+                      </span>
+                    </TableCell>
                   </TableRow>
-                  {birthdaysData.children.map((r) => (
+                  {birthdayChildrenShown.map((r) => (
                     <TableRow key={`c-${r.id}`}>
                       <TableCell>{r.fio}</TableCell>
                       <TableCell className="tabular-nums">{r.dateLabel}</TableCell>
                       <TableCell>{r.turnsLabel}</TableCell>
                     </TableRow>
                   ))}
+                  {birthdaysData.children.length > birthdayChildrenShown.length && (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-sm text-muted-foreground">
+                        и ещё {birthdaysData.children.length - birthdayChildrenShown.length} — показаны ближайшие {BIRTHDAY_ROWS}
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </>
               )}
               {birthdaysData.staff.length > 0 && (
                 <>
                   <TableRow className="bg-muted/30">
-                    <TableCell colSpan={3} className="font-semibold">Сотрудники</TableCell>
+                    <TableCell colSpan={3} className="font-semibold">
+                      Сотрудники
+                      <span className="ml-2 font-normal text-muted-foreground">ближайшие 30 дней</span>
+                    </TableCell>
                   </TableRow>
-                  {birthdaysData.staff.map((r) => (
+                  {birthdayStaffShown.map((r) => (
                     <TableRow key={`s-${r.id}`}>
                       <TableCell>{r.fio}</TableCell>
                       <TableCell className="tabular-nums">{r.dateLabel}</TableCell>
                       <TableCell>{r.turnsLabel}</TableCell>
                     </TableRow>
                   ))}
+                  {birthdaysData.staff.length > birthdayStaffShown.length && (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-sm text-muted-foreground">
+                        и ещё {birthdaysData.staff.length - birthdayStaffShown.length} — показаны ближайшие {BIRTHDAY_ROWS}
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </>
               )}
             </TableBody>
