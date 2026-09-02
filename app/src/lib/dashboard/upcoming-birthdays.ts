@@ -1,6 +1,7 @@
 import { type Prisma, type PrismaClient } from "@prisma/client"
 import { scopeEmployee, type BranchScope } from "@/lib/branch-scope"
 import { scopeClientByBranch } from "@/lib/client-segments"
+import { clientStateLabel } from "@/lib/clients/state-label"
 
 type DB = PrismaClient | Prisma.TransactionClient
 
@@ -13,11 +14,18 @@ export interface BirthdayRow {
   turnsLabel: string
   /** Дней до ближайшего ДР (для сортировки). */
   daysUntil: number
+  /** Статус клиента-родителя («Активный», «Выбывший», …). Только у детей. */
+  statusLabel?: string
 }
 
 export interface BirthdaysData {
   children: BirthdayRow[]
   staff: BirthdayRow[]
+  /**
+   * Сколько детей окна отсеяно как «дата не заполнена» (01.01 из импорта).
+   * Показывается в виджете строкой-предупреждением, чтобы отсев не был немым.
+   */
+  childrenPlaceholderCount: number
 }
 
 /**
@@ -42,6 +50,23 @@ export const BIRTHDAY_EXCLUDED_FUNNEL_STATUSES = [
 ] as const
 
 const DAY_MS = 86_400_000
+
+/**
+ * 01.01 — заглушка импорта из 1С (год известен, день нет): на проде так стоит
+ * у сотен подопечных одного центра, и в новогоднюю неделю они забивают виджет.
+ * Отсеиваем, а число отсеянных показываем отдельной строкой.
+ */
+function isPlaceholderBirthDate(d: Date): boolean {
+  return d.getUTCMonth() === 0 && d.getUTCDate() === 1
+}
+
+/** Кого оставить, если один ребёнок заведён под несколькими дублями-клиентами. */
+const STATUS_RANK: Record<string, number> = {
+  Активный: 0,
+  Выбывший: 1,
+  Потенциал: 2,
+  Лид: 3,
+}
 
 /** Русское склонение слова «год» после числа: 1 год, 2 года, 5 лет. */
 function ruYears(n: number): string {
@@ -78,6 +103,9 @@ export function upcomingBirthday(
   const daysUntil = Math.round((candidate.getTime() - today.getTime()) / DAY_MS)
   if (daysUntil < 0 || daysUntil > windowDays) return null
   const turns = candidate.getUTCFullYear() - birth.getUTCFullYear()
+  // Отрицательный возраст = опечатка в дате (год рождения в будущем).
+  // На проде такие есть — показывать «-20 лет» в виджете незачем.
+  if (turns < 0) return null
   return { date: candidate, turns, daysUntil }
 }
 
@@ -118,7 +146,13 @@ export async function computeUpcomingBirthdays(
         birthDate: { not: null },
         client: clientWhere,
       },
-      select: { id: true, firstName: true, lastName: true, birthDate: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        birthDate: true,
+        client: { select: { funnelStatus: true, clientStatus: true } },
+      },
     }),
     db.employee.findMany({
       where: {
@@ -133,19 +167,40 @@ export async function computeUpcomingBirthdays(
     }),
   ])
 
-  const children: BirthdayRow[] = []
+  // Дедупликация: один ребёнок, заведённый под несколькими дублями-клиентами,
+  // должен занимать одну строку (раньше дубли отсекал фильтр по абонементу —
+  // у дублей его обычно нет; на проде нашлась шестёрка одинаковых карточек).
+  // Ключ — ФИО + дата рождения; из совпавших оставляем запись с «лучшим»
+  // статусом клиента, чтобы в виджете не всплыл случайный дубль-архив.
+  const byChild = new Map<string, BirthdayRow>()
+  let childrenPlaceholderCount = 0
   for (const w of wards) {
     if (!w.birthDate) continue
     const u = upcomingBirthday(w.birthDate, today, CHILD_WINDOW_DAYS)
     if (!u) continue
-    children.push({
+    if (isPlaceholderBirthDate(w.birthDate)) {
+      childrenPlaceholderCount++
+      continue
+    }
+    const statusLabel = clientStateLabel(w.client.funnelStatus, w.client.clientStatus)
+    const row: BirthdayRow = {
       id: w.id,
       fio: [w.lastName, w.firstName].filter(Boolean).join(" ") || "—",
       dateLabel: fmtDM(u.date),
       turnsLabel: ruYears(u.turns),
       daysUntil: u.daysUntil,
-    })
+      statusLabel,
+    }
+    const key = `${row.fio.toLowerCase()}|${w.birthDate.toISOString().slice(0, 10)}`
+    const prev = byChild.get(key)
+    if (!prev) {
+      byChild.set(key, row)
+      continue
+    }
+    const rank = (r: BirthdayRow) => STATUS_RANK[r.statusLabel ?? ""] ?? 9
+    if (rank(row) < rank(prev)) byChild.set(key, row)
   }
+  const children = [...byChild.values()]
   children.sort((a, b) => a.daysUntil - b.daysUntil || a.fio.localeCompare(b.fio, "ru"))
 
   const staff: BirthdayRow[] = []
@@ -163,5 +218,5 @@ export async function computeUpcomingBirthdays(
   }
   staff.sort((a, b) => a.daysUntil - b.daysUntil || a.fio.localeCompare(b.fio, "ru"))
 
-  return { children, staff }
+  return { children, staff, childrenPlaceholderCount }
 }

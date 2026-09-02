@@ -591,11 +591,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // Отсчёт от реального «сегодня» (realToday объявлен выше), не зависит от месяца.
   const birthdaysData = await computeUpcomingBirthdays(db, tenantId, realToday, scope)
   const birthdaysCount = birthdaysData.children.length + birthdaysData.staff.length
-  // В карточку помещается ограниченный список: показываем ближайших, остаток
-  // выносим строкой «и ещё N» — счётчик в шапке при этом всегда полный.
-  const BIRTHDAY_ROWS = 10
-  const birthdayChildrenShown = birthdaysData.children.slice(0, BIRTHDAY_ROWS)
-  const birthdayStaffShown = birthdaysData.staff.slice(0, BIRTHDAY_ROWS)
 
   // === ОТРАБОТАННЫЕ АБОНЕМЕНТЫ (по филиалам, за месяц) — reports-logic §5.10 ===
   // Тот же ЕДИНЫЙ набор, что «Ожидаемые»/«Прогноз» (одинаковая «Сумма абонементов»,
@@ -857,6 +852,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         {birthdaysCount === 0 ? (
           <p className="text-sm text-muted-foreground">Нет ближайших дней рождения</p>
         ) : (
+          // Список показываем целиком (у крупной базы это 40-50 детей за неделю),
+          // но карточку не растягиваем — прокрутка внутри виджета.
+          <div className="max-h-96 overflow-y-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -869,24 +867,29 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               {birthdaysData.children.length > 0 && (
                 <>
                   <TableRow className="bg-muted/30">
-                    <TableCell colSpan={3} className="font-semibold">
-                      Дети
+                    <TableCell colSpan={3} className="whitespace-normal font-semibold">
+                      Дети · {birthdaysData.children.length}
                       <span className="ml-2 font-normal text-muted-foreground">
-                        ближайшие 7 дней · вся база, кроме ЧС, архива и нецелевых
+                        ближайшие 7 дней, вся база кроме ЧС, архива и нецелевых
                       </span>
                     </TableCell>
                   </TableRow>
-                  {birthdayChildrenShown.map((r) => (
+                  {birthdaysData.children.map((r) => (
                     <TableRow key={`c-${r.id}`}>
-                      <TableCell>{r.fio}</TableCell>
+                      <TableCell className="whitespace-normal">
+                        {r.fio}
+                        {r.statusLabel && (
+                          <span className="ml-2 text-xs text-muted-foreground">{r.statusLabel}</span>
+                        )}
+                      </TableCell>
                       <TableCell className="tabular-nums">{r.dateLabel}</TableCell>
                       <TableCell>{r.turnsLabel}</TableCell>
                     </TableRow>
                   ))}
-                  {birthdaysData.children.length > birthdayChildrenShown.length && (
+                  {birthdaysData.childrenPlaceholderCount > 0 && (
                     <TableRow>
-                      <TableCell colSpan={3} className="text-sm text-muted-foreground">
-                        и ещё {birthdaysData.children.length - birthdayChildrenShown.length} — показаны ближайшие {BIRTHDAY_ROWS}
+                      <TableCell colSpan={3} className="whitespace-normal text-xs text-muted-foreground">
+                        Скрыто {birthdaysData.childrenPlaceholderCount} с датой 01.01 — похоже, дата рождения не заполнена при импорте
                       </TableCell>
                     </TableRow>
                   )}
@@ -895,29 +898,23 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               {birthdaysData.staff.length > 0 && (
                 <>
                   <TableRow className="bg-muted/30">
-                    <TableCell colSpan={3} className="font-semibold">
-                      Сотрудники
+                    <TableCell colSpan={3} className="whitespace-normal font-semibold">
+                      Сотрудники · {birthdaysData.staff.length}
                       <span className="ml-2 font-normal text-muted-foreground">ближайшие 30 дней</span>
                     </TableCell>
                   </TableRow>
-                  {birthdayStaffShown.map((r) => (
+                  {birthdaysData.staff.map((r) => (
                     <TableRow key={`s-${r.id}`}>
-                      <TableCell>{r.fio}</TableCell>
+                      <TableCell className="whitespace-normal">{r.fio}</TableCell>
                       <TableCell className="tabular-nums">{r.dateLabel}</TableCell>
                       <TableCell>{r.turnsLabel}</TableCell>
                     </TableRow>
                   ))}
-                  {birthdaysData.staff.length > birthdayStaffShown.length && (
-                    <TableRow>
-                      <TableCell colSpan={3} className="text-sm text-muted-foreground">
-                        и ещё {birthdaysData.staff.length - birthdayStaffShown.length} — показаны ближайшие {BIRTHDAY_ROWS}
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </>
               )}
             </TableBody>
           </Table>
+          </div>
         )}
       </CardContent>
     </Card>

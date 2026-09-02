@@ -8,6 +8,7 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import {
+  computeUpcomingBirthdays,
   upcomingBirthday,
   CHILD_WINDOW_DAYS,
   STAFF_WINDOW_DAYS,
@@ -86,5 +87,95 @@ describe("upcomingBirthday", () => {
     assert.deepEqual(u.date, d(2028, 2, 29))
     assert.equal(u.daysUntil, 3)
     assert.equal(u.turns, 8)
+  })
+
+  it("год рождения в будущем — опечатка, в виджет не попадает", () => {
+    // На проде такие есть: «-20 лет» в столбце «Сколько исполнится»
+    assert.equal(upcomingBirthday(d(2046, 9, 5), today, CHILD_WINDOW_DAYS), null)
+    assert.equal(upcomingBirthday(d(2046, 9, 5), today, STAFF_WINDOW_DAYS), null)
+  })
+})
+
+/**
+ * Состав списка детей проверяем на фейковом db: сама выборка (фильтр по базам
+ * и филиалам) — дело Prisma, а вот дедупликация дублей-карточек, отсев
+ * заглушечной даты 01.01 и подпись статуса считаются в этом модуле.
+ */
+describe("computeUpcomingBirthdays — состав списка детей", () => {
+  const today = d(2026, 9, 2)
+
+  const ward = (
+    id: string,
+    lastName: string,
+    firstName: string,
+    birth: Date,
+    funnelStatus = "active_client",
+    clientStatus: string | null = "active",
+  ) => ({ id, lastName, firstName, birthDate: birth, client: { funnelStatus, clientStatus } })
+
+  const fakeDb = (wards: ReturnType<typeof ward>[]) =>
+    ({
+      ward: { findMany: async () => wards },
+      employee: { findMany: async () => [] },
+    }) as unknown as Parameters<typeof computeUpcomingBirthdays>[0]
+
+  it("один ребёнок под несколькими дублями-клиентами — одна строка", async () => {
+    const birth = d(2019, 9, 7)
+    const res = await computeUpcomingBirthdays(
+      fakeDb([
+        ward("w1", "Колташева", "София", birth, "potential", null),
+        ward("w2", "Колташева", "София", birth),
+        ward("w3", "колташева", "софия", birth, "new", null),
+      ]),
+      "t1",
+      today,
+    )
+    assert.equal(res.children.length, 1)
+    // Из дублей остаётся «лучший» статус — активный клиент
+    assert.equal(res.children[0].statusLabel, "Активный")
+  })
+
+  it("разные дети с одинаковой фамилией остаются отдельными строками", async () => {
+    const res = await computeUpcomingBirthdays(
+      fakeDb([
+        ward("w1", "Иванов", "Пётр", d(2018, 9, 4)),
+        ward("w2", "Иванов", "Павел", d(2018, 9, 4)),
+        ward("w3", "Иванов", "Пётр", d(2019, 9, 4)),
+      ]),
+      "t1",
+      today,
+    )
+    assert.equal(res.children.length, 3)
+  })
+
+  it("заглушечная дата 01.01 не попадает в список, но считается отдельно", async () => {
+    const newYear = d(2026, 12, 28)
+    const res = await computeUpcomingBirthdays(
+      fakeDb([
+        ward("w1", "Петров", "Иван", d(2017, 1, 1)),
+        ward("w2", "Сидорова", "Аня", d(2017, 1, 1)),
+        ward("w3", "Реальный", "Именинник", d(2017, 12, 30)),
+      ]),
+      "t1",
+      newYear,
+    )
+    assert.deepEqual(res.children.map((r) => r.fio), ["Реальный Именинник"])
+    assert.equal(res.childrenPlaceholderCount, 2)
+  })
+
+  it("статус клиента подписывается у каждого ребёнка", async () => {
+    const res = await computeUpcomingBirthdays(
+      fakeDb([
+        ward("w1", "Активов", "Он", d(2018, 9, 3), "active_client", "active"),
+        ward("w2", "Выбывшев", "Он", d(2018, 9, 3), "active_client", "churned"),
+        ward("w3", "Лидов", "Он", d(2018, 9, 3), "new", null),
+      ]),
+      "t1",
+      today,
+    )
+    assert.deepEqual(
+      res.children.map((r) => r.statusLabel),
+      ["Активный", "Выбывший", "Лид"],
+    )
   })
 })

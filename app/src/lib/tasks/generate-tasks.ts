@@ -3,6 +3,7 @@ import { getRoleNames } from "@/lib/role-names"
 import { isTriggerEnabled, parseTriggerSettings } from "@/lib/tasks/trigger-settings"
 import { createContactDateTaskIfDue } from "@/lib/tasks/contact-date-task"
 import { lessonsWithRoster } from "@/lib/subscriptions/roster-filter"
+import { BIRTHDAY_EXCLUDED_FUNNEL_STATUSES } from "@/lib/dashboard/upcoming-birthdays"
 
 /**
  * Генерация автозадач по 6 триггерам для ОДНОГО тенанта.
@@ -85,8 +86,19 @@ export async function generateTasksForTenant(tenantId: string): Promise<number> 
 
   // 3. ДР подопечных сегодня
   if (isTriggerEnabled("birthday", triggerSettings, todayLocal)) {
+    // Кого поздравляем — то же правило, что у виджета дашборда «Дни рождения»:
+    // вся база, кроме ЧС, архива и нецелевых, и без удалённых клиентов. Раньше
+    // фильтра не было вовсе: 17% автозадач за лето создавались по ЧС/архиву.
     const birthdays = await db.ward.findMany({
-      where: { tenantId, birthDate: { not: null } },
+      where: {
+        tenantId,
+        birthDate: { not: null },
+        client: {
+          tenantId,
+          deletedAt: null,
+          funnelStatus: { notIn: [...BIRTHDAY_EXCLUDED_FUNNEL_STATUSES] },
+        },
+      },
       select: { id: true, firstName: true, birthDate: true, clientId: true, client: { select: { firstName: true, lastName: true } } },
     })
     for (const w of birthdays) {
