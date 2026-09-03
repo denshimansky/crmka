@@ -486,6 +486,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (data.durationMinutes !== undefined) updateData.durationMinutes = newDurationMinutes
 
   // ── Транзакция: откат отметок (если перенос с подтверждением) + апдейт занятия ──
+  // Снятые отработки — для задач админу после коммита.
+  let detachedMakeups: Awaited<
+    ReturnType<
+      typeof import("@/lib/services/revert-makeup-marks").detachMakeupsFromLesson
+    >
+  > = []
   const lesson = await db.$transaction(async (tx) => {
     if (isMove && attendancesCount > 0) {
       const attendances = await tx.attendance.findMany({
@@ -564,6 +570,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           createdBy: employeeId,
         })
       }
+
+      // Состав занятия изменился — пересчитываем раскладку ЗП целиком
+      // (per_lesson / floating_by_students). Правило reallocateLessonPay:
+      // «после ЛЮБОЙ мутации отметок занятия»; перенос был единственным путём
+      // мутации, который её не звал, и ставка могла остаться на удалённой
+      // отметке-носителе.
+      const { reallocateLessonPay } = await import("@/lib/salary/reallocate-lesson-pay")
+      await reallocateLessonPay(tx, { tenantId, lessonId: id })
+    }
+
+    // Назначенные НА это занятие отработки перенос снимает: на исходном занятии
+    // тип дня возвращается в «Не был», ссылка на цель убирается, и админ
+    // получает задачу переназначить (задачи ставим после коммита).
+    if (isMove) {
+      const { detachMakeupsFromLesson } = await import(
+        "@/lib/services/revert-makeup-marks"
+      )
+      detachedMakeups = await detachMakeupsFromLesson(tx, { tenantId, lessonId: id })
     }
 
     // Перенос сбросил отметки — пробные «Пришёл» тоже возвращаем в «Не отмечен»
@@ -610,6 +634,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     return tx.lesson.update({ where: { id }, data: updateData })
   })
+
+  // Снятые переносом отработки — задача админу переназначить каждую. Ставим
+  // после коммита, как и при отмене занятия (createMissedMakeupTask ниже).
+  if (detachedMakeups.length > 0) {
+    const targetDirection = await db.direction.findUnique({
+      where: { id: existing.group.directionId },
+      select: { name: true },
+    })
+    for (const m of detachedMakeups) {
+      await createMissedMakeupTask(db, {
+        tenantId,
+        clientId: m.clientId,
+        childDisplayName: m.childDisplayName,
+        sourceLessonDate: m.sourceLessonDate,
+        sourceDirectionName: m.sourceDirectionName,
+        targetLessonDate: newDate,
+        targetDirectionName: targetDirection?.name ?? "—",
+        reason: "lesson_moved",
+      })
+    }
+  }
 
   if (isMove) {
     logAudit({

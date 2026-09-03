@@ -25,8 +25,8 @@ export async function createMissedMakeupTask(
     /** Целевое (где должна была пройти отработка) — для контекста. */
     targetLessonDate: Date
     targetDirectionName: string
-    /** Причина: «не явился» или «занятие отменено». */
-    reason: "no_show" | "lesson_cancelled"
+    /** Причина: «не явился», «занятие отменено» или «занятие перенесено». */
+    reason: "no_show" | "lesson_cancelled" | "lesson_moved"
   },
 ): Promise<{ id: string } | null> {
   // Дефолтный исполнитель: первый менеджер/владелец/админ
@@ -45,7 +45,9 @@ export async function createMissedMakeupTask(
   const reasonLabel =
     params.reason === "no_show"
       ? "не явился на отработку"
-      : "целевое занятие отработки отменено"
+      : params.reason === "lesson_moved"
+        ? "целевое занятие отработки перенесено"
+        : "целевое занятие отработки отменено"
 
   const description =
     `Ребёнок ${reasonLabel} ${params.targetLessonDate.toLocaleDateString("ru-RU")} ` +

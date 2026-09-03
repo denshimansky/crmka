@@ -146,7 +146,13 @@ export function CancelDayDialog({ defaultDate, branches }: CancelDayDialogProps)
             {branches.length > 1 && (
               <div>
                 <Label>Филиал (опционально)</Label>
-                <Select value={branchId} onValueChange={(v) => setBranchId(v || "")}>
+                {/* «Все филиалы» — служебное значение __all: пустая строка
+                    в SelectItem не допускается, а в запрос филиал уходить не
+                    должен (иначе zod ждёт uuid и роняет запрос в 400). */}
+                <Select
+                  value={branchId}
+                  onValueChange={(v) => setBranchId(!v || v === "__all" ? "" : v)}
+                >
                   <SelectTrigger className="w-full">
                     {branchId
                       ? branches.find((b) => b.id === branchId)?.name

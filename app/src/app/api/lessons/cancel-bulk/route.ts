@@ -8,6 +8,9 @@ import {
   findNonWorkingBlockers,
   nonWorkingBlockReason,
 } from "@/lib/schedule/reconcile-calendar-day"
+import { isPeriodLocked } from "@/lib/period-check"
+import { branchScopeFromSession, canAccessBranch, isUnscoped } from "@/lib/branch-scope"
+import { logAudit } from "@/lib/audit"
 
 const schema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Формат даты: YYYY-MM-DD"),
@@ -44,6 +47,30 @@ export async function POST(req: NextRequest) {
 
   const { date, branchId, reason } = parsed.data
   const targetDate = new Date(date + "T00:00:00.000Z")
+
+  // Филиал: администратор с ограниченным доступом не должен снимать день в чужом
+  // филиале, а отмену по ВСЕЙ организации ему не даём вовсе — она затрагивает
+  // филиалы, которых он не видит.
+  const scope = branchScopeFromSession(session.user.allowedBranchIds)
+  if (branchId) {
+    if (!canAccessBranch(branchId, scope)) {
+      return NextResponse.json({ error: "Нет доступа к этому филиалу" }, { status: 403 })
+    }
+  } else if (!isUnscoped(scope) && !scope.coversAllBranches) {
+    return NextResponse.json(
+      { error: "Отмена дня по всей организации доступна только при доступе ко всем филиалам. Выберите свой филиал." },
+      { status: 403 },
+    )
+  }
+
+  // Закрытый период: удаление занятий двигает деньги (пересчёт абонементов),
+  // поэтому тот же замок, что у одиночного удаления занятия.
+  if (await isPeriodLocked(tenantId, targetDate, session.user.role)) {
+    return NextResponse.json(
+      { error: "Период закрыт. Обратитесь к владельцу или управляющему." },
+      { status: 403 },
+    )
+  }
 
   // Пока в дне есть отметки или активные пробные, день применился бы наполовину:
   // такие занятия reconcileDayToNonWorking намеренно НЕ удаляет, а ответ считает
@@ -97,6 +124,24 @@ export async function POST(req: NextRequest) {
       create: { tenantId, date: targetDate, isWorking: false, comment: reason },
     })
   }
+
+  // Массовое удаление занятий раньше не оставляло следа (архива у него нет —
+  // решение владельца) — пишем хотя бы одну запись в историю.
+  logAudit({
+    tenantId,
+    employeeId: createdBy,
+    action: "delete",
+    entityType: "Lesson",
+    entityId: `bulk-${date}${branchId ? `-${branchId}` : ""}`,
+    changes: {
+      date: { new: date },
+      branchId: { new: branchId ?? null },
+      reason: { new: reason },
+      deleted: { new: result.deleted },
+      kept: { new: blockers.details.length },
+    },
+    req,
+  })
 
   return NextResponse.json({
     deleted: result.deleted,
