@@ -26,15 +26,25 @@ const TUE_THU_17 = new Set(["1_17:00", "3_17:00"])
 const THU = new Date(2026, 8, 3)
 const SAT = new Date(2026, 8, 5)
 
-function row(over: Partial<RegenLessonRow> = {}): RegenLessonRow {
+function row(
+  over: Partial<Omit<RegenLessonRow, "_count">> & {
+    _count?: Partial<RegenLessonRow["_count"]>
+  } = {},
+): RegenLessonRow {
+  const { _count, ...rest } = over
   return {
     id: "l1",
     date: SAT,
     startTime: "17:00",
     status: "scheduled",
     rescheduledFromDate: null,
-    _count: { attendances: 0, trialLessons: 0 },
-    ...over,
+    _count: {
+      attendances: 0,
+      trialLessons: 0,
+      scheduledMakeupAttendances: 0,
+      ..._count,
+    },
+    ...rest,
   }
 }
 
@@ -58,6 +68,16 @@ describe("partitionRegenLessons", () => {
     )
     assert.deepEqual(p.toDelete, [])
     assert.equal(p.keptWithTrials, 1)
+    assert.equal(p.removedDates.length, 0)
+  })
+
+  it("занятие с назначенной отработкой вне шаблона сохраняется", () => {
+    const p = partitionRegenLessons(
+      [row({ id: "sat", _count: { scheduledMakeupAttendances: 1 } })],
+      TUE_THU_17,
+    )
+    assert.deepEqual(p.toDelete, [])
+    assert.equal(p.keptWithScheduledMakeup, 1)
     assert.equal(p.removedDates.length, 0)
   })
 
@@ -145,6 +165,7 @@ describe("partitionRegenLessons", () => {
         row({ id: "del-2", startTime: "10:00" }),
         row({ id: "trial", _count: { attendances: 0, trialLessons: 1 } }),
         row({ id: "marked", _count: { attendances: 2, trialLessons: 0 } }),
+        row({ id: "makeup", _count: { scheduledMakeupAttendances: 2 } }),
         row({ id: "moved", rescheduledFromDate: THU }),
       ],
       TUE_THU_17,
@@ -152,6 +173,7 @@ describe("partitionRegenLessons", () => {
     assert.deepEqual(p.toDelete, ["del-1", "del-2"])
     assert.equal(p.keptWithTrials, 1)
     assert.equal(p.keptWithAttendance, 1)
+    assert.equal(p.keptWithScheduledMakeup, 1)
     assert.equal(p.keptRescheduled, 1)
     assert.equal(p.removedDates.length, 2)
   })

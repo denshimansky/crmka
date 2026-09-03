@@ -1,6 +1,10 @@
 import { db } from "@/lib/db"
 import { getNonWorkingDateSet } from "@/lib/production-calendar"
 import { recalcSubscriptionsOnScheduleChange } from "@/lib/subscriptions/recalc-on-schedule-change"
+import {
+  snapshotPackageSelections,
+  createReselectPackageLessonTasks,
+} from "@/lib/tasks/reselect-package-lesson"
 
 /**
  * День года в формате YYYY-MM-DD без учёта таймзоны (используем локальную дату).
@@ -40,6 +44,8 @@ export interface RegenLessonRow {
     attendances: number
     /** Активные пробные: scheduled / attended / no_show. */
     trialLessons: number
+    /** Отработки, назначенные НА это занятие (makeup_scheduled). */
+    scheduledMakeupAttendances: number
   }
 }
 
@@ -54,6 +60,8 @@ export interface RegenPartition {
   keptWithTrials: number
   /** Сохранены, потому что их вручную перенёс человек. */
   keptRescheduled: number
+  /** Сохранены, потому что на них назначены отработки. */
+  keptWithScheduledMakeup: number
 }
 
 /**
@@ -68,6 +76,12 @@ export interface RegenPartition {
  *    превращалось в сироту — без времени, без карточки занятия и вне состава
  *    (кейс «ДЦ Умный Я», 05.09.2026: занятие перенесли на субботу, записали два
  *    пробных, перегенерация занятие снесла);
+ *  • на занятие назначена отработка (Attendance.scheduledMakeupLessonId с типом
+ *    makeup_scheduled) — у этой ссылки FK тоже ON DELETE SET NULL, то есть
+ *    удаление занятия молча превращало обязательство «придёт отрабатывать» в
+ *    сироту: у пропуска на исходном занятии пропадала цель, и ни задачи, ни
+ *    следа не оставалось (в отличие от отмены занятия, которая создаёт задачу
+ *    «переназначить отработку» — см. PATCH /api/lessons/[id]);
  *  • занятие вручную перенесено (rescheduledFromDate) — осознанное решение
  *    администратора: после переноса на другой день недели занятие перестаёт
  *    попадать под шаблоны, и чистка по шаблонам молча откатывала перенос, о
@@ -88,6 +102,7 @@ export function partitionRegenLessons(
     keptWithAttendance: 0,
     keptWithTrials: 0,
     keptRescheduled: 0,
+    keptWithScheduledMakeup: 0,
   }
   for (const l of lessons) {
     const inTemplate =
@@ -101,6 +116,10 @@ export function partitionRegenLessons(
     }
     if (l._count.trialLessons > 0) {
       res.keptWithTrials++
+      continue
+    }
+    if (l._count.scheduledMakeupAttendances > 0) {
+      res.keptWithScheduledMakeup++
       continue
     }
     if (l.rescheduledFromDate !== null) {
@@ -132,6 +151,9 @@ const REGEN_LESSON_SELECT = {
     select: {
       attendances: true,
       trialLessons: { where: { status: { not: "cancelled" as const } } },
+      scheduledMakeupAttendances: {
+        where: { attendanceType: { code: "makeup_scheduled" } },
+      },
     },
   },
 } as const
@@ -165,6 +187,8 @@ interface GenerationResult {
   keptWithTrials: number
   /** Занятий вне шаблонов сохранено: вручную перенесены администратором. */
   keptRescheduled: number
+  /** Занятий вне шаблонов сохранено: на них назначены отработки. */
+  keptWithScheduledMakeup: number
 }
 
 /** Нулевые счётчики сохранённых занятий — для чисто additive-генерации. */
@@ -172,6 +196,7 @@ const NO_KEPT = {
   keptWithAttendance: 0,
   keptWithTrials: 0,
   keptRescheduled: 0,
+  keptWithScheduledMakeup: 0,
 } as const
 
 /**
@@ -330,13 +355,20 @@ export async function regenerateGroupSchedule(
   })
 
   // Что удаляем, что оставляем — см. partitionRegenLessons (отметки, активные
-  // пробные и ручные переносы занятие защищают).
+  // пробные, отработки и ручные переносы занятие защищают).
   const part = partitionRegenLessons(futureLessons, allowedSlots(templates))
   const { toDelete, removedDates } = part
+
+  // Пакет с выбором: снимок выборов ДО удаления (cascade сотрёт строки
+  // SubscriptionLesson), задачи на перевыбор — после. Тот же порядок, что в
+  // одиночном DELETE занятия и в реконсиляции дня; раньше перегенерация
+  // стирала выбор занятия пакета молча, без задачи оператору.
+  const selSnapshot = await snapshotPackageSelections(db, tenantId, toDelete)
 
   if (toDelete.length > 0) {
     await db.lesson.deleteMany({ where: { id: { in: toDelete } } })
   }
+  await createReselectPackageLessonTasks(db, tenantId, selSnapshot, opts.createdBy ?? null)
 
   // Теперь добавляем недостающие. rangeStart должен быть не раньше сегодня,
   // потому что прошлое не пересоздаём.
@@ -371,6 +403,7 @@ export async function regenerateGroupSchedule(
     keptWithAttendance: part.keptWithAttendance,
     keptWithTrials: part.keptWithTrials,
     keptRescheduled: part.keptRescheduled,
+    keptWithScheduledMakeup: part.keptWithScheduledMakeup,
   }
 }
 
@@ -429,9 +462,14 @@ export async function regenerateOnDateChange(opts: {
   )
   const { toDelete, removedDates } = part
 
+  // Снимок выборов пакетов ДО удаления, задачи на перевыбор — после (см.
+  // regenerateGroupSchedule выше).
+  const selSnapshot = await snapshotPackageSelections(db, tenantId, toDelete)
+
   if (toDelete.length > 0) {
     await db.lesson.deleteMany({ where: { id: { in: toDelete } } })
   }
+  await createReselectPackageLessonTasks(db, tenantId, selSnapshot, opts.createdBy ?? null)
 
   if (templates.length === 0) {
     const recalc = await recalcSubscriptionsOnScheduleChange(db, {
@@ -451,6 +489,7 @@ export async function regenerateOnDateChange(opts: {
       keptWithAttendance: part.keptWithAttendance,
       keptWithTrials: part.keptWithTrials,
       keptRescheduled: part.keptRescheduled,
+      keptWithScheduledMakeup: part.keptWithScheduledMakeup,
     }
   }
 
@@ -484,6 +523,7 @@ export async function regenerateOnDateChange(opts: {
     keptWithAttendance: part.keptWithAttendance,
     keptWithTrials: part.keptWithTrials,
     keptRescheduled: part.keptRescheduled,
+    keptWithScheduledMakeup: part.keptWithScheduledMakeup,
   }
 }
 

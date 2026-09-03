@@ -607,6 +607,8 @@ function SettingsTab({
           if (r.deleted > 0) notes.push(`удалено ${r.deleted} вне шаблонов`)
           if (r.keptWithAttendance > 0) notes.push(`сохранено с отметками ${r.keptWithAttendance}`)
           if (r.keptWithTrials > 0) notes.push(`сохранено с пробными ${r.keptWithTrials}`)
+          if (r.keptWithScheduledMakeup > 0)
+            notes.push(`сохранено с отработками ${r.keptWithScheduledMakeup}`)
           if (r.keptRescheduled > 0) notes.push(`сохранено перенесённых ${r.keptRescheduled}`)
         }
         if (data.skipped > 0) notes.push(`пропущено ${data.skipped} нерабочих`)
