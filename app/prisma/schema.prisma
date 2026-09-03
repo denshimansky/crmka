@@ -934,8 +934,12 @@ model OkladSchedule {
   @@map("oklad_schedules")
 }
 
-// Строка плавающей матрицы «N учеников → ставка за занятие». Может относиться
-// либо к личной SalaryRate, либо к GroupSalaryRate (используется ровно один FK).
+// Строка плавающей матрицы «N учеников → ставка за занятие». Относится ровно к
+// одному родителю: личной SalaryRate, GroupSalaryRate или версии ставки «с даты»
+// SalaryRateSchedule. XOR держит CHECK salary_brackets_exactly_one_parent в БД
+// (Prisma CHECK-констрейнты не описывает) — миграция
+// 20260903120000_salary_brackets_schedule_parent. Добавляя четвёртого родителя,
+// не забыть расширить этот CHECK: иначе insert падает 500-й.
 model SalaryBracket {
   id                   String   @id @default(uuid()) @db.Uuid
   tenantId             String   @map("tenant_id") @db.Uuid
