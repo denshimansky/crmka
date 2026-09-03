@@ -521,6 +521,29 @@ function SettingsTab({
   const selectedBranch = branches.find((b) => b.id === infoBranchId)
   const availableRooms = selectedBranch?.rooms ?? []
 
+  // Итог перестройки расписания словами. Сохранение дат группы всегда прогоняет
+  // regenerateOnDateChange (PATCH отдаёт её результат в поле regen), а удаление
+  // занятий в ней бесследно — ни архива deleted_lessons, ни записи в истории,
+  // поэтому единственное место, где администратор об этом узнаёт, — вот это
+  // сообщение.
+  function regenNotes(r: {
+    deleted?: number
+    keptWithAttendance?: number
+    keptWithTrials?: number
+    keptWithScheduledMakeup?: number
+    keptRescheduled?: number
+  } | null | undefined): string[] {
+    if (!r) return []
+    const notes: string[] = []
+    if (r.deleted) notes.push(`удалено ${r.deleted} вне шаблонов`)
+    if (r.keptWithAttendance) notes.push(`сохранено с отметками ${r.keptWithAttendance}`)
+    if (r.keptWithTrials) notes.push(`сохранено с пробными ${r.keptWithTrials}`)
+    if (r.keptWithScheduledMakeup)
+      notes.push(`сохранено с отработками ${r.keptWithScheduledMakeup}`)
+    if (r.keptRescheduled) notes.push(`сохранено перенесённых ${r.keptRescheduled}`)
+    return notes
+  }
+
   async function handleInfoSave() {
     setInfoSaving(true)
     setInfoResult(null)
@@ -543,7 +566,14 @@ function SettingsTab({
       if (!res.ok) {
         setInfoResult({ type: "error", message: data.error || "Ошибка сохранения" })
       } else {
-        setInfoResult({ type: "success", message: "Данные сохранены" })
+        const notes = regenNotes(data.regen)
+        setInfoResult({
+          type: "success",
+          message:
+            notes.length > 0
+              ? `Данные сохранены. Расписание перестроено: ${notes.join(", ")}`
+              : "Данные сохранены",
+        })
         onRefresh()
       }
     } catch {
@@ -567,13 +597,16 @@ function SettingsTab({
   const [regenMonth, setRegenMonth] = useState(currentMonth)
   const [regenYear, setRegenYear] = useState(currentYear)
 
-  // Перегенерация. Два режима:
+  // ВНИМАНИЕ: из JSX эта функция не вызывается — ни кнопки, ни диалога
+  // перегенерации в карточке группы нет (решение владельца от 22.08.2026:
+  // нужна была только точечная кнопка «Восстановить» у удалённого занятия).
+  // Оставлена как есть; трогать по своей инициативе не нужно.
+  // Два режима:
   //  • range — по всему сроку жизни группы [startDate, endDate]. Сначала
-  //    сохраняем даты — и этот шаг НЕ additive: сохранение дат прогоняет
+  //    сохраняет даты, а этот шаг НЕ additive: сохранение дат прогоняет
   //    regenerateOnDateChange, которая чистит занятия вне срока жизни и вне
-  //    шаблонов. Занятия с отметками, с активными пробными и вручную
-  //    перенесённые она сохраняет, остальные удаляет — итог показываем ниже,
-  //    иначе удаление проходит бесследно (ни архива, ни истории).
+  //    шаблонов (занятия с отметками, пробными, отработками и вручную
+  //    перенесённые сохраняются). Тот же путь, что у «Сохранить» в «Настройках».
   //  • month — точечно за выбранный месяц, additive.
   async function handleRegenerate() {
     setRegenerating(true)
@@ -601,16 +634,7 @@ function SettingsTab({
           setRegenResult(data.error || "Ошибка перегенерации")
           return
         }
-        const notes: string[] = []
-        const r = saveData.regen
-        if (r) {
-          if (r.deleted > 0) notes.push(`удалено ${r.deleted} вне шаблонов`)
-          if (r.keptWithAttendance > 0) notes.push(`сохранено с отметками ${r.keptWithAttendance}`)
-          if (r.keptWithTrials > 0) notes.push(`сохранено с пробными ${r.keptWithTrials}`)
-          if (r.keptWithScheduledMakeup > 0)
-            notes.push(`сохранено с отработками ${r.keptWithScheduledMakeup}`)
-          if (r.keptRescheduled > 0) notes.push(`сохранено перенесённых ${r.keptRescheduled}`)
-        }
+        const notes = regenNotes(saveData.regen)
         if (data.skipped > 0) notes.push(`пропущено ${data.skipped} нерабочих`)
         setRegenResult(
           (data.created === 0
