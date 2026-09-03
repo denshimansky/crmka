@@ -15,6 +15,7 @@ import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import {
   partitionRegenLessons,
+  groupLifeDatesChanged,
   type RegenLessonRow,
 } from "../lib/schedule/generate-group-lessons"
 
@@ -176,5 +177,82 @@ describe("partitionRegenLessons", () => {
     assert.equal(p.keptWithScheduledMakeup, 1)
     assert.equal(p.keptRescheduled, 1)
     assert.equal(p.removedDates.length, 2)
+  })
+})
+
+/**
+ * Гейт перестройки расписания. Форма «Настройки» карточки группы шлёт
+ * startDate/endDate в каждом PATCH, поэтому проверка «ключ пришёл» означала,
+ * что ЛЮБОЕ «Сохранить» перестраивает расписание и пересчитывает абонементы.
+ */
+describe("groupLifeDatesChanged", () => {
+  const existing = {
+    startDate: new Date("2026-09-01T00:00:00.000Z"),
+    endDate: new Date("2027-05-31T00:00:00.000Z"),
+  }
+
+  it("ключей нет — даты не трогали", () => {
+    assert.equal(groupLifeDatesChanged(existing, {}), false)
+  })
+
+  it("прислали те же даты (правили только название) — перестройки нет", () => {
+    assert.equal(
+      groupLifeDatesChanged(existing, {
+        startDate: "2026-09-01",
+        endDate: "2027-05-31",
+      }),
+      false,
+    )
+  })
+
+  it("сдвинули старт — перестройка нужна", () => {
+    assert.equal(
+      groupLifeDatesChanged(existing, {
+        startDate: "2026-09-08",
+        endDate: "2027-05-31",
+      }),
+      true,
+    )
+  })
+
+  it("сдвинули окончание — перестройка нужна", () => {
+    assert.equal(
+      groupLifeDatesChanged(existing, { endDate: "2027-06-30" }),
+      true,
+    )
+  })
+
+  it("сняли дату окончания — перестройка нужна", () => {
+    assert.equal(groupLifeDatesChanged(existing, { endDate: null }), true)
+  })
+
+  it("дата окончания и была пустой, и осталась — перестройки нет", () => {
+    assert.equal(
+      groupLifeDatesChanged(
+        { startDate: existing.startDate, endDate: null },
+        { startDate: "2026-09-01", endDate: null },
+      ),
+      false,
+    )
+  })
+
+  it("в базе дата со временем, прислали тот же день — перестройки нет", () => {
+    assert.equal(
+      groupLifeDatesChanged(
+        { startDate: new Date("2026-09-01T09:30:00.000Z"), endDate: null },
+        { startDate: "2026-09-01" },
+      ),
+      false,
+    )
+  })
+
+  it("дату задали там, где её не было — перестройка нужна", () => {
+    assert.equal(
+      groupLifeDatesChanged(
+        { startDate: null, endDate: null },
+        { startDate: "2026-09-01" },
+      ),
+      true,
+    )
   })
 })

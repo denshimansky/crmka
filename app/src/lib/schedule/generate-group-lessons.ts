@@ -85,9 +85,8 @@ export interface RegenPartition {
  *  • занятие вручную перенесено (rescheduledFromDate) — осознанное решение
  *    администратора: после переноса на другой день недели занятие перестаёт
  *    попадать под шаблоны, и чистка по шаблонам молча откатывала перенос, о
- *    котором уже знают родители. Тем более что regenerateOnDateChange дёргает
- *    обычное «Сохранить» на вкладке «Настройки» карточки группы (PATCH всегда
- *    отправляет startDate/endDate) — сносить переносы это не должно.
+ *    котором уже знают родители. Правка срока жизни группы — не повод сносить
+ *    отдельно согласованный перенос занятия.
  *
  * Сохранённое занятие остаётся в сетке рядом с досозданным по шаблону: так же
  * ведёт себя защита по отметкам, и это видно администратору, в отличие от
@@ -134,6 +133,34 @@ export function partitionRegenLessons(
     if (l.status !== "cancelled") res.removedDates.push(l.date)
   }
   return res
+}
+
+/**
+ * Изменились ли РЕАЛЬНО даты жизни группы. Только это должно запускать
+ * перестройку расписания (regenerateOnDateChange).
+ *
+ * Форма «Настройки» карточки группы шлёт startDate/endDate в каждом PATCH —
+ * даже когда правили одно название. Пока гейт проверял лишь «пришёл ли ключ»,
+ * любое «Сохранить» без единого изменения прогоняло полную перестройку:
+ * занятия вне шаблонов удалялись, недостающие досоздавались, а живые абонементы
+ * пересчитывались через recalcSubscriptionsOnScheduleChange — то есть у клиентов
+ * двигались суммы и долги. Так и пропало занятие с двумя пробными 05.09.2026.
+ *
+ * undefined — ключа в payload не было (поле не трогали); null — дату сняли.
+ * Сравниваем по календарному дню: границы всё равно нормализуются к полуночи.
+ */
+export function groupLifeDatesChanged(
+  existing: { startDate: Date | null; endDate: Date | null },
+  next: { startDate?: string | null; endDate?: string | null },
+): boolean {
+  const day = (d: Date | null): string | null =>
+    d ? d.toISOString().slice(0, 10) : null
+  const changed = (cur: Date | null, incoming: string | null | undefined) =>
+    incoming !== undefined && day(cur) !== incoming
+  return (
+    changed(existing.startDate, next.startDate) ||
+    changed(existing.endDate, next.endDate)
+  )
 }
 
 /** Множество разрешённых слотов «деньНедели_время» из шаблонов группы. */

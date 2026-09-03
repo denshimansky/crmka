@@ -175,6 +175,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // новых границ [startDate, endDate]: вне диапазона — удаляем занятия без
   // посещений (с посещениями — оставляем); внутри — чистим неактуальные
   // и догенерируем недостающие по шаблонам.
+  // Запускаем ТОЛЬКО при реальной смене дат (groupLifeDatesChanged): форма
+  // настроек шлёт startDate/endDate всегда, поэтому проверки «ключ пришёл» не
+  // хватало — «Сохранить» после правки одного названия перестраивало
+  // расписание и пересчитывало абонементы.
   // Итог перегенерации отдаём в ответе: чистка вне шаблонов ничего не пишет ни
   // в архив deleted_lessons, ни в audit_log, поэтому иначе администратор не
   // узнаёт ни об удалённых занятиях, ни о сохранённых (пробные/переносы).
@@ -183,7 +187,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       typeof import("@/lib/schedule/generate-group-lessons").regenerateOnDateChange
     >
   > | null = null
-  if (startDate !== undefined || endDate !== undefined) {
+  const { groupLifeDatesChanged } = await import(
+    "@/lib/schedule/generate-group-lessons"
+  )
+  if (groupLifeDatesChanged(existing, { startDate, endDate })) {
     const { regenerateOnDateChange } = await import(
       "@/lib/schedule/generate-group-lessons"
     )
