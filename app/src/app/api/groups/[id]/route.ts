@@ -175,6 +175,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // новых границ [startDate, endDate]: вне диапазона — удаляем занятия без
   // посещений (с посещениями — оставляем); внутри — чистим неактуальные
   // и догенерируем недостающие по шаблонам.
+  // Итог перегенерации отдаём в ответе: чистка вне шаблонов ничего не пишет ни
+  // в архив deleted_lessons, ни в audit_log, поэтому иначе администратор не
+  // узнаёт ни об удалённых занятиях, ни о сохранённых (пробные/переносы).
+  let regen: Awaited<
+    ReturnType<
+      typeof import("@/lib/schedule/generate-group-lessons").regenerateOnDateChange
+    >
+  > | null = null
   if (startDate !== undefined || endDate !== undefined) {
     const { regenerateOnDateChange } = await import(
       "@/lib/schedule/generate-group-lessons"
@@ -182,7 +190,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const templates = await db.groupScheduleTemplate.findMany({
       where: { groupId: id, tenantId: session.user.tenantId },
     })
-    await regenerateOnDateChange({
+    regen = await regenerateOnDateChange({
       tenantId: session.user.tenantId,
       groupId: id,
       instructorId: group.instructorId,
@@ -197,7 +205,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     })
   }
 
-  return NextResponse.json(group)
+  return NextResponse.json({ ...group, regen })
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

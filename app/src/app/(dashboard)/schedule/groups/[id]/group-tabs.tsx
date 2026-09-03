@@ -567,11 +567,14 @@ function SettingsTab({
   const [regenMonth, setRegenMonth] = useState(currentMonth)
   const [regenYear, setRegenYear] = useState(currentYear)
 
-  // Перегенерация — additive: существующие занятия (в т.ч. отмеченные/оплаченные)
-  // не трогаем, только добиваем недостающие по текущим шаблонам. Два режима:
-  //  • range — по всему сроку жизни группы [startDate, endDate] (сначала
-  //    сохраняем даты, чтобы backdating старта/сдвиг окончания вступили в силу),
-  //  • month — точечно за выбранный месяц.
+  // Перегенерация. Два режима:
+  //  • range — по всему сроку жизни группы [startDate, endDate]. Сначала
+  //    сохраняем даты — и этот шаг НЕ additive: сохранение дат прогоняет
+  //    regenerateOnDateChange, которая чистит занятия вне срока жизни и вне
+  //    шаблонов. Занятия с отметками, с активными пробными и вручную
+  //    перенесённые она сохраняет, остальные удаляет — итог показываем ниже,
+  //    иначе удаление проходит бесследно (ни архива, ни истории).
+  //  • month — точечно за выбранный месяц, additive.
   async function handleRegenerate() {
     setRegenerating(true)
     setRegenResult(null)
@@ -585,9 +588,9 @@ function SettingsTab({
             endDate: infoEndDate || null,
           }),
         })
+        const saveData = await saveRes.json().catch(() => ({}))
         if (!saveRes.ok) {
-          const data = await saveRes.json().catch(() => ({}))
-          setRegenResult(data.error || "Не удалось сохранить даты группы")
+          setRegenResult(saveData.error || "Не удалось сохранить даты группы")
           return
         }
         const regenRes = await fetch(`/api/groups/${groupId}/regenerate`, {
@@ -598,10 +601,20 @@ function SettingsTab({
           setRegenResult(data.error || "Ошибка перегенерации")
           return
         }
+        const notes: string[] = []
+        const r = saveData.regen
+        if (r) {
+          if (r.deleted > 0) notes.push(`удалено ${r.deleted} вне шаблонов`)
+          if (r.keptWithAttendance > 0) notes.push(`сохранено с отметками ${r.keptWithAttendance}`)
+          if (r.keptWithTrials > 0) notes.push(`сохранено с пробными ${r.keptWithTrials}`)
+          if (r.keptRescheduled > 0) notes.push(`сохранено перенесённых ${r.keptRescheduled}`)
+        }
+        if (data.skipped > 0) notes.push(`пропущено ${data.skipped} нерабочих`)
         setRegenResult(
-          data.created === 0
+          (data.created === 0
             ? `Все занятия уже существуют (${data.rangeStart} – ${data.rangeEnd})`
-            : `Создано ${data.created} занятий (${data.rangeStart} – ${data.rangeEnd})${data.skipped > 0 ? `, пропущено ${data.skipped} нерабочих` : ""}`,
+            : `Создано ${data.created} занятий (${data.rangeStart} – ${data.rangeEnd})`) +
+            (notes.length > 0 ? `; ${notes.join(", ")}` : ""),
         )
         setRegenDialogOpen(false)
         onRefresh()

@@ -25,6 +25,117 @@ export interface ScheduleTemplate {
   durationMinutes: number
 }
 
+/** Занятие-кандидат на удаление при перегенерации расписания группы. */
+export interface RegenLessonRow {
+  id: string
+  date: Date
+  startTime: string
+  status: string
+  /** Дата, с которой занятие вручную перенесли (null — никогда не переносили). */
+  rescheduledFromDate: Date | null
+  /** Занятие вне [startDate, endDate] группы — кандидат независимо от шаблонов. */
+  outOfBounds?: boolean
+  _count: {
+    /** Любые отметки, включая заглушки «Не отмечен» (isPending). */
+    attendances: number
+    /** Активные пробные: scheduled / attended / no_show. */
+    trialLessons: number
+  }
+}
+
+export interface RegenPartition {
+  /** Занятия к физическому удалению. */
+  toDelete: string[]
+  /** Их даты (без отменённых) — для дельта-пересчёта абонементов. */
+  removedDates: Date[]
+  /** Сохранены, потому что есть отметки. */
+  keptWithAttendance: number
+  /** Сохранены, потому что на них записаны активные пробные. */
+  keptWithTrials: number
+  /** Сохранены, потому что их вручную перенёс человек. */
+  keptRescheduled: number
+}
+
+/**
+ * Чистое ядро перегенерации: какие занятия вне текущих шаблонов удаляемы.
+ *
+ * Занятие вне шаблонов НЕ удаляем, если оно хоть чем-то «занято человеком»:
+ *  • есть отметки посещений — прошлое не откатываем (было и раньше);
+ *  • есть активные пробные — тот же guard, что в одиночном DELETE занятия и в
+ *    реконсиляции дня (partitionDeletableLessons). Групповое пробное не создаёт
+ *    Attendance до отметки и живёт ссылкой trial_lessons.lesson_id, у которой FK
+ *    стоит ON DELETE SET NULL: удаление занятия молча обнуляло ссылку, и пробное
+ *    превращалось в сироту — без времени, без карточки занятия и вне состава
+ *    (кейс «ДЦ Умный Я», 05.09.2026: занятие перенесли на субботу, записали два
+ *    пробных, перегенерация занятие снесла);
+ *  • занятие вручную перенесено (rescheduledFromDate) — осознанное решение
+ *    администратора: после переноса на другой день недели занятие перестаёт
+ *    попадать под шаблоны, и чистка по шаблонам молча откатывала перенос, о
+ *    котором уже знают родители. Кнопка «Перегенерировать» в карточке группы
+ *    вообще обещает «ничего не удаляем» — тем более не её дело сносить переносы.
+ *
+ * Сохранённое занятие остаётся в сетке рядом с досозданным по шаблону: так же
+ * ведёт себя защита по отметкам, и это видно администратору, в отличие от
+ * бесследного удаления (перегенерация не пишет ни deleted_lessons, ни audit_log).
+ */
+export function partitionRegenLessons(
+  lessons: RegenLessonRow[],
+  allowed: Set<string>,
+): RegenPartition {
+  const res: RegenPartition = {
+    toDelete: [],
+    removedDates: [],
+    keptWithAttendance: 0,
+    keptWithTrials: 0,
+    keptRescheduled: 0,
+  }
+  for (const l of lessons) {
+    const inTemplate =
+      !l.outOfBounds &&
+      allowed.has(`${jsDayToTemplateDay(l.date.getDay())}_${l.startTime}`)
+    if (inTemplate) continue
+
+    if (l._count.attendances > 0) {
+      res.keptWithAttendance++
+      continue
+    }
+    if (l._count.trialLessons > 0) {
+      res.keptWithTrials++
+      continue
+    }
+    if (l.rescheduledFromDate !== null) {
+      res.keptRescheduled++
+      continue
+    }
+
+    res.toDelete.push(l.id)
+    // Отменённые в счёт не идут: отмена не декрементила totalLessons
+    // (вариант A) — их физическое удаление дельты не даёт.
+    if (l.status !== "cancelled") res.removedDates.push(l.date)
+  }
+  return res
+}
+
+/** Множество разрешённых слотов «деньНедели_время» из шаблонов группы. */
+function allowedSlots(templates: ScheduleTemplate[]): Set<string> {
+  return new Set(templates.map((t) => `${t.dayOfWeek}_${t.startTime}`))
+}
+
+/** Поля занятия, по которым partitionRegenLessons принимает решение. */
+const REGEN_LESSON_SELECT = {
+  id: true,
+  date: true,
+  startTime: true,
+  status: true,
+  rescheduledFromDate: true,
+  _count: {
+    select: {
+      attendances: true,
+      trialLessons: { where: { status: { not: "cancelled" as const } } },
+    },
+  },
+} as const
+
 interface BaseOptions {
   tenantId: string
   groupId: string
@@ -48,7 +159,20 @@ interface GenerationResult {
   createdDates: Date[]
   /** Сколько абонементов пересчитано (totalLessons/деньги). */
   subscriptionsUpdated: number
+  /** Занятий вне шаблонов сохранено: есть отметки. */
+  keptWithAttendance: number
+  /** Занятий вне шаблонов сохранено: записаны активные пробные. */
+  keptWithTrials: number
+  /** Занятий вне шаблонов сохранено: вручную перенесены администратором. */
+  keptRescheduled: number
 }
+
+/** Нулевые счётчики сохранённых занятий — для чисто additive-генерации. */
+const NO_KEPT = {
+  keptWithAttendance: 0,
+  keptWithTrials: 0,
+  keptRescheduled: 0,
+} as const
 
 /**
  * Создаёт занятия для группы за период [rangeStart, rangeEnd] по шаблонам.
@@ -71,6 +195,7 @@ export async function generateGroupLessons(
       skippedDates: [],
       createdDates: [],
       subscriptionsUpdated: 0,
+      ...NO_KEPT,
     }
   }
 
@@ -162,6 +287,7 @@ export async function generateGroupLessons(
     skippedDates: Array.from(skipped),
     createdDates,
     subscriptionsUpdated,
+    ...NO_KEPT,
   }
 }
 
@@ -200,43 +326,13 @@ export async function regenerateGroupSchedule(
       groupId,
       date: { gte: today, lte: rangeEnd },
     },
-    select: {
-      id: true,
-      date: true,
-      startTime: true,
-      status: true,
-      attendances: { select: { id: true }, take: 1 },
-    },
+    select: REGEN_LESSON_SELECT,
   })
 
-  // Множество (день недели, startTime) из новых шаблонов
-  const allowed = new Set(
-    templates.map((t) => `${t.dayOfWeek}_${t.startTime}`)
-  )
-
-  const toDelete: string[] = []
-  // Даты удаляемых занятий для пересчёта абонементов. Отменённые не в счёт:
-  // они не декрементили totalLessons при отмене (вариант A) — их физическое
-  // удаление дельту не даёт.
-  const removedDates: Date[] = []
-  const surviving = new Set<string>()
-
-  for (const l of futureLessons) {
-    const tDay = jsDayToTemplateDay(l.date.getDay())
-    const slot = `${tDay}_${l.startTime}`
-    if (allowed.has(slot)) {
-      surviving.add(`${ymd(l.date)}_${l.startTime}`)
-      continue
-    }
-    // Удалить можно только если нет посещений
-    if (l.attendances.length === 0) {
-      toDelete.push(l.id)
-      if (l.status !== "cancelled") removedDates.push(l.date)
-    } else {
-      // Сохраняем как есть — не трогаем уже отмеченное
-      surviving.add(`${ymd(l.date)}_${l.startTime}`)
-    }
-  }
+  // Что удаляем, что оставляем — см. partitionRegenLessons (отметки, активные
+  // пробные и ручные переносы занятие защищают).
+  const part = partitionRegenLessons(futureLessons, allowedSlots(templates))
+  const { toDelete, removedDates } = part
 
   if (toDelete.length > 0) {
     await db.lesson.deleteMany({ where: { id: { in: toDelete } } })
@@ -272,6 +368,9 @@ export async function regenerateGroupSchedule(
     skippedDates: created.skippedDates,
     createdDates: created.createdDates,
     subscriptionsUpdated: recalc.updated,
+    keptWithAttendance: part.keptWithAttendance,
+    keptWithTrials: part.keptWithTrials,
+    keptRescheduled: part.keptRescheduled,
   }
 }
 
@@ -309,45 +408,26 @@ export async function regenerateOnDateChange(opts: {
 
   const allLessons = await db.lesson.findMany({
     where: { tenantId, groupId },
-    select: {
-      id: true,
-      date: true,
-      startTime: true,
-      status: true,
-      attendances: { select: { id: true }, take: 1 },
-    },
+    select: REGEN_LESSON_SELECT,
   })
 
-  const allowed = new Set(
-    templates.map((t) => `${t.dayOfWeek}_${t.startTime}`)
-  )
-
-  const toDelete: string[] = []
-  // Даты удаляемых занятий для пересчёта абонементов (отменённые не в счёт —
-  // они не декрементили totalLessons при отмене, вариант A).
-  const removedDates: Date[] = []
-
-  for (const l of allLessons) {
-    const lessonDay = new Date(l.date)
-    lessonDay.setHours(0, 0, 0, 0)
-    const hasAttendance = l.attendances.length > 0
-    const tooEarly = startBound !== null && lessonDay < startBound
-    const tooLate = endBound !== null && lessonDay > endBound
-
-    if (tooEarly || tooLate) {
-      if (!hasAttendance) {
-        toDelete.push(l.id)
-        if (l.status !== "cancelled") removedDates.push(l.date)
+  // Вне [startDate, endDate] — кандидат на удаление независимо от шаблонов;
+  // внутри — решает попадание в шаблон. Защиты (отметки, активные пробные,
+  // ручной перенос) действуют в обоих случаях: см. partitionRegenLessons.
+  const part = partitionRegenLessons(
+    allLessons.map((l) => {
+      const lessonDay = new Date(l.date)
+      lessonDay.setHours(0, 0, 0, 0)
+      return {
+        ...l,
+        outOfBounds:
+          (startBound !== null && lessonDay < startBound) ||
+          (endBound !== null && lessonDay > endBound),
       }
-      continue
-    }
-    const tDay = jsDayToTemplateDay(l.date.getDay())
-    if (allowed.has(`${tDay}_${l.startTime}`)) continue
-    if (!hasAttendance) {
-      toDelete.push(l.id)
-      if (l.status !== "cancelled") removedDates.push(l.date)
-    }
-  }
+    }),
+    allowedSlots(templates),
+  )
+  const { toDelete, removedDates } = part
 
   if (toDelete.length > 0) {
     await db.lesson.deleteMany({ where: { id: { in: toDelete } } })
@@ -368,6 +448,9 @@ export async function regenerateOnDateChange(opts: {
       skippedDates: [],
       createdDates: [],
       subscriptionsUpdated: recalc.updated,
+      keptWithAttendance: part.keptWithAttendance,
+      keptWithTrials: part.keptWithTrials,
+      keptRescheduled: part.keptRescheduled,
     }
   }
 
@@ -398,6 +481,9 @@ export async function regenerateOnDateChange(opts: {
     skippedDates: created.skippedDates,
     createdDates: created.createdDates,
     subscriptionsUpdated: recalc.updated,
+    keptWithAttendance: part.keptWithAttendance,
+    keptWithTrials: part.keptWithTrials,
+    keptRescheduled: part.keptRescheduled,
   }
 }
 
