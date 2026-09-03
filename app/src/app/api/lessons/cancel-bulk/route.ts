@@ -58,7 +58,17 @@ export async function POST(req: NextRequest) {
     date: targetDate,
     branchId: branchId ?? null,
   })
-  const blockReason = nonWorkingBlockReason(blockers)
+  // По всей организации блокируют и отметки, и пробные: день уходит в
+  // производственный календарь, и при возврате в рабочие генератор доложил бы
+  // дубли рядом с уцелевшими занятиями.
+  // По одному филиалу календарь не трогается и регенерации не будет, поэтому
+  // отмеченные занятия просто сохраняются (перечислены в ответе) — блокировать
+  // из-за них нельзя: иначе утреннее отмеченное занятие запирало бы отмену
+  // остатка дня. Активные пробные блокируют и здесь: они теряют занятие, а
+  // отменить пробное можно только в «Продажах».
+  const blockReason = branchId
+    ? nonWorkingBlockReason({ markedLessons: 0, trialLessons: blockers.trialLessons })
+    : nonWorkingBlockReason(blockers)
   if (blockReason) {
     return NextResponse.json(
       { error: blockReason, lessons: blockers.details },
@@ -91,6 +101,9 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     deleted: result.deleted,
     subscriptionsUpdated: result.subscriptionsUpdated,
+    // Занятия с отметками отмена дня не удаляет — раньше об этом не сообщалось,
+    // и «отменено N» читалось как «день снят целиком».
+    kept: blockers.details,
     date,
     reason,
   })

@@ -83,6 +83,11 @@ export function CancelDayDialog({ defaultDate, branches }: CancelDayDialogProps)
       if (data.subscriptionsUpdated > 0) {
         parts.push(`пересчитано абонементов: ${data.subscriptionsUpdated}`)
       }
+      // Отмеченные занятия отмена дня не трогает — говорим об этом прямо,
+      // иначе «удалено N» читается как «день снят целиком».
+      if (Array.isArray(data.kept) && data.kept.length > 0) {
+        parts.push(`сохранено с отметками: ${data.kept.length} (${data.kept.join("; ")})`)
+      }
       setResult(parts.join(", "))
       router.refresh()
     } catch {

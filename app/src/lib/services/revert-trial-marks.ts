@@ -32,16 +32,35 @@ export async function revertAttendedTrialsOnLessonMove(
   const { tenantId, lessonId } = params
   const now = params.now ?? new Date()
 
-  const trials = await tx.trialLesson.findMany({
+  const candidates = await tx.trialLesson.findMany({
     where: { tenantId, lessonId, status: "attended" },
     select: { id: true, clientId: true, wardId: true, applicationId: true },
+    orderBy: { createdAt: "asc" },
   })
-  if (trials.length === 0) return 0
+  if (candidates.length === 0) return 0
 
-  await tx.trialLesson.updateMany({
-    where: { id: { in: trials.map((t) => t.id) } },
-    data: { status: "scheduled", attendedAt: null },
-  })
+  // Частичный уникальный индекс trial_lessons_application_scheduled_uniq
+  // (application_id WHERE status='scheduled') — у заявки может быть только ОДНО
+  // запланированное пробное. Поэтому возвращаем в «Не отмечено» по одному и
+  // только когда место свободно: иначе (у заявки уже есть новое пробное, или на
+  // занятии лежит дубль той же заявки) вставка упала бы, и вместе с ней —
+  // весь перенос занятия. Не влезшие оставляем «Пришёл»: воронку всё равно ведёт
+  // более свежее пробное, а ронять перенос из-за редкого дубля нельзя.
+  const trials: typeof candidates = []
+  for (const t of candidates) {
+    if (t.applicationId) {
+      const occupied = await tx.trialLesson.count({
+        where: { tenantId, applicationId: t.applicationId, status: "scheduled" },
+      })
+      if (occupied > 0) continue
+    }
+    await tx.trialLesson.update({
+      where: { id: t.id },
+      data: { status: "scheduled", attendedAt: null },
+    })
+    trials.push(t)
+  }
+  if (trials.length === 0) return 0
 
   // Этап заявки откатываем только если у неё не осталось других «Пришёл»
   // пробных (у заявки их может быть несколько — напр. пробные в разные группы).
