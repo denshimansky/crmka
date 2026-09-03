@@ -517,6 +517,37 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
     }
 
+    // Перенос двигает и записанные на занятие пробные. У TrialLesson своя копия
+    // даты (scheduledDate) — по ней живут воронка «Продажи», вкладка
+    // «Расписание» в карточке клиента и задачи-напоминания. Без синхронизации
+    // занятие уезжало, а пробное продолжало показывать старую дату (ссылка при
+    // этом уже вела в перенесённое занятие).
+    if (isMove && data.date !== undefined) {
+      await tx.trialLesson.updateMany({
+        where: { lessonId: id, tenantId, status: { not: "cancelled" } },
+        data: { scheduledDate: newDate },
+      })
+    }
+    // Время и длительность есть только у ИНДИВИДУАЛЬНОГО пробного (у группового
+    // они null — время берётся от занятия группы). Двигаем их вместе с его
+    // занятием-держателем.
+    if (isMove && (data.startTime !== undefined || data.durationMinutes !== undefined)) {
+      await tx.trialLesson.updateMany({
+        where: {
+          lessonId: id,
+          tenantId,
+          status: { not: "cancelled" },
+          startTime: { not: null },
+        },
+        data: {
+          ...(data.startTime !== undefined ? { startTime: newStartTime } : {}),
+          ...(data.durationMinutes !== undefined
+            ? { durationMinutes: newDurationMinutes }
+            : {}),
+        },
+      })
+    }
+
     return tx.lesson.update({ where: { id }, data: updateData })
   })
 
