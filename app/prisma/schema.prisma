@@ -1641,7 +1641,10 @@ model AbsenceReason {
 model LessonStudentNote {
   id        String   @id @default(uuid()) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
-  lessonId  String   @map("lesson_id") @db.Uuid
+  /// null — занятие удалено: заметка переживает его (FK SET NULL), опора на lessonDate.
+  lessonId  String?  @map("lesson_id") @db.Uuid
+  /// Дата занятия на момент записи — чтобы заметка читалась и без занятия.
+  lessonDate DateTime? @map("lesson_date") @db.Date
   clientId  String   @map("client_id") @db.Uuid
   wardId    String?  @map("ward_id") @db.Uuid
   comment   String
@@ -1650,7 +1653,7 @@ model LessonStudentNote {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [tenantId], references: [id])
-  lesson       Lesson       @relation(fields: [lessonId], references: [id])
+  lesson       Lesson?      @relation(fields: [lessonId], references: [id], onDelete: SetNull)
   client       Client       @relation(fields: [clientId], references: [id])
   creator      Employee?    @relation("LessonStudentNoteCreator", fields: [createdBy], references: [id])
 
@@ -1658,6 +1661,7 @@ model LessonStudentNote {
   // защита от дублей делается find-then-write в транзакции в эндпоинте.
   @@unique([tenantId, lessonId, clientId, wardId])
   @@index([tenantId, lessonId])
+  @@index([tenantId, clientId])
   @@map("lesson_student_notes")
 }
 
@@ -1995,6 +1999,7 @@ enum TaskAutoTrigger {
   first_paid_reminder
   package_expiring
   reselect_package_lesson
+  reassign_trial
 }
 
 enum TaskStatus {

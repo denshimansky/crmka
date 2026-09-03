@@ -511,7 +511,12 @@ export default async function LessonsAbsencesPage({
       })
     : []
   const noteMap = new Map<string, string>()
-  for (const n of notes) noteMap.set(noteKey(n.lessonId, n.clientId, n.wardId), n.comment)
+  // lessonId у заметки nullable (занятие могли удалить — FK SET NULL). В реестре
+  // показываем только привязанные к живому занятию; осиротевшие видны в истории клиента.
+  for (const n of notes) {
+    if (!n.lessonId) continue
+    noteMap.set(noteKey(n.lessonId, n.clientId, n.wardId), n.comment)
+  }
 
   // === Формируем строки для выбранной вкладки ===
   const groupsMap = new Map<string, AbsenceGroupRow>()

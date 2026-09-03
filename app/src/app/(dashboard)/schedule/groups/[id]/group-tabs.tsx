@@ -909,10 +909,14 @@ function ArchiveSection({
   const [loading, setLoading] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Перечень записей, мешающих архивации (пробные) — API отдаёт их списком,
+  // иначе админ не поймёт, кого именно переносить в «Продажах».
+  const [errorDetails, setErrorDetails] = useState<string[]>([])
 
   async function handleArchiveToggle() {
     setLoading(true)
     setError(null)
+    setErrorDetails([])
     try {
       const res = await fetch(`/api/groups/${groupId}`, {
         method: "PATCH",
@@ -922,6 +926,7 @@ function ArchiveSection({
       if (!res.ok) {
         const data = await res.json()
         setError(data.error || "Ошибка")
+        setErrorDetails(Array.isArray(data.trials) ? data.trials : [])
         return
       }
       setConfirmOpen(false)
@@ -944,6 +949,13 @@ function ArchiveSection({
       {error && (
         <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
           {error}
+          {errorDetails.length > 0 && (
+            <ul className="mt-2 list-disc pl-5">
+              {errorDetails.map((d) => (
+                <li key={d}>{d}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>

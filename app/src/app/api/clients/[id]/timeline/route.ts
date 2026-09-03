@@ -90,6 +90,7 @@ type EventKind =
   | "subscription_paid_from_balance"
   | "balance_credit"
   | "balance_debit"
+  | "lesson_note"
   | "attendance_present"
   | "attendance_absent"
   | "attendance_other"
@@ -370,16 +371,36 @@ export async function GET(
   // Свободные комментарии оператора к занятиям (lesson_student_notes) — вводятся в
   // реестре «Пропуски» и встраиваются в событие «посещение» истории. Ключ —
   // (занятие, подопечный) для этого клиента (wardId || "" — как и прочие ключи).
-  const attLessonIds = Array.from(new Set(attendances.map((a) => a.lessonId)))
-  const lessonNotes = attLessonIds.length > 0
-    ? await db.lessonStudentNote.findMany({
-        where: { tenantId, clientId, lessonId: { in: attLessonIds } },
-        select: { lessonId: true, wardId: true, comment: true },
-      })
-    : []
+  // Берём ВСЕ заметки клиента, а не только по занятиям с отметками: заметка
+  // пишется и на «Неотмеченных», и переживает удаление занятия (lessonId
+  // обнуляется, опорой остаётся lessonDate). Те, что легли на отметку, —
+  // встраиваем в её событие; остальные идут отдельными событиями ленты, иначе
+  // комментарий оператора нигде в истории клиента не виден.
+  const attLessonIds = new Set(attendances.map((a) => a.lessonId))
+  const lessonNotes = await db.lessonStudentNote.findMany({
+    where: { tenantId, clientId },
+    select: {
+      id: true,
+      lessonId: true,
+      lessonDate: true,
+      wardId: true,
+      comment: true,
+      createdAt: true,
+      createdBy: true,
+      lesson: {
+        select: {
+          date: true,
+          startTime: true,
+          group: { select: { name: true, direction: { select: { name: true } } } },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 500,
+  })
   const lessonNoteMap = new Map<string, string>()
   for (const n of lessonNotes) {
-    lessonNoteMap.set(`${n.lessonId}|${n.wardId || ""}`, n.comment)
+    if (n.lessonId) lessonNoteMap.set(`${n.lessonId}|${n.wardId || ""}`, n.comment)
   }
 
   const events: TimelineEvent[] = []
@@ -835,6 +856,33 @@ export async function GET(
         .filter(Boolean)
         .join(" · "),
       meta: { attendanceId: a.id, charge: Number(a.chargeAmount), author: authorName(a.markedBy) },
+    })
+  }
+
+  // --- Комментарии оператора к занятиям, не попавшие в событие посещения
+  // (занятие не отмечено или уже удалено — тогда опираемся на снимок даты).
+  for (const n of lessonNotes) {
+    if (n.lessonId && attLessonIds.has(n.lessonId)) continue
+    if (wardId && n.wardId !== wardId) continue
+    const when = n.lesson?.date ?? n.lessonDate
+    const noteWardName = !wardId && n.wardId ? wardNameById.get(n.wardId) || null : null
+    events.push({
+      id: `lesson-note-${n.id}`,
+      kind: "lesson_note",
+      date: n.createdAt.toISOString(),
+      title: when
+        ? `Комментарий к занятию · ${when.toLocaleDateString("ru-RU")}${n.lesson?.startTime ? ` ${n.lesson.startTime}` : ""}`
+        : "Комментарий к занятию",
+      description: [
+        n.comment,
+        n.lesson?.group?.direction?.name ?? null,
+        n.lesson?.group?.name ? `группа: ${n.lesson.group.name}` : null,
+        noteWardName ? `подопечный: ${noteWardName}` : null,
+        n.lessonId ? null : "занятие удалено",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      meta: { author: authorName(n.createdBy) },
     })
   }
 

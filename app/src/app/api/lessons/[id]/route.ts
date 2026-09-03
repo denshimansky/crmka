@@ -78,6 +78,9 @@ const updateSchema = z.object({
   durationMinutes: z.number().int().positive().max(600).optional(),
   // Подтверждение сброса отметок (если на занятии есть посещения)
   confirmResetAttendances: z.boolean().optional(),
+  // Подтверждение отмены занятия, на которое записаны пробные: они останутся
+  // без занятия, каждому ставится задача «Переназначить пробное».
+  confirmTrialsLoseLesson: z.boolean().optional(),
 })
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -412,6 +415,52 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // пробного (см. lib/schedule/room-conflict → standalone-lessons, trial-lesson).
   }
 
+  // ── Отмена занятия с записанными пробными ──
+  // Удаление занятия с активными пробными этот роут запрещает, а отмена раньше
+  // не проверяла ничего: занятие уходило из сетки, и пробное оставалось висеть
+  // без занятия (отменить его на карточке занятия нельзя — только в «Продажах»).
+  // Отмена обратима, поэтому не запрещаем, а требуем подтверждения и ставим
+  // задачу на переназначение — как уже сделано для отработок ниже.
+  let trialsLosingLesson: Array<{
+    id: string
+    clientId: string
+    childName: string
+  }> = []
+  if (data.status === "cancelled" && existing.status !== "cancelled") {
+    const rows = await db.trialLesson.findMany({
+      where: { lessonId: id, tenantId, status: "scheduled" },
+      select: {
+        id: true,
+        clientId: true,
+        client: { select: { firstName: true, lastName: true } },
+        ward: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    })
+    trialsLosingLesson = rows.map((t) => ({
+      id: t.id,
+      clientId: t.clientId,
+      childName:
+        [t.ward?.lastName, t.ward?.firstName].filter(Boolean).join(" ") ||
+        [t.client.lastName, t.client.firstName].filter(Boolean).join(" ") ||
+        "Без имени",
+    }))
+    if (trialsLosingLesson.length > 0 && !data.confirmTrialsLoseLesson) {
+      return NextResponse.json(
+        {
+          error:
+            `На занятие записаны пробные (${trialsLosingLesson.length}): ` +
+            `${trialsLosingLesson.map((t) => t.childName).join(", ")}. ` +
+            `После отмены они останутся без занятия — перенесите их в «Продажах» ` +
+            `или подтвердите отмену, и на каждого появится задача «Переназначить пробное».`,
+          requiresTrialConfirmation: true,
+          trials: trialsLosingLesson.map((t) => t.childName),
+        },
+        { status: 409 },
+      )
+    }
+  }
+
   // ── Состав обновления ──
   const updateData: Record<string, unknown> = {}
   if (data.topic !== undefined) updateData.topic = data.topic
@@ -515,6 +564,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           createdBy: employeeId,
         })
       }
+    }
+
+    // Перенос сбросил отметки — пробные «Пришёл» тоже возвращаем в «Не отмечен»
+    // вместе с этапом заявки и зеркалом Ward.salesStage (Attendance и деньги
+    // откатил цикл выше). Иначе пробное остаётся «Пришёл» без отметки, а в
+    // воронке ребёнок числится прошедшим пробное, которого больше нет.
+    if (isMove && attendancesCount > 0) {
+      const { revertAttendedTrialsOnLessonMove } = await import(
+        "@/lib/services/revert-trial-marks"
+      )
+      await revertAttendedTrialsOnLessonMove(tx, { tenantId, lessonId: id })
     }
 
     // Перенос двигает и записанные на занятие пробные. У TrialLesson своя копия
@@ -621,6 +681,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         targetDirectionName: targetDirection?.name ?? "—",
         reason: "lesson_cancelled",
       })
+    }
+
+    // Пробные, потерявшие занятие: задача админу переназначить. Сами пробные
+    // не трогаем — отмену/перенос записи делают в «Продажах», где заявка
+    // двигается по воронке вместе с пробным.
+    if (trialsLosingLesson.length > 0) {
+      const { createReassignTrialTask } = await import("@/lib/tasks/reassign-trial")
+      for (const trial of trialsLosingLesson) {
+        await createReassignTrialTask(db, {
+          tenantId,
+          clientId: trial.clientId,
+          childDisplayName: trial.childName,
+          lessonDate: new Date(existing.date),
+          lessonStartTime: existing.startTime,
+          directionName: targetDirection?.name ?? "—",
+          groupName: existing.group.name,
+        })
+      }
     }
   }
 

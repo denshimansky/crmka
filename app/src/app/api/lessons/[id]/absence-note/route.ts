@@ -44,6 +44,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     where: { id: lessonId, tenantId },
     select: {
       id: true,
+      date: true,
       instructorId: true,
       substituteInstructorId: true,
       group: { select: { branchId: true } },
@@ -85,12 +86,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (existing) {
       const updated = await tx.lessonStudentNote.update({
         where: { id: existing.id },
-        data: { comment },
+        // lessonDate дописываем и старым заметкам: занятие ещё живо, а без
+        // снимка после его удаления заметку не к чему привязать в истории.
+        data: { comment, lessonDate: lesson.date },
       })
       return { action: "update" as const, id: updated.id }
     }
     const created = await tx.lessonStudentNote.create({
-      data: { tenantId, lessonId, clientId, wardId, comment, createdBy: employeeId ?? null },
+      data: {
+        tenantId,
+        lessonId,
+        lessonDate: lesson.date,
+        clientId,
+        wardId,
+        comment,
+        createdBy: employeeId ?? null,
+      },
     })
     return { action: "create" as const, id: created.id }
   })

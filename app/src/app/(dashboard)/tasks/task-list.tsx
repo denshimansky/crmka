@@ -66,6 +66,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   no_show_review: "Не был",
   first_paid_reminder: "1-е платное",
   missed_makeup: "Отработка",
+  reassign_trial: "Пробное",
 }
 
 function typeLabel(t: TaskRow): string {

@@ -99,6 +99,50 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const today = new Date()
     today.setUTCHours(0, 0, 0, 0)
 
+    // Архивация отменяет будущие занятия группы — записанное пробное осталось бы
+    // висеть без занятия в сетке (отменить его на карточке занятия нельзя,
+    // только в «Продажах»), а разархивация занятия не расотменяет. Поэтому
+    // отказываем, перечисляя конкретные записи — как nonWorkingBlockReason.
+    // Считаем только «Не отмечено» и только на будущих занятиях: отметку
+    // «Пришёл/Не пришёл» архивация не трогает, а забытое пробное на прошлом
+    // занятии иначе заперло бы группу навсегда.
+    const blockingTrials = await db.trialLesson.findMany({
+      where: {
+        tenantId: session.user.tenantId,
+        groupId: id,
+        status: "scheduled",
+        lesson: { date: { gte: today }, status: "scheduled" },
+      },
+      select: {
+        client: { select: { firstName: true, lastName: true } },
+        ward: { select: { firstName: true, lastName: true } },
+        lesson: { select: { date: true, startTime: true } },
+      },
+      orderBy: { scheduledDate: "asc" },
+      take: 20,
+    })
+    if (blockingTrials.length > 0) {
+      const details = blockingTrials.map((t) => {
+        const who =
+          [t.ward?.lastName, t.ward?.firstName].filter(Boolean).join(" ") ||
+          [t.client.lastName, t.client.firstName].filter(Boolean).join(" ") ||
+          "Без имени"
+        const when = t.lesson
+          ? `${t.lesson.date.toLocaleDateString("ru-RU")} ${t.lesson.startTime}`
+          : "—"
+        return `${when} — ${who}`
+      })
+      return NextResponse.json(
+        {
+          error:
+            `В группе есть записанные пробные (${blockingTrials.length}). ` +
+            `Перенесите или отмените их в «Продажах» (вкладка «Пробное»), потом архивируйте.`,
+          trials: details,
+        },
+        { status: 400 },
+      )
+    }
+
     const archived = await db.$transaction(async (tx) => {
       // Будущие занятия (без отметок) — отменяем. Если кто-то уже отметил
       // присутствие/отсутствие — занятие не трогаем, чтобы не потерять данные.

@@ -45,21 +45,25 @@ export async function POST(req: NextRequest) {
   const { date, branchId, reason } = parsed.data
   const targetDate = new Date(date + "T00:00:00.000Z")
 
-  // Отмена всего дня (без филиала) помечает его нерабочим в производственном
-  // календаре — то же действие, что и галка на странице календаря, и тот же
-  // запрет: пока в дне есть отметки/активные пробные, день применился бы
-  // наполовину (отмеченные занятия остались бы), а при возврате дня в рабочие
-  // генератор доложил бы дубли рядом с ними. Отмена по одному филиалу календарь
-  // не трогает — там регенерации не будет, и запрет не нужен.
-  if (!branchId) {
-    const blockers = await findNonWorkingBlockers(db, { tenantId, date: targetDate })
-    const blockReason = nonWorkingBlockReason(blockers)
-    if (blockReason) {
-      return NextResponse.json(
-        { error: blockReason, lessons: blockers.details },
-        { status: 409 },
-      )
-    }
+  // Пока в дне есть отметки или активные пробные, день применился бы наполовину:
+  // такие занятия reconcileDayToNonWorking намеренно НЕ удаляет, а ответ считает
+  // только удалённые — админ видел «отменено N» и был уверен, что день снят
+  // целиком. Плюс для отмены по всей организации: при возврате дня в рабочие
+  // генератор доложил бы дубли рядом с уцелевшими занятиями.
+  // Проверку ведём в границах того же среза, что и отмена: филиальная отмена
+  // не должна упираться в пробные соседнего филиала (findNonWorkingBlockers
+  // фильтрует по group.branchId).
+  const blockers = await findNonWorkingBlockers(db, {
+    tenantId,
+    date: targetDate,
+    branchId: branchId ?? null,
+  })
+  const blockReason = nonWorkingBlockReason(blockers)
+  if (blockReason) {
+    return NextResponse.json(
+      { error: blockReason, lessons: blockers.details },
+      { status: 409 },
+    )
   }
 
   // Удаляем занятия дня без реальных отметок и пересчитываем абонементы
