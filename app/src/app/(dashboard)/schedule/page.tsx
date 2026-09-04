@@ -7,7 +7,6 @@ import {
   scopeLessonForInstructor,
   scopeRoom,
   scopeTrialLesson,
-  isUnscoped,
 } from "@/lib/branch-scope"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -17,6 +16,7 @@ import { StandaloneLessonDialog } from "./standalone-lesson-dialog"
 import { SchedulePrintButton } from "@/components/schedule-print"
 import { PageHelp } from "@/components/page-help"
 import { ScheduleFilterableGrid } from "./schedule-filters"
+import { wardVisibilityWhere, formatWardOptionLabel } from "@/lib/wards/ward-scope"
 import {
   buildMonthGridFull,
   getMonthGridRange,
@@ -142,50 +142,33 @@ export default async function SchedulePage({
     orderBy: { name: "asc" },
   })
 
-  // Список подопечных для селекта фильтра (с ФИО родителя для уникальности тёзок).
-  // Берём только активных, чтобы не загромождать список архивом.
-  // ADM-04: инструктор видит только детей своих групп (включая замены);
-  // админ — только детей групп своих филиалов.
-  const wardEnrollmentFilter: Prisma.GroupEnrollmentListRelationFilter | undefined =
-    session.user.role === "instructor"
-      ? {
-          some: {
-            isActive: true,
-            deletedAt: null,
-            group: {
-              OR: [
-                { instructorId: session.user.employeeId },
-                { lessons: { some: { substituteInstructorId: session.user.employeeId } } },
-              ],
-              ...(isUnscoped(scope) ? {} : { branchId: { in: scope.branchIds } }),
-            },
-          },
-        }
-      : isUnscoped(scope)
-        ? undefined
-        : {
-            some: {
-              isActive: true,
-              deletedAt: null,
-              group: { branchId: { in: scope.branchIds } },
-            },
-          }
-
-  const wardsForFilter = await db.ward.findMany({
-    where: {
-      tenantId,
-      client: { deletedAt: null },
-      ...(wardEnrollmentFilter ? { enrollments: wardEnrollmentFilter } : {}),
-    },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      client: { select: { firstName: true, lastName: true } },
-    },
-    orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
-    take: 1000,
-  })
+  // Фильтр «Ребёнок»: список детей на клиент больше НЕ выгружаем. Раньше сюда
+  // грузилась тысяча подопечных (take: 1000) и фильтрация шла в браузере — при
+  // базе крупнее этого лимита обрезался хвост алфавита, и ребёнок просто «не
+  // находился». Теперь поиск серверный (GET /api/wards/search, та же видимость
+  // через wardVisibilityWhere), а странице нужна только подпись уже выбранного
+  // ребёнка — для плашки активного фильтра и для поля до первого запроса.
+  const wardVisibility = wardVisibilityWhere(
+    session.user.role,
+    session.user.employeeId,
+    scope,
+  )
+  const selectedWard = wardIdFilter
+    ? await db.ward.findFirst({
+        where: {
+          id: wardIdFilter,
+          tenantId,
+          client: { deletedAt: null },
+          ...(wardVisibility ?? {}),
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          client: { select: { firstName: true, lastName: true } },
+        },
+      })
+    : null
 
   // scope и фильтр по wardId оба используют ключ `group` — собираем через AND,
   // чтобы не перезаписывать друг друга.
@@ -197,12 +180,45 @@ export default async function SchedulePage({
   ]
   if (Object.keys(lessonScope).length > 0) lessonExtraConditions.push(lessonScope)
   if (wardIdFilter) {
+    // Фильтр «Ребёнок» показывает ВСЕ занятия, где ребёнок стоит в составе, а не
+    // только те, где он постоянный ученик группы. Состав занятия шире зачислений
+    // (см. карточку занятия и счётчик «N/max»): пробники и отработки группа сама
+    // про себя не знает. Иначе фильтр «терял» занятие, на котором ребёнок реально
+    // числится, и выглядел сломанным.
     lessonExtraConditions.push({
-      group: {
-        enrollments: {
-          some: { wardId: wardIdFilter, isActive: true, deletedAt: null },
+      OR: [
+        // Постоянный ученик группы.
+        {
+          group: {
+            enrollments: {
+              some: { wardId: wardIdFilter, isActive: true, deletedAt: null },
+            },
+          },
         },
-      },
+        // Пробное в группе на это занятие (условия — как у счётчика
+        // заполняемости: живая заявка, не отменённое пробное).
+        {
+          trialLessons: {
+            some: {
+              wardId: wardIdFilter,
+              status: { in: ["scheduled", "attended"] },
+              NOT: { application: { deletedAt: { not: null } } },
+            },
+          },
+        },
+        // Назначенная, но ещё не отмеченная отработка НА это занятие.
+        {
+          scheduledMakeupAttendances: {
+            some: {
+              wardId: wardIdFilter,
+              attendanceType: { code: "makeup_scheduled" },
+            },
+          },
+        },
+        // Любая отметка на занятии: отмеченная отработка, разовое посещение,
+        // ретро-состав по закрытому абонементу — ребёнок на занятии был.
+        { attendances: { some: { wardId: wardIdFilter } } },
+      ],
     })
   }
 
@@ -622,15 +638,8 @@ export default async function SchedulePage({
         branches={branches.map((b) => ({ id: b.id, name: b.name }))}
         directions={directions}
         instructors={instructors}
-        wards={wardsForFilter.map((w) => ({
-          id: w.id,
-          firstName: w.firstName,
-          lastName: w.lastName,
-          parentName:
-            [w.client.lastName, w.client.firstName].filter(Boolean).join(" ") ||
-            "Без имени",
-        }))}
         currentWardId={wardIdFilter}
+        currentWardName={selectedWard ? formatWardOptionLabel(selectedWard) : null}
         weekDays={weekDays}
         dayNames={DAY_NAMES}
         gridDays={gridDays}

@@ -13,6 +13,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { X, Filter, Baby } from "lucide-react"
+import { ClientCombobox } from "@/components/client-combobox"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import type { ScheduleView } from "./schedule-week-nav"
 import { BRANCH_ALL_VALUE, useBranchFilter } from "@/hooks/use-branch-filter"
@@ -72,21 +73,16 @@ interface RoomWithBranch {
   branchId: string
 }
 
-interface WardOption {
-  id: string
-  firstName: string
-  lastName: string | null
-  parentName: string
-}
-
 interface ScheduleFiltersProps {
   lessons: LessonData[]
   allRooms: RoomWithBranch[]
   branches: Branch[]
   directions: Direction[]
   instructors: Instructor[]
-  wards: WardOption[]
   currentWardId: string | null
+  /** Подпись выбранного ребёнка («Фамилия Имя · Родитель») — список детей
+   *  целиком на клиент больше не выгружается, поиск идёт через API. */
+  currentWardName: string | null
   weekDays: string[] // ISO date strings
   dayNames: string[]
   gridDays: { date: string; inCurrentMonth: boolean }[]
@@ -98,11 +94,6 @@ interface ScheduleFiltersProps {
   /** Роль позволяет переносить пробные из диалога (owner/manager/admin). */
   canRescheduleTrials: boolean
   canMarkTrials: boolean
-}
-
-function wardLabel(w: WardOption): string {
-  const own = [w.lastName, w.firstName].filter(Boolean).join(" ") || "Без имени"
-  return `${own} · ${w.parentName}`
 }
 
 function getOccupancyStyle(enrolled: number, max: number): { className: string; label: string } {
@@ -129,8 +120,8 @@ export function ScheduleFilterableGrid({
   branches,
   directions,
   instructors,
-  wards,
   currentWardId,
+  currentWardName,
   weekDays,
   dayNames,
   gridDays,
@@ -154,7 +145,6 @@ export function ScheduleFilterableGrid({
     allowAll: view === "week",
     defaultBranchId: branches[0]?.id ?? "",
   })
-  const [wardSearch, setWardSearch] = useState<string>("")
 
   const hasFilters = !!(roomFilter || directionFilter || instructorFilter || currentWardId)
 
@@ -175,18 +165,6 @@ export function ScheduleFilterableGrid({
     const qs = params.toString()
     router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
   }
-
-  const selectedWard = wards.find((w) => w.id === currentWardId) || null
-  const filteredWards = useMemo(() => {
-    const q = wardSearch.trim().toLowerCase()
-    if (!q) return wards.slice(0, 100)
-    return wards
-      .filter((w) => {
-        const own = [w.lastName, w.firstName].filter(Boolean).join(" ").toLowerCase()
-        return own.includes(q) || w.parentName.toLowerCase().includes(q)
-      })
-      .slice(0, 100)
-  }, [wards, wardSearch])
 
   // В месячном виде сетки кабинетов нет — фильтрация по филиалу должна работать
   // явно через сами занятия (lesson → room → branch). В неделе это делает
@@ -242,9 +220,9 @@ export function ScheduleFilterableGrid({
       onClear: () => setInstructorFilter(""),
     })
   }
-  if (selectedWard) {
+  if (currentWardId) {
     activeFilterLabels.push({
-      label: `Ребёнок: ${wardLabel(selectedWard)}`,
+      label: `Ребёнок: ${currentWardName || "выбран"}`,
       onClear: () => setWardFilter(null),
     })
   }
@@ -354,50 +332,24 @@ export function ScheduleFilterableGrid({
           </SelectContent>
         </Select>
 
-        <Select
+        {/* Фильтр по ребёнку — комбобокс с серверным поиском, а не Select со
+            встроенным полем: список детей в браузер целиком не грузится (иначе
+            обрезался хвост алфавита), выпадашка привязана к полю и не «уезжает»
+            при вводе, а длинное ФИО обрезается внутри поля, а не наезжает на
+            соседние элементы. */}
+        <ClientCombobox
+          className="w-[260px]"
           value={currentWardId ?? ""}
-          onValueChange={(v) => setWardFilter(v || null)}
-        >
-          <SelectTrigger className="w-[260px]">
-            {selectedWard ? (
-              <span className="flex items-center gap-1.5">
-                <Baby className="size-3.5" />
-                {wardLabel(selectedWard)}
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Baby className="size-3.5" />
-                Ребёнок
-              </span>
-            )}
-          </SelectTrigger>
-          <SelectContent>
-            <div className="sticky top-0 z-10 -mx-1 mb-1 border-b bg-popover p-1">
-              <input
-                value={wardSearch}
-                onChange={(e) => setWardSearch(e.target.value)}
-                onKeyDown={(e) => e.stopPropagation()}
-                onPointerDown={(e) => e.stopPropagation()}
-                placeholder="Поиск по ФИО ребёнка или родителя..."
-                className="h-8 w-full rounded-sm border bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
-            {selectedWard && !filteredWards.some((w) => w.id === selectedWard.id) && (
-              <SelectItem value={selectedWard.id}>{wardLabel(selectedWard)}</SelectItem>
-            )}
-            {filteredWards.length === 0 ? (
-              <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                Не найдено
-              </div>
-            ) : (
-              filteredWards.map((w) => (
-                <SelectItem key={w.id} value={w.id}>
-                  {wardLabel(w)}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
+          onChange={(id) => setWardFilter(id || null)}
+          placeholder="Ребёнок"
+          icon={<Baby />}
+          serverSearch={{ url: "/api/wards/search" }}
+          initialOption={
+            currentWardId
+              ? { id: currentWardId, name: currentWardName || "Выбранный ребёнок" }
+              : null
+          }
+        />
 
         {hasFilters && (
           <Button variant="ghost" size="sm" onClick={clearFilters}>
@@ -414,11 +366,14 @@ export function ScheduleFilterableGrid({
             <Badge
               key={f.label}
               variant="secondary"
-              className="cursor-pointer gap-1 pr-1"
+              className="max-w-full cursor-pointer gap-1 pr-1"
               onClick={f.onClear}
+              title={f.label}
             >
-              {f.label}
-              <X className="size-3" />
+              {/* Длинное ФИО (ребёнок + родитель) обрезаем внутри плашки, иначе
+                  она вылезает за строку фильтров. */}
+              <span className="min-w-0 truncate">{f.label}</span>
+              <X className="size-3 shrink-0" />
             </Badge>
           ))}
         </div>

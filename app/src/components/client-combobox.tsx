@@ -45,6 +45,8 @@ interface ClientComboboxProps {
   /** Серверный режим: подпись предвыбранного value, когда список ещё не загружен
    *  (напр. форма открыта с уже выбранным клиентом). */
   initialOption?: ClientComboboxOption | null
+  /** Иконка слева в поле (напр. <Baby/> у фильтра расписания по ребёнку). */
+  icon?: React.ReactNode
 }
 
 /**
@@ -68,6 +70,7 @@ export function ClientCombobox({
   options,
   serverSearch,
   initialOption = null,
+  icon,
 }: ClientComboboxProps) {
   const server = !!serverSearch
   const [open, setOpen] = React.useState(false)
@@ -176,6 +179,11 @@ export function ClientCombobox({
   return (
     <div ref={containerRef} className={cn("relative", className)}>
       <div className="relative">
+        {icon && (
+          <span className="pointer-events-none absolute top-1/2 left-2.5 flex -translate-y-1/2 items-center text-muted-foreground [&_svg]:size-3.5">
+            {icon}
+          </span>
+        )}
         <Input
           value={display}
           placeholder={placeholder}
@@ -187,7 +195,7 @@ export function ClientCombobox({
             setOpen(true)
             setQuery(e.target.value)
           }}
-          className="pr-8"
+          className={cn("pr-8", icon && "pl-7")}
         />
         <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
       </div>
