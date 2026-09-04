@@ -48,6 +48,10 @@ jobs:
           username: deploy
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: CRON_SECRET,GH_TOKEN
+          # Без явного значения ssh-action рвёт SSH через 10 минут: холодная
+          # сборка (пустой кеш npm) идёт дольше и падала бы посреди билда.
+          command_timeout: 60m
+          timeout: 60s
           script: |
             set -e  # любой провал шага = провал деплоя (раньше билд мог упасть, а up -d продолжал на старом образе)
             cd /opt/crmka
@@ -126,8 +130,18 @@ jobs:
             docker compose exec -T app npx prisma migrate deploy
             # Перезагружаем nginx если конфиг менялся (bind-mount; контейнер сам не перечитывает)
             docker compose exec -T nginx nginx -t && docker compose exec -T nginx nginx -s reload || true
-            # Чистим build cache старше 7 дней (иначе диск забивается за неделю)
-            docker builder prune -af --filter "until=168h" || true
+            # Кеп кеша сборки ПО РАЗМЕРУ, а не по возрасту.
+            #
+            # Было `prune -af --filter until=168h`: фильтр считает возраст от
+            # СОЗДАНИЯ записи. Пока package-lock.json не менялся, слои npm ci
+            # жили неделю, а потом первый же деплой сносил весь кеш — включая
+            # слои, которыми та же сборка пользовалась минуту назад (04.09.2026:
+            # диск 72%->24%, прунинг напечатал `Total: 0B`). Следующий деплой
+            # собирал npm с нуля ~18 минут и не влезал в SSH-таймаут.
+            #
+            # --max-used-space держит потолок и вытесняет ПО ДАВНОСТИ
+            # ИСПОЛЬЗОВАНИЯ: горячие слои npm остаются, холодные уходят.
+            docker builder prune -f --max-used-space 20GB || true
             echo "Deploy complete: $(date)"
 
       - name: Health check

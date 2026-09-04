@@ -1,3 +1,20 @@
+# Логи контейнеров пишем в systemd-journal, а не в json-file.
+#
+# Причина: json-лог живёт внутри каталога контейнера и УДАЛЯЕТСЯ вместе с ним.
+# Каждый деплой пересоздаёт app и cron — их логи стирались, разобрать баг
+# «за прошлый месяц» было нечем. Плюс json-file по умолчанию без ротации:
+# лог nginx за 86 дней вырос до 2.3 ГБ и продолжал бы расти.
+#
+# journald переживает пересоздание контейнера, держит единую политику хранения
+# (см. /etc/systemd/journald.conf.d/crmka.conf на серверах: потолок 12 ГБ,
+# удаления по времени нет — при ~60 МБ/сутки это 6-7 месяцев истории при
+# требуемом минимуме в 3 месяца) и читается как `docker compose logs`, так и
+# `journalctl -t crmka-app-1 --since "2026-07-01"`.
+x-logging: &journald-logging
+  driver: journald
+  options:
+    tag: "{{.Name}}"
+
 services:
   app:
     build:
@@ -9,6 +26,7 @@ services:
       network: host
     restart: unless-stopped
     env_file: .env
+    logging: *journald-logging
     environment:
       # Каталог загрузок базы знаний внутри контейнера (см. том kb-uploads ниже).
       KB_UPLOAD_DIR: /app/uploads
@@ -25,6 +43,7 @@ services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    logging: *journald-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-crmka}
       POSTGRES_USER: ${POSTGRES_USER:-crmka}
@@ -42,6 +61,7 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
+    logging: *journald-logging
     ports:
       - "80:80"
       - "443:443"
@@ -57,6 +77,7 @@ services:
 
   certbot:
     image: certbot/certbot
+    logging: *journald-logging
     volumes:
       - certbot-conf:/etc/letsencrypt
       - certbot-www:/var/www/certbot
@@ -74,6 +95,7 @@ services:
       network: host
     restart: unless-stopped
     env_file: .env
+    logging: *journald-logging
     environment:
       CRON_BASE_URL: http://app:3000
       TZ: UTC

@@ -53,7 +53,7 @@ jobs:
           # Дефолтный command_timeout ssh-action = 10 мин — он рвал SSH прямо на
           # `docker compose up -d` (recreate), оставляя app-контейнер лежащим.
           # Ставим запас. connection timeout (`timeout`) поднимаем до 60s.
-          command_timeout: 30m
+          command_timeout: 60m
           timeout: 60s
           script: |
             # set -e: любой провал шага (особенно `docker compose build`) валит весь
@@ -133,8 +133,18 @@ jobs:
               WHERE NOT EXISTS (SELECT 1 FROM \"_prisma_migrations\" WHERE migration_name = '20260331093420_initial');
             "
             docker compose exec -T app npx prisma migrate deploy
-            # Чистим build cache старше 7 дней (образы НЕ трогаем — node:22-alpine остаётся в кеше)
-            docker builder prune -af --filter "until=168h" || true
+            # Кеп кеша сборки ПО РАЗМЕРУ, а не по возрасту.
+            #
+            # Было `prune -af --filter until=168h`: фильтр считает возраст от
+            # СОЗДАНИЯ записи. Пока package-lock.json не менялся, слои npm ci
+            # жили неделю, а потом первый же деплой сносил весь кеш — включая
+            # слои, которыми та же сборка пользовалась минуту назад (04.09.2026:
+            # диск 72%->24%, прунинг напечатал `Total: 0B`). Следующий деплой
+            # собирал npm с нуля ~18 минут и не влезал в SSH-таймаут.
+            #
+            # --max-used-space держит потолок и вытесняет ПО ДАВНОСТИ
+            # ИСПОЛЬЗОВАНИЯ: горячие слои npm остаются, холодные уходят.
+            docker builder prune -f --max-used-space 20GB || true
             echo "Deploy complete: $(date)"
 
       - name: Health check

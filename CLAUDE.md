@@ -129,6 +129,8 @@ CRM-система для детских центров и сферы услуг
   - Поднят параллельно с Hetzner (БД синхронизирована через pg_dump 10.06.2026). Переключение DNS / вывод Hetzner — после приёмки.
 - **Контейнеры:** Docker Compose (app + PostgreSQL 17 + nginx + certbot)
 - **SSL:** Let's Encrypt, автообновление через certbot
+- **Логи контейнеров:** драйвер `journald` (не json-file) — переживают пересоздание контейнера при деплое. Хранение: потолок 12 ГБ, без удаления по времени (~6-7 мес при требуемом минимуме 3 мес), конфиг `/etc/systemd/journald.conf.d/crmka.conf` на msk1 (на Hetzner — дефолты systemd, sudo под паролем). Читать: `docker compose logs` или `journalctl -t crmka-app-1 --since "2026-07-01"`. Архив старых json-логов до перехода — `/opt/crmka/backups/logs-archive/`
+- **Кеш сборки:** пост-билд `docker builder prune -f --max-used-space 20GB` — кеп по размеру. Прежний `--filter until=168h` раз в неделю сносил кеш ЦЕЛИКОМ (возраст считается от создания записи) → холодная сборка ~35 мин и обрыв по SSH-таймауту
 - **CI/CD:** GitHub Actions → SSH deploy key → docker compose build + up
 - **Репозиторий:** /opt/crmka на сервере
 
