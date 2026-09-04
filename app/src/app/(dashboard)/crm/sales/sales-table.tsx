@@ -36,7 +36,6 @@ import { TrialLessonDialog } from "../_components/trial-lesson-dialog"
 import { AwaitingPaymentDialog } from "../_components/awaiting-payment-dialog"
 import { AwaitingFirstPaidDateCell } from "./awaiting-first-paid-date-cell"
 import { formatWardName } from "@/lib/format-name"
-import { truncateGroupName } from "@/lib/format-group"
 import { EditSalesRowDialog } from "./edit-sales-row-dialog"
 
 export type SalesTabKey = "application" | "trial" | "trial_done" | "awaiting_payment"
@@ -200,7 +199,7 @@ const DEFAULT_WIDTHS: Record<ColId, number> = {
   scheduled: 150,
   branch: 140,
   direction: 150,
-  group: 150,
+  group: 220,
   createdAt: 120,
   firstPaid: 160,
   expected: 170,
@@ -647,7 +646,7 @@ export function SalesTable({
                 <TableCell className="text-sm">{r.directionName || "—"}</TableCell>
                 {(tab === "trial" || tab === "trial_done" || tab === "awaiting_payment") && (
                   <TableCell className="text-sm" title={r.groupOrTimeLabel || undefined}>
-                    {truncateGroupName(r.groupOrTimeLabel)}
+                    {r.groupOrTimeLabel || "—"}
                   </TableCell>
                 )}
                 {tab === "application" && <TableCell className="text-sm">{fmtDate(r.createdAt)}</TableCell>}

@@ -18,7 +18,6 @@ import {
 import { Search, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { cn } from "@/lib/utils"
-import { truncateGroupName } from "@/lib/format-group"
 import { useMoneyFormat } from "@/components/currency-provider"
 import { RenewButton } from "./renew-button"
 
@@ -55,7 +54,7 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   ward: 220,
   direction: 150,
   branch: 140,
-  group: 160,
+  group: 220,
   amount: 140,
   paid: 130,
   period: 180,
@@ -355,7 +354,7 @@ export function SubscriptionsTable({
                   </TableCell>
                   <TableCell>{r.directionName}</TableCell>
                   <TableCell>{r.branchName}</TableCell>
-                  <TableCell title={r.groupName || undefined}>{truncateGroupName(r.groupName)}</TableCell>
+                  <TableCell title={r.groupName || undefined}>{r.groupName || "—"}</TableCell>
                   <TableCell className="text-right">{fmtMoney(r.finalAmount)}</TableCell>
                   <TableCell className="text-right">{fmtMoney(r.paidAmount)}</TableCell>
                   <TableCell>{periodLabel(r)}</TableCell>

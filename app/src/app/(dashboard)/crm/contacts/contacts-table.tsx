@@ -21,7 +21,6 @@ import {
 import { CreateApplicationDialog } from "../_components/create-application-dialog"
 import { StickyHScroll } from "@/components/sticky-h-scroll"
 import { useRoleNames } from "@/components/role-names-provider"
-import { truncateGroupName } from "@/lib/format-group"
 import {
   SEGMENT_LABELS,
   firstWardBirth,
@@ -135,7 +134,7 @@ const DEFAULT_WIDTHS: Record<ColId, number> = {
   channel: 130,
   branch: 140,
   direction: 150,
-  group: 150,
+  group: 220,
   instructor: 160,
   created: 120,
   // 160 = инпут даты (w-[140px]) + паддинги ячейки, иначе правый край клипается
@@ -476,7 +475,7 @@ export function ContactsTable({
               )}
               {tab === "active" && (
                 <TableCell className="text-sm" title={r.activeSubscription?.groupName || undefined}>
-                  {truncateGroupName(r.activeSubscription?.groupName)}
+                  {r.activeSubscription?.groupName || "—"}
                 </TableCell>
               )}
               {tab === "active" && (
