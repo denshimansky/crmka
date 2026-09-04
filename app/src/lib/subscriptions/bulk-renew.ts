@@ -33,6 +33,7 @@ import { directionPriceAt, toUtcDay } from "@/lib/subscriptions/direction-price"
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { netPaidBySubscriptions } from "@/lib/subscriptions/net-paid"
 import { logSubscriptionsIssued } from "@/lib/subscriptions/audit-price"
+import { adoptOneOffAttendances } from "@/lib/subscriptions/adopt-one-off-attendances"
 
 export interface BulkRenewInput {
   tenantId: string
@@ -817,6 +818,20 @@ export async function applyBulkRenew(opts: BulkRenewInput): Promise<BulkRenewRes
         clientId,
         createdBy: opts.createdBy ?? null,
         newSubscriptionIds: subIds,
+      })
+    }
+
+    // Массовая выписка идёт задним числом (период уже начался), поэтому занятия
+    // начала месяца часто успевают отметить до появления абонемента — они
+    // списываются с баланса родителя как разовые. Переводим их на абонемент с
+    // возвратом разового списания: иначе те же занятия оплачены дважды, ведь в
+    // totalLessons/finalAmount они уже посчитаны. После recalc — списание по
+    // цене со скидкой.
+    for (const { subId } of createdSubs) {
+      await adoptOneOffAttendances(tx, {
+        tenantId: opts.tenantId,
+        subscriptionId: subId,
+        createdBy: opts.createdBy ?? null,
       })
     }
 

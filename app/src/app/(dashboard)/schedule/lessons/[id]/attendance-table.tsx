@@ -968,6 +968,21 @@ export function AttendanceTable({
                   Ожидаем оплату
                 </Badge>
               )}
+              {/* Ученик в составе группы, но абонемента на эту дату нет: отметка
+                  спишется с баланса родителя как разовая. Раньше такая строка
+                  выглядела как обычная — администратор отмечал «Был», не зная,
+                  что занятие уходит мимо абонемента (кейс Вершининой). */}
+              {!student.subscriptionId &&
+                !student.isOneTime &&
+                !student.isMakeup && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs text-purple-700 dark:text-purple-300 border-purple-300"
+                    title="Абонемента на эту дату нет — отметка спишется с баланса родителя как разовое посещение"
+                  >
+                    Без абонемента
+                  </Badge>
+                )}
               {/* Кнопка убрать разового — только для placeholder (Не отмечен). */}
               {student.isOneTime && !student.attendance && (
                 <Button
@@ -1140,10 +1155,22 @@ export function AttendanceTable({
           )}
         </TableCell>
         <TableCell className="text-right">
-          {student.attendance
-            ? formatMoney(student.attendance.chargeAmount)
-            : <span className="text-muted-foreground">{"\u2014"}</span>
-          }
+          {!student.attendance ? (
+            <span className="text-muted-foreground">{"\u2014"}</span>
+          ) : student.attendance.chargeAmount > 0 && !student.subscriptionId ? (
+            // \u0411\u0435\u0437 \u0430\u0431\u043e\u043d\u0435\u043c\u0435\u043d\u0442\u0430 \u0441\u043f\u0438\u0441\u0430\u043d\u0438\u0435 \u0443\u0445\u043e\u0434\u0438\u0442 \u0441 \u0411\u0410\u041b\u0410\u041d\u0421\u0410 \u0440\u043e\u0434\u0438\u0442\u0435\u043b\u044f (\u0440\u0430\u0437\u043e\u0432\u043e\u0435
+            // \u043f\u043e\u0441\u0435\u0449\u0435\u043d\u0438\u0435), \u0430 \u043d\u0435 \u0441 \u0430\u0431\u043e\u043d\u0435\u043c\u0435\u043d\u0442\u0430 \u2014 \u0432 \u0441\u0442\u043e\u043b\u0431\u0446\u0435 \u044d\u0442\u043e \u0432\u044b\u0433\u043b\u044f\u0434\u0435\u043b\u043e \u043e\u0434\u0438\u043d\u0430\u043a\u043e\u0432\u043e,
+            // \u0438 \u0440\u0430\u0437\u043d\u0438\u0446\u0443 \u0431\u044b\u043b\u043e \u043d\u0435 \u0437\u0430\u043c\u0435\u0442\u0438\u0442\u044c (\u043a\u0435\u0439\u0441 \u0412\u0435\u0440\u0448\u0438\u043d\u0438\u043d\u043e\u0439, 04.09.2026).
+            <span
+              className="text-purple-700 dark:text-purple-300"
+              title="\u0421\u043f\u0438\u0441\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0441 \u0431\u0430\u043b\u0430\u043d\u0441\u0430 \u0440\u043e\u0434\u0438\u0442\u0435\u043b\u044f \u043a\u0430\u043a \u0440\u0430\u0437\u043e\u0432\u043e\u0435 \u043f\u043e\u0441\u0435\u0449\u0435\u043d\u0438\u0435: \u0430\u0431\u043e\u043d\u0435\u043c\u0435\u043d\u0442\u0430 \u043d\u0430 \u044d\u0442\u0443 \u0434\u0430\u0442\u0443 \u043d\u0435\u0442"
+            >
+              {formatMoney(student.attendance.chargeAmount)}
+              <span className="ml-1 text-xs opacity-80">\u0441 \u0431\u0430\u043b\u0430\u043d\u0441\u0430</span>
+            </span>
+          ) : (
+            formatMoney(student.attendance.chargeAmount)
+          )}
         </TableCell>
         <TableCell className="text-right">
           {student.attendance

@@ -12,6 +12,7 @@ import {
 } from "@/lib/subscriptions/roster-filter"
 import { isPeriodLocked } from "@/lib/period-check"
 import { applyBalanceDelta } from "@/lib/balance/transactions"
+import { revertOneOffChargeForAttendance } from "@/lib/balance/revert-one-off-charge"
 import { calcRefund } from "@/lib/balance/calc-refund"
 import { resolveRate, resolveTrialPayMode } from "@/lib/salary/resolve-rate"
 import { calcPay } from "@/lib/salary/calc-pay"
@@ -781,8 +782,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         await tx.attendance.delete({ where: { id: o.id } })
       }
 
-      // Откат предыдущего возврата (lesson_refund) при смене типа посещения
-      if (existing && Number(existing.chargeAmount) > 0) {
+      // Откат предыдущего возврата (lesson_refund) при смене типа посещения.
+      // Только для отметки ПО АБОНЕМЕНТУ: lesson_refund пишется исключительно в
+      // этой ветке (частичное списание), а разовое уходит с баланса ПОЛНОЙ
+      // суммой — у строки без subscriptionId откатывать нечего.
+      if (existing && existing.subscriptionId && Number(existing.chargeAmount) > 0) {
         const prevRefund = calcRefund(existing.chargeAmount, existing.attendanceType.chargePercent)
         if (prevRefund.gt(0)) {
           await applyBalanceDelta(tx, {
@@ -804,6 +808,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             data: {
               chargedAmount: { decrement: existing.chargeAmount },
             },
+          })
+        } else if (!existing.subscriptionId) {
+          // Отметка была РАЗОВОЙ: её стоимость ушла с баланса родителя, а не с
+          // абонемента. Перецепляя строку на абонемент (выписан задним числом
+          // на уже отмеченные даты), обязаны вернуть разовое списание — иначе
+          // занятие оплачено дважды. Подробности и семантика — в хелпере.
+          await revertOneOffChargeForAttendance(tx, {
+            tenantId,
+            clientId: data.clientId,
+            attendanceId: existing.id,
+            lessonId,
+            directionId: lesson.group.directionId,
+            createdBy: employeeId,
           })
         }
 
@@ -1397,8 +1414,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           detachedSubIds.add(existing.subscriptionId)
         }
 
-        // Откат предыдущего возврата (lesson_refund) при смене типа
-        if (existing && Number(existing.chargeAmount) > 0) {
+        // Откат предыдущего возврата (lesson_refund) при смене типа. Только для
+        // отметки ПО АБОНЕМЕНТУ: lesson_refund пишется только там, разовое
+        // списание уходит с баланса полной суммой (см. POST-путь выше).
+        if (existing && existing.subscriptionId && Number(existing.chargeAmount) > 0) {
           const prevRefund = calcRefund(existing.chargeAmount, existing.attendanceType.chargePercent)
           if (prevRefund.gt(0)) {
             await applyBalanceDelta(tx, {
@@ -1421,6 +1440,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               data: {
                 chargedAmount: { decrement: existing.chargeAmount },
               },
+            })
+          } else if (!existing.subscriptionId) {
+            // «Отметить всех» перецепляет разовую строку на абонемент ровно так
+            // же, как одиночная отметка, — и точно так же обязано вернуть
+            // разовое списание с баланса родителя.
+            await revertOneOffChargeForAttendance(tx, {
+              tenantId,
+              clientId: enrollment.clientId,
+              attendanceId: existing.id,
+              lessonId,
+              directionId: lesson.group.directionId,
+              createdBy: employeeId,
             })
           }
 

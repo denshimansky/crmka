@@ -5,6 +5,7 @@ import { z } from "zod"
 import { Prisma } from "@prisma/client"
 import { recomputeWardSalesStage } from "@/lib/services/ward-sales-stage"
 import { recalcClientDiscounts } from "@/lib/discounts/recalc-client-discounts"
+import { adoptOneOffAttendances } from "@/lib/subscriptions/adopt-one-off-attendances"
 import { recomputeClientFirstPaidLessonDate } from "@/lib/services/client-first-paid-lesson-date"
 import { computeIssuedBranches } from "@/lib/subscriptions/client-branches"
 import { logSubscriptionIssued } from "@/lib/subscriptions/audit-price"
@@ -376,6 +377,15 @@ export async function POST(
       clientId: ward.clientId,
       createdBy: session.user.employeeId ?? null,
       newSubscriptionIds: [subscription.id],
+    })
+
+    // Выписка задним числом на уже отмеченные даты: занятия, отмеченные до
+    // появления абонемента, списались с баланса родителя как разовые — переводим
+    // их на абонемент с возвратом разового списания (иначе оплачены дважды).
+    await adoptOneOffAttendances(tx, {
+      tenantId,
+      subscriptionId: subscription.id,
+      createdBy: session.user.employeeId ?? null,
     })
 
     // История клиента: сумма, НА КОТОРУЮ выписан абонемент — перечитываем после

@@ -10,6 +10,7 @@ import {
 import { consumingAttendanceTypeWhere } from "@/lib/subscriptions/consumed-lessons"
 import { paidBySubscriptions } from "@/lib/subscriptions/net-paid"
 import { ensureEnrollmentForSubscription } from "@/lib/subscriptions/ensure-enrollment"
+import { adoptOneOffAttendances } from "@/lib/subscriptions/adopt-one-off-attendances"
 import {
   validateSelectedLessons,
   lockAndVerifySelection,
@@ -413,6 +414,17 @@ export async function POST(req: NextRequest) {
       newSubscriptionIds: [sub.id],
     })
 
+    // Абонемент задним числом на уже отмеченные даты: занятия, отмеченные до его
+    // появления, списались с баланса родителя как разовые. Переводим их на
+    // абонемент с возвратом разового списания — иначе те же занятия оплачены
+    // дважды (они уже сидят в totalLessons/finalAmount). После recalc: списание
+    // идёт по цене со скидкой.
+    const adoptedOneOff = await adoptOneOffAttendances(tx, {
+      tenantId: session.user.tenantId,
+      subscriptionId: sub.id,
+      createdBy: session.user.employeeId ?? null,
+    })
+
     // Возвращаем СВЕЖИЕ суммы (пересчёт мог применить скидку) — интеграции
     // и тесты платят по finalAmount из ответа.
     const fresh = await tx.subscription.findFirst({
@@ -449,7 +461,17 @@ export async function POST(req: NextRequest) {
       employeeId: session.user.employeeId ?? null,
     })
 
-    return fresh ?? sub
+    // Подхваченные разовые — чтобы форма могла сказать администратору, что
+    // занятия перенесены в абонемент, а деньги вернулись на баланс.
+    return {
+      ...(fresh ?? sub),
+      adoptedOneOff: {
+        lessons: adoptedOneOff.length,
+        refundedToBalance: adoptedOneOff
+          .reduce((s, a) => s.plus(a.refunded), new Prisma.Decimal(0))
+          .toFixed(2),
+      },
+    }
    })
   } catch (e) {
     if (e instanceof SelectionConflictError) {
