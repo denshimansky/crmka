@@ -254,7 +254,7 @@ export default async function ReportsPage() {
           <PageHelp pageKey="reports" />
         </div>
         <p className="text-sm text-muted-foreground">
-          {totalCount} отчётов · бейдж показывает дату последнего обновления исходных данных
+          {totalCount} отчётов
         </p>
       </div>
 
